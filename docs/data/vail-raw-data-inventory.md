@@ -1,0 +1,45 @@
+# Vail raw data inventory and fetch lessons
+
+Last updated 2026-11-05. Status: fetch COMPLETE for Vail.
+
+Location: `raw/` at the repo root (gitignored). On Drew's PC that is `C:\Users\Drew\git\SnowboardAnywhere\raw\`. Stage files from there into a cloud session with the remote-devices tools; the data hosts are not reachable from the sandbox.
+
+## raw/vail/ (686 manifest items, all downloaded)
+
+| Folder | Files | What | Notes for processing |
+|---|---|---|---|
+| `dem1m/` | 64 x `dem_{i}_{j}.tif` (i,j in 0..7) | USGS 3DEP 1 m bare-earth DEM, F32 GeoTIFF, EPSG:26913 (UTM 13N), nodata -9999 | 1500 x 1500 px chunks (edge chunks smaller). Resort bbox UTM 378500,4378400 to 390100,4390100 (11.6 x 11.7 km). Mosaic with `rasterio.merge`. |
+| `dem10m/` | 4 x `mid_{i}_{j}.tif` | Same service at 10 m, 40 km ring centred on the resort origin | 2000 x 2000 px quarters, NOT a single `mid.tif`. Mosaic them first. |
+| `naip1m/` | 16 x `{item}_{i}_{j}.tif` | NAIP 4-band (R,G,B,NIR) 1 m crops from Planetary Computer (2023 collection), EPSG:26913 | Band 4 is NIR for NDVI. |
+| `ept/` | `ept.json` + 388 x `{node}.laz` | 3DEP lidar Entwine Point Tiles (`USGS_LPC_CO_Central_Western_2016_LAS_2018`), pre-selected nodes covering the resort | SRS is EPSG:3857, see `docs/research/vegetation-and-landcover.md` for the scale trap. Read with laspy[lazrs]. |
+| `mapterhorn/{z}/` | 210 x `{x}_{y}.webp` | Terrarium-encoded 512 px WebP terrain tiles, far ring to ~100 km | Decode: `h = (R*256 + G + B/256) - 32768` metres. |
+| `osm/` | `ski.json`, `built.json`, `natural.json`, `peaks_far.json`, `places_far.json` | OpenStreetMap, Overpass `out geom` JSON format | Elements carry `type`, `id`, `tags`, plus `lat/lon` (nodes), `geometry[]` + `bounds` + `nodes[]` (ways), `members[]` with per-member `geometry` (relations). |
+| `names/` | `gnis.json` | USGS GNIS official names: 1750 features in the far box (1174 Summits, 413 Populated Places, 118 Ridges, 22 Ranges), 34 inside the resort box | No elevations in the current GNIS format; sample from the DEM. Use for horizon labels. |
+
+Also `raw/static/`: `colorado-latest.osm.pbf` (369 MB Geofabrik extract, 2026-11-02) and `DomesticNames_CO_Text.zip` (USGS GNIS). These are the source for `osm/*` and `names/*` and can regenerate them for any Colorado resort with `pipeline/extract_osm.py` (pyosmium, ~5 min per run).
+
+### OSM extract contents (resort box padded 0.015 deg: lat 39.5424..39.6582, lon -106.4166..-106.2777)
+- `ski.json`: 881 elements (493 nodes, 388 ways). piste:type ways/relations, aerialway ways and nodes (stations, pylons), landuse=winter_sports.
+- `built.json`: 3923 elements (395 nodes, 3519 ways, 9 relations). building, highway, man_made, amenity, tourism, parking.
+- `natural.json`: 1441 elements (4 nodes, 1423 ways, 14 relations). natural, landuse, waterway, peak and saddle nodes.
+- `peaks_far.json`: 1374 peak nodes with `ele` in the ~200 km far box.
+- `places_far.json`: 74 town/city/village nodes in the far box (Vail, Avon, Edwards, Eagle, Minturn, Leadville, Frisco, Breckenridge, Silverthorne, Aspen, Glenwood Springs, Steamboat Springs, ...).
+
+## Fetch lessons (so nobody repeats them)
+- USGS 3DEP ImageServer `exportImage` returns HTTP 500 for 1 m F32 exports around 3000 x 3000 px and above, even though the service advertises 8000 x 8000 max. 1500 x 1500 works every time (about 9 MB each). 10 m exports at 4000 x 4000 also fail; 2000 x 2000 works. Occasional 502 is transient and a retry fixes it.
+- Overpass is unreliable for bulk pulls: overpass-api.de queues for minutes, overpass.kumi.systems returned 502/504 on every attempt, overpass.private.coffee intermittent. For any future resort, skip Overpass and run `extract_osm.py` on the Geofabrik state extract instead. Output is byte-compatible with Overpass `out geom` (validated: identical element counts for ski.json).
+- PowerShell 5.1: `"$Var: text"` inside a double-quoted string is parsed as a drive reference and fails; write `"${Var}: text"`.
+- .NET HttpClient on PS 5.1 sends `Expect: 100-continue` on POST, which some servers reject; use GET with `?data=` for Overpass or set `ExpectContinue = $false`.
+- Planetary Computer NAIP crops, Mapterhorn tiles and the EPT nodes on `usgs-lidar-public` all downloaded without a single error.
+
+## Pipeline files (`pipeline/`)
+- `fetch.ps1` + `fetch_vail.cmd` (repo root): manifest-driven downloader, resumable, per-host concurrency limits, mirror rotation.
+- `gen_manifest.py`: builds `manifests/vail.json` from `resorts/vail.json` (needs pyproj). DEM chunk size is `dem.chunk_px` in the resort config (1500).
+- `fetch_static.ps1` + `fetch_static.cmd` (repo root): downloads the Geofabrik PBF and GNIS zip.
+- `extract_osm.py <pbf> <gnis.txt> <out> --near lat0,lon0,lat1,lon1 --far ...`: produces `osm/*.json` and `names/gnis.json`.
+- `resorts/vail.json`: origin, UTM bbox, lonlat bbox, mid/far ring sizes, NAIP item bboxes, EPT path and node list.
+
+## Adding a second resort
+1. Copy `pipeline/resorts/vail.json` to `<slug>.json`, set origin, bboxes, EPT dataset (check the 3DEP index at `usgs.entwine.io/boundaries/resources.geojson`) and NAIP item ids.
+2. `python pipeline/gen_manifest.py <slug>`, then `fetch_vail.cmd` equivalent with `-Slug <slug>`.
+3. `python pipeline/extract_osm.py raw/static/colorado-latest.osm.pbf <gnis.txt> raw/<slug> --near ... --far ...` (same PBF if the resort is in Colorado).
