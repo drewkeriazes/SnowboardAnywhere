@@ -106,9 +106,10 @@ export class RiderView {
     this.rot.makeBasis(right, n, f.clone().negate());
     this.q.setFromRotationMatrix(this.rot);
     this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
-    // whole-body lean into the carve on top of the pose (the board stays on the snow)
-    const lean = r.onGround && !seated ? -r.edgeAngle * 0.3 : 0;
-    this.body.rotation.z += lean;
+    // whole-body lean into the carve on top of the pose (the board stays on the snow):
+    // snowboard = pitch over the toe (edge > 0) or heel edge; skis = roll sideways
+    const lean = r.onGround && !seated ? r.edgeAngle * 0.25 : 0;
+    if (this.discipline === 'board') this.body.rotation.x -= lean; else this.body.rotation.z -= lean;
 
     // snow spray when skidding or braking hard
     const pos = this.sprayPos, vel = this.sprayVel, life = this.sprayLife;
