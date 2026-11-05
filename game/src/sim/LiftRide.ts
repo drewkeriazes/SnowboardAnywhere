@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Rider } from './Rider';
 import type { Pack } from '../pack/Pack';
-import { CHAIR_SPEED, LOAD_OFFSET, type LiftRuntime, type Lifts } from '../world/Lifts';
+import { LOAD_OFFSET, type LiftRuntime, type Lifts } from '../world/Lifts';
 
 /**
  * Riding a lift back up. Near a bottom terminal and slow, pressing the board key puts the rider
@@ -20,6 +20,8 @@ export class LiftRide {
   nearbyDist = Infinity;
   /** true on the frame the chair passes a tower (for the clunk sound) */
   passedTower = false;
+  /** true when the current lift carries the rider above the snow (chair, gondola) */
+  get airborneRide(): boolean { return !!this.lift && (this.lift.kind === 'chair' || this.lift.kind === 'gondola'); }
   /** true when `nearby` is close and slow enough to board */
   canBoard = false;
   /** reason shown when in range but not boardable: 'fast' | 'air' | '' */
@@ -47,7 +49,7 @@ export class LiftRide {
     const len = this.lifts.rideLength(this.lift);
     if (boardPressed) this.up = len; // skip to the top
     const before = this.up;
-    this.up += CHAIR_SPEED * dt;
+    this.up += this.lift.speed * dt;
     this.passedTower = this.lift.towerUp.some((t) => t > before + LOAD_OFFSET && t <= this.up + LOAD_OFFSET);
     if (this.up >= len) { this.unload(rider); return false; }
     this.place(rider);
@@ -66,11 +68,16 @@ export class LiftRide {
     this.lifts.seatAt(l, this.up, this.seat);
     this.lifts.seatAt(l, Math.min(this.lifts.rideLength(l), this.up + 2), this.seat2);
     rider.x = this.seat.x; rider.y = -this.seat.z;
-    // the chair dips to the snow at the loading and unloading points
     const len = this.lifts.rideLength(l);
-    const edge = Math.min(this.up, len - this.up);
-    const ground = this.pack.groundHeight(rider.x, rider.y) + 0.7;
-    rider.z = edge < 12 ? ground + (this.seat.y - ground) * Math.max(0, edge / 12) : this.seat.y;
+    const ground = this.pack.groundHeight(rider.x, rider.y);
+    if (l.kind === 'surface' || l.kind === 'carpet') {
+      // towed or carried on the snow
+      rider.z = ground;
+    } else {
+      // the chair dips to the snow at the loading and unloading points
+      const edge = Math.min(this.up, len - this.up);
+      rider.z = edge < 12 ? ground + 0.7 + (this.seat.y - ground - 0.7) * Math.max(0, edge / 12) : this.seat.y;
+    }
     rider.onGround = true;
     rider.normal[0] = 0; rider.normal[1] = 0; rider.normal[2] = 1;
     // face the direction of travel
@@ -78,8 +85,9 @@ export class LiftRide {
     if (Math.hypot(dx, dy) > 0.01) rider.heading = Math.atan2(dx, dy);
     // velocity for the chase camera (it follows the velocity direction above 2.5 m/s)
     const dl = Math.hypot(dx, dy) || 1;
-    rider.vx = (dx / dl) * CHAIR_SPEED; rider.vy = (dy / dl) * CHAIR_SPEED;
-    rider.speed = CHAIR_SPEED;
+    rider.vx = (dx / dl) * l.speed; rider.vy = (dy / dl) * l.speed;
+    rider.speed = l.speed;
+    if (l.kind === 'surface' || l.kind === 'carpet') { const n = this.pack.groundNormal(rider.x, rider.y) as number[]; rider.normal[0] = n[0]; rider.normal[1] = n[1]; rider.normal[2] = n[2]; }
   }
 
   private unload(rider: Rider): void {
