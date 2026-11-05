@@ -1,64 +1,20 @@
 # SnowboardAnywhere board
 
-Kanban for the project. Every feature, bug and data task gets a card with an id. Tell Claude "build FEAT-012" or "work on BUG-003" and it picks up the card, moves it to In progress, and moves it to Done with a commit hash when it lands.
+The kanban lives in GitHub Projects: https://github.com/users/drewkeriazes/projects/2
+(also under the repo's Projects tab). One issue per card: https://github.com/drewkeriazes/SnowboardAnywhere/issues
 
-Rules
-- One card per deliverable. Keep the description short; link to a doc for details.
-- Columns: Backlog (idea), Ready (specced, data available), In progress (owner + started date), Done (commit).
-- Data cards (DATA-*) are pipeline or raw-data work that runs on Drew's PC; they are not done until the pack is rebuilt.
+## How it works
+
+- Card ids stay in the issue title (`FEAT-013: Roads drawn as draped ribbons`). Tell Claude "build FEAT-013" or "work on #8"; either works.
+- Columns: **Backlog** (idea) -> **Ready** (specced, data available) -> **In Progress** -> **Done**.
+- Labels: `type: feature | bug | data`, `milestone`. `status: ready` / `status: backlog` mirror the column for issue-list filtering.
+- `type: data` cards are pipeline or raw-data work that runs on Drew's PC; they are Done only when the pack is rebuilt.
 - Ids never get reused. Next ids: FEAT-021, BUG-004, DATA-006.
 
-## In progress
+## What Claude does with a card
 
-| Id | Card | Owner | Started |
-|---|---|---|---|
-| (none) | | | |
+1. New ask from Drew -> create the issue with the next id and the right labels, put it in Ready (or Backlog if it needs data first).
+2. "Build X" -> move the card to In Progress, build, commit with the id in the message, comment the commit hash on the issue, close it (closing moves it to Done).
+3. Found a bug while building -> new BUG card, not a silent fix.
 
-## Ready
-
-| Id | Card | Notes |
-|---|---|---|
-| FEAT-007 | Lift names and run names on the map and minimap labels | after FEAT-001/002 |
-| FEAT-008 | Rideable gondolas and platters/magic carpets use the same boarding flow as chairs | after FEAT-005 |
-| FEAT-009 | Tree LOD impostors beyond 400 m (octahedral impostors, see docs/research/threejs-rendering-stack.md) | perf |
-| FEAT-010 | Cascaded shadow maps (CSM) so trees shadow pistes at distance | visual |
-| FEAT-011 | Piste-aligned corduroy (store piste direction angle in the mask) | needs DATA-002 |
-| FEAT-012 | Time of day: sun from date and time at the resort lat/lon, sky colours | visual |
-| FEAT-013 | Roads drawn as draped ribbons (I-70, Frontage Road, base area streets) | features.json has 1,406 roads |
-| FEAT-014 | Peak and town labels on the horizon (features.json peaks and labels) | |
-| FEAT-015 | Touch controls on screen (stick + jump + lift button) | mobile |
-| FEAT-020 | Rock and cliff-face textures: photo-based albedo/normal for rock and scree with triplanar projection on steep faces | needs DATA-005 for imagery |
-
-## Backlog
-
-| Id | Card |
-|---|---|
-| BUG-002 | Canopy mask shows trees above treeline in the Back Bowls (lidar subsampled to 3 m, grey_closing fills gaps). Needs DATA-001 or a lidar-return gate in build_pack.py |
-| BUG-003 | Only 2,076 rocks placed for Vail; rock class is 0.9% of cells. Loosen the NAIP saturation gate (0.15 -> 0.2) or place rocks from slope |
-| DATA-001 | Fetch LANDFIRE EVT for the Vail bbox (pipeline/fetch_landfire.mjs) and use it for species and the treeline |
-| DATA-002 | Add piste direction (angle byte) to the mask tiles for corduroy alignment |
-| DATA-003 | Re-fetch NAIP in 2 km chunks for true 1 m imagery (current crops are capped at 2048 px, about 2 m) |
-| DATA-004 | Second resort through the pipeline (Breckenridge or Copper; both have 3DEP 1 m) |
-| DATA-005 | Rock texture sources: Google Maps / Street View imagery is not licensed for this use; use CC0 PBR rock sets (ambientCG, Poly Haven) or NAIP summer imagery as a colour overlay on rock masks |
-| M6 | Timed runs, challenge links, multiplayer (after the resort looks right) |
-
-## Done
-
-| Id | Card | Commit |
-|---|---|---|
-| FEAT-001 | Minimap in the bottom-right corner showing the rider on a hillshade with runs and lifts | f310dec |
-| FEAT-002 | Full-screen map on M: click anywhere to drop the rider there; drop-in point persists (R restarts there, survives reload via URL and localStorage) | f310dec |
-| FEAT-003 | Buildings rendered from features.json footprints (lodges first: Eagle's Nest, Two Elk, Mid-Vail, Wildwood, Buffalo's, Belle's Camp, base villages) | f310dec |
-| FEAT-004 | Rocks that look like rocks: displaced low-poly variants, sunk into the slope, tilted to the ground normal, colour variation | f310dec |
-| FEAT-005 | Ride lifts back up: press E at a bottom terminal to board, rider follows the cable, drops in at the top facing downhill | f310dec |
-| FEAT-006 | Skip to the top while on a lift (press E again) | f310dec |
-| BUG-001 | Back Bowls (south side) look unrendered while the Front Side renders fine. Fixes landed: snow normal bump, camera-based streaming. Drew to confirm on the real pack; if it is still flat, next step is a lower sun elevation or a west sun azimuth in meta.json | f310dec |
-| FEAT-016 | Rock collisions: ride up and over low rocks like a ramp (the rock's slope is the ground); only a near-vertical face at speed knocks the rider down | f310dec |
-| FEAT-017 | Sound effects: carve/skid hiss scaled by speed and edge, wind in a tuck, jump and landing thumps, crash, lift hum, boarding chime (Web Audio, synthesised or short royalty-free samples) | f310dec |
-| FEAT-018 | Background music: a small playlist with volume control and mute, remembered across sessions | f310dec |
-| FEAT-019 | Main menu on start: resort picker, free ride / drop-in from map, settings (audio, graphics, controls), continue from last spawn | f310dec |
-| M0 | Vail pipeline end to end: DEM, lidar canopy, NAIP masks, OSM features, pack of 234 MB | c4e6715 |
-| M1 | Streaming quadtree terrain, sky, sun, far ring, fly camera | a6762df and earlier |
-| M2 | Rider physics, chase camera, keyboard and touch | a6762df and earlier |
-| M3 (part) | Instanced trees per cell with near/far geometry, rocks, collisions, shadows | a6762df and earlier |
-| M4 (part) | Lifts with towers, catenary cables, moving chairs; piste overlay | a6762df and earlier |
+From the cloud sandbox, issues and labels work through `gh api repos/drewkeriazes/SnowboardAnywhere/issues` (REST). The project board itself is GraphQL only, which the sandbox cannot reach, so column moves beyond open/close happen in the browser or by Drew; closing an issue is what moves it to Done.
