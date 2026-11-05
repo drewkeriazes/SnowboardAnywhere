@@ -11,11 +11,16 @@ import { RunsOverlay } from './world/RunsOverlay';
 import { Environment } from './world/Sky';
 import { RiderView } from './world/RiderView';
 import { ChaseCamera } from './world/ChaseCamera';
+import { Buildings } from './world/Buildings';
+import { ResortMap } from './ui/ResortMap';
+import { LiftRide } from './sim/LiftRide';
+import { GameAudio } from './audio/Audio';
+import { showMainMenu } from './ui/MainMenu';
 
 const params = new URLSearchParams(location.search);
 const packSlug = params.get('pack') ?? 'synth';
 const headless = params.has('headless');
-const lowgfx = params.has('lowgfx');
+let lowgfx = params.has('lowgfx') || (localStorage.getItem('gfx') === 'low' && !params.has('highgfx'));
 
 async function main(): Promise<void> {
   const hud = document.getElementById('hud')!;
@@ -23,6 +28,16 @@ async function main(): Promise<void> {
   status.textContent = `Loading ${packSlug}...`;
   const pack = await Pack.load(`${import.meta.env.BASE_URL}packs/${packSlug}`);
   document.title = `${pack.meta.name} - snowboard sim`;
+  const audio = new GameAudio();
+  status.textContent = '';
+  // main menu (skipped in headless runs); its button click unlocks audio
+  let openMapAtStart = false;
+  if (!headless) {
+    const choice = await showMainMenu(pack.meta.name, audio, { lowgfx });
+    lowgfx = choice.lowgfx;
+    openMapAtStart = choice.action === 'map';
+  }
+  status.textContent = `Loading ${packSlug}...`;
 
   const canvas = document.getElementById('c') as HTMLCanvasElement;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -45,15 +60,45 @@ async function main(): Promise<void> {
   scene.add(lifts.group);
   const runs = new RunsOverlay(pack);
   scene.add(runs.group);
+  const buildings = new Buildings(pack);
+  scene.add(buildings.group);
   const riderView = new RiderView();
   scene.add(riderView.group);
   scene.add(riderView.sprayObject);
 
   const rider = new Rider(pack, collider);
+  const liftRide = new LiftRide(pack, lifts);
+  // spawn point: URL params win, then the last drop-in saved for this pack, then the pack default
   const start = pack.meta.start;
-  const sx = params.has('x') ? Number(params.get('x')) : start.x;
-  const sy = params.has('y') ? Number(params.get('y')) : start.y;
-  const sh = params.has('h') ? Number(params.get('h')) * Math.PI / 180 : start.heading;
+  const saveKey = `spawn:${pack.meta.slug}`;
+  let saved: { x: number; y: number; h: number } | null = null;
+  try { saved = JSON.parse(localStorage.getItem(saveKey) ?? 'null'); } catch { saved = null; }
+  let sx = params.has('x') ? Number(params.get('x')) : saved?.x ?? start.x;
+  let sy = params.has('y') ? Number(params.get('y')) : saved?.y ?? start.y;
+  let sh = params.has('h') ? Number(params.get('h')) * Math.PI / 180 : saved?.h ?? start.heading;
+  const setSpawn = (x: number, y: number, h: number) => {
+    sx = x; sy = y; sh = h;
+    try { localStorage.setItem(saveKey, JSON.stringify({ x, y, h })); } catch { /* private mode */ }
+    const u = new URL(location.href);
+    u.searchParams.set('x', x.toFixed(1)); u.searchParams.set('y', y.toFixed(1)); u.searchParams.set('h', (h * 180 / Math.PI).toFixed(0));
+    history.replaceState(null, '', u.toString());
+  };
+  const map = new ResortMap(pack);
+  map.spawnPos = [sx, sy];
+  map.onPick = (x, y) => {
+    // face downhill at the picked spot
+    const n = pack.groundNormal(x, y) as number[];
+    const h = Math.hypot(n[0], n[1]) > 0.02 ? Math.atan2(n[0], n[1]) : 0;
+    setSpawn(x, y, h);
+    map.spawnPos = [x, y];
+    liftRide.cancel();
+    pack.fine?.request(x - 600, y - 600, x + 600, y + 600);
+    pack.mask?.request(x - 600, y - 600, x + 600, y + 600);
+    rider.reset(x, y, h);
+    cam.mode = cam.mode === 'free' ? 'chase' : cam.mode;
+    cam.snapTo(rider);
+    map.close();
+  };
   // pre-request terrain around the start so the first frames have data
   pack.fine?.request(sx - 600, sy - 600, sx + 600, sy + 600);
   pack.mid?.request(sx - 20000, sy - 20000, sx + 20000, sy + 20000);
@@ -77,6 +122,7 @@ async function main(): Promise<void> {
   });
 
   status.textContent = '';
+  if (openMapAtStart) map.open();
   let last = performance.now();
   let fpsAcc = 0, fpsN = 0, fps = 0;
   let elapsed = 0;
@@ -90,33 +136,47 @@ async function main(): Promise<void> {
     last = now;
     elapsed = (now - clockStart) / 1000;
     const input = controls.update();
-    if (controls.once('KeyR')) { rider.reset(sx, sy, sh); cam.snapTo(rider); }
+    if (controls.once('KeyR')) { liftRide.cancel(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
     if (controls.once('KeyC')) cam.cycle();
-    if (controls.once('KeyM')) runs.toggle();
+    if (controls.once('KeyM')) map.toggle();
+    if (controls.once('Escape') && map.fullOpen) map.close();
+    if (controls.once('KeyP')) runs.toggle();
+    if (controls.once('KeyN')) audio.nextTrack();
     if (controls.once('KeyF')) { cam.mode = cam.mode === 'free' ? 'chase' : 'free'; if (cam.mode === 'free') cam.cycle(), cam.cycle(), cam.cycle(), cam.cycle(); }
-    if (cam.mode !== 'free') rider.update(dt, input);
+    const boardPressed = controls.once('KeyE') && cam.mode !== 'free';
+    const onLift = cam.mode !== 'free' && liftRide.update(rider, dt, boardPressed);
+    if (cam.mode !== 'free' && !onLift && !map.fullOpen) rider.update(dt, input);
     riderView.update(rider, dt, input.tuck);
+    audio.update(rider, input.tuck, onLift, dt);
+    rider.lastHit = '';
     if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
     else cam.update(rider, dt, input.tuck);
     const cp = cam.camera.position;
     terrain.update(cp.x, -cp.z, cp.y);
-    veg.update(rider.x, rider.y);
-    rocks.update(rider.x, rider.y);
+    // streaming follows the camera, so free-fly over another part of the mountain gets detail too
+    const fx = cam.mode === 'free' ? cp.x : rider.x, fy = cam.mode === 'free' ? -cp.z : rider.y;
+    veg.update(fx, fy);
+    rocks.update(fx, fy);
     lifts.update(elapsed);
-    env.update(rider.x, rider.z, -rider.y);
-    if (pack.fine) { pack.fine.request(rider.x - 400, rider.y - 400, rider.x + 400, rider.y + 400); if (terrain.stats.builds === 0) pack.fine.evictBeyond(rider.x, rider.y, 3000); }
-    pack.mask?.request(rider.x - 400, rider.y - 400, rider.x + 400, rider.y + 400);
+    env.update(fx, cam.mode === 'free' ? cp.y : rider.z, -fy);
+    if (pack.fine) { pack.fine.request(fx - 400, fy - 400, fx + 400, fy + 400); if (terrain.stats.builds === 0) pack.fine.evictBeyond(fx, fy, 3000); }
+    pack.mask?.request(fx - 400, fy - 400, fx + 400, fy + 400);
+    map.riderPos = [rider.x, rider.y, rider.z];
+    if (map.fullOpen) { if (fpsN % 10 === 0) map.drawFull(); }
+    else if (fpsN % 3 === 0) map.drawMini(rider.x, rider.y, rider.heading);
     renderer.render(scene, cam.camera);
     controls.endFrame();
 
     fpsAcc += dt; fpsN++;
     if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
+    const liftLine = onLift ? `<br><span class="prompt">Riding ${liftRide.lift?.feature.name ?? 'lift'} &middot; ${((liftRide.up / (liftRide.lift?.length ?? 1)) * 100).toFixed(0)}% &middot; E to skip to the top</span>`
+      : liftRide.nearby ? `<br><span class="prompt">E to ride ${liftRide.nearby.feature.name ?? 'the lift'}</span>` : '';
     hud.innerHTML =
       `<b>${mph(rider.speed)}</b> mph &nbsp; ${ft(rider.z)} ft &nbsp; slope ${rider.slopeDeg.toFixed(0)}&deg;` +
-      (rider.onGround ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') +
+      (rider.onGround ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') + liftLine +
       `<br><span class="dim">${fps.toFixed(0)} fps &middot; ${terrain.stats.chunks} chunks &middot; ${(terrain.stats.triangles / 1000).toFixed(0)}k tris &middot; trees ${veg.stats.instances} &middot; cam ${cam.mode}` +
       ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}</span>`;
-    (window as any).__sim = { rider, terrain, pack, cam, veg, fps };
+    (window as any).__sim = { rider, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn };
     if (!headless) requestAnimationFrame(frame);
   }
   if (headless) {
