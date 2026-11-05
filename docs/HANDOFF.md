@@ -44,6 +44,16 @@ Still outside the ranges in the pack-build skill, for the visual pass (step 4):
 
 Also: raw data on this PC is at `C:\Users\Drew\Documents\snowboard-sim\raw\`, not the repo-root `raw\` that CLAUDE.md and the inventory doc describe. Either move it or update those docs. Python packages install to the user site (`%APPDATA%\Python\Python313`), so `python -I` cannot see them; use `python -E -P` for isolated runs. The commit "add topo data" (8fa9b3e) accidentally added 158 MB of pack tiles from a mis-named `packsvail/` output folder; they were untracked again in 3e0b712 but remain in history.
 
+## Session lanes (2026-11-05 14:50 ET, synced by the cloud session)
+
+Two sessions are active. To avoid overlapping edits:
+
+- VS Code session (Drew's PC): client only. Visual pass items from step 4: tree LOD / impostors, CSM shadows, piste-aligned corduroy, aerial perspective; then M4 landmarks. Pull before each work block; `pipeline/` is being edited by the cloud session.
+- Cloud session: `pipeline/` only. Taking the three classifier gaps listed above: canopy above treeline (require a lidar return under canopy instead of `grey_closing`), rock saturation gate and slope-based rock placement, aspen pending LANDFIRE. Also owns `docs/data/` and `docs/research/`.
+- Both: commit small, pull with `--rebase`, never force-push `main`.
+
+Cloud-session status: `8b473ab` moved `meta.start` to Born Free (15 m below its top, facing down the run) and removed roads and buildings from rock and scree; headless render check of the real pack confirmed tree bases within 0.2 m of the terrain (first frame 26 ms, 1042 chunks, 758k tris under SwiftShader with `lowgfx`). A rebuild with those changes is running in the cloud; the pack on Drew's PC should be rebuilt once the classifier gaps land (one more commit).
+
 ## Conventions
 
 - Pack coordinates: x east, y north, z up, metres from `meta.origin` (UTM 13N 384300, 4384250 for Vail). three.js: x east, y up, z = -north.
