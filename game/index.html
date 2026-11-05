@@ -31,6 +31,12 @@
     .settings button.key.listening { background: #ffd166; color: #1a1a1a; }
     .settings .hint { font-size: 11px; opacity: .6; margin-top: 6px; }
     .settings button.ghost { margin-top: 8px; }
+    #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+    #labels .label { position: absolute; left: 0; top: 0; color: #fff; font-size: 12px; white-space: nowrap; text-shadow: 0 1px 3px rgba(0,0,0,.8), 0 0 8px rgba(0,0,0,.4); padding-bottom: 10px; }
+    #labels .label.peak { font-weight: 600; }
+    #labels .label.peak .tick { position: absolute; left: 50%; bottom: 0; width: 1px; height: 8px; background: rgba(255,255,255,.7); }
+    #labels .label.peak .alt { font-weight: 400; opacity: .75; font-size: 11px; }
+    #labels .label.town { font-style: italic; opacity: .9; }
     #vignette { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,.55) 100%); }
     #vignette.show { opacity: 1; }
     #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, #0b1020 0%, #1e3a5f 100%); z-index: 20; color: #fff; }

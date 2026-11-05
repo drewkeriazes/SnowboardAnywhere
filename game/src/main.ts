@@ -18,6 +18,7 @@ import { LiftRide } from './sim/LiftRide';
 import { GameAudio } from './audio/Audio';
 import { showMainMenu } from './ui/MainMenu';
 import { PauseMenu } from './ui/PauseMenu';
+import { Labels } from './ui/Labels';
 import { loadSettings, type Settings } from './ui/Settings';
 
 const params = new URLSearchParams(location.search);
@@ -76,6 +77,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     scene.add(buildings.group);
     const roads = new Roads(pack);
     scene.add(roads.group);
+    const labels = new Labels(pack);
     const riderView = new RiderView();
     scene.add(riderView.group);
     scene.add(riderView.sprayObject);
@@ -98,6 +100,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       controls.keymap = { ...s.keys };
       controls.invertSteer = s.invertSteer;
       lifts.markers.visible = s.showMarkers;
+      labels.visible = s.showLabels;
       map.metric = s.units === 'metric';
       if (what === 'camera' || what === 'reset') cam.mode = s.camera;
     };
@@ -175,6 +178,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       controls.dispose();
       map.destroy();
       pause.destroy();
+      labels.destroy();
       showPrompt('');
       hud.innerHTML = '';
       vignette.classList.remove('show');
@@ -246,6 +250,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       map.riderPos = [rider.x, rider.y, rider.z];
       if (map.fullOpen) { if (fpsN % 10 === 0) map.drawFull(); }
       else if (fpsN % 3 === 0) map.drawMini(rider.x, rider.y, rider.heading);
+      labels.update(cam.camera, settings.units === 'metric');
       renderer.render(scene, cam.camera);
       controls.endFrame();
 

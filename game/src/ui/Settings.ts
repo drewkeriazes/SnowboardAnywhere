@@ -21,6 +21,7 @@ export interface Settings {
   camera: CamMode;
   fpVignette: boolean;
   showMarkers: boolean;
+  showLabels: boolean; // peak and town names
   units: Units;
   keys: Record<string, string>; // action -> KeyboardEvent.code
 }
@@ -33,7 +34,7 @@ const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer r
 
 const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, quality: 'high', shadows: true, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-  fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, showMarkers: true, units: 'imperial', keys: { ...DEFAULT_KEYS },
+  fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, showMarkers: true, showLabels: true, units: 'imperial', keys: { ...DEFAULT_KEYS },
 };
 const KEY = 'settings';
 
@@ -101,6 +102,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
     <div class="tab hidden" data-t="game">
       <div class="row"><label>Units</label><select data-k="units"><option value="imperial">mph, ft</option><option value="metric">km/h, m</option></select></div>
       <div class="row"><label>Lift markers</label><input type="checkbox" data-k="showMarkers"></div>
+      <div class="row"><label>Peak names</label><input type="checkbox" data-k="showLabels"></div>
       <button data-a="reset" class="ghost">Reset to defaults</button>
     </div>`;
   const tabs = host.querySelectorAll<HTMLButtonElement>('.tabs button');
