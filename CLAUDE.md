@@ -10,3 +10,4 @@
 - Typecheck before committing: `cd game && npx tsc --noEmit`. Render check: `cd game && npx vite build && node tools/shoot.mjs <pack>` (headless; `SHOT_QUERY="&lowgfx"` on software GPUs), or add `--headed` on Drew's PC to watch it on the real GPU.
 - Do not assert Bonvo internals from memory; the verified capture is in the plan doc.
 - No em dashes in prose.
+- Commit messages: plain, no `Co-Authored-By` or session-link trailers. Commits are authored as Drew.
