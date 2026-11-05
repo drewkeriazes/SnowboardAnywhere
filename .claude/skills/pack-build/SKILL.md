@@ -10,9 +10,9 @@ description: Build or rebuild a resort pack (packs/<slug>/) from raw downloads w
 pip install -r pipeline/requirements.txt
 python pipeline/build_pack.py <slug> <raw_dir> packs/<slug>
 # Vail on Drew's PC:
-python pipeline/build_pack.py vail C:\Users\Drew\Documents\snowboard-sim\raw packs\vail
+python pipeline/build_pack.py vail C:\Users\Drew\Documents\snowboard-sim\raw\vail packs\vail
 ```
-`raw_dir` is the folder that contains `<slug>/dem1m`, `<slug>/ept`, etc. The script reads `pipeline/resorts/<slug>.json` and `pipeline/manifests/<slug>.json` for chunk bboxes, so the manifest must be the one the data was fetched with. Needs about 6 GB RAM for Vail (11,600 x 11,700 1 m grid). Stages print `[  123s] name` lines; a full run is 5 to 15 minutes.
+`raw_dir` is the folder that directly contains `dem1m/`, `ept/`, `osm/` etc. (manifest paths carry no slug prefix). Run from PowerShell or cmd, or quote `packs\vail` in Git Bash, where the unquoted backslash is eaten and the pack lands in an untracked `packsvail/`. The script reads `pipeline/resorts/<slug>.json` and `pipeline/manifests/<slug>.json` for chunk bboxes, so the manifest must be the one the data was fetched with. Needs about 6 GB RAM for Vail (11,600 x 11,700 1 m grid). Stages print `[  123s] name` lines; a full run is 5 to 15 minutes.
 
 ## Stage checks (do these before loading the pack in the game)
 1. DEM: log line `dem (H, W), void x%` with void under 1%, range roughly 2400..3600 m for Vail. `packs/<slug>/fine/` should have ~24 x 23 PNG tiles of 200 to 500 KB each. Decode one with `python -c` using `pipeline/packwriter.decode_terrarium` and confirm heights are plausible at a known spot (Vail Village base about 2,475 m; Vail summit about 3,433 m).
