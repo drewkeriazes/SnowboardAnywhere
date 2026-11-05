@@ -162,11 +162,13 @@ for p in sorted(glob.glob(os.path.join(raw, "ept", "*.laz"))):
         np.minimum.at(dtm_l.ravel(), flat[g], zz[g].astype(np.float32))
 log(f"  {n_pts/1e6:.1f} M points, cells with data {np.mean(cnt>0)*100:.1f}%")
 dsm[cnt == 0] = np.nan
+del cnt, dtm_l
 # DEM at 2 m (mean of 2x2)
-dem2 = dem[:H2 * 2, :W2 * 2].reshape(H2, 2, W2, 2).mean(axis=(1, 3))
+dem2 = dem[:H2 * 2, :W2 * 2].reshape(H2, 2, W2, 2).mean(axis=(1, 3)).astype(np.float32)
 chm = dsm - dem2
+del dsm
 chm[np.isnan(chm)] = 0
-chm = np.clip(chm, 0, 60)
+chm = np.clip(chm, 0, 60).astype(np.float32)
 # fill isolated empty cells from neighbours
 chm = ndimage.grey_closing(chm, size=3)
 log(f"  CHM: {np.mean(chm>2)*100:.1f}% of cells > 2 m, p99 {np.percentile(chm, 99):.1f} m")
@@ -203,26 +205,38 @@ for it in manifest["items"]:
 log(f"  NAIP coverage {have2.mean()*100:.1f}%")
 red2 = naip2[0].astype(np.float32); grn2 = naip2[1].astype(np.float32); blu2 = naip2[2].astype(np.float32); nir2 = naip2[3].astype(np.float32)
 del naip2
-ndvi2 = (nir2 - red2) / np.maximum(nir2 + red2, 1)
-bright2 = (red2 + grn2 + blu2) / 3
+ndvi2 = ((nir2 - red2) / np.maximum(nir2 + red2, 1)).astype(np.float32)
+bright2 = ((red2 + grn2 + blu2) / 3).astype(np.float32)
 
 # slope at 2 m
 gy, gx = np.gradient(dem2, R2)
-slope2 = np.degrees(np.arctan(np.hypot(gx, gy)))
+slope2 = np.degrees(np.arctan(np.hypot(gx, gy))).astype(np.float32)
+del gx, gy
 
 # classes
 canopy = ((chm > 2.5) | ((ndvi2 > 0.45) & (chm > 1.2))) & have2
-# rock: low NDVI, steep or bright-grey, not snow (NAIP is summer; snowfields are very bright with low NDVI)
+# rock: low NDVI, GREY (low colour saturation), not snow. Late-summer NAIP shows cured meadow and
+# groomed pistes as tan grass with NDVI < 0.18 too; saturation 0.22..0.42 for grass vs < 0.15 for rock
+# (measured on the Vail 2023 imagery). Without the saturation test 25 % of the resort came out as rock.
 snowfield = (bright2 > 215) & (ndvi2 < 0.1)
-rock = (ndvi2 < 0.18) & (bright2 > 60) & (bright2 < 215) & have2 & (chm < 1.5)
+mx2 = np.maximum(np.maximum(red2, grn2), blu2); mn2 = np.minimum(np.minimum(red2, grn2), blu2)
+sat2 = ((mx2 - mn2) / np.maximum(mx2, 1)).astype(np.float32)
+del mx2, mn2
+grey = sat2 < 0.15
+rock = (ndvi2 < 0.18) & (bright2 > 60) & (bright2 < 215) & grey & have2 & (chm < 1.5)
+meadow = (ndvi2 < 0.30) & ~grey & have2 & (chm < 1.5)   # cured grass; no trees, no rock
+del sat2, red2, blu2
 rock_steep = rock & (slope2 > 28)
 scree = rock & (slope2 <= 28) & (slope2 > 12)
 rock_w = np.clip((slope2 - 25) / 15, 0, 1) * 0.6 + rock_steep * 0.6
 rock_w = np.clip(rock_w, 0, 1)
 scree_w = np.clip(scree.astype(np.float32) * 0.8, 0, 1) * (1 - rock_w)
 # aspen vs conifer: aspen is bright green and high NIR in summer; conifer darker
-aspen_like = canopy & (ndvi2 > 0.55) & (grn2 > 70) & (nir2 > 150)
-log(f"  canopy {canopy.mean()*100:.1f}%  rock {rock.mean()*100:.1f}%  aspen-like {aspen_like.mean()*100:.1f}%")
+# aspen vs conifer from NAIP alone is approximate (no clean NIR split in the Sept 2023 imagery);
+# these thresholds pick the brightest ~15 % of canopy. Replace with LANDFIRE EVT classes when raw/vail/landfire exists.
+aspen_like = canopy & (ndvi2 > 0.50) & (grn2 > 68) & (nir2 > 135)
+del grn2, nir2, snowfield, scree
+log(f"  canopy {canopy.mean()*100:.1f}%  rock {rock.mean()*100:.1f}%  meadow {meadow.mean()*100:.1f}%  aspen-like {aspen_like.mean()*100:.1f}%")
 
 # ------------------------------------------------------------------ 6. OSM features
 log("OSM")
@@ -347,6 +361,8 @@ for l in labels:
     l["z"] = ground(l["x"], l["y"])
 log(f"  buildings {len(buildings)} roads {len(roads)} water {len(water)} peaks {len(peaks)} labels {len(labels)}")
 write_features(out, {"lifts": lifts, "runs": runs, "buildings": buildings, "roads": roads, "water": water, "peaks": peaks, "labels": labels})
+Z_MIN, Z_MAX = float(np.nanmin(dem)), float(np.nanmax(dem))
+del dem   # 540 MB; everything from here works on the 2 m grid
 
 # ------------------------------------------------------------------ 7. masks at 2 m
 log("masks")
@@ -368,16 +384,17 @@ def rasterize_corridor(target, pts, half_width, value=1.0):
             rr, cc = np.ogrid[r0:r1, c0:c1]
             d2 = (rr - r) ** 2 + (cc - c) ** 2
             target[r0:r1, c0:c1] = np.maximum(target[r0:r1, c0:c1], np.where(d2 <= hw * hw, value, 0))
+piste_f = np.zeros((H2, W2), np.float32)
 for run in runs:
     if run.get("area"):
         continue
     pts = [(p[0], p[1]) for p in run["points"]]
     hw = {"novice": 22, "easy": 20, "intermediate": 18, "advanced": 14, "expert": 10}.get(run["difficulty"] or "", 12)
-    tmp = np.zeros((H2, W2), np.float32)
-    rasterize_corridor(tmp, pts, hw)
-    piste_any |= tmp > 0
+    rasterize_corridor(piste_f, pts, hw)
     if run["groomed"]:
-        groomed = np.maximum(groomed, tmp)
+        rasterize_corridor(groomed, pts, hw)
+piste_any = piste_f > 0
+del piste_f
 # a groomed corridor is only groomed where there is no canopy (the actual cleared trail)
 groomed *= (~canopy).astype(np.float32)
 groomed = ndimage.gaussian_filter(groomed, 1.0)
@@ -399,7 +416,8 @@ tree_rows, tree_cols, tree_h = [pr], [pc], [chm_s[pr, pc]]
 rng = np.random.default_rng(3)
 occupied = np.zeros((H2, W2), bool); occupied[pr, pc] = True
 occupied = ndimage.binary_dilation(occupied, iterations=2)
-fill = canopy & ~occupied & (rng.uniform(0, 1, (H2, W2)) < 0.33)
+# fill density is the main lever on tree count: 0.33 gave 5.26 M trees at Vail (realistic stems, too many to render)
+fill = canopy & ~occupied & (rng.uniform(0, 1, (H2, W2)) < 0.10)
 fr, fc = np.nonzero(fill)
 tree_rows.append(fr); tree_cols.append(fc); tree_h.append(np.maximum(chm_s[fr, fc], 3.0) * rng.uniform(0.75, 1.0, len(fr)))
 rows = np.concatenate(tree_rows); cols = np.concatenate(tree_cols); hgt = np.concatenate(tree_h).astype(np.float32)
@@ -444,7 +462,7 @@ for l in lifts:
         break
 meta = {"version": 1, "slug": slug, "name": cfg["name"], "crs": crs, "origin": [OX, OY], "lonlat": [lon_c, lat_c],
         "bounds": {"minX": X0 - OX, "minY": Y0 - OY, "maxX": X1 - OX, "maxY": Y1 - OY},
-        "zRange": [float(np.floor(np.nanmin(dem) / 100) * 100 - 100), float(np.ceil(np.nanmax(dem) / 100) * 100 + 100)],
+        "zRange": [float(np.floor(Z_MIN / 100) * 100 - 100), float(np.ceil(Z_MAX / 100) * 100 + 100)],
         "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "instances": inst,
         "start": start, "sun": {"azimuth": 160, "elevation": 30}, "attribution": cfg["attribution"]}
 write_meta(out, meta)
