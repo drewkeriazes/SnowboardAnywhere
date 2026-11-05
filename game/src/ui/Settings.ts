@@ -15,6 +15,8 @@ export interface Settings {
   musicSource: 'files' | 'builtin' | 'off';
   quality: Quality;
   shadows: boolean;
+  /** cascaded shadow maps (3 cascades to 1.2 km); off = single shadow camera around the rider */
+  csm: boolean;
   treeDensity: number; // 0.25 .. 1
   pixelRatio: number; // 0.5 .. 2 (capped by the device)
   fov: number; // base chase FOV, 50 .. 100
@@ -49,7 +51,7 @@ export const DEFAULT_KEYS: Record<string, string> = {
 const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab', lift: 'Ride lift / skip', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track' };
 
 const DEFAULTS: Settings = {
-  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', quality: 'high', shadows: true, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
+  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', quality: 'high', shadows: true, csm: true, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
   fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, showMarkers: true, showLabels: true, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
 };
 const KEY = 'settings';
@@ -106,6 +108,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
     <div class="tab hidden" data-t="graphics">
       <div class="row"><label>Quality</label><select data-k="quality"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></div>
       <div class="row"><label>Shadows</label><input type="checkbox" data-k="shadows"></div>
+      <div class="row"><label>Cascaded</label><input type="checkbox" data-k="csm"></div>
       <div class="row"><label>Trees</label><input type="range" data-k="treeDensity" min="0.25" max="1" step="0.05"></div>
       <div class="row"><label>Resolution</label><input type="range" data-k="pixelRatio" min="0.5" max="2" step="0.25"></div>
       <div class="row"><label>Field of view</label><input type="range" data-k="fov" min="50" max="100" step="1"><span class="val" data-v="fov"></span></div>

@@ -20,6 +20,7 @@ export class Rocks {
   private readonly cells = new Map<string, Cell>();
   private readonly geos: THREE.BufferGeometry[] = [];
   private readonly mat: THREE.MeshStandardMaterial;
+  get material(): THREE.MeshStandardMaterial { return this.mat; }
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
   private readonly q2 = new THREE.Quaternion();

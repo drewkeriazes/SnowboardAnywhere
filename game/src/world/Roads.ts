@@ -31,6 +31,7 @@ const KINDS: Record<string, { width: number; color: [number, number, number]; mi
 export class Roads {
   readonly group = new THREE.Group();
   private readonly pack: Pack;
+  get material(): THREE.MeshStandardMaterial { return this.mat; }
   private readonly mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide });
   private readonly major: THREE.Mesh;
   private readonly minor: THREE.Mesh;

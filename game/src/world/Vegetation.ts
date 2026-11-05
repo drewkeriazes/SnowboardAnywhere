@@ -118,7 +118,7 @@ export class Vegetation {
     aspen: { near: makeAspen('near'), far: makeAspen('far') },
     krummholz: { near: makeKrummholz(), far: makeKrummholz() },
   };
-  private readonly mat = {
+  readonly mat = {
     conifer: new THREE.MeshStandardMaterial({ color: 0x2c4a2e, roughness: 0.95, flatShading: true }),
     coniferFar: new THREE.MeshStandardMaterial({ color: 0x2b4530, roughness: 1.0, flatShading: true }),
     aspen: new THREE.MeshStandardMaterial({ color: 0xd9d6cc, roughness: 0.9, flatShading: true }),

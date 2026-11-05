@@ -1,15 +1,24 @@
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
+import { CSM } from 'three/examples/jsm/csm/CSM.js';
 
-/** Sky dome, sun light with a rider-following shadow camera, hemisphere fill and fog. */
+/**
+ * Sky dome, sun with cascaded shadow maps (3 cascades over the first 1.2 km so trees shadow
+ * pistes at distance and the rider still gets a crisp shadow), hemisphere fill and fog.
+ * `sun` is kept as the colour/intensity reference; the CSM owns the actual lights.
+ */
 export class Environment {
   readonly sky: Sky;
   readonly sun = new THREE.DirectionalLight(0xfff4e0, 3.2);
+  csm: CSM | null = null;
+  private readonly scene: THREE.Scene;
+  private readonly registered = new Set<THREE.Material>();
   readonly hemi = new THREE.HemisphereLight(0xcfe3ff, 0xd9e2ee, 0.9);
   readonly sunDir = new THREE.Vector3();
   readonly fog: THREE.Fog;
 
   constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer, azimuthDeg: number, elevationDeg: number) {
+    this.scene = scene;
     this.sky = new Sky();
     this.sky.scale.setScalar(450000);
     scene.add(this.sky);
@@ -29,6 +38,7 @@ export class Environment {
     scene.add(this.sun);
     scene.add(this.sun.target);
     scene.add(this.hemi);
+    this.sun.visible = false; // the CSM lights replace it once enableCSM runs
 
     this.fog = new THREE.Fog(0xc9d8ee, 4000, 90000);
     scene.fog = this.fog;
@@ -37,6 +47,39 @@ export class Environment {
     this.renderer = renderer;
     this.setSun(azimuthDeg, elevationDeg);
   }
+
+  /** Create the cascades for a camera. Call once per session after the camera exists; call again to change map size. */
+  enableCSM(camera: THREE.PerspectiveCamera, mapSize: number, cascades = 3): void {
+    this.disableCSM();
+    this.csm = new CSM({ camera, parent: this.scene, cascades, maxFar: 1200, mode: 'practical', shadowMapSize: mapSize, shadowBias: -0.00015, lightDirection: this.sunDir.clone().negate(), lightIntensity: this.sun.intensity, lightMargin: 300, lightNear: 1, lightFar: 3000 });
+    this.csm.fade = true;
+    for (const l of this.csm.lights) { l.shadow.normalBias = 0.5; l.color.copy(this.sun.color); }
+    for (const m of this.registered) this.setupCSM(m);
+    this.csm.updateFrustums();
+  }
+  disableCSM(): void {
+    if (!this.csm) return;
+    this.csm.remove(); this.csm.dispose(); this.csm = null;
+    for (const m of this.registered) { (m as any).onBeforeCompile = (m as any).userData.baseHook ?? undefined; m.needsUpdate = true; }
+  }
+  /** Register a material so it receives cascaded shadows (also applies a material's own onBeforeCompile first). */
+  registerMaterial(m: THREE.Material): void {
+    if (this.registered.has(m)) return;
+    this.registered.add(m);
+    if (!(m as any).userData.baseHook && (m as any).onBeforeCompile) (m as any).userData.baseHook = (m as any).onBeforeCompile;
+    if (this.csm) this.setupCSM(m);
+  }
+  private setupCSM(m: THREE.Material): void {
+    const base = (m as any).userData.baseHook as ((shader: any, renderer: any) => void) | undefined;
+    this.csm!.setupMaterial(m);
+    const csmHook = (m as any).onBeforeCompile as (shader: any, renderer: any) => void;
+    (m as any).onBeforeCompile = (shader: any, renderer: any) => { base?.(shader, renderer); csmHook(shader, renderer); };
+    m.needsUpdate = true;
+  }
+  setShadows(on: boolean): void { if (this.csm) for (const l of this.csm.lights) l.castShadow = on; this.sun.castShadow = on; }
+  /** Per frame after the camera moved. */
+  updateCSM(): void { this.csm?.update(); }
+  onCameraChanged(): void { this.csm?.updateFrustums(); }
 
   private renderer: THREE.WebGLRenderer | null = null;
   setSun(azimuthDeg: number, elevationDeg: number): void {
@@ -50,6 +93,10 @@ export class Environment {
     const up = THREE.MathUtils.clamp((elevationDeg + 2) / 8, 0, 1); // 0 below the horizon
     this.sun.color.setRGB(1.0, 0.72 + 0.24 * warm, 0.45 + 0.47 * warm);
     this.sun.intensity = (1.4 + 2.3 * warm) * up;
+    if (this.csm) {
+      this.csm.lightDirection.copy(this.sunDir).negate();
+      for (const l of this.csm.lights) { l.color.copy(this.sun.color); l.intensity = this.sun.intensity; }
+    }
     const u = this.sky.material.uniforms;
     u.turbidity.value = 3.5 + (1 - warm) * 4;
     u.rayleigh.value = 1.6 + (1 - warm) * 1.2;

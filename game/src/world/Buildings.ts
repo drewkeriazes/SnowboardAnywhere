@@ -14,6 +14,7 @@ const SINK = 2.5; // m below the lowest ground point under the footprint
 export class Buildings {
   readonly group = new THREE.Group();
   private readonly mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.0 });
+  get material(): THREE.MeshStandardMaterial { return this.mat; }
 
   private readonly collider: Collider | null;
 

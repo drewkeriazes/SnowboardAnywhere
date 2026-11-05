@@ -53,6 +53,7 @@ export class Lifts {
   readonly group = new THREE.Group();
   private readonly lifts: LiftRuntime[] = [];
   private readonly mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.35 });
+  get material(): THREE.MeshStandardMaterial { return this.mat; }
   private readonly cableMat = new THREE.LineBasicMaterial({ color: 0x1a1a1a });
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();

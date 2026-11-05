@@ -88,6 +88,12 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const liftRide = new LiftRide(pack, lifts);
     const cam = new ChaseCamera(pack, window.innerWidth / window.innerHeight);
     const controls = new Controls(canvas);
+    // cascaded shadows: every lit material gets the CSM hook
+    env.registerMaterial(terrain.material);
+    for (const m of Object.values(veg.mat)) env.registerMaterial(m);
+    env.registerMaterial(rocks.material); env.registerMaterial(buildings.material); env.registerMaterial(roads.material); env.registerMaterial(lifts.material);
+    for (const m of Object.values(riderView.mats)) env.registerMaterial(m);
+    let csmSize = 0;
     const vignette = document.getElementById('vignette')!;
 
     // ---------------------------------------------------------------- sun / time of day
@@ -112,8 +118,11 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       audio.setSource(s.musicSource);
       renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2));
       if (renderer.shadowMap.enabled !== s.shadows) { renderer.shadowMap.enabled = s.shadows; renderer.shadowMap.needsUpdate = true; scene.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) m.needsUpdate = true; }); }
-      env.sun.castShadow = s.shadows;
+      const wantSize = s.csm && !params.has('nocsm') ? (s.quality === 'high' ? 2048 : 1024) : 0;
+      if (csmSize !== wantSize) { csmSize = wantSize; if (wantSize) env.enableCSM(cam.camera, wantSize, 3); else env.disableCSM(); }
+      env.sun.visible = wantSize === 0;
       env.sun.shadow.mapSize.set(s.quality === 'high' ? 4096 : 2048, s.quality === 'high' ? 4096 : 2048);
+      env.setShadows(s.shadows);
       if (s.quality === 'low') setVegetationBudget(250, 600); else setVegetationDensity(s.treeDensity);
       cam.baseFov = s.fov;
       controls.keymap = { ...s.keys };
@@ -190,7 +199,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     let mouseDx = 0, mouseDy = 0;
     const onClick = () => { if (!paused && (cam.mode === 'free' || cam.mode === 'fp')) canvas.requestPointerLock(); };
     const onMove = (e: MouseEvent) => { if (document.pointerLockElement === canvas) { mouseDx += e.movementX; mouseDy += e.movementY; } };
-    const onResize = () => { renderer.setSize(window.innerWidth, window.innerHeight); cam.camera.aspect = window.innerWidth / window.innerHeight; cam.camera.updateProjectionMatrix(); };
+    const onResize = () => { renderer.setSize(window.innerWidth, window.innerHeight); cam.camera.aspect = window.innerWidth / window.innerHeight; cam.camera.updateProjectionMatrix(); env.onCameraChanged(); };
     canvas.addEventListener('click', onClick);
     window.addEventListener('mousemove', onMove);
     window.addEventListener('resize', onResize);
@@ -215,6 +224,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         const mat = m.material as THREE.Material | THREE.Material[] | undefined;
         if (Array.isArray(mat)) mat.forEach((x) => x.dispose()); else mat?.dispose();
       });
+      env.disableCSM();
       renderer.clear();
     };
 
@@ -252,6 +262,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       else if (cam.mode === 'fp') { cam.updateFirstPerson(rider, dt, input.tuck, onLift, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
       else cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide);
       vignette.classList.toggle('show', cam.mode === 'fp' && settings.fpVignette);
+      cam.camera.updateMatrixWorld();
+      env.updateCSM();
       const cp = cam.camera.position;
       terrain.update(cp.x, -cp.z, cp.y);
       const fx = cam.mode === 'free' ? cp.x : rider.x, fy = cam.mode === 'free' ? -cp.z : rider.y;
