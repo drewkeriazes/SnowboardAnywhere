@@ -118,7 +118,8 @@ async function main(): Promise<void> {
   cam.snapTo(rider);
   const controls = new Controls(canvas);
   let mouseDx = 0, mouseDy = 0;
-  canvas.addEventListener('click', () => { if (cam.mode === 'free') canvas.requestPointerLock(); });
+  canvas.addEventListener('click', () => { if (cam.mode === 'free' || cam.mode === 'fp') canvas.requestPointerLock(); });
+  if (params.get('cam') === 'fp') cam.mode = 'fp';
   window.addEventListener('mousemove', (e) => { if (document.pointerLockElement === canvas) { mouseDx += e.movementX; mouseDy += e.movementY; } });
   window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -151,10 +152,12 @@ async function main(): Promise<void> {
     const boardPressed = controls.once('KeyE') && cam.mode !== 'free';
     const onLift = cam.mode !== 'free' && liftRide.update(rider, dt, boardPressed);
     if (cam.mode !== 'free' && !onLift && !map.fullOpen) rider.update(dt, input);
+    riderView.setFirstPerson(cam.mode === 'fp');
     riderView.update(rider, dt, input.tuck);
     audio.update(rider, input.tuck, onLift, dt);
     rider.lastHit = '';
     if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
+    else if (cam.mode === 'fp') { cam.updateFirstPerson(rider, dt, input.tuck, onLift, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
     else cam.update(rider, dt, input.tuck);
     const cp = cam.camera.position;
     terrain.update(cp.x, -cp.z, cp.y);

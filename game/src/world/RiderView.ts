@@ -51,6 +51,9 @@ export class RiderView {
     return this.spray;
   }
 
+  /** Hide the body (keep the board) for first person. */
+  setFirstPerson(fp: boolean): void { this.body.visible = !fp; }
+
   update(r: Rider, dt: number, tuck: boolean): void {
     this.group.position.set(r.x, r.z, -r.y);
     // orientation: board forward along heading, up along the ground normal (blend to world up in the air)
