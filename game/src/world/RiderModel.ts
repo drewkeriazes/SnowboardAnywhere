@@ -164,7 +164,9 @@ export function buildRider(mats: RiderMaterials = defaultMaterials(), discipline
 
 /** Apply a pose to the joints. Elbows and knees bend about X. */
 export function applyPose(j: Joints, p: Pose): void {
-  j.hips.position.y = p.hipsY;
+  // hip height from the leg angles so the boots always rest on the board (thigh 0.4, shin + boot 0.52)
+  const a = (p.lHip[0] + p.rHip[0]) / 2, k = (p.lKnee + p.rKnee) / 2 * d2r;
+  j.hips.position.y = 0.08 + 0.4 * Math.cos(a) + 0.52 * Math.cos(k - a) - 0.03;
   // pose angles are all in the body frame (yaw = stance, pitch = bend at the waist); the physical
   // lean about the board is set separately by RiderView from the sim's lateral acceleration
   j.hips.rotation.set(p.hipsRot[0], p.hipsRot[1], p.hipsRot[2]);

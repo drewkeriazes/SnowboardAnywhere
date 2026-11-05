@@ -25,7 +25,6 @@ export class RiderView {
   private root: THREE.Group;
   private poses: Record<string, Pose> = POSES;
   discipline: 'board' | 'ski' = 'board';
-  private boardRoll = 0;
   private leanAngle = 0;
   private readonly pose: Pose = clonePose(POSES.neutral);
   private readonly target: Pose = clonePose(POSES.neutral);
@@ -120,25 +119,21 @@ export class RiderView {
     this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
     // ---- carving physics for the picture
     // inclination: the body leans into the turn until lateral acceleration balances gravity,
-    // phi = atan(a_lat / g), capped like a real carver (about 55 degrees). lateralG > 0 = turning
-    // toward the board's right, which is the toe side in a regular stance.
-    const phi = r.onGround && !seated ? Math.max(-0.96, Math.min(0.96, Math.atan(r.lateralG))) : 0;
-    // edge angle of the board: follows the steer input but never more than the inclination plus a
-    // little, and at least 60% of it (angulation lets the body lean more than the board)
-    const edgeWanted = r.onGround && !seated ? r.edgeAngle * 0.7 : 0; // up to ~40 degrees
-    const edge = Math.sign(edgeWanted || phi) * Math.min(Math.abs(phi) + 0.15, Math.max(Math.abs(edgeWanted), Math.abs(phi) * 0.6));
-    this.boardRoll += (edge - this.boardRoll) * Math.min(1, dt * 10);
+    // phi = atan(a_lat / g), capped at about 50 degrees. lateralG > 0 = turning toward the
+    // board's right-hand side (the toe side in a regular stance).
+    const phi = r.onGround && !seated ? Math.max(-0.87, Math.min(0.87, Math.atan(r.lateralG))) : 0;
     this.leanAngle += (phi - this.leanAngle) * Math.min(1, dt * 8);
     const L = this.joints.lean, B = this.joints.board;
-    // pivot at the engaged edge (half the board width, 0.13 m) so that edge stays on the snow
-    const side = Math.sign(this.boardRoll) || 0;
+    // the board and the rider roll together about the engaged edge (0.13 m off centre) so the
+    // edge stays in the snow and the feet stay on the board; angulation (body leaning more than
+    // the board) comes from the carve poses bending at the waist and knees
+    const side = Math.abs(this.leanAngle) > 0.03 ? Math.sign(this.leanAngle) : 0;
     L.position.set(side * 0.13, 0, 0);
     B.position.set(-side * 0.13, 0, 0);
     this.joints.hips.position.x = -side * 0.13;
-    // rotation about the forward (Z) axis: positive lateralG (toe side, +X) tips +Y toward +X, i.e. a negative Z rotation
+    // rotation about the forward (Z) axis: positive lateralG tips +Y toward +X (the right), a negative Z rotation
     L.rotation.set(0, 0, -this.leanAngle);
-    B.rotation.set(0, 0, -(this.boardRoll - this.leanAngle)); // board rolls less than the body leans
-    if (this.discipline === 'ski') { B.rotation.z = 0; L.rotation.z = -this.leanAngle; } // skis: both roll with the lean, angulation is in the pose
+    B.rotation.set(0, 0, 0);
 
     // snow spray when skidding or braking hard
     const pos = this.sprayPos, vel = this.sprayVel, life = this.sprayLife;
