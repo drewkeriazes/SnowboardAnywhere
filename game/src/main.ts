@@ -108,6 +108,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const applySettings = (s: Settings, what: string): void => {
       applySun(s);
       audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music);
+      audio.setSource(s.musicSource);
       renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2));
       if (renderer.shadowMap.enabled !== s.shadows) { renderer.shadowMap.enabled = s.shadows; renderer.shadowMap.needsUpdate = true; scene.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) m.needsUpdate = true; }); }
       env.sun.castShadow = s.shadows;
@@ -174,6 +175,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     pack.mid?.request(sx - 20000, sy - 20000, sx + 20000, sy + 20000);
     pack.far?.request(-1e9, -1e9, 1e9, 1e9);
     pack.mask?.request(sx - 600, sy - 600, sx + 600, sy + 600);
+    // now-playing toast
+    const toast = document.getElementById('toast')!;
+    let toastTimer = 0;
+    audio.onTrack = (name) => { toast.textContent = `\u266B ${name}`; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => toast.classList.remove('show'), 4000); };
     const prompt = document.getElementById('prompt')!;
     let promptShown = '';
     const showPrompt = (html: string) => { if (html !== promptShown) { promptShown = html; prompt.innerHTML = html; prompt.classList.toggle('show', html !== ''); } };
@@ -196,6 +201,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       map.destroy();
       pause.destroy();
       labels.destroy();
+      audio.onTrack = null;
       showPrompt('');
       hud.innerHTML = '';
       vignette.classList.remove('show');

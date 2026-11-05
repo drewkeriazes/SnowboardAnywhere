@@ -1,4 +1,9 @@
 import type { Rider } from '../sim/Rider';
+import { Jukebox } from './Jukebox';
+
+/** playlist.json entry: a bare filename or a credited track */
+export interface TrackInfo { file: string; title: string; artist?: string; license?: string; url?: string }
+export type MusicSource = 'files' | 'builtin' | 'off';
 
 /**
  * Sound: everything is synthesised through Web Audio from one looping noise buffer plus
@@ -30,8 +35,14 @@ export class GameAudio {
   private liftGain!: GainNode;
   private crackleT = 0;
   private music: HTMLAudioElement | null = null;
-  private playlist: string[] = [];
+  private playlist: TrackInfo[] = [];
   private track = 0;
+  private jukebox: Jukebox | null = null;
+  private musicGain!: GainNode;
+  /** 'files' plays playlist.json (falls back to builtin when there is none), 'builtin' is the procedural jukebox */
+  source: MusicSource = 'files';
+  private playlistLoaded = false;
+  onTrack: ((name: string) => void) | null = null;
   sfxVolume = 0.8;
   musicVolume = 0.5;
   private wasOnGround = true;
@@ -50,6 +61,9 @@ export class GameAudio {
     this.master = ctx.createGain(); this.master.connect(ctx.destination);
     this.sfx = ctx.createGain(); this.sfx.connect(this.master);
     this.sfx.gain.value = this.sfxVolume;
+    this.musicGain = ctx.createGain(); this.musicGain.gain.value = this.musicVolume * this.duck; this.musicGain.connect(this.master);
+    this.jukebox = new Jukebox(ctx, this.musicGain);
+    this.jukebox.onTrackStart = (n) => this.onTrack?.(n);
     // 2 s of white noise, looped by every noise source
     const n = ctx.sampleRate * 2;
     this.noiseBuf = ctx.createBuffer(1, n, ctx.sampleRate);
@@ -87,11 +101,27 @@ export class GameAudio {
   private async loadPlaylist(): Promise<void> {
     try {
       const r = await fetch(`${import.meta.env.BASE_URL}music/playlist.json`);
-      if (!r.ok) return;
-      this.playlist = (await r.json()) as string[];
-      if (this.playlist.length) this.playTrack(0);
+      if (r.ok) {
+        const raw = (await r.json()) as (string | TrackInfo)[];
+        this.playlist = raw.map((e) => typeof e === 'string' ? { file: e, title: e.replace(/\.[a-z0-9]+$/i, '') } : e).filter((e) => e.file);
+      }
     } catch { /* no music shipped */ }
+    this.playlistLoaded = true;
+    this.startMusic();
   }
+
+  /** (Re)start music for the current source. */
+  startMusic(): void {
+    if (!this.ctx || !this.playlistLoaded) return;
+    this.music?.pause();
+    this.jukebox?.stop();
+    if (this.source === 'off') return;
+    if (this.source === 'files' && this.playlist.length) this.playTrack(this.track);
+    else this.jukebox?.play(this.track);
+  }
+  setSource(src: MusicSource): void { if (src !== this.source) { this.source = src; this.startMusic(); } }
+  get hasFiles(): boolean { return this.playlist.length > 0; }
+  get credits(): TrackInfo[] { return this.playlist; }
 
   playTrack(i: number): void {
     if (!this.playlist.length) return;
@@ -100,26 +130,37 @@ export class GameAudio {
       this.music = new Audio();
       this.music.addEventListener('ended', () => this.playTrack(this.track + 1));
     }
-    this.music.src = `${import.meta.env.BASE_URL}music/${this.playlist[this.track]}`;
+    const t = this.playlist[this.track];
+    this.music.src = `${import.meta.env.BASE_URL}music/${t.file}`;
     this.music.volume = this.musicVolume * this.duck;
     void this.music.play().catch(() => undefined);
+    this.onTrack?.(t.artist ? `${t.title} by ${t.artist}` : t.title);
   }
-  nextTrack(): void { this.playTrack(this.track + 1); }
-  get trackName(): string | null { return this.playlist.length ? this.playlist[this.track].replace(/\.[a-z0-9]+$/i, '') : null; }
+  nextTrack(): void {
+    if (this.source === 'off') return;
+    if (this.source === 'files' && this.playlist.length) this.playTrack(this.track + 1);
+    else { this.track++; this.jukebox?.play(this.track); }
+  }
+  get trackName(): string | null {
+    if (this.source === 'files' && this.playlist.length) return this.playlist[this.track].title;
+    return this.jukebox?.playing ? this.jukebox.trackName : null;
+  }
 
   private duck = 1;
   setVolumes(sfx: number, music: number): void {
     this.sfxVolume = sfx; this.musicVolume = music;
     if (this.sfx) this.sfx.gain.value = sfx * (this.duck < 1 ? 0 : 1);
     if (this.music) this.music.volume = music * this.duck;
+    if (this.musicGain) this.musicGain.gain.value = music * this.duck;
   }
   /** Pause ducking: 1 = normal, 0.3 = paused. Effects are silenced while paused. */
   setDuck(d: number): void {
     this.duck = d;
     if (this.sfx) this.sfx.gain.value = d < 1 ? 0 : this.sfxVolume;
     if (this.music) this.music.volume = this.musicVolume * d;
+    if (this.musicGain) this.musicGain.gain.value = this.musicVolume * d;
   }
-  stopMusic(): void { this.music?.pause(); }
+  stopMusic(): void { this.music?.pause(); this.jukebox?.stop(); }
 
   // ---------------------------------------------------------------- one-shots
   private jitter(): number { return 0.92 + Math.random() * 0.16; }

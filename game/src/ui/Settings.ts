@@ -12,6 +12,7 @@ export interface Settings {
   sfx: number;
   music: number;
   mute: boolean;
+  musicSource: 'files' | 'builtin' | 'off';
   quality: Quality;
   shadows: boolean;
   treeDensity: number; // 0.25 .. 1
@@ -37,7 +38,7 @@ export const DEFAULT_KEYS: Record<string, string> = {
 const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab', lift: 'Ride lift / skip', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track' };
 
 const DEFAULTS: Settings = {
-  v: 1, sfx: 0.8, music: 0.5, mute: false, quality: 'high', shadows: true, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
+  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', quality: 'high', shadows: true, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
   fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, showMarkers: true, showLabels: true, timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
 };
 const KEY = 'settings';
@@ -88,6 +89,8 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Effects</label><input type="range" data-k="sfx" min="0" max="1" step="0.05"></div>
       <div class="row"><label>Music</label><input type="range" data-k="music" min="0" max="1" step="0.05"></div>
       <div class="row"><label>Mute</label><input type="checkbox" data-k="mute"></div>
+      <div class="row"><label>Music</label><select data-k="musicSource"><option value="files">Playlist (built-in if none)</option><option value="builtin">Built-in jukebox</option><option value="off">Off</option></select></div>
+      <div class="credits"></div>
     </div>
     <div class="tab hidden" data-t="graphics">
       <div class="row"><label>Quality</label><select data-k="quality"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></div>

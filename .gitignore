@@ -52,3 +52,8 @@ npm-debug.log*
 
 # Headless test output
 game/shots*/
+
+# Music files: list them in game/public/music/playlist.json, commit only small sets
+game/public/music/*.mp3
+game/public/music/*.ogg
+game/public/music/*.wav
