@@ -12,6 +12,7 @@ import { Environment } from './world/Sky';
 import { RiderView } from './world/RiderView';
 import { ChaseCamera } from './world/ChaseCamera';
 import { Buildings } from './world/Buildings';
+import { Roads } from './world/Roads';
 import { ResortMap } from './ui/ResortMap';
 import { LiftRide } from './sim/LiftRide';
 import { GameAudio } from './audio/Audio';
@@ -73,6 +74,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     scene.add(runs.group);
     const buildings = new Buildings(pack);
     scene.add(buildings.group);
+    const roads = new Roads(pack);
+    scene.add(roads.group);
     const riderView = new RiderView();
     scene.add(riderView.group);
     scene.add(riderView.sprayObject);
@@ -223,6 +226,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       const fx = cam.mode === 'free' ? cp.x : rider.x, fy = cam.mode === 'free' ? -cp.z : rider.y;
       veg.update(fx, fy);
       rocks.update(fx, fy);
+      roads.update(fx, fy);
       lifts.update(elapsed);
       lifts.updateMarkers(elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
       map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
