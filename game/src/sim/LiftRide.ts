@@ -18,6 +18,8 @@ export class LiftRide {
   /** nearest boardable lift within PROMPT_RANGE (for the prompt card), and its distance */
   nearby: LiftRuntime | null = null;
   nearbyDist = Infinity;
+  /** true on the frame the chair passes a tower (for the clunk sound) */
+  passedTower = false;
   /** true when `nearby` is close and slow enough to board */
   canBoard = false;
   /** reason shown when in range but not boardable: 'fast' | 'air' | '' */
@@ -43,7 +45,9 @@ export class LiftRide {
       return this.lift !== null;
     }
     if (boardPressed) this.up = this.lift.length; // skip to the top
+    const before = this.up;
     this.up += CHAIR_SPEED * dt;
+    this.passedTower = this.lift.towerUp.some((t) => t > before && t <= this.up);
     if (this.up >= this.lift.length) { this.unload(rider); return false; }
     this.place(rider);
     return true;

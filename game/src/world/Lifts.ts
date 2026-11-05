@@ -23,6 +23,8 @@ export interface LiftRuntime {
   upFromA: boolean;
   bottom: [number, number, number]; // pack coords of the lower terminal
   top: [number, number, number];
+  /** distance from the bottom terminal of each tower along the line (sorted ascending) */
+  towerUp: number[];
 }
 
 /** Height of the seat below the cable (hanger + chair). */
@@ -128,8 +130,10 @@ export class Lifts {
       chairs.castShadow = true;
       this.group.add(chairs);
       const upFromA = a[2] <= b[2];
+      const bottom: [number, number, number] = upFromA ? [a[0], a[1], a[2]] : [b[0], b[1], b[2]];
+      const towerUp = towers.map((t) => Math.hypot(t[0] - bottom[0], t[1] - bottom[1])).sort((p, q) => p - q);
       this.lifts.push({ feature: lift, curve: pts, cum, length, chairs, nChairs, offset: Math.random() * CHAIR_SPACING, lateral: [lx, ly], yaw,
-        upFromA, bottom: upFromA ? [a[0], a[1], a[2]] : [b[0], b[1], b[2]], top: upFromA ? [b[0], b[1], b[2]] : [a[0], a[1], a[2]] });
+        upFromA, bottom, top: upFromA ? [b[0], b[1], b[2]] : [a[0], a[1], a[2]], towerUp });
     }
   }
 
