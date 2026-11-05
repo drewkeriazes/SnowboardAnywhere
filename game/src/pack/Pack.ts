@@ -26,7 +26,9 @@ export class Pack {
   }
 
   static async load(baseUrl: string): Promise<Pack> {
-    const meta = (await (await fetch(`${baseUrl}/meta.json`)).json()) as PackMeta;
+    const resp = await fetch(`${baseUrl}/meta.json`);
+    if (!resp.ok) throw new Error(`Pack not found at ${baseUrl}/ (HTTP ${resp.status}). Run the Vite dev server (cd game && npm run dev) and open http://localhost:5173/?pack=<slug>; the pack folder must exist at packs/<slug>/ next to game/.`);
+    const meta = (await resp.json()) as PackMeta;
     const pack = new Pack(baseUrl, meta);
     try {
       pack.features = (await (await fetch(`${baseUrl}/features.json`)).json()) as Features;
