@@ -7,6 +7,6 @@
 - Pipeline flow: `pipeline/resorts/<slug>.json` -> `gen_manifest.py` -> `manifests/<slug>.json` -> `fetch.ps1` -> `raw/<slug>/` -> `build_pack.py` -> `packs/<slug>/` -> the game loads `/packs/<slug>/` (Vite dev middleware serves `../packs`). `synth_pack.py` writes a synthetic mountain in the same format for client work without real data.
 - Do not run two fetches at once; the downloader assumes a single writer.
 - All game-space coordinates are local metres: pack x east, y north, z up; three.js x east, y up, z = -north. Never put lat/lon in the renderer or physics.
-- Typecheck before committing: `cd game && npx tsc --noEmit`. Headless render check: `cd game && npx vite build && node tools/shoot.mjs synth` (use `?lowgfx` on software GPUs).
+- Typecheck before committing: `cd game && npx tsc --noEmit`. Render check: `cd game && npx vite build && node tools/shoot.mjs <pack>` (headless; `SHOT_QUERY="&lowgfx"` on software GPUs), or add `--headed` on Drew's PC to watch it on the real GPU.
 - Do not assert Bonvo internals from memory; the verified capture is in the plan doc.
 - No em dashes in prose.

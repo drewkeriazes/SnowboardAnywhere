@@ -8,12 +8,14 @@ description: Verify the game renders and rides correctly without a human watchin
 ## Run
 ```
 cd game && npx tsc --noEmit && npx vite build
-node tools/shoot.mjs synth shots          # synthetic pack, always available
+node tools/shoot.mjs synth shots          # synthetic pack (generate first: python pipeline/synth_pack.py packs/synth)
 node tools/shoot.mjs vail shots-vail      # real pack, once packs/vail exists
 ```
 `tools/shoot.mjs` serves `dist/` plus `../packs` on a local port, loads `index.html?pack=<slug>&headless`, steps frames with `window.__step(n, dt)` and saves PNGs with `window.__shot()` (canvas.toDataURL, so no page.screenshot hangs). Each `settle` prints a JSON line with chunk count, triangle count, tree instances, rider position, speed, onGround and loaded tile counts per height set.
 
-Playwright: the cloud sandbox has it preinstalled at `/opt/npm-tools/node_modules/playwright`; locally run `npm i -D playwright && npx playwright install chromium` and import `playwright` normally.
+Headed mode: `node tools/shoot.mjs vail shots-vail --headed` (or `npm run shoot:headed -- vail shots-vail`) opens a visible Chromium on the real GPU, runs the same script, and leaves the window open until you close it. Use it on Drew's PC for real packs; headless SwiftShader crashes the tab on the full Vail pack once the rider moves.
+
+Playwright: a devDependency of `game/` (`npm i` then `npx playwright install chromium` once per machine). The cloud sandbox falls back to its preinstalled copy at `/opt/npm-tools/node_modules/playwright`. Playwright 1.65.0 shipped without a matching `playwright-core` on 2026-11-05, so the lockfile pins 1.64.1.
 
 ## Software GPU rule
 On a machine without a GPU (cloud sandbox, CI), add `&lowgfx` to the URL (`SHOT_QUERY="&lowgfx" node tools/shoot.mjs synth`). It disables shadow maps, sets pixel ratio 1 and shrinks the tree radius to 250 / 600 m. Without it SwiftShader needs about 9 seconds per frame once 180k trees are loaded and the run looks hung. With a real GPU, run without `lowgfx`.
