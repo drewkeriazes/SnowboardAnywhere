@@ -1,27 +1,37 @@
-// Headless render check: serves dist/, loads the sim, steps frames, saves screenshots.
-// node tools/shoot.mjs [pack] [outDir]
-import pw from '/opt/npm-tools/node_modules/playwright/index.js';
-const { chromium } = pw;
+// Render and ride check: serves dist/ and ../packs, loads the sim, steps frames, saves screenshots.
+// node tools/shoot.mjs [pack] [outDir] [--headed]
+//   default: headless Chromium on SwiftShader (no GPU needed; add SHOT_QUERY="&lowgfx" for big packs)
+//   --headed (or SHOT_HEADED=1): visible window on the real GPU; stays open at the end until you close it
+// Local: game/node_modules (npm i). Cloud sandbox: preinstalled copy under /opt/npm-tools.
+const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const pack = process.argv[2] ?? 'synth';
-const outDir = process.argv[3] ?? 'shots';
+const args = process.argv.slice(2);
+const headed = args.includes('--headed') || process.env.SHOT_HEADED === '1';
+const positional = args.filter((a) => !a.startsWith('--'));
+const pack = positional[0] ?? 'synth';
+const outDir = positional[1] ?? 'shots';
 const dist = path.resolve('dist');
+const packs = path.resolve('..', 'packs');
 fs.mkdirSync(outDir, { recursive: true });
 
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.bin': 'application/octet-stream', '.css': 'text/css' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.webp': 'image/webp', '.bin': 'application/octet-stream', '.css': 'text/css' };
 const server = http.createServer((req, res) => {
-  const p = path.join(dist, decodeURIComponent(req.url.split('?')[0]));
-  if (!p.startsWith(dist) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); res.end(); return; }
+  const u = decodeURIComponent(req.url.split('?')[0]);
+  const [root, rel] = u.startsWith('/packs/') ? [packs, u.slice('/packs/'.length)] : [dist, u];
+  const p = path.join(root, rel);
+  if (!p.startsWith(root) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); res.end(); return; }
   res.writeHead(200, { 'content-type': types[path.extname(p)] ?? 'application/octet-stream' });
   fs.createReadStream(p).pipe(res);
 });
 await new Promise((r) => server.listen(0, r));
 const port = server.address().port;
 
-const browser = await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = headed
+  ? await chromium.launch({ headless: false })
+  : await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(`${m.type()}: ${m.text()}`); });
@@ -75,5 +85,9 @@ await settle(40, '10_free_view_from_summit');
 
 console.log('console issues:', errors.length);
 for (const e of errors.slice(0, 15)) console.log('  ', e.slice(0, 300));
+if (headed) {
+  console.log('headed: close the browser window to exit');
+  await page.waitForEvent('close', { timeout: 0 }).catch(() => {});
+}
 await browser.close();
 server.close();

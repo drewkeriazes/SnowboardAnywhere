@@ -1,6 +1,5 @@
 // Minimal probe: load, step small batches, report timing of each step. Finds hangs.
-import pw from '/opt/npm-tools/node_modules/playwright/index.js';
-const { chromium } = pw;
+const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
 const dist = path.resolve('dist'); const packs = path.resolve('..', 'packs');
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.bin': 'application/octet-stream' };
