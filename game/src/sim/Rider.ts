@@ -44,6 +44,8 @@ export class Rider {
   slopeDeg = 0;
   skid = 0; // 0..1 how much the board is sliding sideways (for spray)
   landingShock = 0;
+  /** last collision this step: 'ramp' | 'graze' | 'wall' | '' (for sound and effects; cleared each frame) */
+  lastHit = '';
   distance = 0;
   maxSpeed = 0;
   private readonly pack: Pack;
@@ -195,15 +197,35 @@ export class Rider {
     if (this.collider) {
       const hit = this.collider.resolve(this.x, this.y, this.z, 0.4);
       if (hit) {
-        this.x = hit.x; this.y = hit.y;
-        const vn = this.vx * hit.nx + this.vy * hit.ny;
+        const vn = this.vx * hit.nx + this.vy * hit.ny; // negative = moving into the obstacle
+        const spdNow = Math.hypot(this.vx, this.vy) || 1;
+        const headOn = -vn / spdNow; // 1 = straight into it, 0 = grazing
         if (vn < 0) {
-          // bounce off with loss; hard hits at speed crash
-          if (-vn > 7) {
-            this.crashed = 1.2;
+          if (hit.kind === 1) {
+            // rampable rock: ride up and over it. Launch angle from how square the hit is.
+            this.lastHit = 'ramp';
+            const h = Math.max(0.3, hit.top - this.z);
+            const launch = Math.min(0.9, 0.25 + 0.9 * headOn) * Math.min(1, h / 1.5);
+            this.vz = Math.max(this.vz, spdNow * launch * 0.5 + 1.5);
+            this.vx *= 1 - 0.12 * headOn; this.vy *= 1 - 0.12 * headOn;
+            this.onGround = false; this.airTime = 0; this.spin = 0;
+            this.z = Math.max(this.z, hit.top - 0.3);
+            this.landingShock = 0.3;
+          } else if (headOn < 0.5) {
+            // glancing hit on a tree or wall: slide along it, lose a little speed
+            this.lastHit = 'graze';
+            this.x = hit.x; this.y = hit.y;
+            this.vx -= vn * hit.nx; this.vy -= vn * hit.ny;
+            this.vx *= 0.85; this.vy *= 0.85;
+            this.landingShock = 0.25;
+          } else {
+            // square hit: bounce off; fast square hits crash
+            this.lastHit = 'wall';
+            this.x = hit.x; this.y = hit.y;
+            if (-vn > 7) this.crashed = 1.2;
+            this.vx -= 1.4 * vn * hit.nx; this.vy -= 1.4 * vn * hit.ny;
+            this.vx *= 0.6; this.vy *= 0.6;
           }
-          this.vx -= 1.4 * vn * hit.nx; this.vy -= 1.4 * vn * hit.ny;
-          this.vx *= 0.6; this.vy *= 0.6;
         }
       }
     }

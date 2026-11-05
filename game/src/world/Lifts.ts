@@ -9,15 +9,25 @@ import type { Pack } from '../pack/Pack';
 const CHAIR_SPACING = 22; // m along the cable
 const CHAIR_SPEED = 2.6; // m/s
 
-interface LiftRuntime {
+export interface LiftRuntime {
   feature: LiftFeature;
-  curve: THREE.Vector3[]; // cable centre line (three.js coords)
+  curve: THREE.Vector3[]; // cable centre line (three.js coords), station a -> station b
   cum: number[]; // cumulative length
   length: number;
   chairs: THREE.InstancedMesh;
   nChairs: number;
   offset: number;
+  lateral: [number, number];
+  yaw: number;
+  /** true when station a (curve start) is the lower terminal, so riding up means d: 0 -> length */
+  upFromA: boolean;
+  bottom: [number, number, number]; // pack coords of the lower terminal
+  top: [number, number, number];
 }
+
+/** Height of the seat below the cable (hanger + chair). */
+export const SEAT_DROP = 2.1;
+export { CHAIR_SPEED };
 
 export class Lifts {
   readonly group = new THREE.Group();
@@ -117,10 +127,33 @@ export class Lifts {
       const chairs = new THREE.InstancedMesh(chairFull, this.chairMat, nChairs);
       chairs.castShadow = true;
       this.group.add(chairs);
-      this.lifts.push({ feature: lift, curve: pts, cum, length, chairs, nChairs, offset: Math.random() * CHAIR_SPACING });
-      (this.lifts[this.lifts.length - 1] as any).lateral = [lx, ly];
-      (this.lifts[this.lifts.length - 1] as any).yaw = yaw;
+      const upFromA = a[2] <= b[2];
+      this.lifts.push({ feature: lift, curve: pts, cum, length, chairs, nChairs, offset: Math.random() * CHAIR_SPACING, lateral: [lx, ly], yaw,
+        upFromA, bottom: upFromA ? [a[0], a[1], a[2]] : [b[0], b[1], b[2]], top: upFromA ? [b[0], b[1], b[2]] : [a[0], a[1], a[2]] });
     }
+  }
+
+  /** All lifts with a usable cable. */
+  get all(): LiftRuntime[] { return this.lifts; }
+
+  /** Nearest lift whose bottom terminal is within `maxDist` m of a point, or null. Surface lifts (carpets) are skipped. */
+  nearestBoardable(x: number, y: number, maxDist = 14): LiftRuntime | null {
+    let best: LiftRuntime | null = null, bd = maxDist;
+    for (const l of this.lifts) {
+      if (l.feature.type === 'magic_carpet') continue;
+      const d = Math.hypot(l.bottom[0] - x, l.bottom[1] - y);
+      if (d < bd) { bd = d; best = l; }
+    }
+    return best;
+  }
+
+  /** Seat position (three.js coords) at distance `up` metres from the bottom terminal along the cable. */
+  seatAt(l: LiftRuntime, up: number, out: THREE.Vector3): THREE.Vector3 {
+    const d = l.upFromA ? up : l.length - up;
+    this.pointAt(l, Math.max(0, Math.min(l.length, d)), out);
+    const side = l.upFromA ? 1 : -1; // the moving chairs use side +1 for the a -> b direction
+    out.x += l.lateral[0] * 1.6 * side; out.z -= l.lateral[1] * 1.6 * side; out.y -= SEAT_DROP;
+    return out;
   }
 
   private pointAt(l: LiftRuntime, d: number, out: THREE.Vector3): THREE.Vector3 {
@@ -133,8 +166,8 @@ export class Lifts {
 
   update(time: number): void {
     for (const l of this.lifts) {
-      const [lx, ly] = (l as any).lateral as [number, number];
-      const yaw = (l as any).yaw as number;
+      const [lx, ly] = l.lateral;
+      const yaw = l.yaw;
       this.q.setFromAxisAngle(this.tmp2.set(0, 1, 0), -yaw + Math.PI / 2);
       const loop = 2 * l.length;
       for (let i = 0; i < l.nChairs; i++) {

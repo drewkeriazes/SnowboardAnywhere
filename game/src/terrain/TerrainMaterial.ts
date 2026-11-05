@@ -68,6 +68,24 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         diffuseColor.rgb = base + spark;
         float rough = mix(0.55, 0.95, wRock + wScree);
       `)
+      // snow gets a soft bump so faces lit head-on (south-facing bowls with a southern sun) still show
+      // drifts and relief instead of a flat white sheet
+      .replace('#include <normal_fragment_begin>', `#include <normal_fragment_begin>
+        {
+          vec3 wpn = vWorldPos;
+          float e = 0.6;
+          float h0 = fbm2(wpn.xz * 0.05) * 2.0 + fbm2(wpn.xz * 0.35) * 0.5;
+          float hx = fbm2((wpn.xz + vec2(e, 0.0)) * 0.05) * 2.0 + fbm2((wpn.xz + vec2(e, 0.0)) * 0.35) * 0.5;
+          float hz = fbm2((wpn.xz + vec2(0.0, e)) * 0.05) * 2.0 + fbm2((wpn.xz + vec2(0.0, e)) * 0.35) * 0.5;
+          vec3 bump = normalize(vec3(-(hx - h0) / e, 1.0, -(hz - h0) / e));
+          float wS = clamp(1.0 - vColor.r - vColor.g, 0.0, 1.0) * (1.0 - 0.7 * vColor.b);
+          vec3 wn = normalize(vWorldNormal);
+          vec3 t = normalize(cross(wn, vec3(0.0, 0.0, 1.0)));
+          vec3 b = cross(wn, t);
+          vec3 pn = normalize(t * bump.x + wn * bump.y + b * bump.z);
+          vec3 vn = normalize((viewMatrix * vec4(mix(wn, pn, 0.55 * wS), 0.0)).xyz);
+          normal = vn;
+        }`)
       .replace('#include <roughnessmap_fragment>', `
         float roughnessFactor = roughness * mix(0.6, 1.0, clamp(vColor.r + vColor.g, 0.0, 1.0));`);
   };

@@ -9,21 +9,25 @@ export interface Hit {
   y: number;
   nx: number;
   ny: number;
+  /** 0 = hard wall (tree trunk, tall boulder), 1 = rampable rock */
+  kind: number;
+  /** obstacle top height (m) for ramp launches */
+  top: number;
 }
 
 export class Collider {
-  private readonly cells = new Map<string, Float32Array[]>(); // packed [x, y, radius, zBase, zTop]
-  private readonly hit: Hit = { x: 0, y: 0, nx: 0, ny: 0 };
+  private readonly cells = new Map<string, Float32Array[]>(); // packed [x, y, radius, zBase, zTop, kind]
+  private readonly hit: Hit = { x: 0, y: 0, nx: 0, ny: 0, kind: 0, top: 0 };
 
   private key(cx: number, cy: number): string {
     return `${cx},${cy}`;
   }
 
-  add(x: number, y: number, radius: number, zBase: number, zTop: number): void {
+  add(x: number, y: number, radius: number, zBase: number, zTop: number, kind = 0): void {
     const k = this.key(Math.floor(x / CELL), Math.floor(y / CELL));
     let arr = this.cells.get(k);
     if (!arr) { arr = []; this.cells.set(k, arr); }
-    arr.push(new Float32Array([x, y, radius, zBase, zTop]));
+    arr.push(new Float32Array([x, y, radius, zBase, zTop, kind]));
   }
 
   clearCell(cellKey: string): void {
@@ -53,7 +57,7 @@ export class Collider {
           if (d < min) {
             const nx = d > 1e-4 ? dx / d : 1, ny = d > 1e-4 ? dy / d : 0;
             x = c[0] + nx * min; y = c[1] + ny * min;
-            this.hit.x = x; this.hit.y = y; this.hit.nx = nx; this.hit.ny = ny;
+            this.hit.x = x; this.hit.y = y; this.hit.nx = nx; this.hit.ny = ny; this.hit.kind = c[5]; this.hit.top = c[4];
             found = this.hit;
           }
         }
