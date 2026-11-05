@@ -162,6 +162,8 @@ for p in sorted(glob.glob(os.path.join(raw, "ept", "*.laz"))):
         np.minimum.at(dtm_l.ravel(), flat[g], zz[g].astype(np.float32))
 log(f"  {n_pts/1e6:.1f} M points, cells with data {np.mean(cnt>0)*100:.1f}%")
 dsm[cnt == 0] = np.nan
+# cells with a lidar return (dilated by one cell): canopy is only believed where the lidar actually saw something
+has_pts = ndimage.binary_dilation(cnt > 0, iterations=1)
 del cnt, dtm_l
 # DEM at 2 m (mean of 2x2)
 dem2 = dem[:H2 * 2, :W2 * 2].reshape(H2, 2, W2, 2).mean(axis=(1, 3)).astype(np.float32)
@@ -214,7 +216,11 @@ slope2 = np.degrees(np.arctan(np.hypot(gx, gy))).astype(np.float32)
 del gx, gy
 
 # classes
-canopy = ((chm > 2.5) | ((ndvi2 > 0.45) & (chm > 1.2))) & have2
+# canopy needs (a) height above ground AND (b) vegetation in NAIP AND (c) a lidar return nearby. (b) and (c)
+# stop steep bare slopes above treeline reading as forest: the DSM is the max point in a 2 m cell and the DEM
+# the mean, so a 35 deg slope alone gives > 2 m of "height", and grey_closing spread that into empty cells.
+canopy = ((chm > 2.5) | ((ndvi2 > 0.45) & (chm > 1.2))) & (ndvi2 > 0.30) & has_pts & have2
+del has_pts
 # rock: low NDVI, GREY (low colour saturation), not snow. Late-summer NAIP shows cured meadow and
 # groomed pistes as tan grass with NDVI < 0.18 too; saturation 0.22..0.42 for grass vs < 0.15 for rock
 # (measured on the Vail 2023 imagery). Without the saturation test 25 % of the resort came out as rock.
@@ -222,11 +228,12 @@ snowfield = (bright2 > 215) & (ndvi2 < 0.1)
 mx2 = np.maximum(np.maximum(red2, grn2), blu2); mn2 = np.minimum(np.minimum(red2, grn2), blu2)
 sat2 = ((mx2 - mn2) / np.maximum(mx2, 1)).astype(np.float32)
 del mx2, mn2
-grey = sat2 < 0.15
+grey = sat2 < 0.20
 rock = (ndvi2 < 0.18) & (bright2 > 60) & (bright2 < 215) & grey & have2 & (chm < 1.5)
 meadow = (ndvi2 < 0.30) & ~grey & have2 & (chm < 1.5)   # cured grass; no trees, no rock
 del sat2, red2, blu2
-rock_steep = rock & (slope2 > 28)
+# very steep bare ground is rock whatever colour the imagery gives it (shadowed cliff bands read as dark, not grey)
+rock_steep = (rock & (slope2 > 28)) | ((slope2 > 38) & (ndvi2 < 0.30) & (chm < 1.5) & have2)
 scree = rock & (slope2 <= 28) & (slope2 > 12)
 rock_w = np.clip((slope2 - 25) / 15, 0, 1) * 0.6 + rock_steep * 0.6
 rock_w = np.clip(rock_w, 0, 1)
