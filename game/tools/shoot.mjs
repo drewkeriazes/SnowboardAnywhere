@@ -12,9 +12,14 @@ const dist = path.resolve('dist');
 fs.mkdirSync(outDir, { recursive: true });
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.bin': 'application/octet-stream', '.css': 'text/css' };
+const packsDir = path.resolve('..', 'packs');
 const server = http.createServer((req, res) => {
-  const p = path.join(dist, decodeURIComponent(req.url.split('?')[0]));
-  if (!p.startsWith(dist) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); res.end(); return; }
+  const url = decodeURIComponent(req.url.split('?')[0]);
+  // real packs live in ../packs (gitignored); anything else comes from dist/
+  const p = url.startsWith('/packs/') && fs.existsSync(path.join(packsDir, url.slice('/packs/'.length)))
+    ? path.join(packsDir, url.slice('/packs/'.length))
+    : path.join(dist, url);
+  if (!(p.startsWith(dist) || p.startsWith(packsDir)) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); res.end(); return; }
   res.writeHead(200, { 'content-type': types[path.extname(p)] ?? 'application/octet-stream' });
   fs.createReadStream(p).pipe(res);
 });
