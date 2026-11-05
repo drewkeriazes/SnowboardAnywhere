@@ -58,6 +58,7 @@ async function main(): Promise<void> {
   scene.add(rocks.group);
   const lifts = new Lifts(pack);
   scene.add(lifts.group);
+  scene.add(lifts.markers);
   const runs = new RunsOverlay(pack);
   scene.add(runs.group);
   const buildings = new Buildings(pack);
@@ -108,6 +109,10 @@ async function main(): Promise<void> {
   const t0 = performance.now();
   while (Number.isNaN(pack.fine?.sample(sx, sy) ?? 0) && performance.now() - t0 < 8000) await new Promise((r) => setTimeout(r, 50));
   rider.reset(sx, sy, sh);
+  lifts.buildMarkers(pack);
+  const prompt = document.getElementById('prompt')!;
+  let promptShown = '';
+  const showPrompt = (html: string) => { if (html !== promptShown) { promptShown = html; prompt.innerHTML = html; prompt.classList.toggle('show', html !== ''); } };
 
   const cam = new ChaseCamera(pack, window.innerWidth / window.innerHeight);
   cam.snapTo(rider);
@@ -158,6 +163,19 @@ async function main(): Promise<void> {
     veg.update(fx, fy);
     rocks.update(fx, fy);
     lifts.update(elapsed);
+    lifts.updateMarkers(elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
+    map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
+    // boarding card
+    if (onLift) {
+      const pct = ((liftRide.up / (liftRide.lift?.length ?? 1)) * 100).toFixed(0);
+      showPrompt(`<div class="name">${liftRide.lift?.feature.name ?? 'Lift'}</div><div class="row"><kbd>E</kbd> skip to the top <span class="dim">${pct}%</span></div>`);
+    } else if (liftRide.nearby && !map.fullOpen && cam.mode !== 'free') {
+      const name = liftRide.nearby.feature.name ?? 'Lift';
+      const dist = `${liftRide.nearbyDist.toFixed(0)} m`;
+      if (liftRide.canBoard) showPrompt(`<div class="name">${name}</div><div class="row"><kbd>E</kbd> ride up</div>`);
+      else if (liftRide.blocker === 'fast') showPrompt(`<div class="name">${name}</div><div class="row">slow down to board <kbd>&darr;</kbd> brake</div>`);
+      else showPrompt(`<div class="name">${name}</div><div class="row">ride to the lift <span class="dim">${dist}</span> then <kbd>E</kbd></div>`);
+    } else showPrompt('');
     env.update(fx, cam.mode === 'free' ? cp.y : rider.z, -fy);
     if (pack.fine) { pack.fine.request(fx - 400, fy - 400, fx + 400, fy + 400); if (terrain.stats.builds === 0) pack.fine.evictBeyond(fx, fy, 3000); }
     pack.mask?.request(fx - 400, fy - 400, fx + 400, fy + 400);
@@ -169,8 +187,7 @@ async function main(): Promise<void> {
 
     fpsAcc += dt; fpsN++;
     if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
-    const liftLine = onLift ? `<br><span class="prompt">Riding ${liftRide.lift?.feature.name ?? 'lift'} &middot; ${((liftRide.up / (liftRide.lift?.length ?? 1)) * 100).toFixed(0)}% &middot; E to skip to the top</span>`
-      : liftRide.nearby ? `<br><span class="prompt">E to ride ${liftRide.nearby.feature.name ?? 'the lift'}</span>` : '';
+    const liftLine = '';
     hud.innerHTML =
       `<b>${mph(rider.speed)}</b> mph &nbsp; ${ft(rider.z)} ft &nbsp; slope ${rider.slopeDeg.toFixed(0)}&deg;` +
       (rider.onGround ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') + liftLine +

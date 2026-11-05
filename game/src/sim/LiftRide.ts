@@ -8,11 +8,20 @@ import { CHAIR_SPEED, type LiftRuntime, type Lifts } from '../world/Lifts';
  * on a chair; the rider then follows the cable at chair speed. Pressing the key again skips to
  * the top. At the top the rider is placed a few metres past the terminal, facing downhill.
  */
+export const PROMPT_RANGE = 60; // m: show the boarding card
+export const BOARD_RANGE = 14; // m: can press E
+export const BOARD_SPEED = 6; // m/s
+
 export class LiftRide {
   lift: LiftRuntime | null = null;
   up = 0; // metres travelled from the bottom terminal
-  /** lift the rider could board right now (for the HUD prompt) */
+  /** nearest boardable lift within PROMPT_RANGE (for the prompt card), and its distance */
   nearby: LiftRuntime | null = null;
+  nearbyDist = Infinity;
+  /** true when `nearby` is close and slow enough to board */
+  canBoard = false;
+  /** reason shown when in range but not boardable: 'fast' | 'air' | '' */
+  blocker: 'fast' | 'air' | '' = '';
   private readonly seat = new THREE.Vector3();
   private readonly seat2 = new THREE.Vector3();
 
@@ -23,8 +32,14 @@ export class LiftRide {
   /** Call every frame before the physics step. Returns true when the rider is on a lift (physics skipped). */
   update(rider: Rider, dt: number, boardPressed: boolean): boolean {
     if (!this.lift) {
-      this.nearby = rider.onGround && rider.speed < 4 ? this.lifts.nearestBoardable(rider.x, rider.y) : null;
-      if (boardPressed && this.nearby) this.board(rider, this.nearby);
+      this.nearby = this.lifts.nearestBoardable(rider.x, rider.y, PROMPT_RANGE);
+      this.nearbyDist = this.nearby ? Math.hypot(this.nearby.bottom[0] - rider.x, this.nearby.bottom[1] - rider.y) : Infinity;
+      const inZone = this.nearbyDist < BOARD_RANGE;
+      this.blocker = !inZone ? '' : !rider.onGround ? 'air' : rider.speed > BOARD_SPEED ? 'fast' : '';
+      this.canBoard = inZone && this.blocker === '';
+      // loading maze: coast to a stop inside the zone
+      if (inZone && rider.onGround && rider.speed > 0.5) { const f = Math.exp(-dt * 1.2); rider.vx *= f; rider.vy *= f; }
+      if (boardPressed && this.canBoard && this.nearby) this.board(rider, this.nearby);
       return this.lift !== null;
     }
     if (boardPressed) this.up = this.lift.length; // skip to the top

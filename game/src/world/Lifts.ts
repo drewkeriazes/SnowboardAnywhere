@@ -136,6 +136,53 @@ export class Lifts {
   /** All lifts with a usable cable. */
   get all(): LiftRuntime[] { return this.lifts; }
 
+  /** Floating markers above each bottom terminal (chair glyph + name) and a ring on the snow. */
+  readonly markers = new THREE.Group();
+  private markerSprites: { sprite: THREE.Sprite; base: THREE.Vector3; lift: LiftRuntime }[] = [];
+  private markersBuilt = false;
+  buildMarkers(pack: Pack): void {
+    if (this.markersBuilt) return;
+    this.markersBuilt = true;
+    const ringGeo = new THREE.RingGeometry(9, 11, 48);
+    ringGeo.rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide });
+    for (const l of this.lifts) {
+      if (l.feature.type === 'magic_carpet') continue;
+      const [x, y] = l.bottom;
+      const z = pack.groundHeight(x, y);
+      const tex = makeMarkerTexture(l.feature.name ?? 'Lift');
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: true });
+      const sprite = new THREE.Sprite(mat);
+      const base = new THREE.Vector3(x, z + 14, -y);
+      sprite.position.copy(base);
+      sprite.center.set(0.5, 0);
+      sprite.renderOrder = 999;
+      this.markers.add(sprite);
+      this.markerSprites.push({ sprite, base, lift: l });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.position.set(x, z + 0.3, -y);
+      // tilt the ring to the ground normal so it does not clip into the slope
+      const n = pack.groundNormal(x, y) as number[];
+      ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(n[0], n[2], -n[1]).normalize());
+      this.markers.add(ring);
+    }
+  }
+  /** Bob and scale the markers; the one the rider can board pulses. */
+  updateMarkers(time: number, camX: number, camY: number, boardable: LiftRuntime | null): void {
+    for (const m of this.markerSprites) {
+      const d = Math.hypot(m.base.x - camX, -m.base.z - camY);
+      const vis = d < 1500;
+      m.sprite.visible = vis;
+      if (!vis) continue;
+      const bob = Math.sin(time * 2 + m.base.x * 0.01) * 0.6;
+      m.sprite.position.set(m.base.x, m.base.y + bob, m.base.z);
+      // keep roughly constant on screen: scale with distance, with floor and ceiling
+      const k = Math.min(60, Math.max(6, d * 0.06)) * (m.lift === boardable ? 1 + 0.12 * Math.sin(time * 6) : 1);
+      m.sprite.scale.set(k * 2.4, k, 1);
+      (m.sprite.material as THREE.SpriteMaterial).opacity = m.lift === boardable ? 1 : 0.85;
+    }
+  }
+
   /** Nearest lift whose bottom terminal is within `maxDist` m of a point, or null. Surface lifts (carpets) are skipped. */
   nearestBoardable(x: number, y: number, maxDist = 14): LiftRuntime | null {
     let best: LiftRuntime | null = null, bd = maxDist;
@@ -182,6 +229,32 @@ export class Lifts {
       l.chairs.instanceMatrix.needsUpdate = true;
     }
   }
+}
+
+/** Canvas texture: rounded label with a chair glyph and the lift name. */
+function makeMarkerTexture(name: string): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 214;
+  const ctx = c.getContext('2d')!;
+  ctx.font = 'bold 44px system-ui, sans-serif';
+  const w = Math.min(500, ctx.measureText(name).width + 140);
+  const x0 = (512 - w) / 2;
+  // pill
+  ctx.fillStyle = 'rgba(20,24,34,.85)';
+  ctx.beginPath(); ctx.roundRect(x0, 60, w, 90, 24); ctx.fill();
+  ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 5; ctx.stroke();
+  // chair glyph: seat + hanger
+  ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 8; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x0 + 50, 72); ctx.lineTo(x0 + 50, 108); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x0 + 28, 108); ctx.lineTo(x0 + 72, 108); ctx.lineTo(x0 + 72, 130); ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle';
+  ctx.fillText(name, x0 + 95, 106);
+  // pointer
+  ctx.fillStyle = '#ffd166';
+  ctx.beginPath(); ctx.moveTo(236, 152); ctx.lineTo(276, 152); ctx.lineTo(256, 184); ctx.closePath(); ctx.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 function mergeTwo(a: THREE.BufferGeometry, b: THREE.BufferGeometry): THREE.BufferGeometry {

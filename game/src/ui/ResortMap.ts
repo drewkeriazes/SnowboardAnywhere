@@ -287,6 +287,9 @@ export class ResortMap {
 
   // ---------------------------------------------------------------- minimap
   /** Draw the minimap: `radius` metres around the rider, heading arrow. */
+  /** pack x,y of the lift bottom to pulse on the minimap (set each frame by main) */
+  liftMarker: [number, number] | null = null;
+
   drawMini(x: number, y: number, heading: number, radius = 900): void {
     this.tryShade();
     const c = this.mini, ctx = c.getContext('2d')!;
@@ -303,6 +306,13 @@ export class ResortMap {
     const k = S / srcW; // display px per base px
     this.drawLabels(ctx, (px, py) => { const [bx, by] = this.toPixel(px, py); return [(bx - (cx - srcW / 2)) * k, (by - (cy - srcW / 2)) * k]; },
       { max: 4, font: 10, runs: false, near: [x, y], inside: (sx, sy) => Math.hypot(sx - S / 2, sy - S / 2) < S / 2 - 6 });
+    if (this.liftMarker) {
+      const [bx, by] = this.toPixel(this.liftMarker[0], this.liftMarker[1]);
+      const mx = (bx - (cx - srcW / 2)) * k, my = (by - (cy - srcW / 2)) * k;
+      const pulse = 5 + 3 * Math.sin(performance.now() / 180);
+      ctx.beginPath(); ctx.arc(mx, my, pulse, 0, Math.PI * 2); ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.beginPath(); ctx.arc(mx, my, 2.5, 0, Math.PI * 2); ctx.fillStyle = '#ffd166'; ctx.fill();
+    }
     // rider: triangle pointing along heading (north up)
     ctx.translate(S / 2, S / 2); ctx.rotate(heading);
     ctx.fillStyle = '#ff3b30'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
