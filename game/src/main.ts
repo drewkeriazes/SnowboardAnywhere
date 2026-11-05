@@ -33,6 +33,7 @@ async function main(): Promise<void> {
   document.title = `${pack.meta.name} - snowboard sim`;
   const audio = new GameAudio();
   const settings = loadSettings();
+  const rp = params.get('rider'); if (rp === 'ski' || rp === 'board') settings.discipline = rp;
   if (params.has('lowgfx')) { settings.quality = 'low'; settings.shadows = false; settings.treeDensity = 0.3; settings.pixelRatio = 1; }
   status.textContent = '';
 
@@ -119,6 +120,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       controls.invertSteer = s.invertSteer;
       lifts.markers.visible = s.showMarkers;
       riderView.setOutfit(s.outfit);
+      riderView.setDiscipline(s.discipline);
+      rider.discipline = s.discipline;
       labels.visible = s.showLabels;
       map.metric = s.units === 'metric';
       if (what === 'camera' || what === 'reset') cam.mode = s.camera;

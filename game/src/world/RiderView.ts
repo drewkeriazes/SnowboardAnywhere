@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Rider } from '../sim/Rider';
-import { buildRider, applyPose, lerpPose, clonePose, POSES, type Joints, type Pose, type RiderMaterials } from './RiderModel';
+import { buildRider, applyPose, lerpPose, clonePose, POSES, SKI_POSES, type Joints, type Pose, type RiderMaterials } from './RiderModel';
 
 /**
  * Articulated rider (RiderModel.ts) posed from the sim state: neutral, toe/heel carve, tuck,
@@ -10,8 +10,11 @@ import { buildRider, applyPose, lerpPose, clonePose, POSES, type Joints, type Po
 export class RiderView {
   readonly group = new THREE.Group();
   readonly mats: RiderMaterials;
-  private readonly joints: Joints;
-  private readonly body: THREE.Group;
+  private joints: Joints;
+  private body: THREE.Group;
+  private root: THREE.Group;
+  private poses: Record<string, Pose> = POSES;
+  discipline: 'board' | 'ski' = 'board';
   private readonly pose: Pose = clonePose(POSES.neutral);
   private readonly target: Pose = clonePose(POSES.neutral);
   private readonly scratch: Pose = clonePose(POSES.neutral);
@@ -30,6 +33,7 @@ export class RiderView {
     this.mats = built.mats;
     this.joints = built.joints;
     this.body = built.joints.hips;
+    this.root = built.root;
     this.group.add(built.root);
     applyPose(this.joints, this.pose);
 
@@ -47,6 +51,20 @@ export class RiderView {
     return this.spray;
   }
 
+  /** Swap between snowboard and skis (rebuilds the model with the same materials). */
+  setDiscipline(d: 'board' | 'ski'): void {
+    if (d === this.discipline) return;
+    this.discipline = d;
+    const fp = !this.body.visible;
+    this.group.remove(this.root);
+    const built = buildRider(this.mats, d);
+    this.joints = built.joints; this.body = built.joints.hips; this.root = built.root;
+    this.group.add(built.root);
+    this.poses = d === 'ski' ? SKI_POSES : POSES;
+    Object.assign(this.pose, clonePose(this.poses.neutral));
+    this.body.visible = !fp;
+  }
+
   /** Apply outfit colours (hex strings) to the material slots. */
   setOutfit(o: { jacket: string; pants: string; helmet: string; board: string; gloves: string }): void {
     this.mats.jacket.color.set(o.jacket); this.mats.pants.color.set(o.pants); this.mats.helmet.color.set(o.helmet);
@@ -60,7 +78,7 @@ export class RiderView {
     this.group.position.set(r.x, r.z, -r.y);
     // ---- pose blend
     const t = this.target;
-    const P = POSES;
+    const P = this.poses;
     Object.assign(t, clonePose(P.neutral));
     if (seated) { lerpPose(t, t, P.seated, 1); }
     else if (r.crashed > 0) { lerpPose(t, t, P.crash, 1); }

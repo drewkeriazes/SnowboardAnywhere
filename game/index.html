@@ -44,6 +44,11 @@
     .settings .credit { opacity: .85; margin: 2px 0; }
     .settings .credit a { color: #9cc4ff; }
     .settings .dim { opacity: .6; }
+    #menu .seg { display: flex; gap: 0; margin: 6px 0 2px; }
+    #menu .seg button { margin: 0; border-radius: 0; opacity: .7; }
+    #menu .seg button:first-child { border-radius: 10px 0 0 10px; }
+    #menu .seg button:last-child { border-radius: 0 10px 10px 0; }
+    #menu .seg button.on { opacity: 1; background: rgba(255,255,255,.25); }
     #vignette { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,.55) 100%); }
     #vignette.show { opacity: 1; }
     #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, #0b1020 0%, #1e3a5f 100%); z-index: 20; color: #fff; }

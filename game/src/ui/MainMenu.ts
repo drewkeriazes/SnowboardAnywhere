@@ -15,6 +15,7 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
       <div class="panel">
         <div class="eyebrow">SnowboardAnywhere</div>
         <h1>${resortName}</h1>
+        <div class="row seg"><button data-d="board" class="${settings.discipline === 'board' ? 'on' : ''}">Snowboard</button><button data-d="ski" class="${settings.discipline === 'ski' ? 'on' : ''}">Skis</button></div>
         <button data-a="ride" class="primary">Free ride</button>
         <button data-a="map">Drop in from the map</button>
         <button data-a="settings">Settings</button>
@@ -33,6 +34,12 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
     };
     fillCredits();
     setTimeout(fillCredits, 1500);
+    wrap.querySelectorAll<HTMLButtonElement>('button[data-d]').forEach((b) => b.addEventListener('click', () => {
+      settings.discipline = b.dataset.d as 'board' | 'ski';
+      wrap.querySelectorAll<HTMLButtonElement>('button[data-d]').forEach((x) => x.classList.toggle('on', x === b));
+      onChange(settings, 'discipline');
+      try { localStorage.setItem('settings', JSON.stringify(settings)); } catch { /* ignore */ }
+    }));
     wrap.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => b.addEventListener('click', () => {
       audio.start();
       audio.setVolumes(settings.mute ? 0 : settings.sfx, settings.mute ? 0 : settings.music);

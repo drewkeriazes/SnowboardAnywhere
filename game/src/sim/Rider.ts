@@ -20,6 +20,14 @@ export interface SurfaceInfo {
 const G = 9.81;
 const STEP = 1 / 120;
 
+export type Discipline = 'board' | 'ski';
+/** Feel constants per discipline. Skis: snappier at low speed, two edges so a bit more grip at
+ *  moderate edge angles but a lower hard-carve limit, a snowplough brake, and no fakie flip. */
+const FEEL: Record<Discipline, { steerSlow: number; steerTuck: number; steerSpeedK: number; gripEdgeK: number; gripSpeedK: number; brake: number; fakie: boolean; aero: number; aeroTuck: number }> = {
+  board: { steerSlow: 1.9, steerTuck: 0.9, steerSpeedK: 25, gripEdgeK: 14, gripSpeedK: 0.12, brake: 0.45, fakie: true, aero: 0.0055, aeroTuck: 0.0025 },
+  ski: { steerSlow: 2.4, steerTuck: 1.1, steerSpeedK: 20, gripEdgeK: 11, gripSpeedK: 0.16, brake: 0.6, fakie: false, aero: 0.005, aeroTuck: 0.0021 },
+};
+
 /**
  * Snowboard rider as a point mass with a board heading. Ground contact is a bilinear
  * heightfield lookup, so terrain collision is exact at the data resolution.
@@ -48,6 +56,7 @@ export class Rider {
   lastHit = '';
   distance = 0;
   maxSpeed = 0;
+  discipline: Discipline = 'board';
   private readonly pack: Pack;
   private readonly collider: Collider | null;
   private accum = 0;
@@ -121,7 +130,8 @@ export class Rider {
     const lx = hy, ly = -hx; // right-hand lateral
     // steering: rotate heading. Faster = less yaw rate (long carves) but more lateral force
     const spd = Math.hypot(this.vx, this.vy);
-    const steerRate = (input.tuck ? 0.9 : 1.9) * (1 / (1 + spd / 25));
+    const F = FEEL[this.discipline];
+    const steerRate = (input.tuck ? F.steerTuck : F.steerSlow) * (1 / (1 + spd / F.steerSpeedK));
     this.heading += input.steer * steerRate * dt;
     this.edgeAngle += ((input.steer * (input.tuck ? 0.5 : 1)) - this.edgeAngle) * Math.min(1, dt * 8);
 
@@ -135,7 +145,7 @@ export class Rider {
     const vAlong = this.vx * hx + this.vy * hy;
     const vLat = this.vx * lx + this.vy * ly;
     // lateral grip force: proportional to edge angle and speed, limited
-    const maxLat = gripBase * (6 + 0.9 * Math.abs(this.edgeAngle) * 14 + 0.12 * spd);
+    const maxLat = gripBase * (6 + 0.9 * Math.abs(this.edgeAngle) * F.gripEdgeK + F.gripSpeedK * spd);
     // wanted: kill lateral velocity (carve) within a short time
     let latAcc = -vLat / Math.max(0.04, 0.12 - 0.08 * Math.abs(this.edgeAngle));
     const skidding = Math.abs(latAcc) > maxLat;
@@ -144,9 +154,9 @@ export class Rider {
     ax += latAcc * lx; ay += latAcc * ly;
 
     // drag: aerodynamic + snow. Tuck lowers aero, powder adds speed-scaled drag, skidding scrubs speed
-    const aero = (input.tuck ? 0.0025 : 0.0055) * spd * spd;
+    const aero = (input.tuck ? F.aeroTuck : F.aero) * spd * spd;
     const snowDrag = 0.015 * G * (1 - 0.5 * groomed) + powder * 0.004 * spd + 0.35 * this.skid * G;
-    const brake = input.brake ? 0.45 * G : 0;
+    const brake = input.brake ? F.brake * G : 0;
     const dragAcc = aero + snowDrag + brake;
     if (spd > 0.01) {
       const d = Math.min(dragAcc * dt, spd);
@@ -157,7 +167,8 @@ export class Rider {
       ax += hx * 2.0; ay += hy * 2.0;
     }
     // backwards riding is unstable: if moving against heading fast, flip heading (fakie)
-    if (vAlong < -4) this.heading += Math.PI;
+    if (F.fakie && vAlong < -4) this.heading += Math.PI;
+    else if (!F.fakie && vAlong < -1 && spd > 2) { this.vx *= 0.97; this.vy *= 0.97; } // skis sliding backwards scrub speed
 
     this.vx += ax * dt; this.vy += ay * dt;
     this.x += this.vx * dt; this.y += this.vy * dt;

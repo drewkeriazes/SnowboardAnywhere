@@ -30,6 +30,7 @@ export interface Settings {
   units: Units;
   keys: Record<string, string>; // action -> KeyboardEvent.code
   outfit: Outfit;
+  discipline: 'board' | 'ski';
 }
 export interface Outfit { jacket: string; pants: string; helmet: string; board: string; gloves: string }
 export const OUTFIT_PRESETS: Record<string, Outfit> = {
@@ -49,7 +50,7 @@ const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer r
 
 const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', quality: 'high', shadows: true, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-  fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, showMarkers: true, showLabels: true, outfit: { ...OUTFIT_PRESETS['Classic red'] }, timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
+  fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, showMarkers: true, showLabels: true, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
 };
 const KEY = 'settings';
 
@@ -117,6 +118,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="hint">Click a key, then press the new one. Esc cancels.</div>
     </div>
     <div class="tab hidden" data-t="rider">
+      <div class="row"><label>Ride</label><select data-k="discipline"><option value="board">Snowboard</option><option value="ski">Skis</option></select></div>
       <div class="row"><label>Preset</label><select data-o="preset"><option value="">Custom</option>${Object.keys(OUTFIT_PRESETS).map((n) => `<option value="${n}">${n}</option>`).join('')}</select></div>
       ${(['jacket', 'pants', 'helmet', 'gloves', 'board'] as (keyof Outfit)[]).map((k) => `<div class="row"><label>${k[0].toUpperCase() + k.slice(1)}</label><input type="color" data-o="${k}"><span class="val" data-ov="${k}"></span></div>`).join('')}
     </div>
