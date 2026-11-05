@@ -395,6 +395,17 @@ for run in runs:
         rasterize_corridor(groomed, pts, hw)
 piste_any = piste_f > 0
 del piste_f
+# built-up: roads and building footprints are grey in NAIP and were classified as rock (I-70, the villages)
+built_f = np.zeros((H2, W2), np.float32)
+for rd in roads:
+    rasterize_corridor(built_f, [(p[0], p[1]) for p in rd["points"]], 8 if rd.get("kind") in ("motorway", "trunk", "primary") else 4)
+for b in buildings:
+    rasterize_corridor(built_f, [(p[0], p[1]) for p in b["points"]], 6)
+built_any = built_f > 0
+del built_f
+rock_w = rock_w * (~built_any).astype(np.float32)
+scree_w = scree_w * (~built_any).astype(np.float32)
+log(f"  built-up {built_any.mean()*100:.1f}% removed from rock/scree")
 # a groomed corridor is only groomed where there is no canopy (the actual cleared trail)
 groomed *= (~canopy).astype(np.float32)
 groomed = ndimage.gaussian_filter(groomed, 1.0)
@@ -452,14 +463,30 @@ log(f"  rocks {inst['rockCount']}")
 
 # ------------------------------------------------------------------ 9. meta
 lon_c, lat_c = to_ll.transform(OX, OY)
-# default start: top station of the first chair lift with a name, else bbox centre
+# start: on a named groomed run (cfg["start_run"], default: the longest groomed intermediate), 15 m below
+# its highest point and facing down the run. A lift top station lands the rider in the trees.
+def run_length(r):
+    pts = r["points"]
+    return sum(math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) for i in range(len(pts) - 1))
+cands = [r for r in runs if not r.get("area") and r["groomed"] and len(r["points"]) >= 2]
+want = cfg.get("start_run")
+named = [r for r in cands if want and r["name"] == want]
+if named:
+    seg = max(named, key=lambda r: max(p[2] for p in r["points"]))
+else:
+    inter = [r for r in cands if r["difficulty"] == "intermediate" and r["name"]] or cands
+    seg = max(inter, key=run_length) if inter else None
 start = {"x": 0.0, "y": 0.0, "heading": 0.0}
-for l in lifts:
-    if l["type"] in ("chair_lift", "gondola") and l["name"]:
-        a, b = l["stations"]
-        top = a if a[2] > b[2] else b
-        start = {"x": top[0], "y": top[1], "heading": 0.0}
-        break
+if seg is not None:
+    pts = seg["points"]
+    if pts[0][2] < pts[-1][2]:
+        pts = pts[::-1]            # make it run downhill
+    (x0, y0, _), (x1, y1, _) = pts[0], pts[1]
+    dx, dy = x1 - x0, y1 - y0
+    d = math.hypot(dx, dy) or 1.0
+    ux, uy = dx / d, dy / d
+    start = {"x": x0 + ux * 15.0, "y": y0 + uy * 15.0, "heading": math.atan2(ux, uy), "run": seg["name"]}
+    log(f"  start on {seg['name']} ({seg['difficulty']}) at {start['x']:.0f}, {start['y']:.0f}")
 meta = {"version": 1, "slug": slug, "name": cfg["name"], "crs": crs, "origin": [OX, OY], "lonlat": [lon_c, lat_c],
         "bounds": {"minX": X0 - OX, "minY": Y0 - OY, "maxX": X1 - OX, "maxY": Y1 - OY},
         "zRange": [float(np.floor(Z_MIN / 100) * 100 - 100), float(np.ceil(Z_MAX / 100) * 100 + 100)],
