@@ -1,9 +1,51 @@
+# Build output and dependencies
 node_modules/
 dist/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.tsbuildinfo
+
+# Data: raw downloads and built packs stay off GitHub
 packs/*
 !packs/.gitkeep
 raw/
-__pycache__/
-.venv/
-*.log
+*.laz
+*.las
+*.tif
+*.tiff
+*.pbf
+*.zip
+
+# Secrets and credentials (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa*
+id_ed25519*
+credentials*.json
+secrets*.json
+*.secret
+.netrc
+.npmrc
+
+# Per-user Claude Code settings
+.claude/settings.local.json
+
+# Editor and OS clutter
+.vscode/
+.idea/
+*.swp
 .DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
