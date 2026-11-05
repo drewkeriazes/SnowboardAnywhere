@@ -7,6 +7,16 @@ import { buildRider, applyPose, lerpPose, clonePose, POSES, SKI_POSES, type Join
  * crouch (jump charge), air and grab, landing compression, crash tumble, seated on a chair.
  * Poses blend by weight each frame and the result is smoothed, so transitions read as motion.
  */
+/** Soft round particle: radial alpha falloff on a small canvas. */
+function sprayTexture(): THREE.Texture {
+  const c = document.createElement('canvas'); c.width = c.height = 32;
+  const ctx = c.getContext('2d')!;
+  const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.5, 'rgba(255,255,255,0.6)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 32, 32);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+
 export class RiderView {
   readonly group = new THREE.Group();
   readonly mats: RiderMaterials;
@@ -43,7 +53,7 @@ export class RiderView {
     this.sprayLife = new Float32Array(n);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(this.sprayPos, 3));
-    this.spray = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.35, transparent: true, opacity: 0.8, depthWrite: false }));
+    this.spray = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.28, map: sprayTexture(), transparent: true, opacity: 0.75, depthWrite: false, alphaTest: 0.05 }));
     this.spray.frustumCulled = false;
   }
 
@@ -109,7 +119,7 @@ export class RiderView {
     // whole-body lean into the carve on top of the pose (the board stays on the snow):
     // snowboard = pitch over the toe (edge > 0) or heel edge; skis = roll sideways
     const lean = r.onGround && !seated ? r.edgeAngle * 0.25 : 0;
-    if (this.discipline === 'board') this.body.rotation.x -= lean; else this.body.rotation.z -= lean;
+    if (this.discipline === 'board') this.joints.lean.rotation.x -= lean; else this.joints.lean.rotation.z -= lean;
 
     // snow spray when skidding or braking hard
     const pos = this.sprayPos, vel = this.sprayVel, life = this.sprayLife;

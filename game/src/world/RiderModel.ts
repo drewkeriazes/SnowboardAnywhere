@@ -8,6 +8,8 @@ import * as THREE from 'three';
  * Material slots: jacket, pants, helmet, gloves, boots, board, skin so colours can be swapped.
  */
 export interface Joints {
+  /** lean pivot at the board: pitch/roll of the whole body happens here so the feet stay on the board */
+  lean: THREE.Group;
   hips: THREE.Group; torso: THREE.Group; head: THREE.Group;
   lShoulder: THREE.Group; rShoulder: THREE.Group; lElbow: THREE.Group; rElbow: THREE.Group;
   lHip: THREE.Group; rHip: THREE.Group; lKnee: THREE.Group; rKnee: THREE.Group;
@@ -119,7 +121,8 @@ export function buildRider(mats: RiderMaterials = defaultMaterials(), discipline
   root.add(board);
 
   // hips (root of the body); the stance rotates the pelvis sideways
-  const hips = new THREE.Group(); hips.rotation.order = 'YXZ'; root.add(hips);
+  const lean = new THREE.Group(); root.add(lean);
+  const hips = new THREE.Group(); hips.rotation.order = 'YXZ'; lean.add(hips);
   hips.add(mesh(new THREE.BoxGeometry(0.36, 0.2, 0.24), mats.pants, 0, 0.0, 0));
   const torso = new THREE.Group(); torso.position.y = 0.1; hips.add(torso);
   torso.add(mesh(cap(0.17, 0.3), mats.jacket, 0, 0.28, 0)); // chest
@@ -153,13 +156,15 @@ export function buildRider(mats: RiderMaterials = defaultMaterials(), discipline
     return [hp, kn];
   };
   const [lHip, lKnee] = leg(-1), [rHip, rKnee] = leg(1);
-  return { root, snowboard, mats, joints: { hips, torso, head, lShoulder, rShoulder, lElbow, rElbow, lHip, rHip, lKnee, rKnee, board } };
+  return { root, snowboard, mats, joints: { lean, hips, torso, head, lShoulder, rShoulder, lElbow, rElbow, lHip, rHip, lKnee, rKnee, board } };
 }
 
 /** Apply a pose to the joints. Elbows and knees bend about X. */
 export function applyPose(j: Joints, p: Pose): void {
   j.hips.position.y = p.hipsY;
-  j.hips.rotation.set(p.hipsRot[0], p.hipsRot[1], p.hipsRot[2]);
+  // yaw is the stance (about the hips); pitch and roll lean the whole body about the board
+  j.hips.rotation.set(0, p.hipsRot[1], 0);
+  j.lean.rotation.set(p.hipsRot[0], 0, p.hipsRot[2]);
   j.torso.rotation.set(p.torso[0], p.torso[1], p.torso[2]);
   j.head.rotation.set(p.head[0], p.head[1], p.head[2]);
   j.lShoulder.rotation.set(p.lShoulder[0], p.lShoulder[1], p.lShoulder[2]);
