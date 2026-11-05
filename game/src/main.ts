@@ -74,7 +74,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     scene.add(lifts.markers);
     const runs = new RunsOverlay(pack);
     scene.add(runs.group);
-    const buildings = new Buildings(pack);
+    const buildings = new Buildings(pack, collider);
     scene.add(buildings.group);
     const roads = new Roads(pack);
     scene.add(roads.group);
@@ -240,7 +240,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       rider.lastHit = '';
       if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
       else if (cam.mode === 'fp') { cam.updateFirstPerson(rider, dt, input.tuck, onLift, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
-      else cam.update(rider, dt, input.tuck);
+      else cam.update(rider, dt, input.tuck, onLift);
       vignette.classList.toggle('show', cam.mode === 'fp' && settings.fpVignette);
       const cp = cam.camera.position;
       terrain.update(cp.x, -cp.z, cp.y);
@@ -253,7 +253,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       lifts.updateMarkers(elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
       map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
       if (onLift) {
-        const pct = ((liftRide.up / (liftRide.lift?.length ?? 1)) * 100).toFixed(0);
+        const pct = ((liftRide.up / (liftRide.lift ? lifts.rideLength(liftRide.lift) : 1)) * 100).toFixed(0);
         showPrompt(`<div class="name">${liftRide.lift?.feature.name ?? 'Lift'}</div><div class="row"><kbd>E</kbd> skip to the top <span class="dim">${pct}%</span></div>`);
       } else if (liftRide.nearby && !map.fullOpen && cam.mode !== 'free') {
         const name = liftRide.nearby.feature.name ?? 'Lift';

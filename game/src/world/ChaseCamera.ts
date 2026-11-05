@@ -133,8 +133,25 @@ export class ChaseCamera {
     void this.fpM;
   }
 
-  update(r: Rider, dt: number, tuck: boolean): void {
+  update(r: Rider, dt: number, tuck: boolean, onLift = false): void {
     if (this.mode === 'free' || this.mode === 'fp') return;
+    if (onLift) {
+      // chair: sit behind and a little above the seat, look up the line. No slope clamp, the
+      // seat is already well above the snow.
+      const spd = Math.hypot(r.vx, r.vy) || 1;
+      this.fwd.set(r.vx / spd, 0, -r.vy / spd);
+      const seat = new THREE.Vector3(r.x, r.z, -r.y);
+      this.desired.copy(seat).addScaledVector(this.fwd, -6.5).add(new THREE.Vector3(0, 2.2, 0));
+      const ground = this.pack.groundHeight(this.desired.x, -this.desired.z);
+      if (this.desired.y < ground + 1.5) this.desired.y = ground + 1.5;
+      this.pos.lerp(this.desired, 1 - Math.exp(-dt * 4));
+      this.look.lerp(seat.clone().addScaledVector(this.fwd, 6).add(new THREE.Vector3(0, 0.5, 0)), 1 - Math.exp(-dt * 6));
+      this.camera.position.copy(this.pos);
+      this.camera.lookAt(this.look);
+      this.camera.fov += (this.baseFov - this.camera.fov) * Math.min(1, dt * 4);
+      this.camera.updateProjectionMatrix();
+      return;
+    }
     const dist = this.mode === 'close' ? 4.5 : this.mode === 'far' ? 12 : 7.5;
     const height = this.mode === 'close' ? 1.8 : this.mode === 'far' ? 4.5 : 2.8;
     // follow the velocity direction when moving, the heading when slow

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { BuildingFeature } from '../pack/types';
+import type { Collider } from '../sim/Collider';
 
 /**
  * Buildings extruded from OSM footprints in features.json. Walls and a snow-covered roof are
@@ -14,7 +15,10 @@ export class Buildings {
   readonly group = new THREE.Group();
   private readonly mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.0 });
 
-  constructor(pack: Pack) {
+  private readonly collider: Collider | null;
+
+  constructor(pack: Pack, collider: Collider | null = null) {
+    this.collider = collider;
     const cells = new Map<string, BuildingFeature[]>();
     for (const b of pack.features.buildings) {
       if (b.points.length < 3) continue;
@@ -67,6 +71,7 @@ export class Buildings {
     for (let i = 0; i < pts.length; i++) { const a = pts[i], c = pts[(i + 1) % pts.length]; area += a[0] * c[1] - c[0] * a[1]; }
     if (area < 0) pts = [...pts].reverse();
     const n = pts.length;
+    if (this.collider) for (let i = 0; i < n; i++) { const a = pts[i], c = pts[(i + 1) % n]; this.collider.addWall(a[0], a[1], c[0], c[1], base, top); }
     // walls: one quad per edge with a flat normal
     for (let i = 0; i < n; i++) {
       const a = pts[i], c = pts[(i + 1) % n];

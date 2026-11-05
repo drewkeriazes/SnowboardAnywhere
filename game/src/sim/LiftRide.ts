@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Rider } from './Rider';
 import type { Pack } from '../pack/Pack';
-import { CHAIR_SPEED, type LiftRuntime, type Lifts } from '../world/Lifts';
+import { CHAIR_SPEED, LOAD_OFFSET, type LiftRuntime, type Lifts } from '../world/Lifts';
 
 /**
  * Riding a lift back up. Near a bottom terminal and slow, pressing the board key puts the rider
@@ -44,11 +44,12 @@ export class LiftRide {
       if (boardPressed && this.canBoard && this.nearby) this.board(rider, this.nearby);
       return this.lift !== null;
     }
-    if (boardPressed) this.up = this.lift.length; // skip to the top
+    const len = this.lifts.rideLength(this.lift);
+    if (boardPressed) this.up = len; // skip to the top
     const before = this.up;
     this.up += CHAIR_SPEED * dt;
-    this.passedTower = this.lift.towerUp.some((t) => t > before && t <= this.up);
-    if (this.up >= this.lift.length) { this.unload(rider); return false; }
+    this.passedTower = this.lift.towerUp.some((t) => t > before + LOAD_OFFSET && t <= this.up + LOAD_OFFSET);
+    if (this.up >= len) { this.unload(rider); return false; }
     this.place(rider);
     return true;
   }
@@ -63,26 +64,32 @@ export class LiftRide {
   private place(rider: Rider): void {
     const l = this.lift!;
     this.lifts.seatAt(l, this.up, this.seat);
-    this.lifts.seatAt(l, Math.min(l.length, this.up + 2), this.seat2);
-    rider.x = this.seat.x; rider.y = -this.seat.z; rider.z = this.seat.y;
+    this.lifts.seatAt(l, Math.min(this.lifts.rideLength(l), this.up + 2), this.seat2);
+    rider.x = this.seat.x; rider.y = -this.seat.z;
+    // the chair dips to the snow at the loading and unloading points
+    const len = this.lifts.rideLength(l);
+    const edge = Math.min(this.up, len - this.up);
+    const ground = this.pack.groundHeight(rider.x, rider.y) + 0.7;
+    rider.z = edge < 12 ? ground + (this.seat.y - ground) * Math.max(0, edge / 12) : this.seat.y;
     rider.onGround = true;
     rider.normal[0] = 0; rider.normal[1] = 0; rider.normal[2] = 1;
     // face the direction of travel
     const dx = this.seat2.x - this.seat.x, dy = -(this.seat2.z - this.seat.z);
     if (Math.hypot(dx, dy) > 0.01) rider.heading = Math.atan2(dx, dy);
     // velocity for the chase camera (it follows the velocity direction above 2.5 m/s)
-    const len = Math.hypot(dx, dy) || 1;
-    rider.vx = (dx / len) * CHAIR_SPEED; rider.vy = (dy / len) * CHAIR_SPEED;
+    const dl = Math.hypot(dx, dy) || 1;
+    rider.vx = (dx / dl) * CHAIR_SPEED; rider.vy = (dy / dl) * CHAIR_SPEED;
     rider.speed = CHAIR_SPEED;
   }
 
   private unload(rider: Rider): void {
     const l = this.lift!;
     this.lift = null;
-    // drop in 8 m past the top terminal in the direction of travel, then face downhill
+    // step off at the top unloading point, a little to the side of the line, facing downhill
     const dirX = l.top[0] - l.bottom[0], dirY = l.top[1] - l.bottom[1];
     const dl = Math.hypot(dirX, dirY) || 1;
-    let x = l.top[0] + (dirX / dl) * 8, y = l.top[1] + (dirY / dl) * 8;
+    const side = l.upFromA ? 1 : -1;
+    let x = l.top[0] + (dirX / dl) * 3 + l.lateral[0] * 3 * side, y = l.top[1] + (dirY / dl) * 3 + l.lateral[1] * 3 * side;
     const n = this.pack.groundNormal(x, y) as number[];
     let heading = Math.hypot(n[0], n[1]) > 0.02 ? Math.atan2(n[0], n[1]) : Math.atan2(-dirX, -dirY);
     rider.reset(x, y, heading);

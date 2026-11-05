@@ -8,6 +8,8 @@ import type { Pack } from '../pack/Pack';
  */
 const CHAIR_SPACING = 22; // m along the cable
 const CHAIR_SPEED = 2.6; // m/s
+/** metres along the line from the station node to where you board / unload */
+export const LOAD_OFFSET = 8;
 
 export interface LiftRuntime {
   feature: LiftFeature;
@@ -100,9 +102,47 @@ export class Lifts {
         term.castShadow = true; term.receiveShadow = true;
         this.group.add(term);
       }
-      // cable path: station tops and tower tops with catenary sag between
+      // cable path: station tops and tower tops with catenary sag between. Where a span would
+      // run closer than CLEARANCE to the ground (sparse OSM pylons over a convex slope), insert
+      // a virtual tower at the worst point and try again.
       const pts: THREE.Vector3[] = [];
       const anchors: [number, number, number][] = [[a[0], a[1], pack.groundHeight(a[0], a[1]) + 6], ...towers.map((t) => [t[0], t[1], t[2] + t[3]] as [number, number, number]), [b[0], b[1], pack.groundHeight(b[0], b[1]) + 6]];
+      const CLEARANCE = 7;
+      const extra: [number, number, number, number][] = [];
+      for (let guard = 0; guard < 60; guard++) {
+        let worst = -1, wi = -1, wx = 0, wy = 0;
+        for (let i = 0; i < anchors.length - 1; i++) {
+          const p0 = anchors[i], p1 = anchors[i + 1];
+          const span = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+          if (span < 30) continue;
+          const sag = Math.min(6, span * 0.025);
+          const n = Math.min(24, Math.max(4, Math.floor(span / 10)));
+          for (let k = 1; k < n; k++) {
+            const t = k / n;
+            const x = p0[0] + (p1[0] - p0[0]) * t, y = p0[1] + (p1[1] - p0[1]) * t;
+            const z = p0[2] + (p1[2] - p0[2]) * t - sag * 4 * t * (1 - t);
+            const g = pack.groundHeight(x, y);
+            const v = g + CLEARANCE - z;
+            if (v > worst) { worst = v; wi = i; wx = x; wy = y; }
+          }
+        }
+        if (worst <= 0) break;
+        const gz = pack.groundHeight(wx, wy);
+        anchors.splice(wi + 1, 0, [wx, wy, gz + 11]);
+        extra.push([wx, wy, gz, 11]);
+      }
+      if (extra.length) {
+        const all = [...towers, ...extra];
+        towers = all;
+        const inst2 = new THREE.InstancedMesh(towerGeo, this.towerMat, extra.length);
+        const arms2 = new THREE.InstancedMesh(armGeo, this.towerMat, extra.length);
+        extra.forEach((t, i) => {
+          this.p.set(t[0], t[2], -t[1]); this.q.identity(); this.s.set(1, t[3], 1); this.m.compose(this.p, this.q, this.s); inst2.setMatrixAt(i, this.m);
+          this.p.set(t[0], t[2] + t[3], -t[1]); this.q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw + Math.PI / 2); this.s.set(1, 1, 1); this.m.compose(this.p, this.q, this.s); arms2.setMatrixAt(i, this.m);
+        });
+        inst2.instanceMatrix.needsUpdate = true; arms2.instanceMatrix.needsUpdate = true;
+        this.group.add(inst2, arms2);
+      }
       for (let i = 0; i < anchors.length - 1; i++) {
         const p0 = anchors[i], p1 = anchors[i + 1];
         const span = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
@@ -130,10 +170,17 @@ export class Lifts {
       chairs.castShadow = true;
       this.group.add(chairs);
       const upFromA = a[2] <= b[2];
-      const bottom: [number, number, number] = upFromA ? [a[0], a[1], a[2]] : [b[0], b[1], b[2]];
-      const towerUp = towers.map((t) => Math.hypot(t[0] - bottom[0], t[1] - bottom[1])).sort((p, q) => p - q);
+      // loading and unloading points: LOAD_OFFSET m along the line from the station node, where the
+      // chair leaves / enters the terminal box. Everything (ring, marker, prompt, seat) uses these.
+      const lo = upFromA ? a : b, hi = upFromA ? b : a;
+      const ux = (hi[0] - lo[0]) / dl, uy = (hi[1] - lo[1]) / dl;
+      const bx = lo[0] + ux * LOAD_OFFSET, by = lo[1] + uy * LOAD_OFFSET;
+      const tx = hi[0] - ux * LOAD_OFFSET, ty = hi[1] - uy * LOAD_OFFSET;
+      const bottom: [number, number, number] = [bx, by, pack.groundHeight(bx, by)];
+      const top: [number, number, number] = [tx, ty, pack.groundHeight(tx, ty)];
+      const towerUp = towers.map((t) => Math.hypot(t[0] - lo[0], t[1] - lo[1])).sort((p, q) => p - q);
       this.lifts.push({ feature: lift, curve: pts, cum, length, chairs, nChairs, offset: Math.random() * CHAIR_SPACING, lateral: [lx, ly], yaw,
-        upFromA, bottom, top: upFromA ? [b[0], b[1], b[2]] : [a[0], a[1], a[2]], towerUp });
+        upFromA, bottom, top, towerUp });
     }
   }
 
@@ -198,9 +245,13 @@ export class Lifts {
     return best;
   }
 
-  /** Seat position (three.js coords) at distance `up` metres from the bottom terminal along the cable. */
+  /** Rideable cable length between the loading and unloading points. */
+  rideLength(l: LiftRuntime): number { return Math.max(1, l.length - 2 * LOAD_OFFSET); }
+
+  /** Seat position (three.js coords) at distance `up` metres from the bottom loading point along the cable. */
   seatAt(l: LiftRuntime, up: number, out: THREE.Vector3): THREE.Vector3 {
-    const d = l.upFromA ? up : l.length - up;
+    const dd = up + LOAD_OFFSET;
+    const d = l.upFromA ? dd : l.length - dd;
     this.pointAt(l, Math.max(0, Math.min(l.length, d)), out);
     const side = l.upFromA ? 1 : -1; // the moving chairs use side +1 for the a -> b direction
     out.x += l.lateral[0] * 1.6 * side; out.z -= l.lateral[1] * 1.6 * side; out.y -= SEAT_DROP;

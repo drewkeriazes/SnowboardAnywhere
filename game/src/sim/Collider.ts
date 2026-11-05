@@ -30,6 +30,21 @@ export class Collider {
     arr.push(new Float32Array([x, y, radius, zBase, zTop, kind]));
   }
 
+  private readonly walls = new Map<string, Float32Array[]>(); // packed [x1, y1, x2, y2, zBase, zTop]
+
+  /** Add a vertical wall segment (building edge). Registered in every cell its bbox touches. */
+  addWall(x1: number, y1: number, x2: number, y2: number, zBase: number, zTop: number): void {
+    const w = new Float32Array([x1, y1, x2, y2, zBase, zTop]);
+    const cx0 = Math.floor(Math.min(x1, x2) / CELL), cx1 = Math.floor(Math.max(x1, x2) / CELL);
+    const cy0 = Math.floor(Math.min(y1, y2) / CELL), cy1 = Math.floor(Math.max(y1, y2) / CELL);
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+      const k = this.key(cx, cy);
+      let arr = this.walls.get(k);
+      if (!arr) { arr = []; this.walls.set(k, arr); }
+      arr.push(w);
+    }
+  }
+
   clearCell(cellKey: string): void {
     this.cells.delete(cellKey);
   }
@@ -58,6 +73,30 @@ export class Collider {
             const nx = d > 1e-4 ? dx / d : 1, ny = d > 1e-4 ? dy / d : 0;
             x = c[0] + nx * min; y = c[1] + ny * min;
             this.hit.x = x; this.hit.y = y; this.hit.nx = nx; this.hit.ny = ny; this.hit.kind = c[5]; this.hit.top = c[4];
+            found = this.hit;
+          }
+        }
+      }
+    }
+    // walls: push out along the segment normal
+    for (let j = -1; j <= 1; j++) {
+      for (let i = -1; i <= 1; i++) {
+        const arr = this.walls.get(this.key(cx + i, cy + j));
+        if (!arr) continue;
+        for (const w of arr) {
+          if (z > w[5] || z + 1.5 < w[4]) continue;
+          const ex = w[2] - w[0], ey = w[3] - w[1];
+          const len2 = ex * ex + ey * ey || 1e-6;
+          const t = Math.max(0, Math.min(1, ((x - w[0]) * ex + (y - w[1]) * ey) / len2));
+          const px = w[0] + ex * t, py = w[1] + ey * t;
+          const dx = x - px, dy = y - py;
+          const d = Math.hypot(dx, dy);
+          if (d < r) {
+            let nx: number, ny: number;
+            if (d > 1e-4) { nx = dx / d; ny = dy / d; }
+            else { const l = Math.sqrt(len2); nx = ey / l; ny = -ex / l; }
+            x = px + nx * r; y = py + ny * r;
+            this.hit.x = x; this.hit.y = y; this.hit.nx = nx; this.hit.ny = ny; this.hit.kind = 0; this.hit.top = w[5];
             found = this.hit;
           }
         }
