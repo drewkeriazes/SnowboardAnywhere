@@ -1,12 +1,12 @@
 # SnowboardAnywhere – working notes for Claude
 
-- Stack: Three.js 0.172 + TypeScript + Vite in `game/`; Python (rasterio/numpy/scipy/shapely/laspy) in `pipeline/process/`; PowerShell fetch scripts (`pipeline/fetch.ps1`, `pipeline/fetch_static.ps1`) run on Drew's PC.
-- Plan of record: `docs/bonvo-teardown-and-build-plan.md`. Follow its data sources, pack format and milestones; update it when a decision changes.
-- Data hosts (USGS, Planetary Computer, Overpass, Mapterhorn, OpenSkiData) are NOT reachable from the cloud sandbox. Fetch runs on Drew's PC; processing can run anywhere on the staged raw files.
-- Canonical checkout on Drew's PC: `C:\Users\Drew\git\SnowboardAnywhere`. Raw data lives at `raw\vail\` inside it (gitignored). Every session attaches this same GitHub repo (drewkeriazes/SnowboardAnywhere) and commits to it; nothing lives only in a sandbox.
-- Research and data notes live in `docs/` (index: `docs/README.md`). Read `docs/data/vail-raw-data-inventory.md` before touching raw data, and the matching `docs/research/*.md` before starting a milestone. The claude.ai Project docs are a mirror; the repo copy is canonical.
+- Stack: Three.js 0.172 + TypeScript + Vite in `game/`; Python (numpy/scipy/pillow/tifffile/pyproj/shapely/laspy, see `pipeline/requirements.txt`) in `pipeline/`; PowerShell fetch scripts (`pipeline/fetch.ps1`, `pipeline/fetch_static.ps1`) run on Drew's PC, no installs.
+- Start with `docs/HANDOFF.md` (current state and next steps). Plan of record: `docs/bonvo-teardown-and-build-plan.md` (verified Bonvo capture, data sources, milestones). Pack layout: `docs/pack-format.md`. Research and data notes: `docs/README.md` index, `docs/data/vail-raw-data-inventory.md` before touching raw data, `docs/research/*.md` before starting a milestone. The claude.ai Project docs are a mirror; the repo copy is canonical.
+- Data hosts (USGS, Planetary Computer, Overpass, Mapterhorn, usgs-lidar-public) are NOT reachable from the cloud sandbox. Fetch runs on Drew's PC; processing runs anywhere on the staged raw files.
+- Canonical checkout on Drew's PC: `C:\Users\Drew\git\SnowboardAnywhere`. Raw Vail data (1.4 GB, complete 2026-11-05) is at `C:\Users\Drew\Documents\snowboard-sim\raw\vail`; `fetch.ps1 -RawDir <dir>` and `build_pack.py <slug> <raw_dir> <out_dir>` take the location as an argument, or move it to `raw\` inside the repo (gitignored). Every session attaches the same GitHub repo (drewkeriazes/SnowboardAnywhere) and commits to it; nothing lives only in a sandbox.
+- Pipeline flow: `pipeline/resorts/<slug>.json` -> `gen_manifest.py` -> `manifests/<slug>.json` -> `fetch.ps1` -> `raw/<slug>/` -> `build_pack.py` -> `packs/<slug>/` -> the game loads `/packs/<slug>/` (Vite dev middleware serves `../packs`). `synth_pack.py` writes a synthetic mountain in the same format for client work without real data.
 - Do not run two fetches at once; the downloader assumes a single writer.
-- All game-space coordinates are local metres (UTM, resort origin in `meta.json`). Never put lat/lon in the renderer or physics.
-- Typecheck before committing: `cd game && npx tsc --noEmit`.
+- All game-space coordinates are local metres: pack x east, y north, z up; three.js x east, y up, z = -north. Never put lat/lon in the renderer or physics.
+- Typecheck before committing: `cd game && npx tsc --noEmit`. Headless render check: `cd game && npx vite build && node tools/shoot.mjs synth` (use `?lowgfx` on software GPUs).
 - Do not assert Bonvo internals from memory; the verified capture is in the plan doc.
 - No em dashes in prose.

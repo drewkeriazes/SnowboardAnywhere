@@ -1,0 +1,247 @@
+import * as THREE from 'three';
+import type { Pack } from '../pack/Pack';
+import { createTerrainMaterial } from './TerrainMaterial';
+
+/**
+ * Chunked quadtree terrain. The root covers the far height set (262 km). Each chunk is an
+ * N x N quad grid built on the CPU from pack.height() at the chunk's resolution, with a skirt
+ * to hide cracks between LOD levels. World axes: three.js x = east, y = up, z = south (so
+ * pack y = -three.z).
+ */
+const N = 32; // quads per chunk side
+const SPLIT_K = 2.6; // split when distance < size * SPLIT_K
+const MAX_BUILDS_PER_FRAME = 10;
+
+interface Chunk {
+  key: string;
+  level: number;
+  x: number; // chunk index at its level
+  y: number;
+  minX: number;
+  minY: number;
+  size: number;
+  res: number;
+  mesh: THREE.Mesh | null;
+  dataRes: number; // finest source resolution available when built
+  lastUsed: number;
+}
+
+export class Terrain {
+  readonly group = new THREE.Group();
+  readonly material: THREE.MeshStandardMaterial;
+  private readonly pack: Pack;
+  private readonly rootMinX: number;
+  private readonly rootMinY: number;
+  private readonly rootSize: number;
+  private readonly chunks = new Map<string, Chunk>();
+  private readonly dirty = new Set<string>();
+  private frame = 0;
+  private readonly maskSample = [0, 0, 0, 0];
+  /** chunks selected this frame */
+  private visible: Chunk[] = [];
+  readonly stats = { chunks: 0, builds: 0, triangles: 0 };
+
+  constructor(pack: Pack) {
+    this.pack = pack;
+    this.material = createTerrainMaterial();
+    const far = pack.meta.terrain.far ?? pack.meta.terrain.mid ?? pack.meta.terrain.fine!;
+    this.rootMinX = far.minX;
+    this.rootMinY = far.minY;
+    this.rootSize = Math.max(far.maxX - far.minX, far.maxY - far.minY);
+    for (const s of pack.sets) {
+      s.onTileLoaded = (tx, ty) => this.onTileLoaded(s.meta.minX + tx * s.size, s.meta.minY + ty * s.size, s.size, s.meta.res);
+    }
+    if (pack.mask) pack.mask.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.mask!.meta.minX + tx * pack.mask!.size, pack.mask!.meta.minY + ty * pack.mask!.size, pack.mask!.size, 0);
+  }
+
+  /** Finest resolution worth rendering at a point: 1 m inside the fine set, else mid, else far. */
+  private minRes(cx: number, cy: number): number {
+    const p = this.pack;
+    if (p.fine && p.fine.contains(cx, cy)) return p.fine.meta.res;
+    if (p.mid && p.mid.contains(cx, cy)) return p.mid.meta.res / 2;
+    return (p.far?.meta.res ?? 128) / 2;
+  }
+
+  private onTileLoaded(minX: number, minY: number, size: number, res: number): void {
+    for (const c of this.chunks.values()) {
+      if (!c.mesh) continue;
+      if (c.minX < minX + size && c.minX + c.size > minX && c.minY < minY + size && c.minY + c.size > minY) {
+        // rebuild if this tile is finer than what the chunk was built from, or it is a mask tile
+        if (res === 0 || res < c.dataRes) this.dirty.add(c.key);
+      }
+    }
+  }
+
+  update(camX: number, camY: number, camZ: number): void {
+    this.frame++;
+    this.visible = [];
+    this.select(0, 0, 0, this.rootMinX, this.rootMinY, this.rootSize, camX, camY, camZ);
+    // request data for the chunks we want at their resolution
+    const want = new Set<string>();
+    let builds = 0;
+    for (const c of this.visible) {
+      want.add(c.key);
+      c.lastUsed = this.frame;
+      if (c.res <= 8 && this.pack.fine) this.pack.fine.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
+      else if (c.res <= 64 && this.pack.mid) this.pack.mid.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
+      else if (this.pack.far) this.pack.far.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
+      if (c.res <= 8 && this.pack.mask) this.pack.mask.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
+      if ((!c.mesh || this.dirty.has(c.key)) && builds < MAX_BUILDS_PER_FRAME) {
+        this.build(c);
+        this.dirty.delete(c.key);
+        builds++;
+      }
+    }
+    this.stats.builds = builds;
+    // show/hide: a chunk is drawn if selected and built; a selected but unbuilt chunk shows its built ancestor instead
+    let tris = 0;
+    for (const c of this.chunks.values()) {
+      if (!c.mesh) continue;
+      let show = want.has(c.key);
+      if (!show) {
+        // keep showing an ancestor while descendants are still building
+        show = this.visible.some((v) => v.level > c.level && !v.mesh && this.isAncestor(c, v));
+      }
+      c.mesh.visible = show;
+      if (show) tris += N * N * 2;
+      // evict long-unused chunks
+      if (!show && this.frame - c.lastUsed > 600) {
+        c.mesh.geometry.dispose();
+        this.group.remove(c.mesh);
+        this.chunks.delete(c.key);
+      }
+    }
+    this.stats.chunks = this.visible.length;
+    this.stats.triangles = tris;
+    this.material.userData.shader?.uniforms.uTime && (this.material.userData.shader.uniforms.uTime.value = performance.now() / 1000);
+  }
+
+  private isAncestor(a: Chunk, d: Chunk): boolean {
+    return d.minX >= a.minX && d.minY >= a.minY && d.minX + d.size <= a.minX + a.size && d.minY + d.size <= a.minY + a.size;
+  }
+
+  private select(level: number, x: number, y: number, minX: number, minY: number, size: number, cx: number, cy: number, cz: number): void {
+    // distance from camera to chunk box (horizontal) plus a vertical term
+    const dx = Math.max(minX - cx, 0, cx - (minX + size));
+    const dy = Math.max(minY - cy, 0, cy - (minY + size));
+    const zmid = (this.pack.meta.zRange[0] + this.pack.meta.zRange[1]) / 2;
+    const dz = Math.max(0, Math.abs(cz - zmid) - (this.pack.meta.zRange[1] - this.pack.meta.zRange[0]) / 2);
+    const dist = Math.hypot(dx, dy, dz);
+    const res = size / N;
+    const centreX = minX + size / 2, centreY = minY + size / 2;
+    const canSplit = res > this.minRes(centreX, centreY) && level < 14;
+    if (canSplit && dist < size * SPLIT_K) {
+      const h = size / 2;
+      this.select(level + 1, x * 2, y * 2, minX, minY, h, cx, cy, cz);
+      this.select(level + 1, x * 2 + 1, y * 2, minX + h, minY, h, cx, cy, cz);
+      this.select(level + 1, x * 2, y * 2 + 1, minX, minY + h, h, cx, cy, cz);
+      this.select(level + 1, x * 2 + 1, y * 2 + 1, minX + h, minY + h, h, cx, cy, cz);
+      return;
+    }
+    // skip chunks entirely outside any data (far outside the root happens only at the root itself)
+    const key = `${level}/${x}/${y}`;
+    let c = this.chunks.get(key);
+    if (!c) {
+      c = { key, level, x, y, minX, minY, size, res, mesh: null, dataRes: Infinity, lastUsed: this.frame };
+      this.chunks.set(key, c);
+    }
+    this.visible.push(c);
+  }
+
+  private build(c: Chunk): void {
+    const n = N + 1;
+    const res = c.res;
+    const pack = this.pack;
+    const skirt = Math.max(2, res * 3);
+    const vertCount = n * n + 4 * n; // grid + skirt ring
+    const pos = new Float32Array(vertCount * 3);
+    const nor = new Float32Array(vertCount * 3);
+    const col = new Float32Array(vertCount * 3);
+    const heights = new Float32Array((n + 2) * (n + 2)); // with a 1-sample border for normals
+    // sample heights including border
+    let dataRes = Infinity;
+    for (let j = -1; j <= n; j++) {
+      const y = c.minY + j * res;
+      for (let i = -1; i <= n; i++) {
+        const x = c.minX + i * res;
+        heights[(j + 1) * (n + 2) + (i + 1)] = pack.height(x, y, res);
+      }
+    }
+    dataRes = pack.finestRes(c.minX + c.size / 2, c.minY + c.size / 2);
+    const useMask = !!pack.mask && res <= 8;
+    let v = 0;
+    const H = (i: number, j: number) => heights[(j + 1) * (n + 2) + (i + 1)];
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const x = c.minX + i * res, y = c.minY + j * res;
+        const h = H(i, j);
+        pos[v * 3] = x; pos[v * 3 + 1] = h; pos[v * 3 + 2] = -y;
+        // normal by central differences (pack x east, y north -> three x, -z)
+        const nxp = -(H(i + 1, j) - H(i - 1, j)) / (2 * res);
+        const nyp = -(H(i, j + 1) - H(i, j - 1)) / (2 * res);
+        const len = Math.hypot(nxp, nyp, 1);
+        nor[v * 3] = nxp / len; nor[v * 3 + 1] = 1 / len; nor[v * 3 + 2] = -nyp / len;
+        // classes
+        const slope = Math.acos(1 / len); // radians
+        let rock = 0, scree = 0, groom = 0;
+        if (useMask) {
+          const m = pack.mask!.sample(x, y, this.maskSample);
+          rock = m[0]; scree = m[1]; groom = m[2];
+        }
+        // steep ground sheds snow regardless of the mask
+        const steep = THREE.MathUtils.smoothstep(slope, 0.72, 1.0); // 41..57 degrees
+        rock = Math.max(rock, steep);
+        col[v * 3] = rock; col[v * 3 + 1] = scree * (1 - rock); col[v * 3 + 2] = groom * (1 - rock);
+        v++;
+      }
+    }
+    // skirt vertices: copies of the edge vertices dropped by `skirt`
+    const edge: number[] = [];
+    for (let i = 0; i < n; i++) edge.push(i); // south edge (j = 0)
+    for (let j = 0; j < n; j++) edge.push(j * n + (n - 1)); // east edge
+    for (let i = n - 1; i >= 0; i--) edge.push((n - 1) * n + i); // north edge
+    for (let j = n - 1; j >= 0; j--) edge.push(j * n); // west edge
+    const skirtStart = v;
+    for (let k = 0; k < edge.length; k++) {
+      const e = edge[k];
+      pos[v * 3] = pos[e * 3]; pos[v * 3 + 1] = pos[e * 3 + 1] - skirt; pos[v * 3 + 2] = pos[e * 3 + 2];
+      nor[v * 3] = nor[e * 3]; nor[v * 3 + 1] = nor[e * 3 + 1]; nor[v * 3 + 2] = nor[e * 3 + 2];
+      col[v * 3] = col[e * 3]; col[v * 3 + 1] = col[e * 3 + 1]; col[v * 3 + 2] = col[e * 3 + 2];
+      v++;
+    }
+    const idx: number[] = [];
+    for (let j = 0; j < N; j++) {
+      for (let i = 0; i < N; i++) {
+        const a = j * n + i, b = a + 1, cc = a + n, d = cc + 1;
+        // counter-clockwise seen from above (three.js y-up, z = -north): a(x,y) b(x+1,y) c(x,y+1)
+        idx.push(a, b, d, a, d, cc);
+      }
+    }
+    // skirt quads: edge k -> edge k+1 (perimeter order), skirt copies below
+    const per = edge.length;
+    for (let k = 0; k < per; k++) {
+      const e0 = edge[k], e1 = edge[(k + 1) % per];
+      if (k % n === n - 1) continue; // corner duplicates between sides
+      const s0 = skirtStart + k, s1 = skirtStart + ((k + 1) % per);
+      idx.push(e0, s0, e1, e1, s0, s1);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setIndex(idx);
+    geo.computeBoundingSphere();
+    if (c.mesh) {
+      c.mesh.geometry.dispose();
+      c.mesh.geometry = geo;
+    } else {
+      const mesh = new THREE.Mesh(geo, this.material);
+      mesh.castShadow = c.res <= 4;
+      mesh.receiveShadow = true;
+      mesh.frustumCulled = true;
+      c.mesh = mesh;
+      this.group.add(mesh);
+    }
+    c.dataRes = dataRes;
+  }
+}

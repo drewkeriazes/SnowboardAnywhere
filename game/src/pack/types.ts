@@ -1,0 +1,98 @@
+export interface HeightSetMeta {
+  res: number;
+  tileSize: number;
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  tilesX: number;
+  tilesY: number;
+}
+
+export interface MaskMeta {
+  res: number;
+  tileSize: number;
+  minX: number;
+  minY: number;
+  tilesX: number;
+  tilesY: number;
+}
+
+export interface InstancesMeta {
+  cellSize: number;
+  minX: number;
+  minY: number;
+  cellsX: number;
+  cellsY: number;
+  treeCount?: number;
+  rockCount?: number;
+}
+
+export interface PackMeta {
+  version: number;
+  slug: string;
+  name: string;
+  crs: string;
+  origin: [number, number];
+  lonlat: [number, number];
+  bounds: { minX: number; minY: number; maxX: number; maxY: number };
+  zRange: [number, number];
+  terrain: { fine?: HeightSetMeta; mid?: HeightSetMeta; far?: HeightSetMeta };
+  mask?: MaskMeta;
+  instances?: InstancesMeta;
+  start: { x: number; y: number; heading: number };
+  sun: { azimuth: number; elevation: number };
+  attribution: string[];
+}
+
+export type Difficulty = 'easy' | 'intermediate' | 'advanced' | 'expert' | 'freeride' | 'extreme' | 'novice';
+
+export interface RunFeature {
+  name: string | null;
+  difficulty: Difficulty | null;
+  groomed: boolean;
+  gladed: boolean;
+  osmId?: number | string | null;
+  points: [number, number, number][];
+}
+
+export interface LiftFeature {
+  name: string | null;
+  type: string;
+  capacity?: number | null;
+  stations: [number, number, number][];
+  towers: [number, number, number, number][]; // x, y, zGround, height
+  cable: [number, number, number][];
+}
+
+export interface BuildingFeature {
+  name?: string | null;
+  points: [number, number][];
+  zBase: number;
+  height: number;
+  kind?: string;
+}
+
+export interface RoadFeature {
+  name?: string | null;
+  kind: string;
+  points: [number, number, number][];
+  width: number;
+}
+
+export interface PeakFeature {
+  name: string;
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface Features {
+  lifts: LiftFeature[];
+  runs: RunFeature[];
+  buildings: BuildingFeature[];
+  roads: RoadFeature[];
+  water: { name?: string; points: [number, number][]; z: number }[];
+  peaks: PeakFeature[];
+  labels: { name: string; kind: string; x: number; y: number; z: number }[];
+}
