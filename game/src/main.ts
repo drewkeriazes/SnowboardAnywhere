@@ -241,7 +241,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       const onLift = cam.mode !== 'free' && liftRide.update(rider, dt, boardPressed);
       if (cam.mode !== 'free' && !onLift && !map.fullOpen) rider.update(dt, input);
       riderView.setFirstPerson(cam.mode === 'fp');
-      riderView.update(rider, dt, input.tuck);
+      riderView.update(rider, dt, input.tuck, input.grab, onLift && liftRide.airborneRide);
       audio.update(rider, input.tuck, onLift, dt, liftRide.passedTower);
       rider.lastHit = '';
       if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }

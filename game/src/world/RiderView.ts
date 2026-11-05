@@ -1,14 +1,20 @@
 import * as THREE from 'three';
 import type { Rider } from '../sim/Rider';
+import { buildRider, applyPose, lerpPose, clonePose, POSES, type Joints, type Pose, type RiderMaterials } from './RiderModel';
 
-/** Simple rider: board, legs, body, head. Leans into carves, crouches in a tuck and for jumps. */
+/**
+ * Articulated rider (RiderModel.ts) posed from the sim state: neutral, toe/heel carve, tuck,
+ * crouch (jump charge), air and grab, landing compression, crash tumble, seated on a chair.
+ * Poses blend by weight each frame and the result is smoothed, so transitions read as motion.
+ */
 export class RiderView {
   readonly group = new THREE.Group();
-  private readonly board: THREE.Mesh;
+  readonly mats: RiderMaterials;
+  private readonly joints: Joints;
   private readonly body: THREE.Group;
-  private readonly torso: THREE.Mesh;
-  private readonly legs: THREE.Mesh;
-  private readonly head: THREE.Mesh;
+  private readonly pose: Pose = clonePose(POSES.neutral);
+  private readonly target: Pose = clonePose(POSES.neutral);
+  private readonly scratch: Pose = clonePose(POSES.neutral);
   private readonly spray: THREE.Points;
   private readonly sprayPos: Float32Array;
   private readonly sprayVel: Float32Array;
@@ -18,24 +24,14 @@ export class RiderView {
   private readonly tmpR = new THREE.Vector3();
   private readonly rot = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
-  private crouch = 0;
 
   constructor() {
-    const boardMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.4, metalness: 0.2 });
-    this.board = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.025, 1.56), boardMat);
-    this.board.castShadow = true;
-    this.group.add(this.board);
-    this.body = new THREE.Group();
-    this.group.add(this.body);
-    const suit = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.8 });
-    const pants = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.9 });
-    this.legs = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.5, 4, 8), pants);
-    this.legs.position.y = 0.45;
-    this.torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.21, 0.5, 4, 8), suit);
-    this.torso.position.y = 1.05;
-    this.head = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 10), new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 }));
-    this.head.position.y = 1.55;
-    for (const m of [this.legs, this.torso, this.head]) { m.castShadow = true; this.body.add(m); }
+    const built = buildRider();
+    this.mats = built.mats;
+    this.joints = built.joints;
+    this.body = built.joints.hips;
+    this.group.add(built.root);
+    applyPose(this.joints, this.pose);
 
     const n = 400;
     this.sprayPos = new Float32Array(n * 3);
@@ -54,8 +50,28 @@ export class RiderView {
   /** Hide the body (keep the board) for first person. */
   setFirstPerson(fp: boolean): void { this.body.visible = !fp; }
 
-  update(r: Rider, dt: number, tuck: boolean): void {
+  update(r: Rider, dt: number, tuck: boolean, grab = false, seated = false): void {
     this.group.position.set(r.x, r.z, -r.y);
+    // ---- pose blend
+    const t = this.target;
+    const P = POSES;
+    Object.assign(t, clonePose(P.neutral));
+    if (seated) { lerpPose(t, t, P.seated, 1); }
+    else if (r.crashed > 0) { lerpPose(t, t, P.crash, 1); }
+    else if (!r.onGround) { lerpPose(t, t, grab ? P.grab : P.air, 1); }
+    else {
+      const edge = Math.max(-1, Math.min(1, r.edgeAngle));
+      if (edge > 0) lerpPose(t, t, P.carveToe, Math.min(1, edge * 1.2)); else if (edge < 0) lerpPose(t, t, P.carveHeel, Math.min(1, -edge * 1.2));
+      if (tuck) lerpPose(t, t, P.tuck, 0.85);
+      if (r.jumpCharge > 0) lerpPose(t, t, P.crouch, Math.min(1, r.jumpCharge));
+      if (r.landingShock > 0) lerpPose(t, t, P.land, Math.min(1, r.landingShock * 1.5));
+    }
+    lerpPose(this.pose, this.pose, t, Math.min(1, dt * (r.crashed > 0 ? 6 : 10)));
+    applyPose(this.joints, this.pose);
+    // idle breathing / balance wobble so a standing rider is not frozen
+    const now = performance.now() / 1000;
+    this.joints.torso.rotation.x += Math.sin(now * 1.3) * 0.015;
+    this.joints.hips.position.y += Math.sin(now * 2.1) * 0.004;
     // orientation: board forward along heading, up along the ground normal (blend to world up in the air)
     const n = this.tmpN.set(r.normal[0], r.normal[2], -r.normal[1]);
     if (!r.onGround) n.lerp(new THREE.Vector3(0, 1, 0), 0.7).normalize();
@@ -66,14 +82,9 @@ export class RiderView {
     this.rot.makeBasis(right, n, f.clone().negate());
     this.q.setFromRotationMatrix(this.rot);
     this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
-    // lean into the edge; crouch for tuck / charge / landing
-    const lean = r.onGround ? -r.edgeAngle * 0.55 : 0;
-    const target = Math.max(tuck ? 0.45 : 0, r.jumpCharge * 0.5, r.landingShock * 0.6);
-    this.crouch += (target - this.crouch) * Math.min(1, dt * 8);
-    this.body.rotation.set(this.crouch * 0.6 + (r.crashed > 0 ? 1.3 : 0), 0, lean);
-    this.body.position.y = -this.crouch * 0.35;
-    this.body.scale.y = 1 - this.crouch * 0.25;
-    this.board.visible = true;
+    // whole-body lean into the carve on top of the pose (the board stays on the snow)
+    const lean = r.onGround && !seated ? -r.edgeAngle * 0.3 : 0;
+    this.body.rotation.z += lean;
 
     // snow spray when skidding or braking hard
     const pos = this.sprayPos, vel = this.sprayVel, life = this.sprayLife;
