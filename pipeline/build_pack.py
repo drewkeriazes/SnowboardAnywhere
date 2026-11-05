@@ -26,8 +26,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 slug = sys.argv[1]
 raw = sys.argv[2]
 out = sys.argv[3]
-cfg = json.load(open(os.path.join(HERE, "resorts", f"{slug}.json")))
-manifest = json.load(open(os.path.join(HERE, "manifests", f"{slug}.json")))
+cfg = json.load(open(os.path.join(HERE, "resorts", f"{slug}.json"), encoding="utf-8"))
+manifest = json.load(open(os.path.join(HERE, "manifests", f"{slug}.json"), encoding="utf-8"))
 os.makedirs(out, exist_ok=True)
 T0 = time.time()
 def log(*a):
@@ -139,7 +139,7 @@ dsm = np.full((H2, W2), -1e9, np.float32)
 cnt = np.zeros((H2, W2), np.int32)
 dtm_l = np.full((H2, W2), 1e9, np.float32)
 n_pts = 0
-ept = json.load(open(os.path.join(raw, "ept/ept.json")))
+ept = json.load(open(os.path.join(raw, "ept/ept.json"), encoding="utf-8"))
 scale = None
 for p in sorted(glob.glob(os.path.join(raw, "ept", "*.laz"))):
     try:
@@ -230,8 +230,8 @@ def load_osm(name):
     p = os.path.join(raw, "osm", f"{name}.json")
     if not os.path.exists(p):
         log("  missing osm", name); return {"elements": []}
-    return json.load(open(p))
-ski = load_osm("ski"); built = load_osm("built"); natural = load_osm("natural"); peaks_far = load_osm("peaks_far")
+    return json.load(open(p, encoding="utf-8"))
+ski = load_osm("ski"); built = load_osm("built"); natural = load_osm("natural"); peaks_far = load_osm("peaks_far"); places_far = load_osm("places_far")
 
 def to_local(lon, lat):
     x, y = to_utm.transform(lon, lat)
@@ -342,7 +342,7 @@ for p in peaks:
         seen.add(k); uniq.append(p)
 peaks = uniq
 labels = [{"name": el["tags"]["name"], "kind": el["tags"].get("place", "place"), "x": to_local(el["lon"], el["lat"])[0], "y": to_local(el["lon"], el["lat"])[1], "z": 0}
-          for el in peaks_far["elements"] if el.get("type") == "node" and el.get("tags", {}).get("place") and el["tags"].get("name")]
+          for el in places_far["elements"] if el.get("type") == "node" and el.get("tags", {}).get("place") and el["tags"].get("name")]
 for l in labels:
     l["z"] = ground(l["x"], l["y"])
 log(f"  buildings {len(buildings)} roads {len(roads)} water {len(water)} peaks {len(peaks)} labels {len(labels)}")
