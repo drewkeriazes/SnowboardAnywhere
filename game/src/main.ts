@@ -19,6 +19,7 @@ import { GameAudio } from './audio/Audio';
 import { showMainMenu } from './ui/MainMenu';
 import { PauseMenu } from './ui/PauseMenu';
 import { Labels } from './ui/Labels';
+import { sunPosition, guessUtcOffset } from './world/Sun';
 import { loadSettings, type Settings } from './ui/Settings';
 
 const params = new URLSearchParams(location.search);
@@ -88,8 +89,24 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const controls = new Controls(canvas);
     const vignette = document.getElementById('vignette')!;
 
+    // ---------------------------------------------------------------- sun / time of day
+    const [lon, lat] = pack.meta.lonlat;
+    const utcOff = guessUtcOffset(lon);
+    const timeParam = params.get('time'); // ?time=now or ?time=16.5
+    const applySun = (s: Settings) => {
+      const mode: 'pack' | 'now' | number = timeParam === 'now' ? 'now' : timeParam && !Number.isNaN(Number(timeParam)) ? Number(timeParam) : s.timeOfDay;
+      if (mode === 'pack') { env.setSun(pack.meta.sun.azimuth, pack.meta.sun.elevation); return; }
+      let date: Date, hour: number;
+      if (mode === 'now') { const now = new Date(); date = now; hour = now.getUTCHours() + now.getUTCMinutes() / 60 + utcOff; }
+      else { const y = new Date().getFullYear(); date = new Date(Date.UTC(y, s.month - 1, 15)); hour = mode; }
+      const p = sunPosition(lon, lat, date, hour, utcOff);
+      env.setSun(p.azimuth, Math.max(-5, p.elevation));
+    };
+    let sunClock = 0;
+
     // ---------------------------------------------------------------- settings application
     const applySettings = (s: Settings, what: string): void => {
+      applySun(s);
       audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music);
       renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2));
       if (renderer.shadowMap.enabled !== s.shadows) { renderer.shadowMap.enabled = s.shadows; renderer.shadowMap.needsUpdate = true; scene.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) m.needsUpdate = true; }); }
@@ -232,6 +249,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       rocks.update(fx, fy);
       roads.update(fx, fy);
       lifts.update(elapsed);
+      if (settings.timeOfDay === 'now' || timeParam === 'now') { sunClock += dt; if (sunClock > 60) { sunClock = 0; applySun(settings); } }
       lifts.updateMarkers(elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
       map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
       if (onLift) {

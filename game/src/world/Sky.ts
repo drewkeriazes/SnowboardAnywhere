@@ -18,7 +18,6 @@ export class Environment {
     u.rayleigh.value = 1.6;
     u.mieCoefficient.value = 0.004;
     u.mieDirectionalG.value = 0.8;
-    this.setSun(azimuthDeg, elevationDeg);
 
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(4096, 4096);
@@ -35,16 +34,32 @@ export class Environment {
     scene.fog = this.fog;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.75;
+    this.renderer = renderer;
+    this.setSun(azimuthDeg, elevationDeg);
   }
 
+  private renderer: THREE.WebGLRenderer | null = null;
   setSun(azimuthDeg: number, elevationDeg: number): void {
     // azimuth measured clockwise from north; three.js: north = -z, east = +x
-    const az = THREE.MathUtils.degToRad(azimuthDeg), el = THREE.MathUtils.degToRad(elevationDeg);
+    const az = THREE.MathUtils.degToRad(azimuthDeg), el = THREE.MathUtils.degToRad(Math.max(-6, elevationDeg));
     this.sunDir.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
     this.sky.material.uniforms.sunPosition.value.copy(this.sunDir);
+    // colour and intensity by elevation: warm and dim near the horizon, white and bright at noon,
+    // blue twilight below it
     const warm = THREE.MathUtils.clamp(elevationDeg / 40, 0, 1);
-    this.sun.color.setRGB(1.0, 0.86 + 0.1 * warm, 0.72 + 0.2 * warm);
-    this.sun.intensity = 2.2 + 1.5 * warm;
+    const up = THREE.MathUtils.clamp((elevationDeg + 2) / 8, 0, 1); // 0 below the horizon
+    this.sun.color.setRGB(1.0, 0.72 + 0.24 * warm, 0.45 + 0.47 * warm);
+    this.sun.intensity = (1.4 + 2.3 * warm) * up;
+    const u = this.sky.material.uniforms;
+    u.turbidity.value = 3.5 + (1 - warm) * 4;
+    u.rayleigh.value = 1.6 + (1 - warm) * 1.2;
+    u.mieCoefficient.value = 0.004 + (1 - warm) * 0.01;
+    // ambient: sky blue over snow, fades toward dusk blue
+    const amb = 0.35 + 0.55 * up;
+    this.hemi.intensity = amb;
+    this.hemi.color.setRGB(0.81 * (0.7 + 0.3 * up), 0.89 * (0.75 + 0.25 * up), 1.0);
+    this.fog.color.setRGB((0.79 - 0.3 * (1 - up)) + 0.1 * (1 - warm) * up, (0.85 - 0.3 * (1 - up)), 0.93 - 0.2 * (1 - up));
+    if (this.renderer) this.renderer.toneMappingExposure = 0.75 * (0.55 + 0.45 * up);
   }
 
   /** Keep the shadow frustum centred on the rider. */
