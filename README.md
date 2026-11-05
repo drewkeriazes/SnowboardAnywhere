@@ -17,6 +17,7 @@ Start with `docs/HANDOFF.md`. Reference and design rationale: `docs/bonvo-teardo
   - `gen_manifest.py` -> `manifests/<slug>.json` download list (needs `pip install pyproj`)
   - `fetch.ps1` + `fetch_vail.cmd` resumable Windows downloader (about 1.4 GB for Vail; `-RawDir` picks the destination)
   - `fetch_static.ps1` + `fetch_static.cmd` Geofabrik Colorado OSM extract and USGS GNIS names into `raw/static/`
+  - `fetch_landfire.mjs <slug> <email>` LANDFIRE EVT clip via the LFPS job service into `raw/<slug>/landfire/`
   - `extract_osm.py` cuts `osm/*.json` and `names/gnis.json` out of the static files (needs `pip install osmium`), the Overpass-free route for future resorts
   - `build_pack.py <slug> <raw_dir> <out_dir>` raw inputs -> resort pack (`pip install -r pipeline/requirements.txt`)
   - `synth_pack.py <out_dir>` synthetic test mountain in the same format
