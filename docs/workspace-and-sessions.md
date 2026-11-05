@@ -21,7 +21,7 @@ SnowboardAnywhere/
     build_pack.py                    # raw/<slug>/ -> packs/<slug>/ (packwriter.py shared with synth_pack.py)
     synth_pack.py                    # synthetic mountain in the pack format, for client work
   game/                              # Vite + TypeScript + Three.js 0.172 (src/pack, src/terrain, src/sim, src/world)
-  .claude/skills/                    # repo-local skills: pack-build, render-check, perf-check
+  .claude/skills/                    # repo-local skills: pack-build, render-check, perf-check, webapp-testing
   docs/
     bonvo-teardown-and-build-plan.md # plan of record
     workspace-and-sessions.md        # this file

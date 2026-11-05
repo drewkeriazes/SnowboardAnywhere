@@ -15,7 +15,7 @@ Read this first when picking the project up in Claude Code / VS Code.
   - Tiled Terrarium height sets with bilinear sampling and on-demand loading (`src/pack/`).
   - Rider physics: carve / skid edge model, tuck, brake, hold-release jump, air spin, landing penalties, surface types, tree and rock collisions (`src/sim/`).
   - Instanced trees per 1 km cell with near / far geometry, rocks, lifts with towers, catenary cables and moving chairs, piste overlay, sky, sun shadows, chase and free-fly cameras, HUD (`src/world/`).
-  - Headless check: `node tools/shoot.mjs synth` (needs the Playwright browser; in the cloud it was at `/opt/npm-tools/node_modules/playwright`, locally use `npm i -D playwright` and change the import). Use `?lowgfx` in software-rendered environments; a full-density scene takes ~9 s per frame under SwiftShader, which is what made the earlier run look hung. The first screenshot (snow, forest with trail cuts, rider) rendered correctly.
+  - Headless check: `node tools/shoot.mjs synth` (Playwright is a devDependency of `game/`; run `npx playwright install chromium` once per machine; the cloud falls back to `/opt/npm-tools`. Add `--headed` for a visible window on the real GPU). Use `?lowgfx` in software-rendered environments; a full-density scene takes ~9 s per frame under SwiftShader, which is what made the earlier run look hung. The first screenshot (snow, forest with trail cuts, rider) rendered correctly.
 - `pipeline/`: downloader proven on Vail; `build_pack.py` written but NOT yet run end to end on the real data (see next steps).
 
 ## Next steps, in order

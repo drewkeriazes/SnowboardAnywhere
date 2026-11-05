@@ -4,6 +4,8 @@ Researched 2026-11-05. What publicly available Claude Code plugins, skills and M
 
 ## Tier 1: install these in the VS Code session now
 
+Applied on Drew's PC 2026-11-05: Chrome DevTools MCP, Three.js DevTools MCP and Context7 MCP (user scope), webapp-testing copied into `.claude/skills/`, Playwright 1.64.1 as a `game/` devDependency. parallax-threejs and the Tier 2 skill packs are not installed.
+
 ### 1. Chrome DevTools MCP (Google, official)
 Gives Claude eyes and a profiler on the running game: screenshots, console, network, `performance_start_trace` / `performance_analyze_insight` (frame time, long tasks, GPU vs CPU), CPU and network throttling emulation, scripted input. This is how a session should verify "60 fps at 1 m LOD with 180k trees" instead of guessing.
 
