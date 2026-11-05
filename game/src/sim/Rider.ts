@@ -51,6 +51,8 @@ export class Rider {
   normal: [number, number, number] = [0, 0, 1];
   slopeDeg = 0;
   skid = 0; // 0..1 how much the board is sliding sideways (for spray)
+  /** lateral acceleration in g, positive toward the board's right-hand side (smoothed, for the rider's lean) */
+  lateralG = 0;
   landingShock = 0;
   /** last collision this step: 'ramp' | 'graze' | 'wall' | '' (for sound and effects; cleared each frame) */
   lastHit = '';
@@ -106,6 +108,7 @@ export class Rider {
 
     // ---------------------------------------------------------------- airborne
     if (!this.onGround) {
+      this.lateralG *= Math.exp(-dt * 4);
       this.vz -= G * dt;
       // air control: spin with steer, slight drift
       this.spin += input.steer * 3.5 * dt;
@@ -152,6 +155,7 @@ export class Rider {
     if (skidding) latAcc = Math.sign(latAcc) * maxLat;
     this.skid += (((skidding ? Math.min(1, Math.abs(vLat) / 6) : 0)) - this.skid) * Math.min(1, dt * 10);
     ax += latAcc * lx; ay += latAcc * ly;
+    this.lateralG += ((latAcc / G) - this.lateralG) * Math.min(1, dt * 12);
 
     // drag: aerodynamic + snow. Tuck lowers aero, powder adds speed-scaled drag, skidding scrubs speed
     const aero = (input.tuck ? F.aeroTuck : F.aero) * spd * spd;

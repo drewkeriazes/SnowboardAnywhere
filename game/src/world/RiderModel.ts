@@ -118,10 +118,13 @@ export function buildRider(mats: RiderMaterials = defaultMaterials(), discipline
     board.add(snowboard, ski2);
     for (const x of [-0.12, 0.12]) board.add(mesh(new THREE.BoxGeometry(0.09, 0.05, 0.32), mats.boots, x, 0.03, 0.05));
   }
-  root.add(board);
+  root.add(board); // re-parented to the lean pivot below once it exists
 
   // hips (root of the body); the stance rotates the pelvis sideways
+  // lean: pivot at the board's contact edge. The board and the body are both children so the feet
+  // stay on the board when it rolls onto an edge; the body inclines further (angulation) via the hips.
   const lean = new THREE.Group(); root.add(lean);
+  lean.add(board);
   const hips = new THREE.Group(); hips.rotation.order = 'YXZ'; lean.add(hips);
   hips.add(mesh(new THREE.BoxGeometry(0.36, 0.2, 0.24), mats.pants, 0, 0.0, 0));
   const torso = new THREE.Group(); torso.position.y = 0.1; hips.add(torso);
@@ -162,9 +165,9 @@ export function buildRider(mats: RiderMaterials = defaultMaterials(), discipline
 /** Apply a pose to the joints. Elbows and knees bend about X. */
 export function applyPose(j: Joints, p: Pose): void {
   j.hips.position.y = p.hipsY;
-  // yaw is the stance (about the hips); pitch and roll lean the whole body about the board
-  j.hips.rotation.set(0, p.hipsRot[1], 0);
-  j.lean.rotation.set(p.hipsRot[0], 0, p.hipsRot[2]);
+  // pose angles are all in the body frame (yaw = stance, pitch = bend at the waist); the physical
+  // lean about the board is set separately by RiderView from the sim's lateral acceleration
+  j.hips.rotation.set(p.hipsRot[0], p.hipsRot[1], p.hipsRot[2]);
   j.torso.rotation.set(p.torso[0], p.torso[1], p.torso[2]);
   j.head.rotation.set(p.head[0], p.head[1], p.head[2]);
   j.lShoulder.rotation.set(p.lShoulder[0], p.lShoulder[1], p.lShoulder[2]);
