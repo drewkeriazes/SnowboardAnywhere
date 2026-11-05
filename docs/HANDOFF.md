@@ -52,7 +52,9 @@ Two sessions are active. To avoid overlapping edits:
 - Cloud session: `pipeline/` only. Taking the three classifier gaps listed above: canopy above treeline (require a lidar return under canopy instead of `grey_closing`), rock saturation gate and slope-based rock placement, aspen pending LANDFIRE. Also owns `docs/data/` and `docs/research/`.
 - Both: commit small, pull with `--rebase`, never force-push `main`.
 
-Cloud-session status: `8b473ab` moved `meta.start` to Born Free (15 m below its top, facing down the run) and removed roads and buildings from rock and scree; headless render check of the real pack confirmed tree bases within 0.2 m of the terrain (first frame 26 ms, 1042 chunks, 758k tris under SwiftShader with `lowgfx`). A rebuild with those changes is running in the cloud; the pack on Drew's PC should be rebuilt once the classifier gaps land (one more commit).
+Cloud-session status (updated after build 5, commit 1abd3c9): classifier gaps closed and validated on the real data: canopy 38.7 % (was 60.8 %; the Back Bowls and the ridge above treeline are open now, Front Side forest intact), rock 1.6 % with 27,612 rock instances (was 2,076), meadow 25.4 %, trees 1.32 M, start on Born Free. REBUILD the pack on Drew's PC from 1abd3c9 or later before the next client work: `python pipeline/build_pack.py vail C:\Users\Drew\Documents\snowboard-sim\raw\vail packs\vail` (about 4 min). Remaining data gap: aspen (1.0 %) waits on the LANDFIRE clip (`fetch_landfire.cmd`).
+
+Previous status: `8b473ab` moved `meta.start` to Born Free (15 m below its top, facing down the run) and removed roads and buildings from rock and scree; headless render check of the real pack confirmed tree bases within 0.2 m of the terrain (first frame 26 ms, 1042 chunks, 758k tris under SwiftShader with `lowgfx`). A rebuild with those changes is running in the cloud; the pack on Drew's PC should be rebuilt once the classifier gaps land (one more commit).
 
 ## Conventions
 
