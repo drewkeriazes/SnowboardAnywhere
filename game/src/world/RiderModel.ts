@@ -39,16 +39,16 @@ const E = (x: number, y: number, z: number): [number, number, number] => [x * d2
 
 /** Named poses. Angles in degrees via E(). Stance is sideways: hips yaw 90 so the chest faces +X. */
 export const POSES: Record<string, Pose> = {
-  neutral: { hipsY: 0.86, hipsRot: E(0, -70, 0), torso: E(10, 25, 0), head: E(-5, 40, 0), lShoulder: E(10, 0, 70), rShoulder: E(10, 0, -70), lElbow: 25, rElbow: 25, lHip: E(-18, 0, 12), rHip: E(-18, 0, -12), lKnee: 35, rKnee: 35 },
-  tuck: { hipsY: 0.62, hipsRot: E(-10, -75, 0), torso: E(50, 20, 0), head: E(-35, 45, 0), lShoulder: E(60, 0, 20), rShoulder: E(60, 0, -20), lElbow: 90, rElbow: 90, lHip: E(-60, 0, 10), rHip: E(-60, 0, -10), lKnee: 95, rKnee: 95 },
-  carveToe: { hipsY: 0.74, hipsRot: E(-28, -70, 0), torso: E(20, 30, 0), head: E(-10, 50, 0), lShoulder: E(-10, 0, 85), rShoulder: E(-10, 0, -40), lElbow: 20, rElbow: 60, lHip: E(-35, 0, 14), rHip: E(-35, 0, -14), lKnee: 60, rKnee: 60 },
-  carveHeel: { hipsY: 0.72, hipsRot: E(22, -70, 0), torso: E(5, 15, 0), head: E(0, 35, 0), lShoulder: E(20, 0, 45), rShoulder: E(20, 0, -85), lElbow: 50, rElbow: 20, lHip: E(-50, 0, 12), rHip: E(-50, 0, -12), lKnee: 75, rKnee: 75 },
-  crouch: { hipsY: 0.55, hipsRot: E(0, -70, 0), torso: E(35, 25, 0), head: E(-25, 45, 0), lShoulder: E(-30, 0, 60), rShoulder: E(-30, 0, -60), lElbow: 40, rElbow: 40, lHip: E(-75, 0, 12), rHip: E(-75, 0, -12), lKnee: 110, rKnee: 110 },
-  air: { hipsY: 0.78, hipsRot: E(0, -70, 0), torso: E(10, 20, 0), head: E(-15, 40, 0), lShoulder: E(-40, 0, 110), rShoulder: E(-40, 0, -110), lElbow: 20, rElbow: 20, lHip: E(-50, 0, 15), rHip: E(-50, 0, -15), lKnee: 85, rKnee: 85 },
-  grab: { hipsY: 0.6, hipsRot: E(0, -70, 0), torso: E(45, 20, 10), head: E(-30, 40, 0), lShoulder: E(30, 0, 40), rShoulder: E(80, 0, -30), lElbow: 30, rElbow: 10, lHip: E(-85, 0, 15), rHip: E(-85, 0, -15), lKnee: 125, rKnee: 125 },
-  land: { hipsY: 0.5, hipsRot: E(0, -72, 0), torso: E(40, 25, 0), head: E(-25, 45, 0), lShoulder: E(20, 0, 50), rShoulder: E(20, 0, -50), lElbow: 60, rElbow: 60, lHip: E(-85, 0, 12), rHip: E(-85, 0, -12), lKnee: 125, rKnee: 125 },
-  crash: { hipsY: 0.3, hipsRot: E(70, -40, 60), torso: E(30, 0, 20), head: E(20, 0, 0), lShoulder: E(-80, 0, 120), rShoulder: E(40, 0, -140), lElbow: 90, rElbow: 30, lHip: E(-30, 0, 40), rHip: E(20, 0, -50), lKnee: 60, rKnee: 20 },
-  seated: { hipsY: 0.42, hipsRot: E(0, 0, 0), torso: E(-5, 0, 0), head: E(0, 0, 0), lShoulder: E(-20, 0, 15), rShoulder: E(-20, 0, -15), lElbow: 70, rElbow: 70, lHip: E(-85, 0, 10), rHip: E(-85, 0, -10), lKnee: 60, rKnee: 60 },
+  neutral: { hipsY: 0.86, hipsRot: E(0, -70, 0), torso: E(10, 25, 0), head: E(-5, 40, 0), lShoulder: E(10, 0, -70), rShoulder: E(10, 0, 70), lElbow: 25, rElbow: 25, lHip: E(18, 0, 12), rHip: E(18, 0, -12), lKnee: 35, rKnee: 35 },
+  tuck: { hipsY: 0.62, hipsRot: E(-10, -75, 0), torso: E(50, 20, 0), head: E(-35, 45, 0), lShoulder: E(60, 0, -20), rShoulder: E(60, 0, 20), lElbow: 90, rElbow: 90, lHip: E(60, 0, 10), rHip: E(60, 0, -10), lKnee: 95, rKnee: 95 },
+  carveToe: { hipsY: 0.74, hipsRot: E(-28, -70, 0), torso: E(20, 30, 0), head: E(-10, 50, 0), lShoulder: E(-10, 0, -85), rShoulder: E(-10, 0, 40), lElbow: 20, rElbow: 60, lHip: E(35, 0, 14), rHip: E(35, 0, -14), lKnee: 60, rKnee: 60 },
+  carveHeel: { hipsY: 0.72, hipsRot: E(22, -70, 0), torso: E(5, 15, 0), head: E(0, 35, 0), lShoulder: E(20, 0, -45), rShoulder: E(20, 0, 85), lElbow: 50, rElbow: 20, lHip: E(50, 0, 12), rHip: E(50, 0, -12), lKnee: 75, rKnee: 75 },
+  crouch: { hipsY: 0.55, hipsRot: E(0, -70, 0), torso: E(35, 25, 0), head: E(-25, 45, 0), lShoulder: E(-30, 0, -60), rShoulder: E(-30, 0, 60), lElbow: 40, rElbow: 40, lHip: E(75, 0, 12), rHip: E(75, 0, -12), lKnee: 110, rKnee: 110 },
+  air: { hipsY: 0.78, hipsRot: E(0, -70, 0), torso: E(10, 20, 0), head: E(-15, 40, 0), lShoulder: E(-40, 0, -110), rShoulder: E(-40, 0, 110), lElbow: 20, rElbow: 20, lHip: E(50, 0, 15), rHip: E(50, 0, -15), lKnee: 85, rKnee: 85 },
+  grab: { hipsY: 0.6, hipsRot: E(0, -70, 0), torso: E(45, 20, 10), head: E(-30, 40, 0), lShoulder: E(30, 0, -40), rShoulder: E(80, 0, 30), lElbow: 30, rElbow: 10, lHip: E(85, 0, 15), rHip: E(85, 0, -15), lKnee: 125, rKnee: 125 },
+  land: { hipsY: 0.5, hipsRot: E(0, -72, 0), torso: E(40, 25, 0), head: E(-25, 45, 0), lShoulder: E(20, 0, -50), rShoulder: E(20, 0, 50), lElbow: 60, rElbow: 60, lHip: E(85, 0, 12), rHip: E(85, 0, -12), lKnee: 125, rKnee: 125 },
+  crash: { hipsY: 0.3, hipsRot: E(70, -40, 60), torso: E(30, 0, 20), head: E(20, 0, 0), lShoulder: E(-80, 0, -120), rShoulder: E(40, 0, 140), lElbow: 90, rElbow: 30, lHip: E(30, 0, 40), rHip: E(-20, 0, -50), lKnee: 60, rKnee: 20 },
+  seated: { hipsY: 0.42, hipsRot: E(0, 0, 0), torso: E(-5, 0, 0), head: E(0, 0, 0), lShoulder: E(-20, 0, -15), rShoulder: E(-20, 0, 15), lElbow: 70, rElbow: 70, lHip: E(85, 0, 10), rHip: E(85, 0, -10), lKnee: 60, rKnee: 60 },
 };
 
 export function lerpPose(out: Pose, a: Pose, b: Pose, t: number): Pose {
@@ -65,16 +65,16 @@ export function clonePose(p: Pose): Pose { return JSON.parse(JSON.stringify(p));
 
 /** Skier poses: forward stance (no hips yaw), poles held forward. */
 export const SKI_POSES: Record<string, Pose> = {
-  neutral: { hipsY: 0.9, hipsRot: E(0, 0, 0), torso: E(15, 0, 0), head: E(-8, 0, 0), lShoulder: E(35, 0, 15), rShoulder: E(35, 0, -15), lElbow: 50, rElbow: 50, lHip: E(-22, 0, 6), rHip: E(-22, 0, -6), lKnee: 35, rKnee: 35 },
-  tuck: { hipsY: 0.6, hipsRot: E(0, 0, 0), torso: E(70, 0, 0), head: E(-55, 0, 0), lShoulder: E(75, 0, 10), rShoulder: E(75, 0, -10), lElbow: 110, rElbow: 110, lHip: E(-70, 0, 4), rHip: E(-70, 0, -4), lKnee: 100, rKnee: 100 },
-  carveToe: { hipsY: 0.76, hipsRot: E(0, 0, -25), torso: E(20, 0, 10), head: E(-8, 0, 5), lShoulder: E(30, 0, 40), rShoulder: E(30, 0, -10), lElbow: 50, rElbow: 60, lHip: E(-35, 0, 20), rHip: E(-45, 0, -4), lKnee: 55, rKnee: 75 },
-  carveHeel: { hipsY: 0.76, hipsRot: E(0, 0, 25), torso: E(20, 0, -10), head: E(-8, 0, -5), lShoulder: E(30, 0, 10), rShoulder: E(30, 0, -40), lElbow: 60, rElbow: 50, lHip: E(-45, 0, 4), rHip: E(-35, 0, -20), lKnee: 75, rKnee: 55 },
-  crouch: { hipsY: 0.55, hipsRot: E(0, 0, 0), torso: E(40, 0, 0), head: E(-25, 0, 0), lShoulder: E(-10, 0, 20), rShoulder: E(-10, 0, -20), lElbow: 40, rElbow: 40, lHip: E(-80, 0, 6), rHip: E(-80, 0, -6), lKnee: 115, rKnee: 115 },
-  air: { hipsY: 0.8, hipsRot: E(0, 0, 0), torso: E(10, 0, 0), head: E(-10, 0, 0), lShoulder: E(-20, 0, 70), rShoulder: E(-20, 0, -70), lElbow: 30, rElbow: 30, lHip: E(-45, 0, 8), rHip: E(-45, 0, -8), lKnee: 70, rKnee: 70 },
-  grab: { hipsY: 0.62, hipsRot: E(0, 0, 0), torso: E(50, 0, 0), head: E(-30, 0, 0), lShoulder: E(70, 0, 20), rShoulder: E(70, 0, -20), lElbow: 20, rElbow: 20, lHip: E(-90, 0, 8), rHip: E(-90, 0, -8), lKnee: 120, rKnee: 120 },
-  land: { hipsY: 0.52, hipsRot: E(0, 0, 0), torso: E(45, 0, 0), head: E(-25, 0, 0), lShoulder: E(30, 0, 30), rShoulder: E(30, 0, -30), lElbow: 70, rElbow: 70, lHip: E(-85, 0, 6), rHip: E(-85, 0, -6), lKnee: 125, rKnee: 125 },
-  crash: { hipsY: 0.3, hipsRot: E(70, 40, 60), torso: E(30, 0, 20), head: E(20, 0, 0), lShoulder: E(-80, 0, 120), rShoulder: E(40, 0, -140), lElbow: 90, rElbow: 30, lHip: E(-30, 0, 40), rHip: E(20, 0, -50), lKnee: 60, rKnee: 20 },
-  seated: { hipsY: 0.42, hipsRot: E(0, 0, 0), torso: E(-5, 0, 0), head: E(0, 0, 0), lShoulder: E(-20, 0, 15), rShoulder: E(-20, 0, -15), lElbow: 70, rElbow: 70, lHip: E(-85, 0, 10), rHip: E(-85, 0, -10), lKnee: 60, rKnee: 60 },
+  neutral: { hipsY: 0.9, hipsRot: E(0, 0, 0), torso: E(15, 0, 0), head: E(-8, 0, 0), lShoulder: E(35, 0, -15), rShoulder: E(35, 0, 15), lElbow: 50, rElbow: 50, lHip: E(22, 0, 6), rHip: E(22, 0, -6), lKnee: 35, rKnee: 35 },
+  tuck: { hipsY: 0.6, hipsRot: E(0, 0, 0), torso: E(70, 0, 0), head: E(-55, 0, 0), lShoulder: E(75, 0, -10), rShoulder: E(75, 0, 10), lElbow: 110, rElbow: 110, lHip: E(70, 0, 4), rHip: E(70, 0, -4), lKnee: 100, rKnee: 100 },
+  carveToe: { hipsY: 0.76, hipsRot: E(0, 0, -25), torso: E(20, 0, 10), head: E(-8, 0, 5), lShoulder: E(30, 0, -40), rShoulder: E(30, 0, 10), lElbow: 50, rElbow: 60, lHip: E(35, 0, 20), rHip: E(45, 0, -4), lKnee: 55, rKnee: 75 },
+  carveHeel: { hipsY: 0.76, hipsRot: E(0, 0, 25), torso: E(20, 0, -10), head: E(-8, 0, -5), lShoulder: E(30, 0, -10), rShoulder: E(30, 0, 40), lElbow: 60, rElbow: 50, lHip: E(45, 0, 4), rHip: E(35, 0, -20), lKnee: 75, rKnee: 55 },
+  crouch: { hipsY: 0.55, hipsRot: E(0, 0, 0), torso: E(40, 0, 0), head: E(-25, 0, 0), lShoulder: E(-10, 0, -20), rShoulder: E(-10, 0, 20), lElbow: 40, rElbow: 40, lHip: E(80, 0, 6), rHip: E(80, 0, -6), lKnee: 115, rKnee: 115 },
+  air: { hipsY: 0.8, hipsRot: E(0, 0, 0), torso: E(10, 0, 0), head: E(-10, 0, 0), lShoulder: E(-20, 0, -70), rShoulder: E(-20, 0, 70), lElbow: 30, rElbow: 30, lHip: E(45, 0, 8), rHip: E(45, 0, -8), lKnee: 70, rKnee: 70 },
+  grab: { hipsY: 0.62, hipsRot: E(0, 0, 0), torso: E(50, 0, 0), head: E(-30, 0, 0), lShoulder: E(70, 0, -20), rShoulder: E(70, 0, 20), lElbow: 20, rElbow: 20, lHip: E(90, 0, 8), rHip: E(90, 0, -8), lKnee: 120, rKnee: 120 },
+  land: { hipsY: 0.52, hipsRot: E(0, 0, 0), torso: E(45, 0, 0), head: E(-25, 0, 0), lShoulder: E(30, 0, -30), rShoulder: E(30, 0, 30), lElbow: 70, rElbow: 70, lHip: E(85, 0, 6), rHip: E(85, 0, -6), lKnee: 125, rKnee: 125 },
+  crash: { hipsY: 0.3, hipsRot: E(70, 40, 60), torso: E(30, 0, 20), head: E(20, 0, 0), lShoulder: E(-80, 0, -120), rShoulder: E(40, 0, 140), lElbow: 90, rElbow: 30, lHip: E(30, 0, 40), rHip: E(-20, 0, -50), lKnee: 60, rKnee: 20 },
+  seated: { hipsY: 0.42, hipsRot: E(0, 0, 0), torso: E(-5, 0, 0), head: E(0, 0, 0), lShoulder: E(-20, 0, -15), rShoulder: E(-20, 0, 15), lElbow: 70, rElbow: 70, lHip: E(85, 0, 10), rHip: E(85, 0, -10), lKnee: 60, rKnee: 60 },
 };
 
 /** Build the rider. `discipline` picks a snowboard with bindings or two skis and poles. */
@@ -119,7 +119,7 @@ export function buildRider(mats: RiderMaterials = defaultMaterials(), discipline
   root.add(board);
 
   // hips (root of the body); the stance rotates the pelvis sideways
-  const hips = new THREE.Group(); root.add(hips);
+  const hips = new THREE.Group(); hips.rotation.order = 'YXZ'; root.add(hips);
   hips.add(mesh(new THREE.BoxGeometry(0.36, 0.2, 0.24), mats.pants, 0, 0.0, 0));
   const torso = new THREE.Group(); torso.position.y = 0.1; hips.add(torso);
   torso.add(mesh(cap(0.17, 0.3), mats.jacket, 0, 0.28, 0)); // chest
@@ -164,10 +164,10 @@ export function applyPose(j: Joints, p: Pose): void {
   j.head.rotation.set(p.head[0], p.head[1], p.head[2]);
   j.lShoulder.rotation.set(p.lShoulder[0], p.lShoulder[1], p.lShoulder[2]);
   j.rShoulder.rotation.set(p.rShoulder[0], p.rShoulder[1], p.rShoulder[2]);
-  j.lElbow.rotation.set(-p.lElbow * d2r, 0, 0);
-  j.rElbow.rotation.set(-p.rElbow * d2r, 0, 0);
+  j.lElbow.rotation.set(p.lElbow * d2r, 0, 0);
+  j.rElbow.rotation.set(p.rElbow * d2r, 0, 0);
   j.lHip.rotation.set(p.lHip[0], p.lHip[1], p.lHip[2]);
   j.rHip.rotation.set(p.rHip[0], p.rHip[1], p.rHip[2]);
-  j.lKnee.rotation.set(p.lKnee * d2r, 0, 0);
-  j.rKnee.rotation.set(p.rKnee * d2r, 0, 0);
+  j.lKnee.rotation.set(-p.lKnee * d2r, 0, 0);
+  j.rKnee.rotation.set(-p.rKnee * d2r, 0, 0);
 }
