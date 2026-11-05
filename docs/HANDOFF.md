@@ -20,7 +20,7 @@ Read this first when picking the project up in Claude Code / VS Code.
 
 ## Next steps, in order
 
-1. DONE 2026-11-05: the Vail pack builds end to end in about 3 minutes (see "First Vail build" below). To rebuild:
+1. DONE 2026-11-05: the Vail pack builds end to end in about 4 minutes (see "First Vail build" below). To rebuild:
    `pip install -r pipeline/requirements.txt`
    `python pipeline/build_pack.py vail C:\Users\Drew\Documents\snowboard-sim\raw\vail packs\vail`
    The raw argument is the folder that directly contains `dem1m/`, `ept/`, `osm/` (manifest paths have no `vail/` prefix). Run it from PowerShell or cmd; in Git Bash quote the output path, because an unquoted `packs\vail` becomes `packsvail`. Needs ~6 GB RAM (1 m grid is 11,600 x 11,700). Stages: DEM mosaic -> mid ring -> far ring -> lidar DSM/CHM -> NAIP classes -> OSM features -> masks -> trees/rocks -> meta.
@@ -31,20 +31,18 @@ Read this first when picking the project up in Claude Code / VS Code.
 
 ## First Vail build (2026-11-05, Drew's PC)
 
-Fixes made on the first run: OSM JSON must be opened as UTF-8 (Windows defaults to cp1252 and crashed on a run name); place labels now come from `places_far.json` (they were read from `peaks_far.json` and came out empty). Both are in `build_pack.py`.
+`packs/vail` on Drew's PC was built from `build_pack.py` at c4e6715 (the cloud session's memory and classifier fixes 0e5a10e and 265fce9 merged with the local UTF-8 and `places_far` fixes). Run time 4.3 minutes: DEM mosaic and fine tiles 134 s, mid and far 10 s, lidar 48 s, NAIP 9 s, OSM 1 s, masks 47 s, trees and rocks 4 s. Pack is 234 MB (fine 143 MB, trees 47 MB, mask 25 MB, mid 12 MB, far 3 MB, features 3.4 MB).
 
-Timing: DEM mosaic and fine tiles 90 s, mid and far 8 s, lidar 28 s, NAIP 5 s, OSM 1 s, masks 46 s, trees and rocks 3 s. Pack is 320 MB (fine 143 MB, trees 126 MB, mask 28 MB, mid 12 MB, far 3 MB, features 3.4 MB).
+Fixes found on the first local run, now in `build_pack.py`: OSM JSON must be opened as UTF-8 (Windows defaults to cp1252 and crashed on a run name); place labels come from `places_far.json` (they were read from `peaks_far.json` and came out empty).
 
-Validated: fine tiles round-trip the raw 1 m DEM to 0.004 m; mid vs fine median 1.2 m; far covers 100% of the 200 km grid; 354 runs, 33 lifts (32 named), 2,000 buildings, 1,406 roads, 1,281 peaks, 74 town labels; the groomed mask covers 179 of 180 groomed-run midpoints; all 5.26 M trees sit within 1.3 m of the terrain; `start` is the top of Gondola One (3,103 m). A top-down hillshade with the mask and run overlays matches the Vail trail layout.
+Validated (scratch scripts, not in the repo): fine tiles round-trip the raw 1 m DEM to 0.004 m; mid vs fine median 1.2 m; far covers 100% of the 200 km grid; 354 runs, 33 lifts (32 named), 2,000 buildings, 1,406 roads, 1,281 peaks, 74 town labels; the groomed mask covers 179 of 180 groomed-run midpoints; all 1.97 M trees (19.9 k aspen, 224 k krummholz) sit within 1.5 m of the terrain; `start` is the top of Gondola One (3,103 m). A top-down hillshade with the mask and run overlays matches the Vail trail layout, and the Back Bowls now read as open snow and meadow rather than rock.
 
-Out of the ranges in the pack-build skill, all pointing at the land-cover classifier, not the geometry:
-- Lidar cells with data 56% (expected > 70%): the EPT nodes are subsampled to ~3 m, so 44% of 2 m cells are empty and `grey_closing` then spreads canopy into the gaps.
-- Canopy 61% (expected 20 to 50%), tree count 5.26 M (expected 0.5 to 3 M), and canopy shows above treeline in the back bowls.
-- Rock 20% (expected 2 to 10%): the low-NDVI threshold also fires on steep forested valley sides.
-- Aspen 0.1% (6,055 trees): the NAIP colour thresholds are too strict for the 2 m crops; Vail has large aspen stands.
-Fix these in the visual pass (step 4): require lidar returns for canopy, raise the rock NDVI/brightness gate, loosen the aspen rule.
+Still outside the ranges in the pack-build skill, for the visual pass (step 4):
+- Lidar cells with data 56% (skill expects > 70%): the EPT nodes are subsampled to ~3 m, so 44% of 2 m cells are empty and `grey_closing` spreads canopy into the gaps. Canopy is 61% (expected 20 to 50%) and shows above treeline in the Back Bowls. Fix: require a lidar return (or a dilated one) for canopy, or use LANDFIRE EVT once fetched.
+- Rock class is now 0.9% (expected 2 to 10%), so scree is empty and only 2,076 rock instances were placed; the rock mask channel still gets its 8% mean from the slope-only term. Loosen the saturation gate a little (0.15 to about 0.2) or place rocks from slope as well as class.
+- Aspen is 1.0% of cells; LANDFIRE EVT is the intended source.
 
-Also: raw data on this PC is at `C:\Users\Drew\Documents\snowboard-sim\raw\`, not the repo-root `raw\` that CLAUDE.md and the inventory doc describe. Either move it or update those docs. Python packages install to the user site (`%APPDATA%\Python\Python313`), so `python -I` cannot see them; use `python -E -P` for isolated runs.
+Also: raw data on this PC is at `C:\Users\Drew\Documents\snowboard-sim\raw\`, not the repo-root `raw\` that CLAUDE.md and the inventory doc describe. Either move it or update those docs. Python packages install to the user site (`%APPDATA%\Python\Python313`), so `python -I` cannot see them; use `python -E -P` for isolated runs. The commit "add topo data" (8fa9b3e) accidentally added 158 MB of pack tiles from a mis-named `packsvail/` output folder; they were untracked again in 3e0b712 but remain in history.
 
 ## Conventions
 
