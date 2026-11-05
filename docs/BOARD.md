@@ -12,13 +12,7 @@ Rules
 
 | Id | Card | Owner | Started |
 |---|---|---|---|
-| FEAT-001 | Minimap in the bottom-right corner showing the rider on a hillshade with runs and lifts | Claude (cloud) | 2026-11-05 |
-| FEAT-002 | Full-screen map on M: click anywhere to drop the rider there; drop-in point persists (R restarts there, survives reload via URL and localStorage) | Claude (cloud) | 2026-11-05 |
-| FEAT-003 | Buildings rendered from features.json footprints (lodges first: Eagle's Nest, Two Elk, Mid-Vail, Wildwood, Buffalo's, Belle's Camp, base villages) | Claude (cloud) | 2026-11-05 |
-| FEAT-004 | Rocks that look like rocks: displaced low-poly variants, sunk into the slope, tilted to the ground normal, colour variation | Claude (cloud) | 2026-11-05 |
-| FEAT-005 | Ride lifts back up: press E at a bottom terminal to board, rider follows the cable, drops in at the top facing downhill | Claude (cloud) | 2026-11-05 |
-| FEAT-006 | Skip to the top while on a lift (press E again) | Claude (cloud) | 2026-11-05 |
-| BUG-001 | Back Bowls (south side) look unrendered while the Front Side renders fine. Suspects: sun at azimuth 160 lights south faces head-on so they have no relief; fine tiles evicted around the rider instead of the camera; trees/mask stream around the rider, not the camera | Claude (cloud) | 2026-11-05 |
+| (none) | | | |
 
 ## Ready
 
@@ -33,10 +27,6 @@ Rules
 | FEAT-013 | Roads drawn as draped ribbons (I-70, Frontage Road, base area streets) | features.json has 1,406 roads |
 | FEAT-014 | Peak and town labels on the horizon (features.json peaks and labels) | |
 | FEAT-015 | Touch controls on screen (stick + jump + lift button) | mobile |
-| FEAT-016 | Rock collisions: ride up and over low rocks like a ramp (the rock's slope is the ground); only a near-vertical face at speed knocks the rider down | physics; Collider needs rock height profiles, not just cylinders |
-| FEAT-017 | Sound effects: carve/skid hiss scaled by speed and edge, wind in a tuck, jump and landing thumps, crash, lift hum, boarding chime (Web Audio, synthesised or short royalty-free samples) | |
-| FEAT-018 | Background music: a small playlist with volume control and mute, remembered across sessions | needs licensed or CC0 tracks under `game/public/music/` |
-| FEAT-019 | Main menu on start: resort picker, free ride / drop-in from map, settings (audio, graphics, controls), continue from last spawn | ui |
 | FEAT-020 | Rock and cliff-face textures: photo-based albedo/normal for rock and scree with triplanar projection on steep faces | needs DATA-005 for imagery |
 
 ## Backlog
@@ -56,6 +46,17 @@ Rules
 
 | Id | Card | Commit |
 |---|---|---|
+| FEAT-001 | Minimap in the bottom-right corner showing the rider on a hillshade with runs and lifts | f310dec |
+| FEAT-002 | Full-screen map on M: click anywhere to drop the rider there; drop-in point persists (R restarts there, survives reload via URL and localStorage) | f310dec |
+| FEAT-003 | Buildings rendered from features.json footprints (lodges first: Eagle's Nest, Two Elk, Mid-Vail, Wildwood, Buffalo's, Belle's Camp, base villages) | f310dec |
+| FEAT-004 | Rocks that look like rocks: displaced low-poly variants, sunk into the slope, tilted to the ground normal, colour variation | f310dec |
+| FEAT-005 | Ride lifts back up: press E at a bottom terminal to board, rider follows the cable, drops in at the top facing downhill | f310dec |
+| FEAT-006 | Skip to the top while on a lift (press E again) | f310dec |
+| BUG-001 | Back Bowls (south side) look unrendered while the Front Side renders fine. Fixes landed: snow normal bump, camera-based streaming. Drew to confirm on the real pack; if it is still flat, next step is a lower sun elevation or a west sun azimuth in meta.json | f310dec |
+| FEAT-016 | Rock collisions: ride up and over low rocks like a ramp (the rock's slope is the ground); only a near-vertical face at speed knocks the rider down | f310dec |
+| FEAT-017 | Sound effects: carve/skid hiss scaled by speed and edge, wind in a tuck, jump and landing thumps, crash, lift hum, boarding chime (Web Audio, synthesised or short royalty-free samples) | f310dec |
+| FEAT-018 | Background music: a small playlist with volume control and mute, remembered across sessions | f310dec |
+| FEAT-019 | Main menu on start: resort picker, free ride / drop-in from map, settings (audio, graphics, controls), continue from last spawn | f310dec |
 | M0 | Vail pipeline end to end: DEM, lidar canopy, NAIP masks, OSM features, pack of 234 MB | c4e6715 |
 | M1 | Streaming quadtree terrain, sky, sun, far ring, fly camera | a6762df and earlier |
 | M2 | Rider physics, chase camera, keyboard and touch | a6762df and earlier |
