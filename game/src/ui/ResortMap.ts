@@ -53,17 +53,87 @@ export class ResortMap {
     Object.assign(this.fullInfo.style, { position: 'absolute', left: '16px', top: '12px', color: '#fff', font: '14px system-ui, sans-serif', textShadow: '0 1px 3px #000', pointerEvents: 'none' });
     this.fullWrap.appendChild(this.fullInfo);
     document.body.appendChild(this.fullWrap);
-    this.full.addEventListener('mousemove', (e) => { this.hover = this.toPack(e); this.drawFull(); });
-    this.full.addEventListener('mouseleave', () => { this.hover = null; this.drawFull(); });
-    this.full.addEventListener('click', (e) => { const p = this.toPack(e); if (p && this.onPick) this.onPick(p[0], p[1]); });
+    // zoom about the cursor, drag to pan, click (no drag) to drop in
+    let down: { x: number; y: number; t: number; cx: number; cy: number } | null = null;
+    let dragged = false;
+    this.full.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const r = this.full.getBoundingClientRect();
+      this.zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015));
+      this.hover = this.toPack(e); this.drawFull();
+    }, { passive: false });
+    this.full.addEventListener('mousedown', (e) => { down = { x: e.clientX, y: e.clientY, t: performance.now(), cx: this.centre[0], cy: this.centre[1] }; dragged = false; });
+    this.full.addEventListener('mousemove', (e) => {
+      if (down && (dragged || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4)) {
+        dragged = true;
+        const { s } = this.fullRect();
+        this.centre = [down.cx - (e.clientX - down.x) / s * this.scale, down.cy + (e.clientY - down.y) / s * this.scale];
+        this.full.style.cursor = 'grabbing';
+      }
+      this.hover = this.toPack(e); this.drawFull();
+    });
+    const up = (e: MouseEvent) => {
+      if (down && !dragged && performance.now() - down.t < 400) { const p = this.toPack(e); if (p && this.onPick) this.onPick(p[0], p[1]); }
+      down = null; dragged = false; this.full.style.cursor = 'crosshair';
+    };
+    this.full.addEventListener('mouseup', up);
+    this.full.addEventListener('mouseleave', (e) => { this.hover = null; if (down) up(e); this.drawFull(); });
+    this.full.addEventListener('dblclick', (e) => { e.preventDefault(); const r = this.full.getBoundingClientRect(); this.zoomAt(e.clientX - r.left, e.clientY - r.top, 2); this.drawFull(); });
+    window.addEventListener('keydown', (e) => {
+      if (!this.fullOpen) return;
+      if (e.key === '+' || e.key === '=') { this.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.5); this.drawFull(); }
+      else if (e.key === '-') { this.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1 / 1.5); this.drawFull(); }
+      else if (e.key === 'Home' || e.key === '0') { this.zoom = 1; this.centre = this.boundsCentre(); this.drawFull(); }
+    });
+    // touch: one finger pans, two fingers pinch-zoom, tap drops in
+    let touch: { x: number; y: number; d: number; cx: number; cy: number; zoom: number; moved: boolean } | null = null;
+    const tpos = (e: TouchEvent) => { const r = this.full.getBoundingClientRect(); const t = Array.from(e.touches); const x = t.reduce((a, q) => a + q.clientX, 0) / t.length - r.left, y = t.reduce((a, q) => a + q.clientY, 0) / t.length - r.top; const d = t.length > 1 ? Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY) : 0; return { x, y, d }; };
+    this.full.addEventListener('touchstart', (e) => { e.preventDefault(); const p = tpos(e); touch = { ...p, cx: this.centre[0], cy: this.centre[1], zoom: this.zoom, moved: false }; }, { passive: false });
+    this.full.addEventListener('touchmove', (e) => {
+      e.preventDefault(); if (!touch) return;
+      const p = tpos(e);
+      if (Math.hypot(p.x - touch.x, p.y - touch.y) > 6 || (touch.d && Math.abs(p.d - touch.d) > 6)) touch.moved = true;
+      if (touch.d && p.d) this.zoom = Math.min(8, Math.max(0.5, touch.zoom * (p.d / touch.d)));
+      const { s } = this.fullRect();
+      this.centre = [touch.cx - (p.x - touch.x) / s * this.scale, touch.cy + (p.y - touch.y) / s * this.scale];
+      this.drawFull();
+    }, { passive: false });
+    this.full.addEventListener('touchend', (e) => {
+      if (touch && !touch.moved && e.touches.length === 0) {
+        const r = this.full.getBoundingClientRect();
+        const { ox, oy, s } = this.fullRect();
+        const px = (touch.x - ox) / s, py = (touch.y - oy) / s;
+        if (px >= 0 && py >= 0 && px < this.base.width && py < this.base.height && this.onPick) this.onPick(this.minX + px * this.scale, this.maxY - py * this.scale);
+        void r;
+      }
+      if (e.touches.length === 0) touch = null;
+    });
     window.addEventListener('resize', () => { if (this.fullOpen) this.drawFull(); });
   }
 
   // ---------------------------------------------------------------- coordinate helpers
   toPixel(x: number, y: number): [number, number] { return [(x - this.minX) / this.scale, (this.maxY - y) / this.scale]; }
+  /** full-map view: zoom factor over fit-to-screen and the pack point at the screen centre */
+  zoom = 1;
+  centre: [number, number] = [0, 0];
+  private boundsCentre(): [number, number] { const b = this.pack.meta.bounds; return [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2]; }
+  /** screen = ox + basePx * s */
   private fullRect(): { ox: number; oy: number; s: number } {
-    const s = Math.min(window.innerWidth / this.base.width, window.innerHeight / this.base.height) * 0.96;
-    return { ox: (window.innerWidth - this.base.width * s) / 2, oy: (window.innerHeight - this.base.height * s) / 2, s };
+    const fit = Math.min(window.innerWidth / this.base.width, window.innerHeight / this.base.height) * 0.96;
+    const s = fit * this.zoom;
+    const [cbx, cby] = this.toPixel(this.centre[0], this.centre[1]);
+    return { ox: window.innerWidth / 2 - cbx * s, oy: window.innerHeight / 2 - cby * s, s };
+  }
+  /** Zoom by `factor` keeping the pack point under screen (sx, sy) fixed. */
+  private zoomAt(sx: number, sy: number, factor: number): void {
+    const before = this.fullRect();
+    const bx = (sx - before.ox) / before.s, by = (sy - before.oy) / before.s; // base px under the cursor
+    this.zoom = Math.min(8, Math.max(0.5, this.zoom * factor));
+    const fit = before.s / (this.zoom / factor);
+    const s = fit * this.zoom;
+    // choose centre so that base (bx, by) stays at (sx, sy): ox = sx - bx*s; centre base px = (W/2 - ox)/s
+    const cbx = (window.innerWidth / 2 - (sx - bx * s)) / s, cby = (window.innerHeight / 2 - (sy - by * s)) / s;
+    this.centre = [this.minX + cbx * this.scale, this.maxY - cby * this.scale];
   }
   private toPack(e: MouseEvent): [number, number] | null {
     const r = this.full.getBoundingClientRect();
@@ -140,14 +210,65 @@ export class ResortMap {
       ctx.fillStyle = '#d7263d';
       for (const s of [l.stations[0], l.stations[l.stations.length - 1]]) { const [px, py] = this.toPixel(s[0], s[1]); ctx.beginPath(); ctx.arc(px, py, 2.5, 0, Math.PI * 2); ctx.fill(); }
     }
-    // lift names
-    ctx.font = '11px system-ui, sans-serif'; ctx.fillStyle = '#5a0a14'; ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 3;
+  }
+
+  // ---------------------------------------------------------------- labels (drawn at display time, collision-placed)
+  /**
+   * Draw lift (and optionally run) names so none overlap. `toScreen` maps pack coords to canvas
+   * pixels for the current view. Long lifts go first; each label tries right, left, above, below.
+   * Returns the number of labels placed.
+   */
+  private drawLabels(ctx: CanvasRenderingContext2D, toScreen: (x: number, y: number) => [number, number], opts: { max: number; font: number; runs: boolean; inside: (sx: number, sy: number) => boolean; near?: [number, number] }): number {
+    const f = this.pack.features;
+    type Cand = { name: string; x: number; y: number; prio: number; kind: 'lift' | 'run' };
+    const cands: Cand[] = [];
     for (const l of f.lifts) {
-      if (!l.name || l.stations.length < 2) continue;
-      const m = l.stations[Math.floor(l.stations.length / 2)];
-      const [px, py] = this.toPixel(m[0], m[1]);
-      ctx.strokeText(l.name, px + 4, py - 4); ctx.fillText(l.name, px + 4, py - 4);
+      if (!l.name || l.stations.length < 2 || l.type === 'magic_carpet') continue;
+      const a = l.stations[0], b = l.stations[l.stations.length - 1];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+      let prio = len;
+      if (opts.near) prio = -Math.hypot(mx - opts.near[0], my - opts.near[1]); // nearest first on the minimap
+      cands.push({ name: l.name, x: mx, y: my, prio, kind: 'lift' });
     }
+    if (opts.runs) {
+      const seen = new Set<string>();
+      for (const r of f.runs) {
+        if (!r.name || r.points.length < 2 || seen.has(r.name)) continue;
+        seen.add(r.name);
+        const m = r.points[Math.floor(r.points.length / 2)];
+        cands.push({ name: r.name, x: m[0], y: m[1], prio: r.points.length * 0.01, kind: 'run' });
+      }
+    }
+    cands.sort((a, b) => b.prio - a.prio);
+    const placed: [number, number, number, number][] = [];
+    const overlaps = (b: [number, number, number, number]) => placed.some((p) => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1]);
+    ctx.font = `${opts.font}px system-ui, sans-serif`;
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3; ctx.lineJoin = 'round';
+    let n = 0;
+    const pad = 2, h = opts.font + 2;
+    for (const c of cands) {
+      if (n >= opts.max) break;
+      const [sx, sy] = toScreen(c.x, c.y);
+      if (!opts.inside(sx, sy)) continue;
+      const w = ctx.measureText(c.name).width + pad * 2;
+      const anchors: [number, number, CanvasTextAlign][] = [[sx + 6, sy, 'left'], [sx - 6, sy, 'right'], [sx, sy - h, 'center'], [sx, sy + h, 'center']];
+      for (const [ax, ay, align] of anchors) {
+        const x0 = align === 'left' ? ax : align === 'right' ? ax - w : ax - w / 2;
+        const box: [number, number, number, number] = [x0, ay - h / 2, x0 + w, ay + h / 2];
+        if (overlaps(box) || !opts.inside(box[0], box[1]) || !opts.inside(box[2], box[3])) continue;
+        placed.push(box);
+        ctx.textAlign = align;
+        ctx.strokeStyle = 'rgba(255,255,255,.85)';
+        ctx.fillStyle = c.kind === 'lift' ? '#5a0a14' : '#1f2937';
+        ctx.strokeText(c.name, ax, ay); ctx.fillText(c.name, ax, ay);
+        n++;
+        break;
+      }
+    }
+    ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+    return n;
   }
 
   private path(ctx: CanvasRenderingContext2D, pts: number[][]): void {
@@ -179,6 +300,9 @@ export class ResortMap {
     ctx.fillStyle = '#cfd9e6'; ctx.fillRect(0, 0, S, S);
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this.base, cx - srcW / 2, cy - srcW / 2, srcW, srcW, 0, 0, S, S);
+    const k = S / srcW; // display px per base px
+    this.drawLabels(ctx, (px, py) => { const [bx, by] = this.toPixel(px, py); return [(bx - (cx - srcW / 2)) * k, (by - (cy - srcW / 2)) * k]; },
+      { max: 4, font: 10, runs: false, near: [x, y], inside: (sx, sy) => Math.hypot(sx - S / 2, sy - S / 2) < S / 2 - 6 });
     // rider: triangle pointing along heading (north up)
     ctx.translate(S / 2, S / 2); ctx.rotate(heading);
     ctx.fillStyle = '#ff3b30'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
@@ -190,7 +314,12 @@ export class ResortMap {
 
   // ---------------------------------------------------------------- full map
   toggle(): void { this.fullOpen ? this.close() : this.open(); }
-  open(): void { this.fullOpen = true; this.fullWrap.style.display = 'flex'; this.tryShade(); this.drawFull(); }
+  private opened = false;
+  open(): void {
+    this.fullOpen = true; this.fullWrap.style.display = 'flex'; this.tryShade();
+    if (!this.opened) { this.opened = true; this.zoom = 1; this.centre = this.boundsCentre(); }
+    this.drawFull();
+  }
   close(): void { this.fullOpen = false; this.fullWrap.style.display = 'none'; }
 
   riderPos: [number, number, number] = [0, 0, 0];
@@ -203,7 +332,13 @@ export class ResortMap {
     const { ox, oy, s } = this.fullRect();
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.imageSmoothingEnabled = true;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(ox, oy, this.base.width * s, this.base.height * s); ctx.clip();
     ctx.drawImage(this.base, ox, oy, this.base.width * s, this.base.height * s);
+    ctx.restore();
+    const toScreen = (x: number, y: number): [number, number] => { const [bx, by] = this.toPixel(x, y); return [ox + bx * s, oy + by * s]; };
+    const inside = (sx: number, sy: number) => sx >= 0 && sy >= 0 && sx <= c.width && sy <= c.height;
+    this.drawLabels(ctx, toScreen, { max: 200, font: Math.min(16, 11 + 2 * this.zoom), runs: this.zoom >= 2, inside });
     const dot = (x: number, y: number, color: string, r: number) => { const [px, py] = this.toPixel(x, y); ctx.beginPath(); ctx.arc(ox + px * s, oy + py * s, r, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); };
     if (this.spawnPos) dot(this.spawnPos[0], this.spawnPos[1], '#22c55e', 6);
     dot(this.riderPos[0], this.riderPos[1], '#ff3b30', 7);
@@ -211,10 +346,10 @@ export class ResortMap {
       dot(this.hover[0], this.hover[1], 'rgba(255,255,255,.5)', 5);
       const h = this.pack.groundHeight(this.hover[0], this.hover[1]);
       const near = this.nearestRun(this.hover[0], this.hover[1]);
-      this.fullInfo.innerHTML = `<b>${this.pack.meta.name}</b> &middot; click to drop in &middot; M or Esc to close<br>` +
+      this.fullInfo.innerHTML = `<b>${this.pack.meta.name}</b> &middot; click to drop in &middot; scroll to zoom (${this.zoom.toFixed(1)}x) &middot; drag to pan &middot; Home resets &middot; M or Esc to close<br>` +
         `${this.hover[0].toFixed(0)}, ${this.hover[1].toFixed(0)} m &middot; ${(h * 3.28084).toFixed(0)} ft` + (near ? ` &middot; ${near}` : '');
     } else {
-      this.fullInfo.innerHTML = `<b>${this.pack.meta.name}</b> &middot; click to drop in &middot; M or Esc to close`;
+      this.fullInfo.innerHTML = `<b>${this.pack.meta.name}</b> &middot; click to drop in &middot; scroll to zoom (${this.zoom.toFixed(1)}x) &middot; drag to pan &middot; Home resets &middot; M or Esc to close`;
     }
   }
 
