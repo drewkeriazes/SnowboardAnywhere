@@ -13,9 +13,9 @@ export class Controls {
   private readonly listeners: [string, EventListener][] = [];
   readonly keys = new Set<string>();
   private readonly pressed = new Set<string>(); // one-shot
-  private touchSteer = 0;
-  private touchTuck = false;
-  private touchBrake = false;
+  touchSteer = 0;
+  touchTuck = false;
+  touchBrake = false;
 
   constructor(el: HTMLElement) {
     const kd = (e: KeyboardEvent) => {
@@ -33,31 +33,11 @@ export class Controls {
     window.addEventListener('keydown', kd); window.addEventListener('keyup', ku); window.addEventListener('blur', bl);
     this.listeners.push(['keydown', kd as EventListener], ['keyup', ku as EventListener], ['blur', bl]);
 
-    // touch: left half = steer by horizontal position, right half = buttons
-    const touches = new Map<number, { x: number; y: number }>();
-    const upd = () => {
-      let steer = 0, tuck = false, brake = false, jump = false;
-      for (const t of touches.values()) {
-        if (t.x < 0.5) {
-          steer = (t.x - 0.25) * 8;
-          if (t.y > 0.85) brake = true;
-          if (t.y < 0.35) tuck = true;
-        } else {
-          if (t.y > 0.6) jump = true; else tuck = true;
-        }
-      }
-      this.touchSteer = Math.max(-1, Math.min(1, steer));
-      this.touchTuck = tuck; this.touchBrake = brake;
-      if (jump && !this.input.jumpHeld) this.touchJump = true;
-      if (!jump && this.touchJump) { this.touchJump = false; this.input.jumpReleased = true; }
-    };
-    const rect = () => el.getBoundingClientRect();
-    el.addEventListener('touchstart', (e) => { for (const t of Array.from(e.changedTouches)) { const r = rect(); touches.set(t.identifier, { x: (t.clientX - r.left) / r.width, y: (t.clientY - r.top) / r.height }); } upd(); e.preventDefault(); }, { passive: false });
-    el.addEventListener('touchmove', (e) => { for (const t of Array.from(e.changedTouches)) { const r = rect(); touches.set(t.identifier, { x: (t.clientX - r.left) / r.width, y: (t.clientY - r.top) / r.height }); } upd(); e.preventDefault(); }, { passive: false });
-    const end = (e: TouchEvent) => { for (const t of Array.from(e.changedTouches)) touches.delete(t.identifier); upd(); };
-    el.addEventListener('touchend', end); el.addEventListener('touchcancel', end);
+    void el;
   }
   private touchJump = false;
+  touchJumpDown(): void { this.touchJump = true; }
+  touchJumpUp(): void { if (this.touchJump) { this.touchJump = false; this.input.jumpReleased = true; } }
 
   /** Consume a one-shot key press by code. */
   once(code: string): boolean {

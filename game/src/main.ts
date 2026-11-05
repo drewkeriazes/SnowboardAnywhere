@@ -19,6 +19,7 @@ import { GameAudio } from './audio/Audio';
 import { showMainMenu } from './ui/MainMenu';
 import { PauseMenu } from './ui/PauseMenu';
 import { Labels } from './ui/Labels';
+import { TouchControls } from './ui/TouchControls';
 import { sunPosition, guessUtcOffset } from './world/Sun';
 import { loadSettings, type Settings } from './ui/Settings';
 
@@ -88,6 +89,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const liftRide = new LiftRide(pack, lifts);
     const cam = new ChaseCamera(pack, window.innerWidth / window.innerHeight);
     const controls = new Controls(canvas);
+    const touch = TouchControls.wanted() ? new TouchControls(controls) : null;
     // cascaded shadows: every lit material gets the CSM hook
     env.registerMaterial(terrain.material);
     for (const m of Object.values(veg.mat)) env.registerMaterial(m);
@@ -211,6 +213,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('resize', onResize);
       controls.dispose();
+      touch?.destroy();
       map.destroy();
       pause.destroy();
       labels.destroy();
@@ -242,16 +245,17 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       last = now;
       const input = controls.update();
       // pause has priority; Esc closes the map first if it is open
-      if (controls.once('Escape')) { if (map.fullOpen) map.close(); else setPaused(!paused); }
-      if (paused) { controls.endFrame(); renderer.render(scene, cam.camera); if (!headless) requestAnimationFrame(frame); return; }
+      if (controls.once('Escape') || touch?.once('pause')) { if (map.fullOpen) map.close(); else setPaused(!paused); }
+      if (paused) { controls.endFrame(); touch?.pressed.clear(); renderer.render(scene, cam.camera); if (!headless) requestAnimationFrame(frame); return; }
+      touch?.setVisible(!map.fullOpen);
       elapsed += dt;
       if (controls.action('restart')) { liftRide.cancel(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
-      if (controls.action('camera')) cam.cycle();
-      if (controls.action('map')) map.toggle();
+      if (controls.action('camera') || touch?.once('camera')) cam.cycle();
+      if (controls.action('map') || touch?.once('map')) map.toggle();
       if (controls.action('piste')) runs.toggle();
       if (controls.action('track')) audio.nextTrack();
       if (controls.action('fly')) { cam.mode = cam.mode === 'free' ? settings.camera : 'free'; if (cam.mode === 'free') cam.enterFree(); }
-      const boardPressed = controls.action('lift') && cam.mode !== 'free';
+      const boardPressed = (controls.action('lift') || !!touch?.once('lift')) && cam.mode !== 'free';
       const onLift = cam.mode !== 'free' && liftRide.update(rider, dt, boardPressed);
       if (cam.mode !== 'free' && !onLift && !map.fullOpen) rider.update(dt, input);
       riderView.setFirstPerson(cam.mode === 'fp');
