@@ -1,0 +1,9 @@
+node_modules/
+dist/
+packs/*
+!packs/.gitkeep
+pipeline/raw/
+__pycache__/
+.venv/
+*.log
+.DS_Store

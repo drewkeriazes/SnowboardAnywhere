@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SnowboardAnywhere</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1020; }
+      canvas { display: block; }
+      #hud {
+        position: fixed; left: 12px; top: 12px; color: #e8eefc;
+        font: 13px/1.4 system-ui, sans-serif; background: rgba(0,0,0,.35);
+        padding: 8px 10px; border-radius: 6px; pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud">SnowboardAnywhere<br/>WASD / mouse drag: fly camera</div>
+    <canvas id="app"></canvas>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
