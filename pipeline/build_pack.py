@@ -361,6 +361,7 @@ for l in labels:
     l["z"] = ground(l["x"], l["y"])
 log(f"  buildings {len(buildings)} roads {len(roads)} water {len(water)} peaks {len(peaks)} labels {len(labels)}")
 write_features(out, {"lifts": lifts, "runs": runs, "buildings": buildings, "roads": roads, "water": water, "peaks": peaks, "labels": labels})
+Z_MIN, Z_MAX = float(np.nanmin(dem)), float(np.nanmax(dem))
 del dem   # 540 MB; everything from here works on the 2 m grid
 
 # ------------------------------------------------------------------ 7. masks at 2 m
@@ -415,7 +416,8 @@ tree_rows, tree_cols, tree_h = [pr], [pc], [chm_s[pr, pc]]
 rng = np.random.default_rng(3)
 occupied = np.zeros((H2, W2), bool); occupied[pr, pc] = True
 occupied = ndimage.binary_dilation(occupied, iterations=2)
-fill = canopy & ~occupied & (rng.uniform(0, 1, (H2, W2)) < 0.33)
+# fill density is the main lever on tree count: 0.33 gave 5.26 M trees at Vail (realistic stems, too many to render)
+fill = canopy & ~occupied & (rng.uniform(0, 1, (H2, W2)) < 0.10)
 fr, fc = np.nonzero(fill)
 tree_rows.append(fr); tree_cols.append(fc); tree_h.append(np.maximum(chm_s[fr, fc], 3.0) * rng.uniform(0.75, 1.0, len(fr)))
 rows = np.concatenate(tree_rows); cols = np.concatenate(tree_cols); hgt = np.concatenate(tree_h).astype(np.float32)
@@ -460,7 +462,7 @@ for l in lifts:
         break
 meta = {"version": 1, "slug": slug, "name": cfg["name"], "crs": crs, "origin": [OX, OY], "lonlat": [lon_c, lat_c],
         "bounds": {"minX": X0 - OX, "minY": Y0 - OY, "maxX": X1 - OX, "maxY": Y1 - OY},
-        "zRange": [float(np.floor(np.nanmin(dem) / 100) * 100 - 100), float(np.ceil(np.nanmax(dem) / 100) * 100 + 100)],
+        "zRange": [float(np.floor(Z_MIN / 100) * 100 - 100), float(np.ceil(Z_MAX / 100) * 100 + 100)],
         "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "instances": inst,
         "start": start, "sun": {"azimuth": 160, "elevation": 30}, "attribution": cfg["attribution"]}
 write_meta(out, meta)
