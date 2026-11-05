@@ -47,6 +47,12 @@ export class RiderView {
     return this.spray;
   }
 
+  /** Apply outfit colours (hex strings) to the material slots. */
+  setOutfit(o: { jacket: string; pants: string; helmet: string; board: string; gloves: string }): void {
+    this.mats.jacket.color.set(o.jacket); this.mats.pants.color.set(o.pants); this.mats.helmet.color.set(o.helmet);
+    this.mats.board.color.set(o.board); this.mats.gloves.color.set(o.gloves);
+  }
+
   /** Hide the body (keep the board) for first person. */
   setFirstPerson(fp: boolean): void { this.body.visible = !fp; }
 

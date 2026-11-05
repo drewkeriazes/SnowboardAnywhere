@@ -29,7 +29,17 @@ export interface Settings {
   month: number;
   units: Units;
   keys: Record<string, string>; // action -> KeyboardEvent.code
+  outfit: Outfit;
 }
+export interface Outfit { jacket: string; pants: string; helmet: string; board: string; gloves: string }
+export const OUTFIT_PRESETS: Record<string, Outfit> = {
+  'Classic red': { jacket: '#ef4444', pants: '#1f2937', helmet: '#111111', board: '#1d4ed8', gloves: '#111111' },
+  'All black': { jacket: '#15171c', pants: '#0f1114', helmet: '#0a0a0a', board: '#2a2a2a', gloves: '#111111' },
+  'Neon 90s': { jacket: '#d6ff00', pants: '#ff2d95', helmet: '#00e5ff', board: '#ff6a00', gloves: '#d6ff00' },
+  'Powder blue': { jacket: '#7dd3fc', pants: '#1e3a8a', helmet: '#f8fafc', board: '#0ea5e9', gloves: '#1e3a8a' },
+  'Forest': { jacket: '#2f6b3a', pants: '#3b2f2f', helmet: '#d9b08c', board: '#8b5a2b', gloves: '#3b2f2f' },
+  'Safety orange': { jacket: '#ff7a00', pants: '#111827', helmet: '#ffffff', board: '#111827', gloves: '#ff7a00' },
+};
 
 export const DEFAULT_KEYS: Record<string, string> = {
   left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft',
@@ -39,22 +49,22 @@ const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer r
 
 const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', quality: 'high', shadows: true, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-  fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, showMarkers: true, showLabels: true, timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
+  fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, showMarkers: true, showLabels: true, outfit: { ...OUTFIT_PRESETS['Classic red'] }, timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
 };
 const KEY = 'settings';
 
 export function loadSettings(): Settings {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? 'null');
-    if (raw && raw.v === DEFAULTS.v) return { ...DEFAULTS, ...raw, keys: { ...DEFAULT_KEYS, ...(raw.keys ?? {}) } };
+    if (raw && raw.v === DEFAULTS.v) return { ...DEFAULTS, ...raw, keys: { ...DEFAULT_KEYS, ...(raw.keys ?? {}) }, outfit: { ...DEFAULTS.outfit, ...(raw.outfit ?? {}) } };
     // migrate the older separate keys
-    const s = { ...DEFAULTS, keys: { ...DEFAULT_KEYS } };
+    const s = { ...DEFAULTS, keys: { ...DEFAULT_KEYS }, outfit: { ...DEFAULTS.outfit } };
     const a = JSON.parse(localStorage.getItem('audio') ?? '{}');
     if (typeof a.sfx === 'number') s.sfx = a.sfx;
     if (typeof a.music === 'number') s.music = a.music;
     if (localStorage.getItem('gfx') === 'low') { s.quality = 'low'; s.shadows = false; s.treeDensity = 0.3; s.pixelRatio = 1; }
     return s;
-  } catch { return { ...DEFAULTS, keys: { ...DEFAULT_KEYS } }; }
+  } catch { return { ...DEFAULTS, keys: { ...DEFAULT_KEYS }, outfit: { ...DEFAULTS.outfit } }; }
 }
 
 export function saveSettings(s: Settings): void {
@@ -62,7 +72,7 @@ export function saveSettings(s: Settings): void {
 }
 
 export function resetSettings(): Settings {
-  const s = { ...DEFAULTS, keys: { ...DEFAULT_KEYS } };
+  const s = { ...DEFAULTS, keys: { ...DEFAULT_KEYS }, outfit: { ...DEFAULTS.outfit } };
   saveSettings(s);
   return s;
 }
@@ -84,7 +94,7 @@ export function keyName(code: string): string {
  */
 export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settings, what: string) => void): void {
   host.innerHTML = `
-    <div class="tabs"><button data-t="audio" class="on">Audio</button><button data-t="graphics">Graphics</button><button data-t="controls">Controls</button><button data-t="game">Game</button></div>
+    <div class="tabs"><button data-t="audio" class="on">Audio</button><button data-t="graphics">Graphics</button><button data-t="controls">Controls</button><button data-t="rider">Rider</button><button data-t="game">Game</button></div>
     <div class="tab" data-t="audio">
       <div class="row"><label>Effects</label><input type="range" data-k="sfx" min="0" max="1" step="0.05"></div>
       <div class="row"><label>Music</label><input type="range" data-k="music" min="0" max="1" step="0.05"></div>
@@ -105,6 +115,10 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Default camera</label><select data-k="camera"><option value="chase">Chase</option><option value="close">Close</option><option value="far">Far</option><option value="fp">First person</option></select></div>
       <div class="keys"></div>
       <div class="hint">Click a key, then press the new one. Esc cancels.</div>
+    </div>
+    <div class="tab hidden" data-t="rider">
+      <div class="row"><label>Preset</label><select data-o="preset"><option value="">Custom</option>${Object.keys(OUTFIT_PRESETS).map((n) => `<option value="${n}">${n}</option>`).join('')}</select></div>
+      ${(['jacket', 'pants', 'helmet', 'gloves', 'board'] as (keyof Outfit)[]).map((k) => `<div class="row"><label>${k[0].toUpperCase() + k.slice(1)}</label><input type="color" data-o="${k}"><span class="val" data-ov="${k}"></span></div>`).join('')}
     </div>
     <div class="tab hidden" data-t="game">
       <div class="row"><label>Units</label><select data-k="units"><option value="imperial">mph, ft</option><option value="metric">km/h, m</option></select></div>
@@ -157,9 +171,23 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       const fv = host.querySelector('[data-v="fov"]'); if (fv) fv.textContent = `${s.fov}°`;
     });
   });
+  // outfit
+  const fillOutfit = () => {
+    host.querySelectorAll<HTMLInputElement>('input[data-o]').forEach((el) => { const k = el.dataset.o as keyof Outfit; el.value = s.outfit[k]; const v = host.querySelector(`[data-ov="${k}"]`); if (v) v.textContent = s.outfit[k]; });
+    const preset = Object.entries(OUTFIT_PRESETS).find(([, o]) => (Object.keys(o) as (keyof Outfit)[]).every((k) => o[k] === s.outfit[k]))?.[0] ?? '';
+    (host.querySelector('select[data-o="preset"]') as HTMLSelectElement).value = preset;
+  };
+  fillOutfit();
+  host.querySelectorAll<HTMLInputElement>('input[data-o]').forEach((el) => el.addEventListener('input', () => {
+    s.outfit[el.dataset.o as keyof Outfit] = el.value; saveSettings(s); fillOutfit(); onChange(s, 'outfit');
+  }));
+  (host.querySelector('select[data-o="preset"]') as HTMLSelectElement).addEventListener('change', (e) => {
+    const n = (e.target as HTMLSelectElement).value;
+    if (OUTFIT_PRESETS[n]) { s.outfit = { ...OUTFIT_PRESETS[n] }; saveSettings(s); fillOutfit(); onChange(s, 'outfit'); }
+  });
   host.querySelector('[data-a="reset"]')!.addEventListener('click', () => {
     const d = resetSettings();
-    Object.assign(s, d, { keys: { ...d.keys } });
-    fill(); onChange(s, 'reset');
+    Object.assign(s, d, { keys: { ...d.keys }, outfit: { ...d.outfit } });
+    fill(); fillOutfit(); onChange(s, 'reset');
   });
 }

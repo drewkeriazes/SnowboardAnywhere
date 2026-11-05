@@ -118,6 +118,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       controls.keymap = { ...s.keys };
       controls.invertSteer = s.invertSteer;
       lifts.markers.visible = s.showMarkers;
+      riderView.setOutfit(s.outfit);
       labels.visible = s.showLabels;
       map.metric = s.units === 'metric';
       if (what === 'camera' || what === 'reset') cam.mode = s.camera;
