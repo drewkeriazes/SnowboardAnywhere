@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
+import { ImpostorAtlas, impostorMaterial, impostorGeometry } from './Impostors';
 
 /**
  * Streams tree instances per 1 km cell around the rider and draws them with GPU instancing.
@@ -132,9 +133,33 @@ export class Vegetation {
   private readonly tmpC = new THREE.Color();
   private readonly up = new THREE.Vector3(0, 1, 0);
 
+  /** impostor atlases per species, built once a renderer is available (enableImpostors) */
+  private impostor: { mat: THREE.ShaderMaterial; atlas: ImpostorAtlas }[] | null = null;
+  private impostorsOn = true;
+
   constructor(pack: Pack, collider: Collider | null) {
     this.pack = pack;
     this.collider = collider;
+  }
+
+  /** Bake the atlases (one render per species). Far cells then use 2-triangle billboards. */
+  enableImpostors(renderer: THREE.WebGLRenderer, on = true): void {
+    this.impostorsOn = on;
+    if (on && !this.impostor) {
+      const specs: [THREE.BufferGeometry, THREE.Material, number][] = [
+        [this.geo.conifer.near, this.mat.conifer, 0.9],
+        [this.geo.aspen.near, this.mat.aspen, 0.5],
+        [this.geo.krummholz.near, this.mat.krummholz, 0.9],
+      ];
+      this.impostor = specs.map(([g, m, aspect]) => { const atlas = new ImpostorAtlas(renderer, g, m, aspect); return { atlas, mat: impostorMaterial(atlas.texture) }; });
+    }
+    // rebuild far cells with the new mode
+    for (const cell of this.cells.values()) if (cell.data && cell.near === false) this.buildMeshes(cell, false);
+  }
+  /** Retint impostors with the live sun. */
+  setSun(color: THREE.Color, intensity: number): void {
+    if (!this.impostor) return;
+    for (const i of this.impostor) { (i.mat.uniforms.sunColor.value as THREE.Color).copy(color); i.mat.uniforms.sunIntensity.value = intensity; }
   }
 
   update(x: number, y: number): void {
@@ -216,6 +241,31 @@ export class Vegetation {
     for (const [s, geo, mat] of sets) {
       const ids = bySpecies[s];
       if (ids.length === 0) continue;
+      if (!near && this.impostorsOn && this.impostor) {
+        // billboard quads
+        const ig = impostorGeometry(ids.length);
+        const pos = ig.getAttribute('iPos') as THREE.InstancedBufferAttribute, sc = ig.getAttribute('iScale') as THREE.InstancedBufferAttribute, yw = ig.getAttribute('iYaw') as THREE.InstancedBufferAttribute, co = ig.getAttribute('iColor') as THREE.InstancedBufferAttribute;
+        let k = 0;
+        for (const i of ids) {
+          const o = i * 6;
+          const h = d[o + 3], crown = d[o + 4];
+          const seed = (d[o] * 12.9898 + d[o + 1] * 78.233) % 1;
+          const w = s === 1 ? Math.max(h * 0.5, crown * 3) : Math.max(h * 0.9, crown * 3.2);
+          pos.setXYZ(k, d[o], d[o + 2] - 0.3, -d[o + 1]);
+          sc.setXY(k, w * this.impostor[s].atlas.widthK, h * this.impostor[s].atlas.heightK);
+          yw.setX(k, seed * 6.283);
+          const v = 0.85 + 0.3 * ((seed * 7.13) % 1);
+          if (s === 0) co.setXYZ(k, 0.17 * v * 2.6, 0.29 * v * 2.6, 0.18 * v * 2.6);
+          else if (s === 1) co.setXYZ(k, 0.85 * v, 0.84 * v, 0.80 * v);
+          else co.setXYZ(k, 0.2 * v * 2.4, 0.31 * v * 2.4, 0.22 * v * 2.4);
+          k++;
+        }
+        const bmesh = new THREE.Mesh(ig, this.impostor[s].mat);
+        bmesh.frustumCulled = false;
+        this.group.add(bmesh);
+        cell.meshes.push(bmesh as unknown as THREE.InstancedMesh);
+        continue;
+      }
       const mesh = new THREE.InstancedMesh(geo, mat, ids.length);
       mesh.castShadow = near;
       mesh.receiveShadow = false;

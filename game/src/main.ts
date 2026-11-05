@@ -96,6 +96,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     env.registerMaterial(rocks.material); env.registerMaterial(buildings.material); env.registerMaterial(roads.material); env.registerMaterial(lifts.material);
     for (const m of Object.values(riderView.mats)) env.registerMaterial(m);
     let csmSize = 0;
+    if (!params.has('noimpostors')) veg.enableImpostors(renderer, true);
     const vignette = document.getElementById('vignette')!;
 
     // ---------------------------------------------------------------- sun / time of day
@@ -268,6 +269,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       vignette.classList.toggle('show', cam.mode === 'fp' && settings.fpVignette);
       cam.camera.updateMatrixWorld();
       env.updateCSM();
+      veg.setSun(env.sun.color, env.sun.intensity);
       const cp = cam.camera.position;
       terrain.update(cp.x, -cp.z, cp.y);
       const fx = cam.mode === 'free' ? cp.x : rider.x, fy = cam.mode === 'free' ? -cp.z : rider.y;
