@@ -1,12 +1,13 @@
 import type { GameAudio } from '../audio/Audio';
+import { renderPanel, type Settings } from './Settings';
 
-export interface MenuChoice { action: 'ride' | 'map'; lowgfx: boolean }
+export interface MenuChoice { action: 'ride' | 'map' }
 
 /**
  * Start screen: resort name, Free ride (continue from the last spawn), Drop in from the map,
- * audio sliders and a graphics toggle. The first click also unlocks audio. Resolves once.
+ * and the shared settings panel. The first click also unlocks audio. Resolves once per show.
  */
-export function showMainMenu(resortName: string, audio: GameAudio, opts: { lowgfx: boolean }): Promise<MenuChoice> {
+export function showMainMenu(resortName: string, audio: GameAudio, settings: Settings, onChange: (s: Settings, what: string) => void): Promise<MenuChoice> {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.id = 'menu';
@@ -16,21 +17,19 @@ export function showMainMenu(resortName: string, audio: GameAudio, opts: { lowgf
         <h1>${resortName}</h1>
         <button data-a="ride" class="primary">Free ride</button>
         <button data-a="map">Drop in from the map</button>
-        <div class="row"><label>Effects</label><input type="range" id="sfx" min="0" max="1" step="0.05" value="${audio.sfxVolume}"></div>
-        <div class="row"><label>Music</label><input type="range" id="mus" min="0" max="1" step="0.05" value="${audio.musicVolume}"></div>
-        <div class="row"><label>Graphics</label><select id="gfx"><option value="high" ${opts.lowgfx ? '' : 'selected'}>High</option><option value="low" ${opts.lowgfx ? 'selected' : ''}>Low (no shadows, fewer trees)</option></select></div>
-        <div class="keys">&larr; &rarr; steer &middot; &uarr; tuck &middot; &darr; brake &middot; Space jump &middot; E lift &middot; M map &middot; R restart</div>
+        <button data-a="settings">Settings</button>
+        <div class="settings hidden"></div>
+        <div class="keys">&larr; &rarr; steer &middot; &uarr; tuck &middot; &darr; brake &middot; Space jump &middot; E lift &middot; M map &middot; Esc pause</div>
       </div>`;
     document.body.appendChild(wrap);
-    const sfx = wrap.querySelector('#sfx') as HTMLInputElement, mus = wrap.querySelector('#mus') as HTMLInputElement, gfx = wrap.querySelector('#gfx') as HTMLSelectElement;
-    const apply = () => audio.setVolumes(Number(sfx.value), Number(mus.value));
-    sfx.addEventListener('input', apply); mus.addEventListener('input', apply);
-    wrap.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
-      audio.start(); apply();
-      const lowgfx = gfx.value === 'low';
-      try { localStorage.setItem('gfx', gfx.value); } catch { /* ignore */ }
+    const panel = wrap.querySelector('.settings') as HTMLElement;
+    renderPanel(panel, settings, (s, what) => { audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music); onChange(s, what); });
+    wrap.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => b.addEventListener('click', () => {
+      audio.start();
+      audio.setVolumes(settings.mute ? 0 : settings.sfx, settings.mute ? 0 : settings.music);
+      if (b.dataset.a === 'settings') { panel.classList.toggle('hidden'); return; }
       wrap.remove();
-      resolve({ action: b.dataset.a as 'ride' | 'map', lowgfx });
+      resolve({ action: b.dataset.a as 'ride' | 'map' });
     }));
   });
 }

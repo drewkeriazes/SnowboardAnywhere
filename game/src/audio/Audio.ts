@@ -27,13 +27,7 @@ export class GameAudio {
   private wasOnGround = true;
   private wasRiding = false;
 
-  constructor() {
-    try {
-      const s = JSON.parse(localStorage.getItem('audio') ?? '{}');
-      if (typeof s.sfx === 'number') this.sfxVolume = s.sfx;
-      if (typeof s.music === 'number') this.musicVolume = s.music;
-    } catch { /* ignore */ }
-  }
+  constructor() {}
 
   get started(): boolean { return this.ctx !== null; }
 
@@ -89,12 +83,19 @@ export class GameAudio {
   nextTrack(): void { this.playTrack(this.track + 1); }
   get trackName(): string | null { return this.playlist.length ? this.playlist[this.track].replace(/\.[a-z0-9]+$/i, '') : null; }
 
+  private duck = 1;
   setVolumes(sfx: number, music: number): void {
     this.sfxVolume = sfx; this.musicVolume = music;
-    if (this.sfx) this.sfx.gain.value = sfx;
-    if (this.music) this.music.volume = music;
-    try { localStorage.setItem('audio', JSON.stringify({ sfx, music })); } catch { /* ignore */ }
+    if (this.sfx) this.sfx.gain.value = sfx * this.duck;
+    if (this.music) this.music.volume = music * this.duck;
   }
+  /** Pause ducking: 1 = normal, 0.3 = paused. Effects are silenced while paused. */
+  setDuck(d: number): void {
+    this.duck = d;
+    if (this.sfx) this.sfx.gain.value = d < 1 ? 0 : this.sfxVolume;
+    if (this.music) this.music.volume = this.musicVolume * d;
+  }
+  stopMusic(): void { this.music?.pause(); }
 
   /** Short filtered noise burst. */
   private thump(freq: number, dur: number, gain: number): void {

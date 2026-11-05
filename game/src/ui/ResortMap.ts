@@ -79,12 +79,13 @@ export class ResortMap {
     this.full.addEventListener('mouseup', up);
     this.full.addEventListener('mouseleave', (e) => { this.hover = null; if (down) up(e); this.drawFull(); });
     this.full.addEventListener('dblclick', (e) => { e.preventDefault(); const r = this.full.getBoundingClientRect(); this.zoomAt(e.clientX - r.left, e.clientY - r.top, 2); this.drawFull(); });
-    window.addEventListener('keydown', (e) => {
+    this.onKey = (e: KeyboardEvent) => {
       if (!this.fullOpen) return;
       if (e.key === '+' || e.key === '=') { this.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.5); this.drawFull(); }
       else if (e.key === '-') { this.zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1 / 1.5); this.drawFull(); }
       else if (e.key === 'Home' || e.key === '0') { this.zoom = 1; this.centre = this.boundsCentre(); this.drawFull(); }
-    });
+    };
+    window.addEventListener('keydown', this.onKey);
     // touch: one finger pans, two fingers pinch-zoom, tap drops in
     let touch: { x: number; y: number; d: number; cx: number; cy: number; zoom: number; moved: boolean } | null = null;
     const tpos = (e: TouchEvent) => { const r = this.full.getBoundingClientRect(); const t = Array.from(e.touches); const x = t.reduce((a, q) => a + q.clientX, 0) / t.length - r.left, y = t.reduce((a, q) => a + q.clientY, 0) / t.length - r.top; const d = t.length > 1 ? Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY) : 0; return { x, y, d }; };
@@ -323,6 +324,11 @@ export class ResortMap {
   }
 
   // ---------------------------------------------------------------- full map
+  /** Remove the DOM nodes (quit to menu). */
+  private onKey: ((e: KeyboardEvent) => void) | null = null;
+  destroy(): void { this.mini.remove(); this.fullWrap.remove(); if (this.onKey) window.removeEventListener('keydown', this.onKey); }
+  metric = false;
+
   toggle(): void { this.fullOpen ? this.close() : this.open(); }
   private opened = false;
   open(): void {
@@ -357,7 +363,7 @@ export class ResortMap {
       const h = this.pack.groundHeight(this.hover[0], this.hover[1]);
       const near = this.nearestRun(this.hover[0], this.hover[1]);
       this.fullInfo.innerHTML = `<b>${this.pack.meta.name}</b> &middot; click to drop in &middot; scroll to zoom (${this.zoom.toFixed(1)}x) &middot; drag to pan &middot; Home resets &middot; M or Esc to close<br>` +
-        `${this.hover[0].toFixed(0)}, ${this.hover[1].toFixed(0)} m &middot; ${(h * 3.28084).toFixed(0)} ft` + (near ? ` &middot; ${near}` : '');
+        `${this.hover[0].toFixed(0)}, ${this.hover[1].toFixed(0)} m &middot; ${this.metric ? `${h.toFixed(0)} m` : `${(h * 3.28084).toFixed(0)} ft`}` + (near ? ` &middot; ${near}` : '');
     } else {
       this.fullInfo.innerHTML = `<b>${this.pack.meta.name}</b> &middot; click to drop in &middot; scroll to zoom (${this.zoom.toFixed(1)}x) &middot; drag to pan &middot; Home resets &middot; M or Esc to close`;
     }

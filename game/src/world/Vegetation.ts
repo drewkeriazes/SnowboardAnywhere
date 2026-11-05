@@ -11,6 +11,8 @@ let NEAR_RADIUS = 1500;
 let FAR_RADIUS = 4500;
 /** Headless / weak GPU: far fewer instances. */
 export function setVegetationBudget(near: number, far: number): void { NEAR_RADIUS = near; FAR_RADIUS = far; }
+/** Scale the near/far radii by a 0.25..1 density (1 = full 1500 / 4500 m). */
+export function setVegetationDensity(d: number): void { const k = Math.max(0.25, Math.min(1, d)); NEAR_RADIUS = 1500 * k; FAR_RADIUS = 4500 * k; }
 
 interface Cell {
   key: string;

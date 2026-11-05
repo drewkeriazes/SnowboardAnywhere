@@ -8,6 +8,8 @@ export type CameraMode = 'chase' | 'close' | 'far' | 'fp' | 'free';
 export class ChaseCamera {
   readonly camera: THREE.PerspectiveCamera;
   mode: CameraMode = 'chase';
+  /** base FOV for the chase cameras (settings) */
+  baseFov = 68;
   private readonly pos = new THREE.Vector3();
   private readonly look = new THREE.Vector3();
   private readonly desired = new THREE.Vector3();
@@ -45,13 +47,17 @@ export class ChaseCamera {
   cycle(): void {
     const order: CameraMode[] = ['chase', 'close', 'far', 'fp', 'free'];
     this.mode = order[(order.indexOf(this.mode) + 1) % order.length];
-    if (this.mode === 'free') {
-      this.freePos.copy(this.camera.position);
-      const d = new THREE.Vector3();
-      this.camera.getWorldDirection(d);
-      this.yaw = Math.atan2(d.x, -d.z);
-      this.pitch = Math.asin(d.y);
-    }
+    if (this.mode === 'free') this.enterFree();
+  }
+
+  /** Start free fly from the current camera pose. */
+  enterFree(): void {
+    this.mode = 'free';
+    this.freePos.copy(this.camera.position);
+    const d = new THREE.Vector3();
+    this.camera.getWorldDirection(d);
+    this.yaw = Math.atan2(d.x, -d.z);
+    this.pitch = Math.asin(d.y);
   }
 
   updateFree(dt: number, keys: Set<string>, mouseDx: number, mouseDy: number): void {
@@ -121,7 +127,7 @@ export class ChaseCamera {
     // keep the eye out of the snow
     const ground = this.pack.groundHeight(this.fpPos.x, -this.fpPos.z);
     if (this.camera.position.y < ground + 0.6) this.camera.position.y = ground + 0.6;
-    const fov = 92 + Math.min(14, r.speed * 0.4) + (tuck ? 3 : 0) - r.landingShock * 6;
+    const fov = this.baseFov + 24 + Math.min(14, r.speed * 0.4) + (tuck ? 3 : 0) - r.landingShock * 6;
     this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 5);
     this.camera.updateProjectionMatrix();
     void this.fpM;
@@ -146,7 +152,7 @@ export class ChaseCamera {
     this.look.lerp(lookTarget, 1 - Math.exp(-dt * 8));
     this.camera.position.copy(this.pos);
     this.camera.lookAt(this.look);
-    const fov = 68 + Math.min(22, r.speed * 0.6) + (tuck ? 4 : 0);
+    const fov = this.baseFov + Math.min(22, r.speed * 0.6) + (tuck ? 4 : 0);
     this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 4);
     this.camera.updateProjectionMatrix();
   }
