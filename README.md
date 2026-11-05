@@ -7,8 +7,12 @@ Reference and design rationale: `docs/bonvo-teardown-and-build-plan.md`.
 ## Layout
 
 - `game/` – the client. `cd game && npm install && npm run dev` → http://localhost:5173
-- `pipeline/fetch/` – Node scripts that download raw inputs for a resort (run on a machine with open internet): `node pipeline/fetch/fetch-resort.mjs vail`
-- `pipeline/process/` – Python that turns raw inputs into a resort pack: `python pipeline/process/build_pack.py vail`
+- `fetch_vail.cmd` / `pipeline/fetch.ps1` – double-click on Windows to download the raw inputs listed in `pipeline/manifests/vail.json` into `raw/vail/` (about 1.2 GB; resumable)
+- `fetch_static.cmd` / `pipeline/fetch_static.ps1` – downloads the Geofabrik Colorado OSM extract and USGS GNIS names into `raw/static/`
+- `pipeline/gen_manifest.py` – builds the manifest from `pipeline/resorts/<slug>.json` (needs `pip install pyproj`)
+- `pipeline/extract_osm.py` – cuts `raw/vail/osm/*.json` and `raw/vail/names/gnis.json` out of the static files (needs `pip install osmium`)
+- `pipeline/process/` – Python that turns `raw/<slug>/` into a resort pack: `python pipeline/process/build_pack.py vail`
+- `raw/` – downloaded source data (gitignored, ~1.6 GB for Vail)
 - `packs/` – generated resort packs (gitignored), served by Vite as static tiles
 - `docs/` – plans and notes
 

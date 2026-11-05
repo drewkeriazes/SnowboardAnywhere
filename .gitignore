@@ -2,7 +2,7 @@ node_modules/
 dist/
 packs/*
 !packs/.gitkeep
-pipeline/raw/
+raw/
 __pycache__/
 .venv/
 *.log

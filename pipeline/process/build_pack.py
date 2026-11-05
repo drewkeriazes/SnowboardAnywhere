@@ -12,7 +12,7 @@ import argparse
 import json
 from pathlib import Path
 
-RAW = Path(__file__).resolve().parents[1] / "raw"
+RAW = Path(__file__).resolve().parents[2] / "raw"
 PACKS = Path(__file__).resolve().parents[2] / "packs"
 
 
