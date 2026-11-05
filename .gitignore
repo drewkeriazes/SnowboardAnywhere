@@ -51,4 +51,4 @@ desktop.ini
 npm-debug.log*
 
 # Headless test output
-game/shots/
+game/shots*/
