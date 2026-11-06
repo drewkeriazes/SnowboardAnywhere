@@ -1,0 +1,59 @@
+{
+  "name": "Blue Sky Basin, Belle's Camp (Steep & Deep / Cloud Nine sign)",
+  "latlon": [
+    39.5642903,
+    -106.3284316
+  ],
+  "game": {
+    "x": 1586,
+    "y": -4008
+  },
+  "views": [
+    {
+      "id": "north",
+      "heading": 5.9,
+      "pitch": 10.0,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5642903,-106.3284316,3498a,75y,5.92h,100.04t/data=!3m7!1e1!3m5!1sC-diuo070PNGcArtSRCXrw!2e0",
+      "x": 1586.1,
+      "y": -4007.8,
+      "h": 6.8,
+      "game": "http://localhost:5173/?pack=vail&x=1586.1&y=-4007.8&h=6.8&pitch=10.0&fov=75.0&cam=eye&spot=blue-sky-belles-camp/north"
+    },
+    {
+      "id": "east",
+      "heading": 77.3,
+      "pitch": 2.0,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5642903,-106.3284316,3498a,75y,77.31h,92t/data=!3m7!1e1!3m5!1sC-diuo070PNGcArtSRCXrw!2e0",
+      "x": 1586.1,
+      "y": -4007.8,
+      "h": 78.2,
+      "game": "http://localhost:5173/?pack=vail&x=1586.1&y=-4007.8&h=78.2&pitch=2.0&fov=75.0&cam=eye&spot=blue-sky-belles-camp/east"
+    },
+    {
+      "id": "south",
+      "heading": 199.4,
+      "pitch": 11.6,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5642903,-106.3284316,3498a,75y,199.44h,101.6t/data=!3m7!1e1!3m5!1sC-diuo070PNGcArtSRCXrw!2e0",
+      "x": 1586.1,
+      "y": -4007.8,
+      "h": 200.3,
+      "game": "http://localhost:5173/?pack=vail&x=1586.1&y=-4007.8&h=200.3&pitch=11.6&fov=75.0&cam=eye&spot=blue-sky-belles-camp/south"
+    },
+    {
+      "id": "west",
+      "heading": 268.1,
+      "pitch": 7.9,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5642903,-106.3284316,3498a,75y,268.13h,97.89t/data=!3m7!1e1!3m5!1sC-diuo070PNGcArtSRCXrw!2e0",
+      "x": 1586.1,
+      "y": -4007.8,
+      "h": 269.0,
+      "game": "http://localhost:5173/?pack=vail&x=1586.1&y=-4007.8&h=269.0&pitch=7.9&fov=75.0&cam=eye&spot=blue-sky-belles-camp/west"
+    }
+  ],
+  "streetview_capture": "Mar 2012, Google Street View trekker (calibrated; the lodge sits at about 207 true in the photo vs 212 in the pack, 75 m). Real screenshots shared in chat, not saved locally.",
+  "game_capture": "2026-11-06, main after fa2b96c, eye camera"
+}
