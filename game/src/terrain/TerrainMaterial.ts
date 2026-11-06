@@ -24,16 +24,20 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
 
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
+        attribute float forest;
+        varying float vForest;
         varying vec3 vWorldPos;
         varying vec3 vWorldNormal;`)
       .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
         vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
-        vWorldNormal = normalize(mat3(modelMatrix) * objectNormal);`);
+        vWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
+        vForest = forest;`);
 
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         varying vec3 vWorldPos;
         varying vec3 vWorldNormal;
+        varying float vForest;
         uniform float uTime;
         uniform vec3 uSnow, uSnowShade, uRock, uScree, uGroomed;
         // cheap value noise
@@ -65,6 +69,15 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         // snow is bright on sunlit faces: handled by lighting; add subtle sparkle facing the camera
         vec3 vdir = normalize(cameraPosition - wp);
         float spark = pow(vnoise(wp * 40.0 + vdir * 3.0), 18.0) * wSnow * 1.5;
+        // distant forest: past the instanced trees, forested ground reads as dark conifer green
+        // speckled with snow (real distant Colorado slopes are mostly dark timber, not white)
+        float dist = length(cameraPosition - wp);
+        float fd = smoothstep(2500.0, 6000.0, dist) * vForest;
+        float speck = vnoise(wp * 0.02) * 0.6 + vnoise(wp * 0.11) * 0.4;
+        vec3 timber = mix(vec3(0.06, 0.08, 0.06), vec3(0.14, 0.16, 0.13), speck);
+        timber = mix(timber, snow * 0.8, smoothstep(0.62, 0.9, speck) * 0.6); // snowy gaps between crowns
+        base = mix(base, timber, fd * 0.9);
+        spark *= 1.0 - fd;
         diffuseColor.rgb = base + spark;
         float rough = mix(0.55, 0.95, wRock + wScree);
       `)

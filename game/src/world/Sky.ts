@@ -154,7 +154,7 @@ export class Environment {
       this.fog.near = 12; this.fog.far = 380;
       (this.stormDome.material as THREE.MeshBasicMaterial).color.copy(this.fog.color);
     } else {
-      this.fog.near = 4000; this.fog.far = 90000;
+      this.fog.near = 2000; this.fog.far = 50000; // aerial perspective: far ranges go blue-grey
     }
   }
 

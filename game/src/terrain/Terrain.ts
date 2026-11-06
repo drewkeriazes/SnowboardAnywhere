@@ -9,6 +9,28 @@ import { createTerrainMaterial } from './TerrainMaterial';
  * pack y = -three.z).
  */
 const N = 32; // quads per chunk side
+/** Colorado treeline (m): forest below it on the far terrain where there is no canopy mask */
+const TREELINE = 3480;
+function vhash(ix: number, iy: number): number { let h = (ix * 374761393 + iy * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+function vnoise2(x: number, y: number): number {
+  const ix = Math.floor(x), iy = Math.floor(y); let fx = x - ix, fy = y - iy;
+  fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+  const a = vhash(ix, iy), b = vhash(ix + 1, iy), c = vhash(ix, iy + 1), d = vhash(ix + 1, iy + 1);
+  return (a + (b - a) * fx) * (1 - fy) + (c + (d - c) * fx) * fy;
+}
+/**
+ * Forest cover 0..1 where there is no canopy mask (beyond the pack, coarse chunks): conifers
+ * below a noisy treeline, thinning on steep ground and in open patches (meadows, ski runs).
+ */
+function proceduralForest(x: number, y: number, h: number, slope: number): number {
+  const tl = TREELINE + (vnoise2(x / 900, y / 900) - 0.5) * 220;
+  const below = THREE.MathUtils.smoothstep(tl + 40 - h, 0, 160);
+  const patch = vnoise2(x / 420 + 31.7, y / 420 - 12.3) * 0.65 + vnoise2(x / 140, y / 140) * 0.35;
+  const open = THREE.MathUtils.smoothstep(patch, 0.3, 0.5);
+  const flatOK = 1 - THREE.MathUtils.smoothstep(slope, 0.6, 0.85); // cliffs carry no trees
+  const valley = THREE.MathUtils.smoothstep(h, 2450, 2650); // towns and the I-70 corridor are open
+  return below * open * flatOK * valley;
+}
 const SPLIT_K = 2.6; // split when distance < size * SPLIT_K
 const MAX_BUILDS_PER_FRAME = 10;
 
@@ -157,6 +179,7 @@ export class Terrain {
     const pos = new Float32Array(vertCount * 3);
     const nor = new Float32Array(vertCount * 3);
     const col = new Float32Array(vertCount * 3);
+    const forest = new Float32Array(vertCount);
     const heights = new Float32Array((n + 2) * (n + 2)); // with a 1-sample border for normals
     // sample heights including border
     let dataRes = Infinity;
@@ -184,10 +207,12 @@ export class Terrain {
         // classes
         const slope = Math.acos(1 / len); // radians
         let rock = 0, scree = 0, groom = 0;
+        let fo: number;
         if (useMask) {
           const m = pack.mask!.sample(x, y, this.maskSample);
-          rock = m[0]; scree = m[1]; groom = m[2];
-        }
+          rock = m[0]; scree = m[1]; groom = m[2]; fo = m[3];
+        } else fo = proceduralForest(x, y, h, slope);
+        forest[v] = fo;
         // steep ground sheds snow regardless of the mask
         const steep = THREE.MathUtils.smoothstep(slope, 0.72, 1.0); // 41..57 degrees
         rock = Math.max(rock, steep);
@@ -206,7 +231,7 @@ export class Terrain {
       const e = edge[k];
       pos[v * 3] = pos[e * 3]; pos[v * 3 + 1] = pos[e * 3 + 1] - skirt; pos[v * 3 + 2] = pos[e * 3 + 2];
       nor[v * 3] = nor[e * 3]; nor[v * 3 + 1] = nor[e * 3 + 1]; nor[v * 3 + 2] = nor[e * 3 + 2];
-      col[v * 3] = col[e * 3]; col[v * 3 + 1] = col[e * 3 + 1]; col[v * 3 + 2] = col[e * 3 + 2];
+      col[v * 3] = col[e * 3]; col[v * 3 + 1] = col[e * 3 + 1]; col[v * 3 + 2] = col[e * 3 + 2]; forest[v] = forest[e];
       v++;
     }
     const idx: number[] = [];
@@ -229,6 +254,7 @@ export class Terrain {
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.setAttribute('forest', new THREE.BufferAttribute(forest, 1));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
     if (c.mesh) {
