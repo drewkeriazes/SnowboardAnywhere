@@ -1,0 +1,12 @@
+{
+  "name": "Back Bowls, top of Campbell's (Sun Down Bowl, near Milt's Face / The Slot)",
+  "latlon": [39.6009417, -106.3548263],
+  "game": { "x": -620, "y": 94 },
+  "views": [
+    { "id": "east", "heading": 98.9, "pitch": -9.6, "fov": 75,
+      "streetview": "https://www.google.com/maps/@39.6009417,-106.3548263,3a,75y,98.86h,80.36t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIDqy5i-gQE!2e10!3e11",
+      "game": "http://localhost:5173/?pack=vail&x=-620&y=94&h=99" }
+  ],
+  "streetview_capture": "Jan 2019, contributor Mehmet Artun",
+  "game_capture": "2026-11-06, main after FEAT-020 (d769a5c)"
+}
