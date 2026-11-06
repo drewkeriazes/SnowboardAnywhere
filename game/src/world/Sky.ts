@@ -23,6 +23,13 @@ export class Environment {
     this.sky.scale.setScalar(450000);
     scene.add(this.sky);
     const u = this.sky.material.uniforms;
+    // colour grade after the scattering model: ACES washes the physical sky out to pale grey-blue,
+    // so the bluebird preset pushes saturation back up (uSkySat), tints toward cobalt and dims it
+    u.uSkySat = { value: 1 }; u.uSkyBright = { value: 1 }; u.uSkyTint = { value: new THREE.Vector3(1, 1, 1) };
+    const m = this.sky.material;
+    m.fragmentShader = m.fragmentShader
+      .replace('void main() {', 'uniform float uSkySat;\nuniform float uSkyBright;\nuniform vec3 uSkyTint;\nvoid main() {')
+      .replace('gl_FragColor = vec4( retColor, 1.0 );', 'float skyL = dot( retColor, vec3( 0.2126, 0.7152, 0.0722 ) ); retColor = max( vec3( 0.0 ), mix( vec3( skyL ), retColor, uSkySat ) ) * uSkyTint * uSkyBright;\n\t\t\tgl_FragColor = vec4( retColor, 1.0 );');
     u.turbidity.value = 3.5;
     u.rayleigh.value = 1.6;
     u.mieCoefficient.value = 0.004;
@@ -114,7 +121,17 @@ export class Environment {
     u.turbidity.value = 3.5 + (1 - warm) * 4;
     u.rayleigh.value = 1.6 + (1 - warm) * 1.2;
     u.mieCoefficient.value = 0.004 + (1 - warm) * 0.01;
-    if (this.bluebird) { u.turbidity.value *= 0.55; u.mieCoefficient.value *= 0.5; u.rayleigh.value *= 1.15; }
+    if (this.bluebird) {
+      // crisp, dry Colorado air: very low haze, deep saturated blue (warmer and softer near dusk)
+      u.turbidity.value = 1.2 + (1 - warm) * 2;
+      u.rayleigh.value = 0.6 + (1 - warm) * 0.6;
+      u.mieCoefficient.value = 0.0008 + (1 - warm) * 0.004;
+      u.uSkySat.value = 1 + 1.6 * warm;
+      u.uSkyBright.value = 0.75 + 0.25 * (1 - warm);
+      u.uSkyTint.value.set(0.88, 0.96, 1.08);
+    } else {
+      u.uSkySat.value = 1; u.uSkyBright.value = 1; u.uSkyTint.value.set(1, 1, 1);
+    }
     // ambient: sky blue over snow, fades toward dusk blue
     const amb = 0.35 + 0.55 * up;
     this.hemi.intensity = amb;
