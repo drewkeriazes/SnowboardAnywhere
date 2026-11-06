@@ -46,9 +46,11 @@ export const POSES: Record<string, Pose> = {
 
 /** On foot (FEAT-067), both disciplines: facing forward. Legs are IK to the gait's feet, so the hip
  *  and knee angles here are unused; the arms are overridden by hand IK where they hold the gear. */
-export const WALK_POSES: Record<'walk' | 'sprint', Pose> = {
+export const WALK_POSES: Record<'walk' | 'sprint' | 'crawl', Pose> = {
   walk: { hipsY: 0.97, hipsRot: E(3, 0, 0), torso: E(4, 0, 0), head: E(-4, 0, 0), lShoulder: E(0, 0, -6), rShoulder: E(0, 0, 6), lElbow: 15, rElbow: 15, lHip: E(0, 0, 0), rHip: E(0, 0, 0), lKnee: 0, rKnee: 0 },
   sprint: { hipsY: 0.93, hipsRot: E(10, 0, 0), torso: E(10, 0, 0), head: E(-14, 0, 0), lShoulder: E(0, 0, -10), rShoulder: E(0, 0, 10), lElbow: 80, rElbow: 80, lHip: E(0, 0, 0), rHip: E(0, 0, 0), lKnee: 0, rKnee: 0 },
+  // scrambling up a steep pitch (FEAT-068): low, bent well forward, head up; the free hand is IK to the snow
+  crawl: { hipsY: 0.68, hipsRot: E(30, 0, 0), torso: E(40, 0, 0), head: E(-45, 0, 0), lShoulder: E(60, 0, -10), rShoulder: E(30, 0, 10), lElbow: 30, rElbow: 30, lHip: E(0, 0, 0), rHip: E(0, 0, 0), lKnee: 0, rKnee: 0 },
 };
 
 export function lerpPose(out: Pose, a: Pose, b: Pose, t: number): Pose {

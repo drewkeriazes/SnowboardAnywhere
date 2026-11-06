@@ -31,6 +31,9 @@ const CARRY = {
     lGrip: null as THREE.Vector3 | null,
     /** grip in board-local coords: the upper edge (-X) by the front binding */
     rGrip: new THREE.Vector3(-0.135, 0.01, -0.28),
+    /** scrambling: flatter (nose forward) and higher, so the tail stays off the slope */
+    crawlQ: carryBasis(new THREE.Vector3(0, 0.35, -1), new THREE.Vector3(1, 0, 0)) as THREE.Quaternion | null,
+    crawlLift: 0.3,
   },
   ski: {
     // tips forward and down; the ski width runs vertical (edge on the shoulder), the bases face sideways
@@ -44,6 +47,8 @@ const CARRY = {
     balance: new THREE.Vector3(0.05, 0, 0.05),
     lGrip: null as THREE.Vector3 | null,
     rGrip: new THREE.Vector3(0.04, 0, -0.38),
+    crawlQ: null as THREE.Quaternion | null,
+    crawlLift: 0,
   },
 };
 
@@ -104,6 +109,8 @@ export class RiderView {
   private footActive = false;
   private gaitLive = false;
   private prevStep = [0, 0];
+  /** 0..1 blend into the all-fours scramble (FEAT-068) */
+  private crawl = 0;
   /** each foot plant on the snow (step-offs and the walk cycle): bootprints and footsteps */
   onPlant: ((p: Plant) => void) | null = null;
   private readonly fq = [new THREE.Quaternion(), new THREE.Quaternion()];
@@ -483,7 +490,9 @@ export class RiderView {
     const stand = smooth(0.38, 0.75, u);
     const sprint = smooth(1.6, 3.4, gait.speed);
     Object.assign(t, clonePose(this.poses.neutral));
+    this.crawl += ((r.crawling ? 1 : 0) - this.crawl) * Math.min(1, dt * 5);
     const walk = lerpPose(clonePose(WALK_POSES.walk), WALK_POSES.walk, WALK_POSES.sprint, sprint);
+    if (this.crawl > 0.001) lerpPose(walk, walk, WALK_POSES.crawl, this.crawl);
     lerpPose(t, t, walk, stand);
     const crouch = u > 0.08 && u < 0.78 ? Math.sin(Math.PI * (u - 0.08) / 0.7) : 0;
     t.hipsY -= 0.3 * crouch + 0.6 * r.sink * stand;
@@ -540,11 +549,18 @@ export class RiderView {
     if (lift > 0) {
       const chest = B.Spine2;
       chest.updateMatrixWorld(true);
+      // the carry rides on the chest; bent over in a scramble it keeps the body's upright frame
+      // (at the chest) so the gear does not tip into the slope
+      const refQ = chest.getWorldQuaternion(this.restQ).slerp(this.group.quaternion, this.crawl);
+      this.m2.compose(chest.getWorldPosition(this.v4), refQ, this.v2.set(1, 1, 1));
       // a little swing with the stride
-      const sway = this.cq.setFromAxisAngle(this.up, 0.06 * Math.sin(ph) * a).multiply(carry.q);
+      const sway = this.cq.copy(carry.q);
+      if (carry.crawlQ && this.crawl > 0) sway.slerp(carry.crawlQ, this.crawl);
+      sway.premultiply(this.q.setFromAxisAngle(this.up, 0.06 * Math.sin(ph) * a));
       this.cp.copy(carry.pos);
+      this.cp.y += carry.crawlLift * this.crawl;
       if (ski) this.cp.sub(this.v1.copy(CARRY.ski.balance).applyQuaternion(sway));
-      this.m1.compose(this.cp, sway, this.v2.set(1, 1, 1)).premultiply(chest.matrixWorld);
+      this.m1.compose(this.cp, sway, this.v2.set(1, 1, 1)).premultiply(this.m2);
       this.m2.copy(this.lean.matrixWorld).invert().multiply(this.m1);
       this.m2.decompose(this.v3, this.restQ, this.v4);
       rig.board.position.set(0, 0, 0).lerp(this.v3, lift);
@@ -565,6 +581,14 @@ export class RiderView {
     const hold = smooth(0.55, 0.75, u);
     if (carry.lGrip) this.handTo('Left', rig.board.localToWorld(this.cp.copy(carry.lGrip)), hold);
     this.handTo('Right', rig.board.localToWorld(this.cp.copy(carry.rGrip)), hold);
+    // scrambling: the free (left) hand goes to the snow ahead, lifting in step with the feet
+    if (this.crawl > 0.02) {
+      const hx = Math.sin(r.heading), hy = Math.cos(r.heading), lx = -Math.cos(r.heading), ly = Math.sin(r.heading);
+      const reach = 0.5 + 0.15 * Math.cos(ph);
+      const px = r.x + hx * reach + lx * 0.25, py = r.y + hy * reach + ly * 0.25;
+      const gz = pack.groundHeight(px, py);
+      if (!Number.isNaN(gz)) this.handTo('Left', this.cp.set(px, gz + 0.04 + 0.08 * Math.max(0, Math.sin(ph)), -py), this.crawl * hold);
+    }
     // skier: both poles in the free (left) hand, hanging down and back
     if (ski && rig.lPole && rig.rPole) {
       if (hold > 0.5 && rig.rPole.parent !== B.LeftHand) { B.LeftHand.add(rig.rPole); }

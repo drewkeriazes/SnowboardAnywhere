@@ -41,8 +41,13 @@ const WALK = 1.4, SPRINT = 3.8, JOG = 2.4, BACK = 0.6;
 /** seconds of sprint, and how much has to come back before sprinting again after running out */
 export const STAMINA = 4;
 const STAMINA_RESUME = 1.5;
-/** steeper than this (degrees) cannot be climbed; steeper than SLIP_SLOPE you slip whatever you do */
-const CLIMB_MAX = 35, SLIP_SLOPE = 40;
+/**
+ * Slopes on foot are judged at body scale (FEAT-068): the rise over BODY_L metres, so a short steep
+ * face on a small lump does not stop you. Steeper than CLIMB_MAX (degrees) you scramble on all fours
+ * at CRAWL m/s; steeper than CRAWL_MAX you cannot get up and slip back, and standing on more than
+ * CRAWL_MAX you slip whatever you do.
+ */
+const CLIMB_MAX = 35, CRAWL_MAX = 45, CRAWL = 0.45, BODY_L = 2.5;
 
 /**
  * How far a boot sinks (m): about 2.5 cm on a groomer, 10 to 16 cm in open powder, up to about
@@ -132,6 +137,10 @@ export class Rider {
   slideVx = 0; slideVy = 0;
   private walkVx = 0; private walkVy = 0;
   private hopHeld = false;
+  /** scrambling up on all fours (too steep to walk, not too steep to climb) */
+  crawling = false;
+  /** body-scale slope along the way you are walking (degrees, + = uphill) */
+  walkSlopeDeg = 0;
   /** board angle to travel this brake aims for, fixed when the brake starts (0 = ski snowplough) */
   private brakeGamma = STOP_GAMMA;
   /** lateral acceleration in g, positive toward the board's right-hand side (smoothed, for the rider's lean) */
@@ -173,7 +182,7 @@ export class Rider {
     this.edgeAngle = 0; this.lateralG = 0; this.landingShock = 0;
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
     this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false;
-    this.sprinting = false; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
+    this.sprinting = false; this.crawling = false; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
     this.rng.seed(seed);
     this.squareBoard();
     this.snapPose();
@@ -558,24 +567,34 @@ export class Rider {
     if (this.sprinting) this.stamina = Math.max(0, this.stamina - dt);
     else this.stamina = Math.min(STAMINA, this.stamina + dt * (fwd === 0 ? 0.8 : 0.45));
     let base = fwd > 0 ? (wantSprint ? (this.tired ? JOG : SPRINT) : WALK) : fwd < 0 ? -BACK : 0;
-    // grade along the way you are walking: rise per metre (positive = uphill)
-    const nz = Math.max(0.2, n[2]);
-    const grade = -(n[0] * hx + n[1] * hy) / nz * (base < 0 ? -1 : 1);
-    const steep = this.slopeDeg;
-    // uphill: about 70% pace up a 20 degree pitch, half pace at 30, then it gives out over the last
-    // two degrees before CLIMB_MAX; downhill a little careful
-    let slopeF = grade > 0 ? Math.max(0.4, 1 - 0.8 * grade) : Math.max(0.7, 1 + 0.6 * grade);
-    if (grade > 0.1 && steep > CLIMB_MAX - 2) slopeF *= Math.max(0, (CLIMB_MAX - steep) / 2);
-    const climbingTooSteep = grade > 0.1 && steep >= CLIMB_MAX && fwd !== 0;
-    base *= slopeF * Math.max(0.4, 1 - 2.2 * this.sink);
+    // grade along the way you are walking, at body scale: rise per metre over BODY_L (+ = uphill)
+    const pack = this.pack, dir = base < 0 ? -1 : 1, hl = BODY_L / 2;
+    const rise = pack.groundHeight(this.x + hx * hl * dir, this.y + hy * hl * dir) - pack.groundHeight(this.x - hx * hl * dir, this.y - hy * hl * dir);
+    const grade = Number.isNaN(rise) ? 0 : rise / BODY_L;
+    const steep = Math.atan(Math.max(0, grade)) / D2R;
+    this.walkSlopeDeg = Math.atan(grade) / D2R;
+    // uphill: about 70% pace up a 20 degree pitch, half pace at 30; downhill a little careful.
+    // Past CLIMB_MAX you scramble on all fours, slower as it steepens toward CRAWL_MAX.
+    const slopeF = grade > 0 ? Math.max(0.4, 1 - 0.8 * grade) : Math.max(0.7, 1 + 0.6 * grade);
+    this.crawling = fwd > 0 && steep >= CLIMB_MAX && steep < CRAWL_MAX;
+    if (this.crawling) { base = CRAWL * Math.max(0.3, Math.min(1, (CRAWL_MAX - steep) / 8)); this.sprinting = false; }
+    else base *= slopeF;
+    const climbingTooSteep = fwd !== 0 && steep >= CRAWL_MAX;
+    base *= Math.max(0.4, 1 - 2.2 * this.sink);
     // walk velocity eases toward the target (quicker to stop than to start)
     const tx = hx * base, ty = hy * base;
     const k = 1 - Math.exp(-dt * (base === 0 ? 10 : 6));
     this.walkVx += (tx - this.walkVx) * k; this.walkVy += (ty - this.walkVy) * k;
-    // slipping: too steep to climb (and trying to) or to stand on at all
+    // slipping: too steep to climb (and trying to) or to stand on at all, both at body scale
     const fall = Math.hypot(n[0], n[1]);
-    if ((climbingTooSteep || steep > SLIP_SLOPE) && fall > 0.05) {
-      const th = steep * D2R;
+    let fallDeg = 0;
+    if (fall > 0.05) {
+      const dx = (n[0] / fall) * hl, dy = (n[1] / fall) * hl; // downhill
+      const drop = pack.groundHeight(this.x - dx, this.y - dy) - pack.groundHeight(this.x + dx, this.y + dy);
+      fallDeg = Number.isNaN(drop) ? 0 : Math.atan(Math.max(0, drop) / BODY_L) / D2R;
+    }
+    if ((climbingTooSteep || fallDeg > CRAWL_MAX) && fall > 0.05) {
+      const th = Math.max(steep, fallDeg) * D2R;
       const a = Math.max(1.5, G * (Math.sin(th) - Math.cos(th) * Math.tan(30 * D2R)));
       this.slideVx += (n[0] / fall) * a * dt; this.slideVy += (n[1] / fall) * a * dt;
       const sl = Math.hypot(this.slideVx, this.slideVy);
@@ -593,7 +612,7 @@ export class Rider {
     this.collide(0.3);
     this.speed = Math.hypot(this.vx, this.vy);
     this.distance += this.speed * dt;
-    const work = this.sprinting ? 1 : (fwd !== 0 && grade > 0.15 ? Math.min(0.7, grade) : 0) + (this.tired ? 0.4 : 0);
+    const work = this.sprinting || this.crawling ? 1 : (fwd !== 0 && grade > 0.15 ? Math.min(0.7, grade) : 0) + (this.tired ? 0.4 : 0);
     this.exertion += (Math.min(1, work) - this.exertion) * Math.min(1, dt * (work > this.exertion ? 0.8 : 0.25));
   }
 
