@@ -46,6 +46,7 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
         ? `<div class="hint">Music</div>` + c.map((t) => `<div class="credit">${t.title}${t.artist ? ` by ${t.artist}` : ''}${t.license ? ` <span class="dim">(${t.license})</span>` : ''}${t.url ? ` <a href="${t.url}" target="_blank" rel="noopener">source</a>` : ''}${t.playlist ? ` <span class="dim">${t.playlist}</span>` : ''}</div>`).join('')
           + `<div class="hint">Playlists without tracks play the built-in jukebox (procedural, no samples).</div>`
         : `<div class="hint">No playlist shipped: the built-in jukebox plays procedural music in each playlist's style. Drop tracks in game/public/music/ (see README there).</div>`;
+      credits.innerHTML += `<div class="hint">Textures</div><div class="credit">Rock and talus: Rock030, Gravel040 by ambientCG.com <span class="dim">(CC0)</span></div>`;
     };
     fillCredits();
     void audio.loaded.then(fillCredits);

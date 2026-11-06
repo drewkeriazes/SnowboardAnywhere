@@ -14,6 +14,7 @@ Researched 2026-11-05. This decides what text goes in `meta.json.attributions` a
 | Mapterhorn terrain tiles | far-ring background terrain | Code BSD-3; tile data inherits each source's licence; for the USA all 34 sources are USGS 3DEP, public domain | Credit "Terrain tiles: Mapterhorn (USGS 3DEP)". No stated usage limits or terms on the public tile endpoint; hosted on Cloudflare. Be a good citizen: cache tiles in the pack rather than hitting `tiles.mapterhorn.com` at runtime. |
 | Open-Meteo | live weather | CC BY 4.0 for the API data; free for non-commercial use without a key | Credit "Weather data by Open-Meteo.com". Commercial use needs a paid key. |
 | Three.js, Vite, @three.ez/*, meshoptimizer | engine | MIT | Licence files ship with the bundle. |
+| ambientCG Rock030, Gravel040 (`game/public/textures/`, made by `pipeline/prep_textures.py`) | rock and talus albedo, normal, roughness | CC0 1.0 | None required; credit "Rock textures: ambientCG.com (CC0)" anyway. Chosen in DATA-005 (#18): Google Maps / Street View imagery may not be used as textures (Google Maps Platform terms forbid extracting imagery), so photo detail comes from CC0 PBR sets. Poly Haven (also CC0) is the fallback source. |
 
 ## What to write into `packs/<slug>/meta.json`
 ```json
@@ -24,7 +25,8 @@ Researched 2026-11-05. This decides what text goes in `meta.json.attributions` a
   "Vegetation type: LANDFIRE, USGS and U.S. Forest Service (public domain)",
   "Geographic names: USGS GNIS (public domain)",
   "Map data © OpenStreetMap contributors, ODbL; ski area data: OpenSkiMap.org",
-  "Weather data by Open-Meteo.com (CC BY 4.0)"
+  "Weather data by Open-Meteo.com (CC BY 4.0)",
+  "Rock textures: ambientCG.com (CC0)"
 ]
 ```
 Show the OSM line in the credits screen and under the resort picker. Do not use resort trademarks (Vail Resorts logos, the official trail map artwork) in-game; run and lift names are facts and are fine.
