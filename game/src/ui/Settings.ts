@@ -22,6 +22,8 @@ export interface Settings {
   csmExperimental: boolean;
   /** volumetric cloud cover */
   clouds: 'off' | 'few' | 'scattered' | 'broken' | 'storm';
+  /** low morning fog lying in the valleys, burning off as the sun climbs */
+  valleyFog: boolean;
   treeDensity: number; // 0.25 .. 1
   pixelRatio: number; // 0.5 .. 2 (capped by the device)
   fov: number; // base chase FOV, 50 .. 100
@@ -61,7 +63,7 @@ export const DEFAULT_KEYS: Record<string, string> = {
 const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab', lift: 'Ride lift / skip', trial: 'Go to nearest time trial', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track', look: 'Free look (hold, move mouse)' };
 
 const DEFAULTS: Settings = {
-  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Ska-punk', quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
+  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Ska-punk', quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
   fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
 };
 const KEY = 'settings';
@@ -126,6 +128,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Shadows</label><input type="checkbox" data-k="shadows"></div>
       <div class="row"><label>Cascaded (beta)</label><input type="checkbox" data-k="csmExperimental"></div>
       <div class="row"><label>Weather</label><select data-k="clouds"><option value="off">Bluebird (clear)</option><option value="few">Few clouds</option><option value="scattered">Scattered clouds</option><option value="broken">Broken clouds</option><option value="storm">Snowstorm</option></select></div>
+      <div class="row"><label>Valley fog</label><input type="checkbox" data-k="valleyFog"></div>
       <div class="row"><label>Trees</label><input type="range" data-k="treeDensity" min="0.25" max="1" step="0.05"></div>
       <div class="row"><label>Resolution</label><input type="range" data-k="pixelRatio" min="0.5" max="2" step="0.25"></div>
       <div class="row"><label>Field of view</label><input type="range" data-k="fov" min="50" max="100" step="1"><span class="val" data-v="fov"></span></div>

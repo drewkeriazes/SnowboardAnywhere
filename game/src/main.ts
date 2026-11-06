@@ -84,7 +84,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const hud = document.getElementById('hud')!;
     const status = document.getElementById('status')!;
     const scene = new THREE.Scene();
-    const env = new Environment(scene, renderer, pack.meta.sun.azimuth, pack.meta.sun.elevation);
+    const zr = pack.meta.zRange ?? [0, 3000];
+    const env = new Environment(scene, renderer, pack.meta.sun.azimuth, pack.meta.sun.elevation, zr[0], (zr[0] + zr[1]) / 2);
     const clouds = new Clouds();
     scene.add(clouds.mesh);
     const snow = new Snow();
@@ -181,6 +182,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       env.setBluebird(s.clouds !== 'storm'); // deep blue sky behind the clouds too; only the storm is grey
       const storm = s.clouds === 'storm';
       env.setStorm(storm);
+      env.setValleyFog(!!s.valleyFog || params.has('valleyfog')); // ?valleyfog forces it on for render checks
       snow.points.visible = storm;
       snow.setCount(s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500);
       // limited render distance in the storm: nothing past the fog is drawn
@@ -420,8 +422,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       rider.restoreSimPose();
       cam.camera.updateMatrixWorld();
       env.updateCSM();
-      clouds.render(renderer, cam.camera, dt, env.sunDir, env.sun.color, env.sun.intensity, env.hemi.color, env.hemi.intensity, env.fog.color);
-      env.stormDome.position.copy(cam.camera.position);
+      clouds.render(renderer, cam.camera, dt, env.sunDir, env.sun.color, env.sun.intensity, env.hemi.color, env.hemi.intensity, env.atmo.hazeLinear);
+      env.followCamera(cam.camera.position);
       snow.update(dt, cam.camera, renderer.domElement.height, 0.45 + 0.6 * env.hemi.intensity / 1.4);
       veg.setSun(env.sun.color, env.sun.intensity);
       const cp = cam.camera.position;

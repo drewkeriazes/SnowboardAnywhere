@@ -89,8 +89,9 @@ export function impostorMaterial(atlas: THREE.Texture): THREE.ShaderMaterial {
         // the atlas was lit at intensity ~1; retint by the live sun and the instance colour variation
         vec3 col = c.rgb * vColor * 1.9 * mix(vec3(0.75), sunColor, 0.6) * (0.55 + 0.45 * clamp(sunIntensity / 3.0, 0.0, 1.0));
         gl_FragColor = vec4(col, 1.0);
-        #include <fog_fragment>
         #include <colorspace_fragment>
+        // after the colour-space step, like the built-in materials: the atmosphere colours are display values
+        #include <fog_fragment>
       }`,
     fog: true,
     transparent: false,
