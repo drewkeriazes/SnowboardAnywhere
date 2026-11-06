@@ -189,6 +189,10 @@ export class Tracks {
   private lastY = NaN;
   private tickAcc = 0;
   discipline: 'board' | 'ski' = 'board';
+  /** on foot: one skid groove per boot when slipping down the snow (FEAT-068) */
+  private readonly bootLanes: Lane[];
+  private bootX = NaN;
+  private bootY = NaN;
 
   constructor(pack: Pack) {
     this.pack = pack;
@@ -205,6 +209,31 @@ export class Tracks {
         }`);
     };
     this.setDiscipline('board');
+    this.bootLanes = [new Lane(this.mat), new Lane(this.mat)];
+    for (const l of this.bootLanes) { l.mesh.name = 'boot skid tracks'; this.group.add(l.mesh); }
+  }
+
+  /** On foot and slipping: each boot drags a narrow, shallow, slightly polished groove down the snow. */
+  private bootSkid(r: Rider): void {
+    if (!r.slipping) { for (const l of this.bootLanes) l.gap(); this.bootX = NaN; return; }
+    const moved = Number.isNaN(this.bootX) ? Infinity : Math.hypot(r.x - this.bootX, r.y - this.bootY);
+    if (moved < 0.25) return;
+    if (moved > 6) for (const l of this.bootLanes) l.gap();
+    this.bootX = r.x; this.bootY = r.y;
+    const sp = Math.hypot(r.vx, r.vy);
+    const fx = sp > 0.1 ? r.vx / sp : -r.normal[0], fy = sp > 0.1 ? r.vy / sp : -r.normal[1];
+    const fl = Math.hypot(fx, fy) || 1;
+    const ax = fy / fl, ay = -fx / fl; // across the slide
+    const rx = Math.cos(r.heading), ry = -Math.sin(r.heading); // the boots sit either side of the body
+    const surface = (x: number, z: number) => this.pack.groundHeight(x, -z);
+    const depth = Math.max(0.015, r.sink * 0.7);
+    for (let i = 0; i < 2; i++) {
+      const side = i === 0 ? -1 : 1;
+      const cx = r.x + rx * side * 0.11, cy = r.y + ry * side * 0.11;
+      const g = this.pack.groundHeight(cx, cy);
+      if (Number.isNaN(g)) continue;
+      this.bootLanes[i].add(cx, g, -cy, ax, -ay, 0.07, depth, 0, surface, 0.01, 0, 0.4);
+    }
   }
 
   get material(): THREE.Material { return this.mat; }
@@ -222,7 +251,8 @@ export class Tracks {
   /** Per frame. `riding` = on a chair or gondola (no track). */
   update(r: Rider, dt: number, riding: boolean): void {
     this.tickAcc += dt;
-    if (this.tickAcc > 0.5) { for (const l of this.lanes) l.tick(this.tickAcc); this.tickAcc = 0; }
+    if (this.tickAcc > 0.5) { for (const l of this.lanes) l.tick(this.tickAcc); for (const l of this.bootLanes) l.tick(this.tickAcc); this.tickAcc = 0; }
+    this.bootSkid(r);
     if (!r.onGround || riding || r.crashed > 0 || r.unstrapped) { for (const l of this.lanes) l.gap(); this.lastX = NaN; return; }
     if (!Number.isNaN(this.lastX) && Math.hypot(r.x - this.lastX, r.y - this.lastY) < STEP) return;
     // a jump in position (teleport, map drop, restart, time-trial start) starts a new track
@@ -262,6 +292,6 @@ export class Tracks {
     });
   }
 
-  clear(): void { for (const l of this.lanes) l.clear(); this.lastX = NaN; }
-  dispose(): void { for (const l of this.lanes) l.dispose(); this.mat.dispose(); }
+  clear(): void { for (const l of [...this.lanes, ...this.bootLanes]) l.clear(); this.lastX = NaN; this.bootX = NaN; }
+  dispose(): void { for (const l of [...this.lanes, ...this.bootLanes]) l.dispose(); this.mat.dispose(); }
 }

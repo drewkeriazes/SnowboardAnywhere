@@ -14,6 +14,8 @@ export interface GaitInput {
   heading: number;
   vx: number; vy: number;
   onGround: boolean;
+  /** slipping down the snow: both feet stay down and skid with the body (no steps, no prints) */
+  sliding?: boolean;
   /** boot sink (m) */
   sink: number;
   /** smear for prints laid this frame (m, pack x/y): downhill when slipping or climbing steep snow */
@@ -110,6 +112,15 @@ export class Gait {
         f.x = r.x; f.y = r.y; f.z = this.soleZ(r.x, r.y, g.sink); f.yaw = r.yaw;
         this.plant(i, g);
       }
+      return;
+    }
+    if (g.sliding) {
+      for (let i = 0; i < 2; i++) {
+        const f = this.feet[i], r = this.restPose(i, g);
+        f.x = r.x; f.y = r.y; f.z = this.soleZ(r.x, r.y, g.sink); f.yaw = r.yaw; f.pitch = 0;
+        f.planted = true; f.t = 0; f.s = 0; f.adjust = false;
+      }
+      this.wasMoving = false;
       return;
     }
     const moving = spd > 0.15;

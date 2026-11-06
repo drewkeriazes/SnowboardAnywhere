@@ -111,6 +111,8 @@ export class RiderView {
   private prevStep = [0, 0];
   /** 0..1 blend into the all-fours scramble (FEAT-068) */
   private crawl = 0;
+  /** 0..1 blend into a slip: sitting back as the boots skid */
+  private slip = 0;
   /** each foot plant on the snow (step-offs and the walk cycle): bootprints and footsteps */
   onPlant: ((p: Plant) => void) | null = null;
   private readonly fq = [new THREE.Quaternion(), new THREE.Quaternion()];
@@ -478,7 +480,7 @@ export class RiderView {
     const fall = Math.hypot(r.normal[0], r.normal[1]);
     // slipping or kicking up steep snow smears the print downhill
     const smearAmt = fall > 0.02 ? 0.12 * smooth(25, 40, r.slopeDeg) + 0.15 * Math.min(1, r.slideSpeed / 2) : 0;
-    const gin = { x: r.x, y: r.y, z: r.z, heading: r.heading, vx: r.vx, vy: r.vy, onGround: r.onGround, sink: r.sink,
+    const gin = { x: r.x, y: r.y, z: r.z, heading: r.heading, vx: r.vx, vy: r.vy, onGround: r.onGround, sink: r.sink, sliding: r.slipping,
       smearX: fall > 0.02 ? (r.normal[0] / fall) * smearAmt : 0, smearY: fall > 0.02 ? (r.normal[1] / fall) * smearAmt : 0 };
     if (u >= 1) {
       if (!this.gaitLive) { gait.reset(gin); this.gaitLive = true; }
@@ -491,13 +493,14 @@ export class RiderView {
     const sprint = smooth(1.6, 3.4, gait.speed);
     Object.assign(t, clonePose(this.poses.neutral));
     this.crawl += ((r.crawling ? 1 : 0) - this.crawl) * Math.min(1, dt * 5);
+    this.slip += ((r.slipping ? 1 : 0) - this.slip) * Math.min(1, dt * 8);
     const walk = lerpPose(clonePose(WALK_POSES.walk), WALK_POSES.walk, WALK_POSES.sprint, sprint);
     if (this.crawl > 0.001) lerpPose(walk, walk, WALK_POSES.crawl, this.crawl);
     lerpPose(t, t, walk, stand);
     const crouch = u > 0.08 && u < 0.78 ? Math.sin(Math.PI * (u - 0.08) / 0.7) : 0;
-    t.hipsY -= 0.3 * crouch + 0.6 * r.sink * stand;
+    t.hipsY -= 0.3 * crouch + 0.6 * r.sink * stand + 0.12 * this.slip; // sitting into a slip
     t.hipsRot = [t.hipsRot[0] + 0.35 * crouch, t.hipsRot[1], t.hipsRot[2]];
-    t.torso = [t.torso[0] + 0.5 * crouch + 0.4 * Math.max(0, Math.min(0.8, grade)) * stand * Math.min(1, gait.speed), t.torso[1], t.torso[2]];
+    t.torso = [t.torso[0] + 0.5 * crouch - 0.25 * this.slip + 0.4 * Math.max(0, Math.min(0.8, grade)) * stand * Math.min(1, gait.speed), t.torso[1], t.torso[2]];
     t.lShoulder = [t.lShoulder[0] + 0.9 * crouch, t.lShoulder[1], t.lShoulder[2] * (1 - crouch * 0.7)];
     t.rShoulder = [t.rShoulder[0] + 0.9 * crouch, t.rShoulder[1], t.rShoulder[2] * (1 - crouch * 0.7)];
     lerpPose(this.pose, this.pose, t, Math.min(1, dt * 12));

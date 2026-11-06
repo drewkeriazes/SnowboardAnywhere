@@ -141,6 +141,8 @@ export class Rider {
   crawling = false;
   /** body-scale slope along the way you are walking (degrees, + = uphill) */
   walkSlopeDeg = 0;
+  /** seconds left of a slip back down a face too steep to climb (no walking until it ends) */
+  slipT = 0;
   /** board angle to travel this brake aims for, fixed when the brake starts (0 = ski snowplough) */
   private brakeGamma = STOP_GAMMA;
   /** lateral acceleration in g, positive toward the board's right-hand side (smoothed, for the rider's lean) */
@@ -182,7 +184,7 @@ export class Rider {
     this.edgeAngle = 0; this.lateralG = 0; this.landingShock = 0;
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
     this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false;
-    this.sprinting = false; this.crawling = false; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
+    this.sprinting = false; this.crawling = false; this.slipT = 0; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
     this.rng.seed(seed);
     this.squareBoard();
     this.snapPose();
@@ -581,6 +583,10 @@ export class Rider {
     else base *= slopeF;
     const climbingTooSteep = fwd !== 0 && steep >= CRAWL_MAX;
     base *= Math.max(0.4, 1 - 2.2 * this.sink);
+    // a slip: the feet go and you slide back down for a moment, not pushing uphill, before you can
+    // try again (otherwise you just hover at the CRAWL_MAX line)
+    if (climbingTooSteep && this.slipT <= 0) this.slipT = 0.7;
+    if (this.slipT > 0) { this.slipT -= dt; base = 0; this.crawling = false; this.sprinting = false; }
     // walk velocity eases toward the target (quicker to stop than to start)
     const tx = hx * base, ty = hy * base;
     const k = 1 - Math.exp(-dt * (base === 0 ? 10 : 6));
@@ -593,9 +599,9 @@ export class Rider {
       const drop = pack.groundHeight(this.x - dx, this.y - dy) - pack.groundHeight(this.x + dx, this.y + dy);
       fallDeg = Number.isNaN(drop) ? 0 : Math.atan(Math.max(0, drop) / BODY_L) / D2R;
     }
-    if ((climbingTooSteep || fallDeg > CRAWL_MAX) && fall > 0.05) {
+    if ((this.slipT > 0 || fallDeg > CRAWL_MAX) && fall > 0.05) {
       const th = Math.max(steep, fallDeg) * D2R;
-      const a = Math.max(1.5, G * (Math.sin(th) - Math.cos(th) * Math.tan(30 * D2R)));
+      const a = Math.max(2.5, G * (Math.sin(th) - Math.cos(th) * Math.tan(30 * D2R)));
       this.slideVx += (n[0] / fall) * a * dt; this.slideVy += (n[1] / fall) * a * dt;
       const sl = Math.hypot(this.slideVx, this.slideVy);
       if (sl > 5) { this.slideVx *= 5 / sl; this.slideVy *= 5 / sl; }
@@ -615,6 +621,9 @@ export class Rider {
     const work = this.sprinting || this.crawling ? 1 : (fwd !== 0 && grade > 0.15 ? Math.min(0.7, grade) : 0) + (this.tired ? 0.4 : 0);
     this.exertion += (Math.min(1, work) - this.exertion) * Math.min(1, dt * (work > this.exertion ? 0.8 : 0.25));
   }
+
+  /** On foot and sliding down the snow (a slip): the boots skid instead of stepping. */
+  get slipping(): boolean { return this.onFoot && this.onGround && (this.slipT > 0 || this.slideSpeed > 0.6); }
 
   /** Sliding speed (m/s) when slipping down a slope too steep to climb. */
   get slideSpeed(): number { return Math.hypot(this.slideVx, this.slideVy); }
