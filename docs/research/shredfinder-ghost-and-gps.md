@@ -87,7 +87,7 @@ All clips are HERO11 Black. Originals are `GX01xxxx.MP4`; files with a long nume
 | **Vail** | 2024-02-10 to 02-11 | GX010190 to GX010207, ~17 clips, ~43 min | GoPro cloud |
 | **Breckenridge** | 2023-01-02 and 2023-01-07 (cloud capture dates; `M:` folders "Day 1" and "Day 2") | GX010046 to GX010102, ~43 clips, ~55 GB | `M:\GoPro\Breck Day 1\`, `M:\GoPro\Breck Day 2\` (external SSD); also GoPro cloud. `G:\Photo Storage\gopro\` holds copies of GX010100 to 102 |
 | Park City | 2023-02-06 to 02-09 | GX010103 to GX010114 | `M:\GoPro\Park city\` and GoPro cloud |
-| Unknown, ask Drew | 2025-01-03 (14 clips) | | GoPro cloud |
+| **Vail** | 2025-01-03 | 14 clips, ~62 min | GoPro cloud |
 
 Good first test clips: Vail GX010182 (1.9 GB, 4.2 min, 2024-01-23), Breck `M:\GoPro\Breck Day 1\GX010070.MP4` (1.6 GB).
 Open question: does the GoPro cloud download keep the GPMF telemetry track? Verify on the first download before pulling more.
