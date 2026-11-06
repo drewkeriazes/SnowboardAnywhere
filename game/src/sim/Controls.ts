@@ -8,7 +8,7 @@ import type { Input } from './Rider';
 export class Controls {
   readonly input: Input = { steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false };
   /** action -> KeyboardEvent.code (remappable); WASD stay as fixed aliases for the movement keys */
-  keymap: Record<string, string> = { left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft', lift: 'KeyE', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN' };
+  keymap: Record<string, string> = { left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft', lift: 'KeyE', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft' };
   invertSteer = false;
   private readonly listeners: [string, EventListener][] = [];
   readonly keys = new Set<string>();
@@ -23,10 +23,11 @@ export class Controls {
       if ((e.target as HTMLElement | null)?.tagName === 'INPUT' || (e.target as HTMLElement | null)?.tagName === 'SELECT') return; // typing in a menu
       this.keys.add(e.code);
       this.pressed.add(e.code);
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'AltLeft', 'AltRight'].includes(e.code)) e.preventDefault();
     };
     const ku = (e: KeyboardEvent) => {
       this.keys.delete(e.code);
+      if (e.code === 'AltLeft' || e.code === 'AltRight') e.preventDefault(); // else Alt focuses the browser menu bar
       if (e.code === this.keymap.jump) this.input.jumpReleased = true;
     };
     const bl = () => this.keys.clear();
@@ -46,6 +47,9 @@ export class Controls {
   }
   /** Consume a one-shot press of a mapped action. */
   action(name: string): boolean { return this.once(this.keymap[name]); }
+
+  /** Free look held (the mapped key, or either Alt). */
+  get looking(): boolean { return this.keys.has(this.keymap.look) || this.keys.has('AltLeft') || this.keys.has('AltRight'); }
 
   /** Remove the window listeners (quit to menu). */
   dispose(): void { for (const [t, f] of this.listeners) window.removeEventListener(t, f); }

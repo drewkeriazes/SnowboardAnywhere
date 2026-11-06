@@ -133,6 +133,18 @@ export class ChaseCamera {
     void this.fpM;
   }
 
+  /** Chase-camera orbit while free look is held (radians); eases back to centre on release. */
+  orbitYaw = 0; orbitPitch = 0;
+  freeLook(held: boolean, dt: number, mouseDx: number, mouseDy: number): void {
+    if (held) {
+      this.orbitYaw += mouseDx * 0.004;
+      this.orbitPitch = THREE.MathUtils.clamp(this.orbitPitch + mouseDy * 0.003, -0.35, 1.2);
+    } else {
+      const k = Math.exp(-dt * 5);
+      this.orbitYaw = Math.atan2(Math.sin(this.orbitYaw), Math.cos(this.orbitYaw)) * k; this.orbitPitch *= k;
+    }
+  }
+
   update(r: Rider, dt: number, tuck: boolean, onLift = false): void {
     if (this.mode === 'free' || this.mode === 'fp') return;
     if (onLift) {
@@ -159,13 +171,18 @@ export class ChaseCamera {
     if (spd > 2.5) this.fwd.set(r.vx / spd, 0, -r.vy / spd);
     else this.fwd.lerp(new THREE.Vector3(Math.sin(r.heading), 0, -Math.cos(r.heading)), Math.min(1, dt * 2)).normalize();
     const riderPos = new THREE.Vector3(r.x, r.z, -r.y);
-    this.desired.copy(riderPos).addScaledVector(this.fwd, -dist).add(new THREE.Vector3(0, height - (tuck ? 0.6 : 0), 0));
+    // free look: swing the camera around the rider (yaw) and up over them (pitch)
+    const back = this.fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -this.orbitYaw);
+    const cp = Math.cos(this.orbitPitch), sp = Math.sin(this.orbitPitch);
+    this.desired.copy(riderPos).addScaledVector(back, -dist * cp).add(new THREE.Vector3(0, height - (tuck ? 0.6 : 0) + dist * sp, 0));
     // keep the camera above the snow
     const ground = this.pack.groundHeight(this.desired.x, -this.desired.z);
     if (this.desired.y < ground + 1.2) this.desired.y = ground + 1.2;
-    const k = 1 - Math.exp(-dt * (r.onGround ? 5 : 3));
+    const orbiting = Math.abs(this.orbitYaw) > 0.02 || Math.abs(this.orbitPitch) > 0.02;
+    const k = 1 - Math.exp(-dt * (orbiting ? 12 : r.onGround ? 5 : 3));
     this.pos.lerp(this.desired, k);
-    const lookTarget = riderPos.clone().addScaledVector(this.fwd, 4).add(new THREE.Vector3(0, 1.0, 0));
+    // while orbiting look at the rider, not ahead of them
+    const lookTarget = riderPos.clone().addScaledVector(back, orbiting ? 0 : 4).add(new THREE.Vector3(0, 1.0, 0));
     this.look.lerp(lookTarget, 1 - Math.exp(-dt * 8));
     this.camera.position.copy(this.pos);
     this.camera.lookAt(this.look);
