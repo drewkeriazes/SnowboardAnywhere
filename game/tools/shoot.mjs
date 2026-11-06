@@ -8,6 +8,7 @@ const { chromium } = await import('playwright').catch(() => import('/opt/npm-too
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { guardOutDir } from './outdir.mjs';
 
 const args = process.argv.slice(2);
 const headed = args.includes('--headed') || process.env.SHOT_HEADED === '1';
@@ -17,7 +18,7 @@ const pack = positional[0] ?? 'synth';
 const outDir = positional[1] ?? 'shots';
 const dist = path.resolve('dist');
 const packs = path.resolve('..', 'packs');
-fs.mkdirSync(outDir, { recursive: true });
+guardOutDir(outDir);
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.webp': 'image/webp', '.bin': 'application/octet-stream', '.css': 'text/css' };
 const server = http.createServer((req, res) => {
