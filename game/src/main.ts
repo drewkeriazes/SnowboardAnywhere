@@ -13,6 +13,7 @@ import { RiderView } from './world/RiderView';
 import { ChaseCamera } from './world/ChaseCamera';
 import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
+import { Tracks } from './world/Tracks';
 import { ResortMap } from './ui/ResortMap';
 import { LiftRide } from './sim/LiftRide';
 import { GameAudio } from './audio/Audio';
@@ -88,6 +89,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     scene.add(buildings.group);
     const roads = new Roads(pack);
     scene.add(roads.group);
+    const tracks = new Tracks(pack);
+    scene.add(tracks.group);
     const labels = new Labels(pack);
     const riderView = new RiderView();
     scene.add(riderView.group);
@@ -141,6 +144,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       lifts.markers.visible = s.showMarkers;
       riderView.setOutfit(s.outfit);
       riderView.setDiscipline(s.discipline);
+      tracks.setDiscipline(s.discipline);
       rider.discipline = s.discipline;
       labels.visible = s.showLabels;
       map.metric = s.units === 'metric';
@@ -226,6 +230,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       map.destroy();
       pause.destroy();
       labels.destroy();
+      tracks.dispose();
       audio.onTrack = null;
       showPrompt('');
       hud.innerHTML = '';
@@ -269,6 +274,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (cam.mode !== 'free' && !onLift && !map.fullOpen) rider.update(dt, input);
       riderView.setFirstPerson(cam.mode === 'fp');
       riderView.update(rider, dt, input.tuck, input.grab, onLift && liftRide.airborneRide);
+      tracks.update(rider, dt, onLift && liftRide.airborneRide);
       audio.update(rider, input.tuck, onLift, dt, liftRide.passedTower);
       rider.lastHit = '';
       if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
