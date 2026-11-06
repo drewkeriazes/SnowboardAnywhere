@@ -70,6 +70,7 @@ export class LiftRide {
   }
 
   private board(rider: Rider, l: LiftRuntime): void {
+    rider.strapInNow(); // walked up on foot: strap in as you load
     this.lift = l;
     this.up = 0;
     rider.vx = rider.vy = rider.vz = 0; rider.speed = 0; rider.skid = 0; rider.crashed = 0;

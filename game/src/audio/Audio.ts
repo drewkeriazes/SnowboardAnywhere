@@ -1,4 +1,4 @@
-import type { Rider } from '../sim/Rider';
+import type { Rider, SurfaceInfo } from '../sim/Rider';
 import { Jukebox, type JukeStyle } from './Jukebox';
 
 /** playlist.json entry: a bare filename or a credited track */
@@ -29,6 +29,8 @@ type QueueItem = { list: string } & ({ track: TrackInfo } | { style: JukeStyle; 
  * One-shots, each picked from three variants with +/- 8% pitch jitter: jump pop with a board
  * creak, landings in three impact bands with a spray whoosh, crash crunch, rock ramp, tree
  * graze and branch brush, tower clunk, bull-wheel rumble at terminals, boarding and unload chimes.
+ * On foot (FEAT-067): a boot crunch per footstep by surface (groomed squeak, powder whump, ice
+ * scrape), breathing that gets heavier with a sprint or a climb, binding ratchet clicks on and off.
  */
 interface Layer { gain: GainNode; filter: BiquadFilterNode }
 
@@ -42,6 +44,9 @@ export class GameAudio {
   private windLo!: Layer; private windHi!: Layer;
   private rumble!: { gain: GainNode; osc: OscillatorNode };
   private liftGain!: GainNode;
+  private breath!: Layer;
+  private breathT = 0;
+  private wasStrap: 'none' | 'off' | 'on' = 'none';
   private crackleT = 0;
   private music: HTMLAudioElement | null = null;
   /** file tracks per playlist name, from playlist.json */
@@ -102,6 +107,7 @@ export class GameAudio {
     this.skidL = layer('bandpass', 5200, 1.2);
     this.windLo = layer('lowpass', 300, 0.5);
     this.windHi = layer('bandpass', 2400, 6);
+    this.breath = layer('bandpass', 750, 0.8);
     // powder rumble: low sine wobble
     const ro = ctx.createOscillator(); ro.type = 'triangle'; ro.frequency.value = 42;
     const rg = ctx.createGain(); rg.gain.value = 0;
@@ -266,13 +272,39 @@ export class GameAudio {
   private towerClunk(): void { this.pick([() => this.tone(140, 0.18, 0.2, 'square', 90), () => this.tone(160, 0.16, 0.2, 'square', 95), () => this.tone(125, 0.2, 0.22, 'square', 85)])(); this.burst('bandpass', 1800, 0.08, 0.1, 2); }
   private bullWheel(): void { this.burst('lowpass', 120, 1.2, 0.3); this.tone(70, 1.0, 0.1, 'triangle'); }
 
+  /**
+   * One footstep, on the frame the boot comes down. Groomed snow squeaks (a short high band and a
+   * tiny pitch chirp), powder whumps (low and soft, deeper the more the boot sinks), ice and rock
+   * scrape (high and dry). A sprint lands harder.
+   */
+  footstep(s: SurfaceInfo, speed: number, sink: number): void {
+    if (!this.ctx) return;
+    const hard = Math.min(1, s.rock + s.scree);
+    const groomed = s.groomed * (1 - hard);
+    const powder = Math.max(0, 1 - groomed - hard);
+    const g = 0.5 + 0.5 * Math.min(1, speed / 3.8);
+    if (groomed > 0.3) {
+      this.burst('bandpass', 2600, 0.09, 0.22 * groomed * g, 2.2, 1800);
+      this.tone(1400 + Math.random() * 500, 0.05, 0.025 * groomed * g, 'triangle', 1900);
+    }
+    if (powder > 0.3) this.burst('lowpass', 260 + 200 * (1 - Math.min(1, sink / 0.2)), 0.2, 0.4 * powder * g, 0.6, 120);
+    if (hard > 0.3) this.burst('highpass', 3200, 0.07, 0.25 * hard * g, 0.8);
+    this.burst('lowpass', 500, 0.07, 0.12 * g); // the boot heel itself
+  }
+
+  /** Binding ratchets: a quick run of clicks (strapping in) or a couple of releases (unstrapping). */
+  private bindings(on: boolean): void {
+    const clicks = on ? [0.45, 0.52, 0.59, 0.66, 0.8, 0.87, 0.94] : [0.12, 0.3];
+    for (const t of clicks) setTimeout(() => { this.burst('highpass', on ? 4200 : 3000, 0.025, 0.25, 1.5); this.tone(2400, 0.02, 0.04, 'square'); }, t * 1000);
+  }
+
   /** Per frame. `passedTower` is true on the frame the chair passes a tower. */
   update(r: Rider, tuck: boolean, riding: boolean, dt: number, passedTower = false): void {
     if (!this.ctx) return;
     const k = Math.min(1, dt * 12);
     const lerp = (g: GainNode, target: number) => { g.gain.value += (target - g.gain.value) * k; };
     const spd = r.speed;
-    const onSnow = r.onGround && !riding && spd > 0.3;
+    const onSnow = r.onGround && !riding && spd > 0.3 && !r.unstrapped; // board on snow
     const s = r.surface;
     const hard = Math.min(1, s.rock + s.scree);
     const groomed = s.groomed * (1 - hard);
@@ -310,9 +342,19 @@ export class GameAudio {
     lerp(this.windHi.gain, Math.min(0.12, Math.max(0, spd - 20) * 0.012) * windV);
     this.windHi.filter.frequency.value = 2000 + 40 * spd;
     lerp(this.liftGain, riding ? 0.08 : 0);
+    // breathing on foot: in and out at a rate and strength that rise with the effort
+    const ex = r.onFoot ? r.exertion : 0;
+    this.breathT += dt * (0.3 + 0.6 * ex);
+    const env = Math.max(0, Math.sin(this.breathT * Math.PI * 2));
+    lerp(this.breath.gain, r.onFoot ? (0.006 + 0.07 * ex) * env * env : 0);
+    this.breath.filter.frequency.value = 650 + 350 * env;
+    if (r.strapState !== this.wasStrap && r.strapState !== 'none') this.bindings(r.strapState === 'on');
+    this.wasStrap = r.strapState;
     // one-shots
-    if (this.wasOnGround && !r.onGround && r.airTime < 0.05 && r.lastHit !== 'ramp') this.jump(Math.min(1, r.vz / 7));
-    if (!this.wasOnGround && r.onGround) this.landing(r.landingShock, powder);
+    if (this.wasOnGround && !r.onGround && r.airTime < 0.05 && r.lastHit !== 'ramp') {
+      if (r.onFoot) this.burst('lowpass', 600, 0.1, 0.15); else this.jump(Math.min(1, r.vz / 7));
+    }
+    if (!this.wasOnGround && r.onGround && !r.onFoot) this.landing(r.landingShock, powder);
     if (r.crashed > 1.15) this.crash();
     if (r.lastHit === 'ramp') this.ramp();
     else if (r.lastHit === 'graze') this.graze();

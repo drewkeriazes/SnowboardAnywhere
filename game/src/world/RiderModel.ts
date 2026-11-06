@@ -44,6 +44,13 @@ export const POSES: Record<string, Pose> = {
   seated: { hipsY: 0.42, hipsRot: E(0, 0, 0), torso: E(5, 20, 0), head: E(0, 0, 0), lShoulder: E(-20, 0, -15), rShoulder: E(-20, 0, 15), lElbow: 70, rElbow: 70, lHip: E(85, 0, -11), rHip: E(85, 0, 11), lKnee: 60, rKnee: 60 },
 };
 
+/** On foot (FEAT-067), both disciplines: facing forward. Legs are IK to the gait's feet, so the hip
+ *  and knee angles here are unused; the arms are overridden by hand IK where they hold the gear. */
+export const WALK_POSES: Record<'walk' | 'sprint', Pose> = {
+  walk: { hipsY: 0.97, hipsRot: E(3, 0, 0), torso: E(4, 0, 0), head: E(-4, 0, 0), lShoulder: E(0, 0, -6), rShoulder: E(0, 0, 6), lElbow: 15, rElbow: 15, lHip: E(0, 0, 0), rHip: E(0, 0, 0), lKnee: 0, rKnee: 0 },
+  sprint: { hipsY: 0.93, hipsRot: E(10, 0, 0), torso: E(10, 0, 0), head: E(-14, 0, 0), lShoulder: E(0, 0, -10), rShoulder: E(0, 0, 10), lElbow: 80, rElbow: 80, lHip: E(0, 0, 0), rHip: E(0, 0, 0), lKnee: 0, rKnee: 0 },
+};
+
 export function lerpPose(out: Pose, a: Pose, b: Pose, t: number): Pose {
   const l3 = (p: [number, number, number], q: [number, number, number]): [number, number, number] => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t, p[2] + (q[2] - p[2]) * t];
   out.hipsY = a.hipsY + (b.hipsY - a.hipsY) * t;

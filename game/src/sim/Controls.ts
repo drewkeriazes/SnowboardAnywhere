@@ -3,12 +3,13 @@ import type { Input } from './Rider';
 /**
  * Keyboard (and basic touch) input. Mapping matches the common browser ski games:
  * Left/Right or A/D steer, Up/W tuck, Down/S brake, hold and release Space to jump,
- * Shift grab. R resets, C cycles the camera, M toggles the piste overlay, F free-fly.
+ * Shift grab (sprint on foot). B unstraps or straps in. R resets, C cycles the camera, M toggles
+ * the piste overlay, F free-fly.
  */
 export class Controls {
   readonly input: Input = { steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false };
   /** action -> KeyboardEvent.code (remappable); WASD stay as fixed aliases for the movement keys */
-  keymap: Record<string, string> = { left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft', lift: 'KeyE', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft' };
+  keymap: Record<string, string> = { left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft', lift: 'KeyE', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft', board: 'KeyB' };
   invertSteer = false;
   private readonly listeners: [string, EventListener][] = [];
   readonly keys = new Set<string>();

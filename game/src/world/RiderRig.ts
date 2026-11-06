@@ -34,7 +34,9 @@ const OFFSET: Record<BoneName, [number, number, number]> = {
 };
 const BI = (n: BoneName) => BONES.indexOf(n);
 /** Ankle above the boot sole. */
-const ANKLE_H = 0.1;
+export const ANKLE_H = 0.1;
+/** boot sole centre ahead of the ankle along the boot (m) */
+export const SOLE_FWD = 0.06;
 
 export interface RiderRig {
   /** add to the lean group; holds the bones and the skinned meshes */
@@ -322,27 +324,46 @@ export function twoBone(upper: THREE.Bone, lower: THREE.Bone, end: THREE.Bone, t
 
 const _H = new THREE.Vector3(), _T = new THREE.Vector3(), _D = new THREE.Vector3(), _best = new THREE.Vector3();
 
+const _ta = [new THREE.Vector3(), new THREE.Vector3()];
+const _qa = [new THREE.Quaternion(), new THREE.Quaternion()];
+
 /**
  * Pin both feet to the binding anchors. First the pelvis is nudged (fewest centimetres) until both
  * ankles are within reach, then each leg is solved and the foot takes the binding's orientation.
  * `poles` are world directions the knees point. Returns the worst ankle-to-binding gap in metres.
  */
 export function pinFeet(rig: RiderRig, lPole: THREE.Vector3, rPole: THREE.Vector3): number {
+  rig.body.parent?.updateMatrixWorld(true);
+  rig.board.updateMatrixWorld(true);
+  rig.anchors.l.getWorldPosition(_ta[0]); rig.anchors.r.getWorldPosition(_ta[1]);
+  rig.anchors.l.getWorldQuaternion(_qa[0]); rig.anchors.r.getWorldQuaternion(_qa[1]);
+  return solveLegs(rig, _ta[0], _ta[1], _qa[0], _qa[1], lPole, rPole);
+}
+
+/**
+ * Put both ankles on world targets with the given foot orientations (walking, stepping on and off
+ * the board). The pelvis is nudged first if a target is out of reach. Returns the worst gap (m).
+ */
+export function solveLegs(rig: RiderRig, lAnkle: THREE.Vector3, rAnkle: THREE.Vector3, lQ: THREE.Quaternion, rQ: THREE.Quaternion, lPole: THREE.Vector3, rPole: THREE.Vector3, maxNudge = Infinity): number {
   const B = rig.bones;
-  const legs = [[B.LeftUpLeg, B.LeftLeg, B.LeftFoot, rig.anchors.l, lPole], [B.RightUpLeg, B.RightLeg, B.RightFoot, rig.anchors.r, rPole]] as const;
+  const legs = [[B.LeftUpLeg, B.LeftLeg, B.LeftFoot, lAnkle, lQ, lPole], [B.RightUpLeg, B.RightLeg, B.RightFoot, rAnkle, rQ, rPole]] as const;
   const reach = B.LeftLeg.position.length() + B.LeftFoot.position.length();
   const cMax = reach * 0.985, cMin = 0.3;
   rig.body.parent?.updateMatrixWorld(true);
-  rig.board.updateMatrixWorld(true);
+  let nudged = 0;
   for (let it = 0; it < 6; it++) {
     let worst = 0;
-    for (const [up, , , anchor] of legs) {
-      up.getWorldPosition(_H); anchor.getWorldPosition(_T);
-      const dist = _D.subVectors(_T, _H).length();
+    for (const [up, , , target] of legs) {
+      up.getWorldPosition(_H);
+      const dist = _D.subVectors(target, _H).length();
       const over = dist > cMax ? dist - cMax : dist < cMin ? dist - cMin : 0; // >0 move toward, <0 away
       if (Math.abs(over) > Math.abs(worst)) { worst = over; _best.copy(_D).normalize().multiplyScalar(over); }
     }
-    if (Math.abs(worst) < 1e-4) break;
+    if (Math.abs(worst) < 1e-4 || nudged >= maxNudge) break;
+    // never move the pelvis more than maxNudge in all (walking: a foot left out of reach is a gap, not a collapse)
+    const len = _best.length();
+    if (nudged + len > maxNudge) _best.multiplyScalar((maxNudge - nudged) / len);
+    nudged += _best.length();
     // world shift to the pelvis's parent frame (no scale anywhere in the rider)
     const hips = B.Hips;
     const pq = hips.parent!.getWorldQuaternion(_q[2]).invert();
@@ -350,10 +371,10 @@ export function pinFeet(rig: RiderRig, lPole: THREE.Vector3, rPole: THREE.Vector
     hips.updateMatrixWorld(true);
   }
   let gap = 0;
-  for (const [up, lo, foot, anchor, pole] of legs) {
-    anchor.getWorldPosition(_T);
+  for (const [up, lo, foot, target, q, pole] of legs) {
+    _T.copy(target);
     gap = Math.max(gap, twoBone(up, lo, foot, _T, pole));
-    setWorldQuat(foot, anchor.getWorldQuaternion(_q[2]));
+    setWorldQuat(foot, q);
   }
   return gap;
 }

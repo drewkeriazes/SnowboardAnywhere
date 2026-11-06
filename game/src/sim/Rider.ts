@@ -32,6 +32,31 @@ const PARK_SPEED = 1;
 /** skis below this speed at brake start snowplough instead of turning across */
 const PLOUGH_SPEED = 5;
 
+/** FEAT-067 on foot: seconds to unstrap and to strap back in */
+export const UNSTRAP_TIME = 0.8, STRAP_TIME = 1.0;
+/** fastest the rider can be going to unstrap (m/s), and to strap in (standing still) */
+const UNSTRAP_SPEED = 1.5, STRAP_SPEED = 0.3;
+/** on-foot speeds on groomed snow (m/s): walk, sprint, a tired sprint (a run), walking backwards */
+const WALK = 1.4, SPRINT = 3.8, JOG = 2.4, BACK = 0.6;
+/** seconds of sprint, and how much has to come back before sprinting again after running out */
+export const STAMINA = 4;
+const STAMINA_RESUME = 1.5;
+/** steeper than this (degrees) cannot be climbed; steeper than SLIP_SLOPE you slip whatever you do */
+const CLIMB_MAX = 35, SLIP_SLOPE = 40;
+
+/**
+ * How far a boot sinks (m): about 2.5 cm on a groomer, 10 to 16 cm in open powder, up to about
+ * 22 cm in deep powder off-piste under trees, almost nothing on rock. Drives the walking speed,
+ * the boot height and the print depth.
+ */
+export function bootSink(s: SurfaceInfo): number {
+  const hard = Math.min(1, s.rock + s.scree);
+  const groomed = Math.min(1, s.groomed) * (1 - hard);
+  const powder = Math.max(0, 1 - groomed - hard);
+  const deep = powder * (s.canopy > 0.3 ? 1 : 0.5);
+  return 0.025 * groomed + 0.1 * powder + 0.12 * deep + 0.008 * hard;
+}
+
 /** wrap an angle to -PI..PI */
 function wrap(a: number): number { return Math.atan2(Math.sin(a), Math.cos(a)); }
 
@@ -86,6 +111,27 @@ export class Rider {
   /** signed angle from the travel direction to the board (radians, 0 when nearly stopped) */
   slip = 0;
   private travelYaw = 0;
+  // ---- on foot (FEAT-067)
+  /** off the board, walking (the board is carried) */
+  onFoot = false;
+  /** binding transition in progress: 'off' unstrapping, 'on' strapping in */
+  strapState: 'none' | 'off' | 'on' = 'none';
+  /** seconds into the current transition */
+  strapT = 0;
+  /** seconds of sprint left */
+  stamina = STAMINA;
+  /** ran out of sprint: a run until stamina comes back to STAMINA_RESUME */
+  tired = false;
+  /** sprinting this step */
+  sprinting = false;
+  /** 0..1 how hard the rider is working (sprint, climbing), smoothed, for breathing */
+  exertion = 0;
+  /** boot sink at the current spot (m) */
+  sink = 0;
+  /** sliding back down a slope too steep to stand on (m/s, pack x/y) */
+  slideVx = 0; slideVy = 0;
+  private walkVx = 0; private walkVy = 0;
+  private hopHeld = false;
   /** board angle to travel this brake aims for, fixed when the brake starts (0 = ski snowplough) */
   private brakeGamma = STOP_GAMMA;
   /** lateral acceleration in g, positive toward the board's right-hand side (smoothed, for the rider's lean) */
@@ -126,9 +172,50 @@ export class Rider {
     this.crashed = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
     this.edgeAngle = 0; this.lateralG = 0; this.landingShock = 0;
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
+    this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false;
+    this.sprinting = false; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
     this.rng.seed(seed);
     this.squareBoard();
     this.snapPose();
+  }
+
+  /**
+   * 0 = strapped in and riding, 1 = on foot carrying the board; in between during the unstrap and
+   * strap-in transitions (the view runs its crouch, step-off and lift animation off this).
+   */
+  get footU(): number {
+    if (this.strapState === 'off') return Math.min(1, this.strapT / UNSTRAP_TIME);
+    if (this.strapState === 'on') return Math.max(0, 1 - this.strapT / STRAP_TIME);
+    return this.onFoot ? 1 : 0;
+  }
+  /** off the board or getting on or off it: no board physics, tracks or spray */
+  get unstrapped(): boolean { return this.onFoot || this.strapState !== 'none'; }
+  /** nearly stopped on the snow, so B unstraps */
+  get canUnstrap(): boolean { return !this.onFoot && this.strapState === 'none' && this.onGround && this.crashed <= 0 && this.speed < UNSTRAP_SPEED; }
+  /** standing still on foot, so B straps in */
+  get canStrapIn(): boolean { return this.onFoot && this.strapState === 'none' && this.onGround && this.speed < STRAP_SPEED; }
+
+  /** The board key: unstrap or strap in. Returns '' when it started, else why not ('fast', 'moving', 'air', 'busy'). */
+  toggleBoard(): string {
+    if (this.strapState !== 'none') return 'busy';
+    if (!this.onGround) return 'air';
+    if (!this.onFoot) {
+      if (!this.canUnstrap) return 'fast';
+      this.strapState = 'off'; this.strapT = 0;
+      return '';
+    }
+    if (!this.canStrapIn) return 'moving';
+    this.strapState = 'on'; this.strapT = 0;
+    this.vx = this.vy = this.walkVx = this.walkVy = this.slideVx = this.slideVy = 0;
+    return '';
+  }
+
+  /** Back on the board at once (boarding a lift on foot). */
+  strapInNow(): void {
+    if (!this.unstrapped) return;
+    this.onFoot = false; this.strapState = 'none'; this.strapT = 0;
+    this.walkVx = this.walkVy = this.slideVx = this.slideVy = 0;
+    this.squareBoard();
   }
 
   /** End any brake swing: the board lines up with the heading again. */
@@ -205,6 +292,8 @@ export class Rider {
       const m = pack.mask.sample(this.x, this.y, this.maskTmp);
       this.surface.rock = m[0]; this.surface.scree = m[1]; this.surface.groomed = m[2]; this.surface.canopy = m[3];
     }
+    if (this.strapState !== 'none') { this.strapStep(dt, ground); return; }
+    if (this.onFoot) { this.walkStep(dt, input, n, ground); return; }
     if (this.crashed > 0) {
       this.crashed -= dt;
       // tumble: slide to a stop
@@ -411,6 +500,116 @@ export class Rider {
         }
       }
     }
+  }
+
+  /** Unstrapping or strapping in: stand where you are while the bindings are worked. */
+  private strapStep(dt: number, ground: number): void {
+    const f = Math.exp(-dt * 8);
+    this.vx *= f; this.vy *= f;
+    this.x += this.vx * dt; this.y += this.vy * dt;
+    this.z = ground; this.vz = 0; this.onGround = true;
+    this.speed = Math.hypot(this.vx, this.vy);
+    this.edgeAngle = 0; this.lateralG = 0; this.skid = 0; this.jumpCharge = 0; this.landingShock = 0;
+    this.sink = bootSink(this.surface);
+    this.squareBoard();
+    this.strapT += dt;
+    if (this.strapState === 'off' && this.strapT >= UNSTRAP_TIME) {
+      this.strapState = 'none'; this.onFoot = true; this.strapT = 0;
+      this.stamina = STAMINA; this.tired = false;
+      this.walkVx = this.vx; this.walkVy = this.vy; this.slideVx = this.slideVy = 0;
+    } else if (this.strapState === 'on' && this.strapT >= STRAP_TIME) {
+      this.strapState = 'none'; this.onFoot = false; this.strapT = 0;
+      this.vx = this.vy = 0; this.speed = 0;
+    }
+  }
+
+  /**
+   * On foot (FEAT-067). Steer turns, tuck walks forward, brake walks backward slowly, grab (Shift)
+   * sprints for a few seconds of stamina, jump hops. Speed falls with the uphill grade and with how
+   * far the boots sink; slopes over CLIMB_MAX cannot be climbed (you slide back), and past
+   * SLIP_SLOPE you slip down whatever you do. Same colliders as riding.
+   */
+  private walkStep(dt: number, input: Input, n: [number, number, number], ground: number): void {
+    this.sink = bootSink(this.surface);
+    this.edgeAngle = 0; this.lateralG = 0; this.skid = 0; this.jumpCharge = 0;
+    this.landingShock = Math.max(0, this.landingShock - dt * 3);
+    this.squareBoard();
+    // hop on the press edge
+    const hop = input.jumpHeld && !this.hopHeld;
+    this.hopHeld = input.jumpHeld;
+    if (!this.onGround) {
+      this.vz -= G * dt;
+      this.x += this.vx * dt; this.y += this.vy * dt; this.z += this.vz * dt;
+      this.airTime += dt;
+      const g2 = this.pack.groundHeight(this.x, this.y, this.z);
+      if (this.z <= g2) { this.z = g2; this.vz = 0; this.onGround = true; this.airTime = 0; this.landingShock = 0.3; }
+      this.collide(0.3);
+      this.speed = Math.hypot(this.vx, this.vy);
+      return;
+    }
+    this.heading += input.steer * (this.sprinting ? 2.0 : 2.6) * dt;
+    const hx = Math.sin(this.heading), hy = Math.cos(this.heading);
+    const fwd = input.tuck ? 1 : input.brake ? -1 : 0;
+    // stamina: a few seconds of sprint, then a run until it comes back
+    const wantSprint = input.grab && fwd > 0;
+    if (this.stamina <= 0) this.tired = true;
+    if (this.tired && this.stamina >= STAMINA_RESUME) this.tired = false;
+    this.sprinting = wantSprint && !this.tired && this.speed > 0.5;
+    if (this.sprinting) this.stamina = Math.max(0, this.stamina - dt);
+    else this.stamina = Math.min(STAMINA, this.stamina + dt * (fwd === 0 ? 0.8 : 0.45));
+    let base = fwd > 0 ? (wantSprint ? (this.tired ? JOG : SPRINT) : WALK) : fwd < 0 ? -BACK : 0;
+    // grade along the way you are walking: rise per metre (positive = uphill)
+    const nz = Math.max(0.2, n[2]);
+    const grade = -(n[0] * hx + n[1] * hy) / nz * (base < 0 ? -1 : 1);
+    const steep = this.slopeDeg;
+    // uphill: about 70% pace up a 20 degree pitch, half pace at 30, then it gives out over the last
+    // two degrees before CLIMB_MAX; downhill a little careful
+    let slopeF = grade > 0 ? Math.max(0.4, 1 - 0.8 * grade) : Math.max(0.7, 1 + 0.6 * grade);
+    if (grade > 0.1 && steep > CLIMB_MAX - 2) slopeF *= Math.max(0, (CLIMB_MAX - steep) / 2);
+    const climbingTooSteep = grade > 0.1 && steep >= CLIMB_MAX && fwd !== 0;
+    base *= slopeF * Math.max(0.4, 1 - 2.2 * this.sink);
+    // walk velocity eases toward the target (quicker to stop than to start)
+    const tx = hx * base, ty = hy * base;
+    const k = 1 - Math.exp(-dt * (base === 0 ? 10 : 6));
+    this.walkVx += (tx - this.walkVx) * k; this.walkVy += (ty - this.walkVy) * k;
+    // slipping: too steep to climb (and trying to) or to stand on at all
+    const fall = Math.hypot(n[0], n[1]);
+    if ((climbingTooSteep || steep > SLIP_SLOPE) && fall > 0.05) {
+      const th = steep * D2R;
+      const a = Math.max(1.5, G * (Math.sin(th) - Math.cos(th) * Math.tan(30 * D2R)));
+      this.slideVx += (n[0] / fall) * a * dt; this.slideVy += (n[1] / fall) * a * dt;
+      const sl = Math.hypot(this.slideVx, this.slideVy);
+      if (sl > 5) { this.slideVx *= 5 / sl; this.slideVy *= 5 / sl; }
+    } else {
+      const f = Math.exp(-dt * 5);
+      this.slideVx *= f; this.slideVy *= f;
+    }
+    this.vx = this.walkVx + this.slideVx; this.vy = this.walkVy + this.slideVy;
+    this.x += this.vx * dt; this.y += this.vy * dt;
+    this.z = this.pack.groundHeight(this.x, this.y, this.z);
+    void ground;
+    this.vz = 0;
+    if (hop) { this.vz = 2.6; this.onGround = false; this.airTime = 0; this.z += 0.02; }
+    this.collide(0.3);
+    this.speed = Math.hypot(this.vx, this.vy);
+    this.distance += this.speed * dt;
+    const work = this.sprinting ? 1 : (fwd !== 0 && grade > 0.15 ? Math.min(0.7, grade) : 0) + (this.tired ? 0.4 : 0);
+    this.exertion += (Math.min(1, work) - this.exertion) * Math.min(1, dt * (work > this.exertion ? 0.8 : 0.25));
+  }
+
+  /** Sliding speed (m/s) when slipping down a slope too steep to climb. */
+  get slideSpeed(): number { return Math.hypot(this.slideVx, this.slideVy); }
+
+  /** On-foot collisions: push out of trunks, rocks, walls and railings and stop going into them. */
+  private collide(r: number): void {
+    if (!this.collider) return;
+    const hit = this.collider.resolve(this.x, this.y, this.z, r);
+    if (!hit) return;
+    this.x = hit.x; this.y = hit.y;
+    const into = (vx: number, vy: number) => Math.min(0, vx * hit.nx + vy * hit.ny);
+    let d = into(this.vx, this.vy); this.vx -= d * hit.nx; this.vy -= d * hit.ny;
+    d = into(this.walkVx, this.walkVy); this.walkVx -= d * hit.nx; this.walkVy -= d * hit.ny;
+    d = into(this.slideVx, this.slideVy); this.slideVx -= d * hit.nx; this.slideVy -= d * hit.ny;
   }
 
   /**

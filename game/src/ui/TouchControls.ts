@@ -2,7 +2,7 @@ import type { Controls } from '../sim/Controls';
 
 /**
  * On-screen controls for touch devices: a virtual stick on the left (x = steer, push up =
- * tuck, pull down = brake), a jump button (hold and release) and small buttons for lift,
+ * tuck, pull down = brake), a jump button (hold and release) and small buttons for board on / off, lift,
  * map, camera and pause on the right. Writes into Controls' touch fields and fires one-shot
  * actions through `press`. Shown only when the device has a coarse pointer, or with ?touch.
  */
@@ -29,6 +29,7 @@ export class TouchControls {
         <button data-a="pause" class="small">II</button>
         <button data-a="map" class="small">MAP</button>
         <button data-a="camera" class="small">CAM</button>
+        <button data-a="board" class="mid">BOARD</button>
         <button data-a="lift" class="mid">LIFT</button>
         <button data-a="jump" class="big">JUMP</button>
       </div>`;

@@ -18,6 +18,7 @@ import { ChaseCamera } from './world/ChaseCamera';
 import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
 import { Tracks } from './world/Tracks';
+import { Bootprints } from './world/Bootprints';
 import { RiderChair } from './world/RiderChair';
 import { buildCourses } from './sim/Courses';
 import { TimeTrial } from './sim/TimeTrial';
@@ -31,7 +32,8 @@ import { PauseMenu } from './ui/PauseMenu';
 import { Labels } from './ui/Labels';
 import { TouchControls } from './ui/TouchControls';
 import { sunPosition, guessUtcOffset } from './world/Sun';
-import { loadSettings, type Settings } from './ui/Settings';
+import { loadSettings, keyName, type Settings } from './ui/Settings';
+import { STAMINA } from './sim/Rider';
 import { availableResorts } from './resorts';
 
 const params = new URLSearchParams(location.search);
@@ -112,6 +114,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('bridges', bridges.group);
     const tracks = new Tracks(pack);
     add('tracks', tracks.group);
+    const bootprints = new Bootprints(pack);
+    add('bootprints', bootprints.mesh);
     const riderChair = new RiderChair(lifts.material);
     add('rider chair', riderChair.group);
     const chairPos = new THREE.Vector3();
@@ -143,6 +147,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('rider spray', riderView.sprayObject);
 
     const rider = new Rider(pack, collider);
+    // on foot (FEAT-067): every foot plant of the skeleton leaves a print and a footstep
+    riderView.setPack(pack);
+    riderView.onPlant = (p) => { bootprints.add(p, rider.sink); audio.footstep(rider.surface, p.speed, rider.sink); };
+    let boardMsg = '', boardMsgT = 0;
     const liftRide = new LiftRide(pack, lifts, collider);
     const prefetch = new Prefetch();
     const cam = new ChaseCamera(pack, window.innerWidth / window.innerHeight);
@@ -364,6 +372,14 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (controls.action('piste')) runs.toggle();
       if (controls.action('track')) audio.nextTrack();
       if (controls.action('fly')) { cam.mode = cam.mode === 'free' ? settings.camera : 'free'; if (cam.mode === 'free') cam.enterFree(); }
+      // board on / off: unstrap when nearly stopped, strap in standing still
+      if ((controls.action('board') || touch?.once('board')) && cam.mode !== 'free' && !liftRide.riding && !map.fullOpen) {
+        const why = rider.toggleBoard();
+        if (why === '' && rider.strapState === 'off') trial.cancel('Unstrapped');
+        boardMsg = why === 'fast' ? 'slow down to unstrap' : why === 'moving' ? 'stand still to strap in' : why === 'air' ? 'land first' : '';
+        boardMsgT = boardMsg ? 1.5 : 0;
+      }
+      boardMsgT -= dt;
       const boardPressed = (controls.action('lift') || !!touch?.once('lift')) && cam.mode !== 'free';
       const onLift = cam.mode !== 'free' && liftRide.update(rider, dt, boardPressed, input.tuck);
       if (cam.mode !== 'free' && !onLift && !map.fullOpen) rider.update(dt, input);
@@ -373,9 +389,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       rider.applyRenderPose();
       riderView.update(rider, dt, input.tuck, input.grab, onLift && liftRide.airborneRide);
       tracks.update(rider, dt, onLift && liftRide.airborneRide);
+      bootprints.update(dt);
       rider.restoreSimPose();
       if (settings.timeTrials) {
-        if (onLift) trial.cancel('On a lift'); else trial.update(rider, dt, input.tuck);
+        if (onLift) trial.cancel('On a lift'); else if (rider.unstrapped) trial.cancel('Unstrapped'); else trial.update(rider, dt, input.tuck);
         trialWorld.updateGates(rider.x, rider.y);
         trialWorld.updateGhost(trial.ghostAt(trial.time), dt);
         const active = trial.state !== 'idle' ? trial.course : null;
@@ -451,9 +468,17 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       } else if (liftRide.nearby && !map.fullOpen && cam.mode !== 'free') {
         const name = liftRide.nearby.feature.name ?? 'Lift';
         const dist = settings.units === 'metric' ? `${liftRide.nearbyDist.toFixed(0)} m` : `${(liftRide.nearbyDist * 3.28084).toFixed(0)} ft`;
-        if (liftRide.canBoard) showPrompt(`<div class="name">${name}</div><div class="row"><kbd>E</kbd> ${liftRide.nearby.kind === 'gondola' ? 'board the gondola' : liftRide.nearby.kind === 'surface' ? 'grab the lift' : liftRide.nearby.kind === 'carpet' ? 'step on' : 'ride up'}</div>`);
+        if (liftRide.canBoard) showPrompt(`<div class="name">${name}</div><div class="row"><kbd>E</kbd> ${rider.unstrapped ? 'strap in and ' : ''}${liftRide.nearby.kind === 'gondola' ? 'board the gondola' : liftRide.nearby.kind === 'surface' ? 'grab the lift' : liftRide.nearby.kind === 'carpet' ? 'step on' : 'ride up'}</div>`);
         else if (liftRide.blocker === 'fast') showPrompt(`<div class="name">${name}</div><div class="row">slow down to board <kbd>&darr;</kbd> brake</div>`);
         else showPrompt(`<div class="name">${name}</div><div class="row">ride to the lift <span class="dim">${dist}</span> then <kbd>E</kbd></div>`);
+      } else if (!map.fullOpen && cam.mode !== 'free') {
+        // board on / off
+        const bk = `<kbd>${keyName(settings.keys.board)}</kbd>`;
+        if (boardMsgT > 0) showPrompt(`<div class="row">${boardMsg}</div>`);
+        else if (rider.strapState !== 'none') showPrompt('');
+        else if (rider.onFoot) showPrompt(`<div class="row">${bk} strap in${rider.speed > 0.3 ? ' <span class="dim">(stand still)</span>' : ''} &nbsp; <kbd>${keyName(settings.keys.grab)}</kbd> sprint</div>`);
+        else if (rider.canUnstrap) showPrompt(`<div class="row">${bk} unstrap</div>`);
+        else showPrompt('');
       } else showPrompt('');
       env.update(fx, cam.mode === 'free' ? cp.y : rider.z, -fy);
       if (pack.fine && terrain.stats.builds === 0) pack.fine.evictBeyond(fx, fy, 3000, liftTop);
@@ -468,10 +493,11 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
       hud.innerHTML =
         `<b>${speedStr(rider.speed)} &nbsp; ${altStr(rider.z)} &nbsp; slope ${rider.slopeDeg.toFixed(0)}&deg;` +
-        (rider.onGround ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') +
+        (rider.onFoot ? ` &nbsp; ON FOOT &nbsp; <span class="dim">sprint</span> ${'&#9646;'.repeat(Math.ceil(rider.stamina / STAMINA * 5))}${'&#9647;'.repeat(5 - Math.ceil(rider.stamina / STAMINA * 5))}` : '') +
+        (rider.onGround || rider.onFoot ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') +
         `<br><span class="dim">${fps.toFixed(0)} fps &middot; ${terrain.stats.chunks} chunks &middot; ${(terrain.stats.triangles / 1000).toFixed(0)}k tris &middot; trees ${veg.stats.instances} &middot; cam ${cam.mode}` +
         ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}</span>`;
-      (window as any).__sim = { rider, riderView, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings };
+      (window as any).__sim = { rider, riderView, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks };
       if (!headless) requestAnimationFrame(frame);
     }
 

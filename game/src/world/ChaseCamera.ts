@@ -190,7 +190,8 @@ export class ChaseCamera {
     const height = this.mode === 'close' ? 1.8 : this.mode === 'far' ? 4.5 : 2.8;
     // follow the velocity direction when moving, the heading when slow
     const spd = Math.hypot(r.vx, r.vy);
-    if (spd > 2.5) this.fwd.set(r.vx / spd, 0, -r.vy / spd);
+    // on foot it stays behind where you face (walking backwards or slipping must not swing it round)
+    if (spd > 2.5 && !r.onFoot) this.fwd.set(r.vx / spd, 0, -r.vy / spd);
     else this.fwd.lerp(new THREE.Vector3(Math.sin(r.heading), 0, -Math.cos(r.heading)), Math.min(1, dt * 2)).normalize();
     const riderPos = new THREE.Vector3(r.x, r.z, -r.y);
     // free look: swing the camera around the rider (yaw) and up over them (pitch)
