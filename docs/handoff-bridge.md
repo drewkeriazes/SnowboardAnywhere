@@ -34,3 +34,15 @@ The terrain is bare-earth lidar, which strips bridges. `build_pack.py` also drop
 
 - Commit as Drew, plain message, no trailers, id BUG-013 in the message; comment the hash on #64 and close it when Drew confirms.
 - `cd game && npx tsc --noEmit` before committing. No em dashes in prose.
+
+## New: false-positive deck (Drew screenshot, 2026-11-05)
+
+Near Tea Cup Express / Skyline Express (Blue Sky Basin) the rider sits on a wide, flat grey slab that runs along the valley side and looks like a bad road overlay. It is almost certainly a bridge deck from the `Bridges.ts` gap detector on an ordinary cat track or road segment. So decks do render in the browser; the detector is too loose.
+
+Likely cause: a curving road or cat track on a sidehill. The straight chord between two OSM nodes cuts out over the downhill side, so the terrain "sags" under it even though there is no gap.
+
+Suggested fix in `Bridges.maintain`:
+- At the deepest sag point, sample the terrain 8 to 12 m to each side, perpendicular to the segment. Accept only when both sides are also at least 2 m below the deck (a gully crossing the line). A sidehill has one side high and gets rejected.
+- Tighten `MAX_SPAN` to about 80 m and require the ends to sit on the terrain (chord within 1.5 m of the ground at both ends).
+- Debug aid: log each accepted deck (`console.info('bridge', d)`) so Drew can see false positives, then remove it.
+- Re-check that China Bridge Access Road (1291, -1655) to (1260, -1694) still passes.
