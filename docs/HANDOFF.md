@@ -52,6 +52,10 @@ Packs need a rebuild from 3c81785 or later: `ao/` tiles (baked sky visibility, `
 
 `docs/compare/` holds 10 Vail spots (35 views) of Street View photos against the game's eye camera, each with notes linked to cards; start at `docs/compare/README.md`. Tools: `python tools/gmaps2game.py "<maps url>" vail --spot <slug>/<view> --add` (with `--offset` for a wrong panorama compass and `--at X,Y` for a misplaced pin), the `?cam=eye` URL mode with P to save a shot, and `node tools/shoot_spots.mjs vail --gpu --size 1919x910` to re-shoot every pair after a build. The pairs' main findings: forest far too sparse even in mature Front Side stands (BUG-023; Born Free has 0 trees within 30 m), trees drawn as black cones with no lodgepole or winter aspen shapes (FEAT-070), buried and box-shaped buildings (BUG-024, FEAT-071), lift terminals drawn twice with the wrong roof (DATA-009), too much grey rock (FEAT-069). Terrain matched closely at every spot.
 
+## 2026-11-06: krummholz from lidar height (BUG-025)
+
+`build_pack.py` no longer turns every tree above 3,350 m into a 4.5 m krummholz. A tree is krummholz only when its lidar canopy height is 1 to 4 m and it is above 3,450 m or in a LANDFIRE alpine class; no lidar height is capped. Vail rebuilt on Drew's PC: krummholz 1,497 of 1.25 M trees (0.1%, was 14.4%), median height above 3,350 m 13.5 m (was 4.5). Above 3,350 m, 97% of trees are in LANDFIRE's subalpine spruce-fir forest class, so Vail has almost no real treeline. The previous pack is kept at `packs/vail_pre025`.
+
 ## Session lanes (2026-11-05 14:50 ET, synced by the cloud session)
 
 Two sessions are active. To avoid overlapping edits:

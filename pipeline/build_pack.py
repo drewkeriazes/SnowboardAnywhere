@@ -277,11 +277,12 @@ if lf_tifs:
         evt_img = evt_img[..., 0] if evt_img.shape[-1] < evt_img.shape[0] else evt_img[0]
     table = read_dbf(lf + ".vat.dbf") if os.path.exists(lf + ".vat.dbf") else []
     # per class: aspen fraction (0..1) and whether it is forest (Tree life form)
-    aspen_frac_of, forest_of = {}, {}
+    aspen_frac_of, forest_of, alpine_of = {}, {}, {}
     for r in table:
         v = int(float(r.get("VALUE", "0") or 0)); name = r.get("EVT_NAME", "")
         lfm = r.get("EVT_LF", "")
         forest_of[v] = lfm == "Tree" and "Urban" not in name
+        alpine_of[v] = "Alpine" in name        # alpine turf, dwarf-shrubland, bedrock and scree, wet meadow
         if "Aspen-Mixed Conifer" in name or "Aspen-Mixed" in name:
             aspen_frac_of[v] = 0.5
         elif "Aspen" in name:
@@ -289,9 +290,9 @@ if lf_tifs:
         else:
             aspen_frac_of[v] = 0.0
     lut_n = int(evt_img.max()) + 1
-    aspen_lut = np.zeros(lut_n, np.float32); forest_lut = np.zeros(lut_n, bool)
+    aspen_lut = np.zeros(lut_n, np.float32); forest_lut = np.zeros(lut_n, bool); alpine_lut = np.zeros(lut_n, bool)
     for v in range(lut_n):
-        aspen_lut[v] = aspen_frac_of.get(v, 0.0); forest_lut[v] = forest_of.get(v, False)
+        aspen_lut[v] = aspen_frac_of.get(v, 0.0); forest_lut[v] = forest_of.get(v, False); alpine_lut[v] = alpine_of.get(v, False)
     ex0, ey0, epx = tfw[4], tfw[5], tfw[0]   # top-left pixel centre and pixel size (m)
     def evt_at(x_utm, y_utm):
         c = np.clip(np.round((x_utm - ex0) / epx).astype(np.int64), 0, evt_img.shape[1] - 1)
@@ -576,6 +577,8 @@ tx = X0 + (cols + 0.5) * R2 + jx - OX
 ty = Y1 - (rows + 0.5) * R2 + jy - OY
 tz = dem2[rows, cols].astype(np.float32)
 elev = tz
+chm_at = chm_s[rows, cols]        # measured canopy height (0 in lidar gaps), before the fill-tree floor
+alpine = np.zeros(len(rows), bool)
 if evt is not None:
     # sample the class 0..15 m off each tree so 30 m pixel edges become ragged stand boundaries
     ang = rng.uniform(0, 2 * np.pi, len(rows)); rad = rng.uniform(0, 15, len(rows))
@@ -584,18 +587,24 @@ if evt is not None:
     # inside aspen classes: aspen with that probability; elsewhere keep small NAIP-detected groves at 50 %
     roll = rng.uniform(0, 1, len(rows))
     is_aspen = ((roll < a_frac) | (aspen_like[rows, cols] & (roll < 0.5))) & (elev < 3300)
+    alpine = alpine_lut[np.clip(v, 0, lut_n - 1)]
 else:
     is_aspen = aspen_like[rows, cols] & (elev < 3150)
-is_krumm = (elev > 3350) | ((hgt < 4) & (elev > 3250))
+# krummholz (BUG-025): only a tree the lidar measured as short (1 to 4 m) near treeline or in an alpine
+# LANDFIRE class. Colorado treeline is about 3,500 to 3,600 m; subalpine spruce-fir at Vail is tall right
+# up to the summits, so elevation alone never makes a tree krummholz, and no lidar height is capped.
+short = (chm_at > 1.0) & (chm_at < 4.0)
+is_krumm = short & ((elev > 3450) | alpine)
+is_aspen &= ~is_krumm
 species = np.where(is_krumm, 2, np.where(is_aspen, 1, 0)).astype(np.float32)
-hgt = np.where(is_krumm, np.minimum(hgt, 4.5), hgt)
 crown = np.where(species == 1, hgt * 0.2, hgt * 0.13).astype(np.float32)
 trees = np.stack([tx, ty, tz, hgt, crown, species], axis=1).astype(np.float32)
 CELL = 1000.0
 cells_x = int(math.ceil(W / CELL)); cells_y = int(math.ceil(H / CELL))
 inst = {"cellSize": CELL, "minX": X0 - OX, "minY": Y0 - OY, "cellsX": cells_x, "cellsY": cells_y}
 inst["treeCount"] = write_instances(out, "trees", trees, CELL, X0 - OX, Y0 - OY, cells_x, cells_y)
-log(f"  trees {inst['treeCount']}  (aspen {int(is_aspen.sum())}, krummholz {int(is_krumm.sum())})")
+log(f"  trees {inst['treeCount']}  (aspen {int(is_aspen.sum())}, krummholz {int(is_krumm.sum())} = {is_krumm.mean()*100:.1f}%, "
+    f"trees above 3350 m {int((elev > 3350).sum())}, median height there {np.median(hgt[elev > 3350]) if (elev > 3350).any() else 0:.1f} m)")
 
 log("rocks")
 rr, rc = np.nonzero(rock_steep | (rock & (slope2 > 20)))
