@@ -1,0 +1,48 @@
+{
+  "name": "Blue Sky Basin, near Pete's Express (Google trekker)",
+  "latlon": [
+    39.5776102,
+    -106.3267952
+  ],
+  "game": {
+    "x": 1748,
+    "y": -2532
+  },
+  "views": [
+    {
+      "id": "north",
+      "heading": 9.6,
+      "pitch": -3.8,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5776102,-106.3267952,3082a,75y,9.56h,86.25t/data=!3m7!1e1!3m5!1sKleclUGLmijx7lTQ1CQ5Rw!2e0",
+      "x": 1748.5,
+      "y": -2531.5,
+      "h": 10.4,
+      "game": "http://localhost:5173/?pack=vail&x=1748.5&y=-2531.5&h=10.4&pitch=-3.8&fov=75.0&cam=eye&spot=blue-sky-petes-express/north"
+    },
+    {
+      "id": "southeast",
+      "heading": 130.0,
+      "pitch": 18.2,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5776102,-106.3267952,3082a,75y,130.04h,108.25t/data=!3m7!1e1!3m5!1sKleclUGLmijx7lTQ1CQ5Rw!2e0",
+      "x": 1748.5,
+      "y": -2531.5,
+      "h": 130.9,
+      "game": "http://localhost:5173/?pack=vail&x=1748.5&y=-2531.5&h=130.9&pitch=18.2&fov=75.0&cam=eye&spot=blue-sky-petes-express/southeast"
+    },
+    {
+      "id": "southwest",
+      "heading": 233.3,
+      "pitch": 12.2,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5776102,-106.3267952,3082a,75y,233.28h,102.18t/data=!3m7!1e1!3m5!1sKleclUGLmijx7lTQ1CQ5Rw!2e0",
+      "x": 1748.5,
+      "y": -2531.5,
+      "h": 234.1,
+      "game": "http://localhost:5173/?pack=vail&x=1748.5&y=-2531.5&h=234.1&pitch=12.2&fov=75.0&cam=eye&spot=blue-sky-petes-express/southwest"
+    }
+  ],
+  "streetview_capture": "Mar 2012, Google Street View trekker (calibrated). Real screenshots shared in chat, not saved locally.",
+  "game_capture": "2026-11-06, main after the Mongolia commit, eye camera"
+}
