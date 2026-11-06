@@ -29,7 +29,7 @@ export class Environment {
     const m = this.sky.material;
     m.fragmentShader = m.fragmentShader
       .replace('void main() {', 'uniform float uSkySat;\nuniform float uSkyBright;\nuniform vec3 uSkyTint;\nvoid main() {')
-      .replace('#include <tonemapping_fragment>', '#include <tonemapping_fragment>\n\t\t\tfloat skyL = dot( gl_FragColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );\n\t\t\tfloat skyK = smoothstep( -0.03, 0.32, direction.y ); // full grade overhead, a light one at the horizon\n\t\t\tvec3 skyT = mix( mix( vec3( 1.0 ), vec3( 0.85, 0.93, 1.04 ), step( 1.01, uSkySat ) ), uSkyTint, skyK );\n\t\t\tgl_FragColor.rgb = max( vec3( 0.0 ), mix( vec3( skyL ), gl_FragColor.rgb, mix( min( uSkySat, 1.5 ), uSkySat, skyK ) ) ) * skyT * mix( min( 1.0, uSkyBright * 2.6 ), uSkyBright, skyK );');
+      .replace('#include <tonemapping_fragment>', '#include <tonemapping_fragment>\n\t\t\tfloat skyL = dot( gl_FragColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) );\n\t\t\tfloat skyK = smoothstep( -0.08, 0.16, direction.y ); // full grade overhead, a light one at the horizon\n\t\t\tvec3 skyT = mix( mix( vec3( 1.0 ), vec3( 0.62, 0.76, 1.0 ), step( 1.01, uSkySat ) ), uSkyTint, skyK );\n\t\t\tgl_FragColor.rgb = max( vec3( 0.0 ), mix( vec3( skyL ), gl_FragColor.rgb, mix( min( uSkySat, 2.2 ), uSkySat, skyK ) ) ) * skyT * mix( min( 1.0, uSkyBright * 1.5 ), uSkyBright, skyK );');
     u.turbidity.value = 3.5;
     u.rayleigh.value = 1.6;
     u.mieCoefficient.value = 0.004;
@@ -138,6 +138,8 @@ export class Environment {
     this.hemi.intensity = amb;
     this.hemi.color.setRGB(0.81 * (0.7 + 0.3 * up), 0.89 * (0.75 + 0.25 * up), 1.0);
     this.fog.color.setRGB((0.79 - 0.3 * (1 - up)) + 0.1 * (1 - warm) * up, (0.85 - 0.3 * (1 - up)), 0.93 - 0.2 * (1 - up));
+    // bluebird: distant terrain fades into a blue haze that matches the horizon, not a white glow
+    if (this.bluebird) this.fog.color.setRGB(0.2 + 0.35 * (1 - warm), 0.32 + 0.3 * (1 - warm), 0.55 + 0.2 * (1 - warm)).multiplyScalar(0.55 + 0.45 * up);
     if (this.renderer) this.renderer.toneMappingExposure = 0.75 * (0.55 + 0.45 * up);
     this.sky.visible = !this.storm;
     this.stormDome.visible = this.storm;

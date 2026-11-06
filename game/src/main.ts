@@ -410,7 +410,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       goggles.update(rider, dt, cam.mode === 'fp', cam.mode === 'fp' && settings.fpVignette, onLift);
       cam.camera.updateMatrixWorld();
       env.updateCSM();
-      clouds.update(dt, cam.camera.position, env.sunDir, env.sun.color, env.sun.intensity, env.hemi.color, env.hemi.intensity);
+      clouds.render(renderer, cam.camera, dt, env.sunDir, env.sun.color, env.sun.intensity, env.hemi.color, env.hemi.intensity, env.fog.color);
       env.stormDome.position.copy(cam.camera.position);
       snow.update(dt, cam.camera, renderer.domElement.height, 0.45 + 0.6 * env.hemi.intensity / 1.4);
       veg.setSun(env.sun.color, env.sun.intensity);
