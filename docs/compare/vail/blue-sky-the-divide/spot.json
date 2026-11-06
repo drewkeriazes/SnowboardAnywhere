@@ -1,0 +1,59 @@
+{
+  "name": "Blue Sky Basin, The Divide near Skyline Express",
+  "latlon": [
+    39.5757766,
+    -106.3343414
+  ],
+  "game": {
+    "x": 1097,
+    "y": -2725
+  },
+  "views": [
+    {
+      "id": "east",
+      "heading": 79.2,
+      "pitch": 23.0,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5757766,-106.3343414,3a,75y,79.19h,113.01t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIDhq7CE5AE!2e10!3e11",
+      "x": 1097.3,
+      "y": -2725.4,
+      "h": 80.0,
+      "game": "http://localhost:5173/?pack=vail&x=1097.3&y=-2725.4&h=80.0&pitch=23.0&fov=75.0&cam=eye&spot=blue-sky-the-divide/east"
+    },
+    {
+      "id": "south",
+      "heading": 158.4,
+      "pitch": 17.0,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5757766,-106.3343414,3a,75y,158.38h,107t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIDhq7CE5AE!2e10!3e11",
+      "x": 1097.3,
+      "y": -2725.4,
+      "h": 159.2,
+      "game": "http://localhost:5173/?pack=vail&x=1097.3&y=-2725.4&h=159.2&pitch=17.0&fov=75.0&cam=eye&spot=blue-sky-the-divide/south"
+    },
+    {
+      "id": "west",
+      "heading": 252.5,
+      "pitch": 13.2,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5757766,-106.3343414,3a,75y,252.47h,103.25t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIDhq7CE5AE!2e10!3e11",
+      "x": 1097.3,
+      "y": -2725.4,
+      "h": 253.3,
+      "game": "http://localhost:5173/?pack=vail&x=1097.3&y=-2725.4&h=253.3&pitch=13.2&fov=75.0&cam=eye&spot=blue-sky-the-divide/west"
+    },
+    {
+      "id": "north",
+      "heading": 332.4,
+      "pitch": 11.1,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5757766,-106.3343414,3a,75y,332.41h,101.14t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIDhq7CE5AE!2e10!3e11",
+      "x": 1097.3,
+      "y": -2725.4,
+      "h": 333.3,
+      "game": "http://localhost:5173/?pack=vail&x=1097.3&y=-2725.4&h=333.3&pitch=11.1&fov=75.0&cam=eye&spot=blue-sky-the-divide/north"
+    }
+  ],
+  "streetview_capture": "Mar 2023, contributor JianMing Zhou, listed as 'Vail Ski Resort' (user photosphere)",
+  "game_capture": "2026-11-06, main after a7bbb38, eye camera"
+}
