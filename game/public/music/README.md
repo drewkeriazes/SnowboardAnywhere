@@ -1,7 +1,9 @@
 # Music
 
-Four playlists, picked on the main menu or in Settings > Audio (plus Shuffle all, which mixes
-every playlist): **Ska-punk**, **Melodic house**, **Metal**, **Hip-hop**. N skips within the playlist.
+Five stations, picked on the main menu or in Settings > Audio (plus Shuffle all, which mixes
+every station): **Ska-punk**, **Melodic house**, **Metal**, **Hip-hop** (real tracks, in `metal/`, `house/`, `hiphop/`
+and the root for ska) and **Classic ska** (always the built-in jukebox). N skips within the station.
+All tracks are loudness-matched to about -11 LUFS, true peak -1 dB. See CREDITS.md.
 
 1. **Files**: tracks listed under the playlist's name in `playlist.json` play in order and loop.
 2. **Built-in jukebox**: a playlist with no files (or Music set to "Built-in jukebox") plays

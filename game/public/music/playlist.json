@@ -71,6 +71,292 @@
         "license": "CC BY 4.0",
         "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
       }
+    ],
+    "Metal": [
+      {
+        "file": "metal/01-city-limits-crash.ogg",
+        "title": "City Limits Crash",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/reckless-vol-2-punk-metal-music-pack"
+      },
+      {
+        "file": "metal/02-edge-of-the-city.ogg",
+        "title": "Edge of the City",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/reckless-vol-2-punk-metal-music-pack"
+      },
+      {
+        "file": "metal/03-defiant-descent.ogg",
+        "title": "Defiant Descent",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/reckless-vol-2-punk-metal-music-pack"
+      },
+      {
+        "file": "metal/04-broken-pavement-beat.ogg",
+        "title": "Broken Pavement Beat",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/reckless-vol-2-punk-metal-music-pack"
+      },
+      {
+        "file": "metal/05-airborne-anarchy.ogg",
+        "title": "Airborne Anarchy",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/reckless-vol-2-punk-metal-music-pack"
+      },
+      {
+        "file": "metal/06-independent-impact.ogg",
+        "title": "Independent Impact",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/reckless-vol-2-punk-metal-music-pack"
+      },
+      {
+        "file": "metal/07-brick-and-beat.ogg",
+        "title": "Brick and Beat",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/reckless-vol-2-punk-metal-music-pack"
+      },
+      {
+        "file": "metal/08-alley-cat-anthem.ogg",
+        "title": "Alley Cat Anthem",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/reckless-vol-2-punk-metal-music-pack"
+      },
+      {
+        "file": "metal/09-wheelie-riot.ogg",
+        "title": "Wheelie Riot",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/reckless-vol-2-punk-metal-music-pack"
+      },
+      {
+        "file": "metal/10-overpass-outburst.ogg",
+        "title": "Overpass Outburst",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/reckless-vol-2-punk-metal-music-pack"
+      },
+      {
+        "file": "metal/11-interstellar.ogg",
+        "title": "Interstellar",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/interstellar-edm-metal-music-pack"
+      },
+      {
+        "file": "metal/12-plasma-storm.ogg",
+        "title": "Plasma Storm",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/interstellar-edm-metal-music-pack"
+      },
+      {
+        "file": "metal/13-temple-of-madness.ogg",
+        "title": "Temple of Madness",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/interstellar-edm-metal-music-pack"
+      },
+      {
+        "file": "metal/14-horsehead-nebula.ogg",
+        "title": "Horsehead Nebula",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/interstellar-edm-metal-music-pack"
+      },
+      {
+        "file": "metal/15-forgotten-station.ogg",
+        "title": "Forgotten Station",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/interstellar-edm-metal-music-pack"
+      },
+      {
+        "file": "metal/16-hope-on-the-horizon.ogg",
+        "title": "Hope on the Horizon",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/interstellar-edm-metal-music-pack"
+      },
+      {
+        "file": "metal/17-electric-firework.ogg",
+        "title": "Electric Firework",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/interstellar-edm-metal-music-pack"
+      },
+      {
+        "file": "metal/18-synth-kobra.ogg",
+        "title": "Synth Kobra",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/interstellar-edm-metal-music-pack"
+      },
+      {
+        "file": "metal/19-spiral-of-plasma.ogg",
+        "title": "Spiral of Plasma",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/interstellar-edm-metal-music-pack"
+      },
+      {
+        "file": "metal/20-sear-the-time-vortex.ogg",
+        "title": "Sear The Time Vortex",
+        "artist": "Aila Scott",
+        "license": "CC BY 4.0",
+        "url": "https://ailascott.itch.io/free-music-pack-lo-fi-indie-metal-orchestral"
+      },
+      {
+        "file": "metal/21-dash-thru-the-afterworld.ogg",
+        "title": "Dash Thru The Afterworld",
+        "artist": "Aila Scott",
+        "license": "CC BY 4.0",
+        "url": "https://ailascott.itch.io/free-music-pack-lo-fi-indie-metal-orchestral"
+      }
+    ],
+    "Melodic house": [
+      {
+        "file": "house/01-nectar.ogg",
+        "title": "Nectar",
+        "artist": "Of Far Different Nature",
+        "license": "CC BY 4.0",
+        "url": "https://fardifferent.bandcamp.com/"
+      },
+      {
+        "file": "house/02-silence.ogg",
+        "title": "Silence",
+        "artist": "Of Far Different Nature",
+        "license": "CC BY 4.0",
+        "url": "https://fardifferent.bandcamp.com/"
+      },
+      {
+        "file": "house/03-pure.ogg",
+        "title": "Pure",
+        "artist": "Of Far Different Nature",
+        "license": "CC BY 4.0",
+        "url": "https://fardifferent.bandcamp.com/"
+      },
+      {
+        "file": "house/04-evolution.ogg",
+        "title": "Evolution",
+        "artist": "Of Far Different Nature",
+        "license": "CC BY 4.0",
+        "url": "https://fardifferent.bandcamp.com/"
+      },
+      {
+        "file": "house/05-march.ogg",
+        "title": "March",
+        "artist": "Of Far Different Nature",
+        "license": "CC BY 4.0",
+        "url": "https://fardifferent.bandcamp.com/"
+      },
+      {
+        "file": "house/06-control.ogg",
+        "title": "Control",
+        "artist": "Of Far Different Nature",
+        "license": "CC BY 4.0",
+        "url": "https://fardifferent.bandcamp.com/"
+      },
+      {
+        "file": "house/07-blue.ogg",
+        "title": "Blue",
+        "artist": "Of Far Different Nature",
+        "license": "CC BY 4.0",
+        "url": "https://fardifferent.bandcamp.com/"
+      },
+      {
+        "file": "house/08-deep-care.ogg",
+        "title": "Deep Care",
+        "artist": "Of Far Different Nature",
+        "license": "CC BY 4.0",
+        "url": "https://fardifferent.bandcamp.com/"
+      },
+      {
+        "file": "house/09-gain.ogg",
+        "title": "Gain",
+        "artist": "Of Far Different Nature",
+        "license": "CC BY 4.0",
+        "url": "https://fardifferent.bandcamp.com/"
+      },
+      {
+        "file": "house/10-jellyfish.ogg",
+        "title": "Jellyfish",
+        "artist": "Of Far Different Nature",
+        "license": "CC BY 4.0",
+        "url": "https://fardifferent.bandcamp.com/"
+      },
+      {
+        "file": "house/11-temples.ogg",
+        "title": "Temples",
+        "artist": "Of Far Different Nature",
+        "license": "CC BY 4.0",
+        "url": "https://fardifferent.bandcamp.com/"
+      },
+      {
+        "file": "house/12-atmospheric-house-ii.ogg",
+        "title": "Atmospheric House II",
+        "artist": "BogartVGM",
+        "license": "Free with credit and link (artist terms)",
+        "url": "https://www.facebook.com/BogartVGM/"
+      },
+      {
+        "file": "house/13-deep-house-underscore-006.ogg",
+        "title": "Deep House Underscore 006",
+        "artist": "Sascha Ende",
+        "license": "CC BY 4.0",
+        "url": "https://ende.app/en/song/13947-deep-house-underscore-006"
+      }
+    ],
+    "Hip-hop": [
+      {
+        "file": "hiphop/01-hiphop-vs-jazz-vol-1.ogg",
+        "title": "HipHop vs. Jazz Vol 1",
+        "artist": "Sascha Ende",
+        "license": "CC BY 4.0",
+        "url": "https://ende.app/en/song/145-hiphop-vs-jazz-vol-1"
+      },
+      {
+        "file": "hiphop/02-hiphop-vs-jazz-vol-2.ogg",
+        "title": "HipHop vs. Jazz Vol 2",
+        "artist": "Sascha Ende",
+        "license": "CC BY 4.0",
+        "url": "https://ende.app/en/song/148-hiphop-vs-jazz-vol-2"
+      },
+      {
+        "file": "hiphop/03-cinematic-hiphop-002.ogg",
+        "title": "Cinematic HipHop 002",
+        "artist": "Sascha Ende",
+        "license": "CC BY 4.0",
+        "url": "https://ende.app/en/song/531-cinematic-hiphop-002"
+      },
+      {
+        "file": "hiphop/04-the-same-sun-lofi-mix.ogg",
+        "title": "The Same Sun [Lofi Mix]",
+        "artist": "Sascha Ende",
+        "license": "CC BY 4.0",
+        "url": "https://ende.app/en/song/13953-the-same-sun-lofi-mix"
+      },
+      {
+        "file": "hiphop/05-sin-sensitivity.ogg",
+        "title": "Sin & Sensitivity",
+        "artist": "Aila Scott",
+        "license": "CC BY 4.0",
+        "url": "https://ailascott.itch.io/free-music-pack-lo-fi-indie-metal-orchestral"
+      },
+      {
+        "file": "hiphop/06-eepy.ogg",
+        "title": "eepy",
+        "artist": "Aila Scott",
+        "license": "CC BY 4.0",
+        "url": "https://ailascott.itch.io/free-music-pack-lo-fi-indie-metal-orchestral"
+      }
     ]
   }
 }
