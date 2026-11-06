@@ -1,0 +1,59 @@
+{
+  "name": "Born Free, at the Cub's Way junction (Google trekker)",
+  "latlon": [
+    39.6242664,
+    -106.3859894
+  ],
+  "game": {
+    "x": -3256,
+    "y": 2723
+  },
+  "views": [
+    {
+      "id": "north",
+      "heading": 15.8,
+      "pitch": -13.9,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6242664,-106.3859894,3002a,75y,15.8h,76.13t/data=!3m7!1e1!3m5!1sXmrFpAGnq9qF2_C_V3Nh9Q!2e0",
+      "x": -3255.7,
+      "y": 2723.5,
+      "h": 16.7,
+      "game": "http://localhost:5173/?pack=vail&x=-3255.7&y=2723.5&h=16.7&pitch=-13.9&fov=75.0&cam=eye&spot=born-free/north"
+    },
+    {
+      "id": "southeast",
+      "heading": 139.4,
+      "pitch": -1.4,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6242664,-106.3859894,3002a,75y,139.36h,88.56t/data=!3m7!1e1!3m5!1sXmrFpAGnq9qF2_C_V3Nh9Q!2e0",
+      "x": -3255.7,
+      "y": 2723.5,
+      "h": 140.2,
+      "game": "http://localhost:5173/?pack=vail&x=-3255.7&y=2723.5&h=140.2&pitch=-1.4&fov=75.0&cam=eye&spot=born-free/southeast"
+    },
+    {
+      "id": "southwest",
+      "heading": 232.5,
+      "pitch": 3.2,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6242664,-106.3859894,3002a,75y,232.49h,93.19t/data=!3m7!1e1!3m5!1sXmrFpAGnq9qF2_C_V3Nh9Q!2e0",
+      "x": -3255.7,
+      "y": 2723.5,
+      "h": 233.4,
+      "game": "http://localhost:5173/?pack=vail&x=-3255.7&y=2723.5&h=233.4&pitch=3.2&fov=75.0&cam=eye&spot=born-free/southwest"
+    },
+    {
+      "id": "northwest",
+      "heading": 338.0,
+      "pitch": -4.6,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6242664,-106.3859894,3002a,75y,338.04h,85.42t/data=!3m7!1e1!3m5!1sXmrFpAGnq9qF2_C_V3Nh9Q!2e0",
+      "x": -3255.7,
+      "y": 2723.5,
+      "h": 338.9,
+      "game": "http://localhost:5173/?pack=vail&x=-3255.7&y=2723.5&h=338.9&pitch=-4.6&fov=75.0&cam=eye&spot=born-free/northwest"
+    }
+  ],
+  "streetview_capture": "Mar 2012, Google Street View (trekker; Google's own imagery, position and compass calibrated)",
+  "game_capture": "2026-11-06, main after 8f521a9, eye camera"
+}
