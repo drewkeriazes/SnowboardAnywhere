@@ -1,0 +1,59 @@
+{
+  "name": "Front Side, Eagle's Nest event deck (top of Eagle Bahn)",
+  "latlon": [
+    39.6175837,
+    -106.3865649
+  ],
+  "game": {
+    "x": -3317,
+    "y": 1983
+  },
+  "views": [
+    {
+      "id": "northeast",
+      "heading": 23.2,
+      "pitch": 13.7,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6175837,-106.3865649,3a,75y,23.18h,103.66t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgICElOOU3AE!2e10!3e11",
+      "x": -3316.6,
+      "y": 1982.6,
+      "h": 24.1,
+      "game": "http://localhost:5173/?pack=vail&x=-3316.6&y=1982.6&h=24.1&pitch=13.7&fov=75.0&cam=eye&spot=eagles-nest-deck/northeast"
+    },
+    {
+      "id": "southeast",
+      "heading": 127.1,
+      "pitch": 7.7,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6175837,-106.3865649,3a,75y,127.06h,97.72t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgICElOOU3AE!2e10!3e11",
+      "x": -3316.6,
+      "y": 1982.6,
+      "h": 127.9,
+      "game": "http://localhost:5173/?pack=vail&x=-3316.6&y=1982.6&h=127.9&pitch=7.7&fov=75.0&cam=eye&spot=eagles-nest-deck/southeast"
+    },
+    {
+      "id": "southwest",
+      "heading": 208.2,
+      "pitch": 3.0,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6175837,-106.3865649,3a,75y,208.19h,93.02t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgICElOOU3AE!2e10!3e11",
+      "x": -3316.6,
+      "y": 1982.6,
+      "h": 209.1,
+      "game": "http://localhost:5173/?pack=vail&x=-3316.6&y=1982.6&h=209.1&pitch=3.0&fov=75.0&cam=eye&spot=eagles-nest-deck/southwest"
+    },
+    {
+      "id": "west",
+      "heading": 281.4,
+      "pitch": 5.6,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6175837,-106.3865649,3a,75y,281.42h,95.64t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgICElOOU3AE!2e10!3e11",
+      "x": -3316.6,
+      "y": 1982.6,
+      "h": 282.3,
+      "game": "http://localhost:5173/?pack=vail&x=-3316.6&y=1982.6&h=282.3&pitch=5.6&fov=75.0&cam=eye&spot=eagles-nest-deck/west"
+    }
+  ],
+  "streetview_capture": "Jan 2016, contributor Justin Donat (user photosphere; compass checked against Eagle's Nest, within about 2 degrees)",
+  "game_capture": "2026-11-06, main after ce2eebd, eye camera"
+}
