@@ -82,7 +82,12 @@ export class Environment {
   onCameraChanged(): void { this.csm?.updateFrustums(); }
 
   private renderer: THREE.WebGLRenderer | null = null;
+  /** bluebird day: crisp, deep blue sky (low haze) when there are no clouds */
+  bluebird = false;
+  private lastSun: [number, number] = [160, 30];
+  setBluebird(on: boolean): void { this.bluebird = on; this.setSun(this.lastSun[0], this.lastSun[1]); }
   setSun(azimuthDeg: number, elevationDeg: number): void {
+    this.lastSun = [azimuthDeg, elevationDeg];
     // azimuth measured clockwise from north; three.js: north = -z, east = +x
     const az = THREE.MathUtils.degToRad(azimuthDeg), el = THREE.MathUtils.degToRad(Math.max(-6, elevationDeg));
     this.sunDir.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
@@ -101,6 +106,7 @@ export class Environment {
     u.turbidity.value = 3.5 + (1 - warm) * 4;
     u.rayleigh.value = 1.6 + (1 - warm) * 1.2;
     u.mieCoefficient.value = 0.004 + (1 - warm) * 0.01;
+    if (this.bluebird) { u.turbidity.value *= 0.55; u.mieCoefficient.value *= 0.5; u.rayleigh.value *= 1.15; }
     // ambient: sky blue over snow, fades toward dusk blue
     const amb = 0.35 + 0.55 * up;
     this.hemi.intensity = amb;

@@ -4,6 +4,7 @@ import { Terrain } from './terrain/Terrain';
 import { Rider } from './sim/Rider';
 import { Collider } from './sim/Collider';
 import { Bridges } from './world/Bridges';
+import { Clouds } from './world/Clouds';
 import { Controls } from './sim/Controls';
 import { Vegetation, setVegetationBudget, setVegetationDensity } from './world/Vegetation';
 import { Rocks } from './world/Rocks';
@@ -81,6 +82,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const status = document.getElementById('status')!;
     const scene = new THREE.Scene();
     const env = new Environment(scene, renderer, pack.meta.sun.azimuth, pack.meta.sun.elevation);
+    const clouds = new Clouds();
+    scene.add(clouds.mesh);
     const terrain = new Terrain(pack);
     scene.add(terrain.group);
     const collider = new Collider();
@@ -163,6 +166,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     // ---------------------------------------------------------------- settings application
     const applySettings = (s: Settings, what: string): void => {
       applySun(s);
+      clouds.configure(s.clouds ?? 'scattered', s.quality);
+      env.setBluebird((s.clouds ?? 'scattered') === 'off');
       audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music);
       audio.setSource(s.musicSource);
       audio.setPlaylist(s.playlist);
@@ -375,6 +380,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       vignette.classList.toggle('show', cam.mode === 'fp' && settings.fpVignette);
       cam.camera.updateMatrixWorld();
       env.updateCSM();
+      clouds.update(dt, cam.camera.position, env.sunDir, env.sun.color, env.sun.intensity, env.hemi.color, env.hemi.intensity);
       veg.setSun(env.sun.color, env.sun.intensity);
       const cp = cam.camera.position;
       terrain.update(cp.x, -cp.z, cp.y);
