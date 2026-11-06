@@ -104,6 +104,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const trialWorld = new TrialWorld(pack, courses);
     scene.add(trialWorld.group);
     const trialEl = document.getElementById('trial')!;
+    const finishArrow = document.getElementById('finish-arrow')!;
+    const distStr = (m: number) => settings.units === 'metric' ? (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(0)} m`) : (m >= 1609 ? `${(m / 1609.34).toFixed(2)} mi` : `${(m * 3.28084).toFixed(0)} ft`);
     let splitMsg = '', splitTimer = 0;
     const fmt = (t: number) => { const m = Math.floor(t / 60), sec = t - m * 60; return m > 0 ? `${m}:${sec.toFixed(2).padStart(5, '0')}` : `${sec.toFixed(2)}`; };
     trial.onEvent = (e) => {
@@ -260,6 +262,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       tracks.dispose();
       trialWorld.dispose();
       trialEl.classList.remove('show');
+      finishArrow.style.display = 'none';
       audio.onTrack = null;
       showPrompt('');
       hud.innerHTML = '';
@@ -318,15 +321,38 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         if (onLift) trial.cancel('On a lift'); else trial.update(rider, dt, input.tuck);
         trialWorld.updateGates(rider.x, rider.y);
         trialWorld.updateGhost(trial.ghostAt(trial.time), dt);
+        const active = trial.state !== 'idle' ? trial.course : null;
+        trialWorld.updateRoute(active, trial.along, trial.nextTarget, elapsed);
+        map.trialRoute = active ? active.points : null;
+        // edge arrow toward the finish when it is off-screen or behind
+        if (active) {
+          const f = active.finish;
+          const v = new THREE.Vector3(f[0], pack.groundHeight(f[0], f[1]) + 6, -f[1]).project(cam.camera);
+          const behind = v.z > 1;
+          const onScreen = !behind && Math.abs(v.x) < 0.92 && Math.abs(v.y) < 0.9;
+          const distTo = Math.max(0, active.length - trial.along);
+          if (!onScreen) {
+            let ax = behind ? -v.x : v.x, ay = behind ? -v.y : v.y;
+            const m = Math.max(Math.abs(ax), Math.abs(ay)) || 1; ax /= m; ay /= m;
+            const sx = (ax * 0.88 + 1) / 2 * window.innerWidth, sy = (1 - (ay * 0.85)) / 2 * window.innerHeight;
+            finishArrow.style.display = 'block';
+            finishArrow.style.left = `${sx}px`; finishArrow.style.top = `${sy}px`;
+            (finishArrow.firstElementChild as HTMLElement).style.transform = `rotate(${Math.atan2(ax, ay)}rad)`;
+            finishArrow.lastElementChild!.textContent = `${distStr(distTo)}`;
+          } else finishArrow.style.display = 'none';
+        } else finishArrow.style.display = 'none';
         splitTimer -= dt;
         if (trial.state === 'running' || trial.state === 'armed' || splitTimer > 0) {
           const head = trial.course ? `<div class="name">${trial.course.name}</div>` : '';
           const clock = trial.state === 'running' ? `<div class="clock">${fmt(trial.time)}</div>` : '';
           const best = trial.course && trial.best ? `<div class="dim">Best ${fmt(trial.best.time)}</div>` : '';
-          trialEl.innerHTML = head + clock + best + (splitTimer > 0 ? `<div class="split">${splitMsg}</div>` : '');
+          const prog = trial.state === 'running' && trial.course
+            ? `<div class="togo">${distStr(Math.max(0, trial.course.length - trial.along))} to the finish</div><div class="bar"><div style="width:${Math.min(100, trial.along / trial.course.length * 100).toFixed(1)}%"></div></div>`
+            : '';
+          trialEl.innerHTML = head + clock + prog + best + (splitTimer > 0 ? `<div class="split">${splitMsg}</div>` : '');
           trialEl.classList.add('show');
         } else trialEl.classList.remove('show');
-      } else trialEl.classList.remove('show');
+      } else { trialEl.classList.remove('show'); finishArrow.style.display = 'none'; map.trialRoute = null; }
       audio.update(rider, input.tuck, onLift, dt, liftRide.passedTower);
       rider.lastHit = '';
       if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }

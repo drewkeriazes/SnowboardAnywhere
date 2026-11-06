@@ -36,6 +36,10 @@ export class TimeTrial {
   private offFor = 0;
   private armedDist = 0;
   onEvent: ((e: TrialEvent) => void) | null = null;
+  /** metres along the active course of the rider's closest point (armed or running) */
+  along = 0;
+  /** distance along the course of the next checkpoint, or the course length when only the finish is left */
+  get nextTarget(): number { const c = this.course; if (!c) return 0; return this.next < c.checkpoints.length ? c.checkpoints[this.next] : c.length; }
 
   constructor(private readonly packSlug: string, private readonly courses: Course[]) {}
 
@@ -68,6 +72,7 @@ export class TimeTrial {
         if (c) {
           this.state = 'armed'; this.course = c; this.best = this.loadBest(c);
           this.armedDist = nearestOnCourse(c, r.x, r.y).along;
+          this.next = 0; this.along = this.armedDist;
           this.onEvent?.({ kind: 'armed', course: c, best: this.best });
         }
         return;
@@ -93,6 +98,7 @@ export class TimeTrial {
       this.samples.push({ t: +this.time.toFixed(2), x: +r.x.toFixed(2), y: +r.y.toFixed(2), z: +r.z.toFixed(2), h: +r.heading.toFixed(3), lg: +r.lateralG.toFixed(2), e: +r.edgeAngle.toFixed(2), f });
     }
     const n = nearestOnCourse(c, r.x, r.y);
+    this.along = n.along;
     this.offFor = n.dist > OFF_COURSE ? this.offFor + dt : 0;
     if (this.offFor > OFF_TIME) { this.cancel('Off course'); return; }
     // checkpoints in order

@@ -288,6 +288,8 @@ export class ResortMap {
 
   // ---------------------------------------------------------------- minimap
   /** Draw the minimap: `radius` metres around the rider, heading arrow. */
+  /** active time-trial course to draw on the minimap (null when none) */
+  trialRoute: [number, number, number][] | null = null;
   /** pack x,y of the lift bottom to pulse on the minimap (set each frame by main) */
   liftMarker: [number, number] | null = null;
 
@@ -307,6 +309,18 @@ export class ResortMap {
     const k = S / srcW; // display px per base px
     this.drawLabels(ctx, (px, py) => { const [bx, by] = this.toPixel(px, py); return [(bx - (cx - srcW / 2)) * k, (by - (cy - srcW / 2)) * k]; },
       { max: 4, font: 10, runs: false, near: [x, y], inside: (sx, sy) => Math.hypot(sx - S / 2, sy - S / 2) < S / 2 - 6 });
+    if (this.trialRoute && this.trialRoute.length > 1) {
+      const toS = (px: number, py: number): [number, number] => { const [bx, by] = this.toPixel(px, py); return [(bx - (cx - srcW / 2)) * k, (by - (cy - srcW / 2)) * k]; };
+      ctx.strokeStyle = 'rgba(255,210,63,.95)'; ctx.lineWidth = 3.5; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      this.trialRoute.forEach((p, i) => { const [sx, sy] = toS(p[0], p[1]); if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy); });
+      ctx.stroke();
+      const f = this.trialRoute[this.trialRoute.length - 1];
+      const [fx, fy] = toS(f[0], f[1]);
+      // chequered flag
+      ctx.fillStyle = '#111'; ctx.fillRect(fx - 1, fy - 16, 2, 16);
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) { ctx.fillStyle = (i + j) % 2 ? '#fff' : '#111'; ctx.fillRect(fx + 1 + i * 4, fy - 16 + j * 4, 4, 4); }
+    }
     if (this.liftMarker) {
       const [bx, by] = this.toPixel(this.liftMarker[0], this.liftMarker[1]);
       const mx = (bx - (cx - srcW / 2)) * k, my = (by - (cy - srcW / 2)) * k;
