@@ -62,6 +62,14 @@ export class MaskSet {
     }
   }
 
+  /** True when the tile under (x, y) is loaded (sample() returns zeros otherwise). */
+  has(x: number, y: number): boolean {
+    const m = this.meta;
+    const n = m.tileSize;
+    const tx = Math.floor((x - m.minX) / m.res / n), ty = Math.floor((y - m.minY) / m.res / n);
+    return !!this.tiles.get(this.key(tx, ty));
+  }
+
   /** out = [rock, scree, groomed, canopy] in 0..1; zeros when not loaded. */
   sample(x: number, y: number, out: number[] = [0, 0, 0, 0]): number[] {
     out[0] = out[1] = out[2] = out[3] = 0;

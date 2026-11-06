@@ -10,6 +10,7 @@ pack/<slug>/
   mid/<tx>_<ty>.png         16 m heights, 512 x 512 samples per tile, 40 km square
   far/<tx>_<ty>.png         128 m heights, 512 x 512 samples per tile, 262 km square
   mask/<tx>_<ty>.png        2 m RGBA surface classes, 512 x 512 per tile, resort area
+  ao/<tx>_<ty>.png          2 m greyscale sky visibility (baked AO), same grid as mask (optional)
   trees/<tx>_<ty>.bin       tree instances per 1 km cell
   rocks/<tx>_<ty>.bin       rock instances per 1 km cell
   features.json             lifts, runs, buildings, roads, water, peaks, labels
@@ -32,6 +33,14 @@ Void samples are encoded as height -32768 (R=G=B=0) and must be treated as "no d
 RGBA PNG at 2 m. R = rock (0..255), G = scree/talus, B = groomed piste, A = canopy cover.
 Snow is implicit: `snow = 1 - max(rock, scree)`. Alpha drives forest-floor darkening and
 snow-depth reduction under trees.
+
+## AO tiles (optional)
+
+Greyscale PNG on the mask grid: sky visibility 0..255 from `pipeline/terrain_ao.py` (16 directions,
+horizon angles up to 170 m measured above the cell's tangent plane, visibility `1 - sin(h)`).
+Planar slopes and ridges are 255; gullies, couloirs, cirques and cliff feet are darker. Padding
+outside the data is 255. The terrain uses it for chunks at 32 m or finer; packs without it render
+with open sky everywhere.
 
 ## Instances
 
@@ -70,6 +79,7 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
   "zRange": [2300, 3700],
   "terrain": { "fine": {...}, "mid": {...}, "far": {...} },
   "mask": { "res": 2, "tileSize": 512, "minX", "minY", "tilesX", "tilesY" },
+  "ao": { same fields as mask },                           // optional
   "instances": { "cellSize": 1000, "minX", "minY", "cellsX", "cellsY", "treeCount", "rockCount" },
   "start": { "x", "y", "heading" },                       // default drop-in
   "sun": { "azimuth": 160, "elevation": 32 },             // degrees, default lighting

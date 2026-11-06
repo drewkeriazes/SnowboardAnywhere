@@ -21,6 +21,7 @@ import tifffile
 from scipy import ndimage
 from pyproj import Transformer
 from packwriter import (write_height_set, write_mask_set, write_instances, write_meta, write_features, decode_terrarium)
+from terrain_ao import sky_visibility
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 slug = sys.argv[1]
@@ -536,6 +537,14 @@ groomed = ndimage.gaussian_filter(groomed, 1.0)
 canopy_cover = ndimage.uniform_filter(canopy.astype(np.float32), 5)
 rgba = np.stack([rock_w * 255, scree_w * 255, np.clip(groomed, 0, 1) * 255, canopy_cover * 255], axis=-1).astype(np.uint8)
 mask_meta = write_mask_set(out, rgba, R2, X0 - OX, Y0 - OY)
+del rgba
+# baked sky visibility (FEAT-047): gullies, couloirs, cirques and cliff feet darken; same grid as the mask.
+# A light blur first so 1 m DEM noise does not speckle the tangent plane.
+log("  terrain AO")
+ao = sky_visibility(ndimage.gaussian_filter(dem2, 1.0), R2, log=log)
+log(f"  ao mean {ao.mean():.3f}, p5 {np.percentile(ao, 5):.3f}")
+ao_meta = write_mask_set(out, (np.clip(ao, 0, 1) * 255 + 0.5).astype(np.uint8), R2, X0 - OX, Y0 - OY, kind="ao")
+del ao
 
 # ------------------------------------------------------------------ 8. trees and rocks
 log("trees")
@@ -626,7 +635,7 @@ if seg is not None:
 meta = {"version": 1, "slug": slug, "name": cfg["name"], "crs": crs, "origin": [OX, OY], "lonlat": [lon_c, lat_c],
         "bounds": {"minX": X0 - OX, "minY": Y0 - OY, "maxX": X1 - OX, "maxY": Y1 - OY},
         "zRange": [float(np.floor(Z_MIN / 100) * 100 - 100), float(np.ceil(Z_MAX / 100) * 100 + 100)],
-        "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "instances": inst,
+        "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "instances": inst,
         "start": start, "sun": {"azimuth": 160, "elevation": 30}, "attribution": cfg["attribution"]}
 write_meta(out, meta)
 log("done")

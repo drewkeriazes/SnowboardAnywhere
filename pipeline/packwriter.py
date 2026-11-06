@@ -42,18 +42,21 @@ def write_height_set(out_dir: str, name: str, grid: np.ndarray, res: float, min_
     return {"res": res, "tileSize": TILE, "minX": float(min_x), "minY": float(min_y), "tilesX": tiles_x, "tilesY": tiles_y,
             "maxX": float(min_x + tiles_x * TILE * res), "maxY": float(min_y + tiles_y * TILE * res)}
 
-def write_mask_set(out_dir: str, rgba: np.ndarray, res: float, min_x: float, min_y: float) -> dict:
-    """rgba: (H, W, 4) uint8, row 0 = north."""
-    H, W, _ = rgba.shape
+def write_mask_set(out_dir: str, rgba: np.ndarray, res: float, min_x: float, min_y: float, kind: str = "mask") -> dict:
+    """rgba: (H, W, 4) uint8 RGBA, or (H, W) uint8 greyscale (the AO set); row 0 = north."""
+    H, W = rgba.shape[:2]
+    grey = rgba.ndim == 2
     tiles_x = int(np.ceil(W / TILE)); tiles_y = int(np.ceil(H / TILE))
-    padded = np.zeros((tiles_y * TILE, tiles_x * TILE, 4), np.uint8)
+    padded = np.zeros((tiles_y * TILE, tiles_x * TILE) + (() if grey else (4,)), np.uint8)
+    if grey:
+        padded[:] = 255  # open sky outside the data
     padded[tiles_y * TILE - H:, :W] = rgba
-    d = os.path.join(out_dir, "mask"); os.makedirs(d, exist_ok=True)
+    d = os.path.join(out_dir, kind); os.makedirs(d, exist_ok=True)
     for ty in range(tiles_y):
         for tx in range(tiles_x):
             r0 = (tiles_y - 1 - ty) * TILE
             sub = padded[r0:r0 + TILE, tx * TILE:(tx + 1) * TILE]
-            Image.fromarray(sub, "RGBA").save(os.path.join(d, f"{tx}_{ty}.png"), optimize=True)
+            Image.fromarray(sub, "L" if grey else "RGBA").save(os.path.join(d, f"{tx}_{ty}.png"), optimize=True)
     return {"res": res, "tileSize": TILE, "minX": float(min_x), "minY": float(min_y), "tilesX": tiles_x, "tilesY": tiles_y}
 
 def write_instances(out_dir: str, kind: str, recs: np.ndarray, cell: float, min_x: float, min_y: float, cells_x: int, cells_y: int) -> int:

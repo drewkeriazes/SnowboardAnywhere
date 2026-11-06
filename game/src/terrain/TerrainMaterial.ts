@@ -11,7 +11,35 @@ import * as THREE from 'three';
  * stronger drift relief plus wind ripples and more tonal variation. The fall line comes from the
  * normal; stripes use 12 fixed world directions, blending the two nearest the local fall line, so
  * they stay put on the snow instead of swimming as the slope curves.
+ *
+ * Snow lighting (FEAT-047): sunlight wraps past the terminator as a blue subsurface glow (light
+ * scattered inside the snowpack); shaded snow takes a cool blue tint from the sky; the sun glints
+ * off individual crystals (a random facet normal per 4 cm cell lights up when it lines up with the
+ * half vector, fading out once cells shrink below a pixel); baked sky visibility from the pack (`ao`
+ * attribute) darkens gullies, couloirs and cliff feet, and the canopy darkens the snow under trees.
+ * `uFlat` (storm) flattens the snow relief and turns the glints off: flat light.
  */
+
+/** three.js's physical direct-light function with the snow wrap/subsurface and glint terms added. */
+function snowLightsChunk(): string {
+  const src = THREE.ShaderChunk.lights_physical_pars_fragment;
+  // whitespace-tolerant: the npm build of three.js strips blank lines from its chunks
+  const a = /float dotNL = saturate\( dot\( geometryNormal, directLight\.direction \) \);\s*vec3 irradiance = dotNL \* directLight\.color;/;
+  const b = /reflectedLight\.directDiffuse \+= irradiance \* BRDF_Lambert\( material\.diffuseColor \);/;
+  if (!a.test(src) || !b.test(src)) throw new Error('TerrainMaterial: three.js lights_physical_pars_fragment changed; update snowLightsChunk');
+  return src
+    .replace(a, `float dotNLr = dot( geometryNormal, directLight.direction );
+	float dotNL = saturate( dotNLr );
+	vec3 irradiance = dotNL * directLight.color;
+	// snow: light wraps past the terminator, blue from scattering inside the snowpack
+	float wrapNL = saturate( ( dotNLr + uWrap ) / ( 1.0 + uWrap ) );
+	vec3 snowIrr = irradiance + max( wrapNL - dotNL, 0.0 ) * gSnowW * uSSS * directLight.color;
+	// crystal glints: this pixel's facet catches the sun when it lines up with the half vector
+	float glint = pow( saturate( dot( gGlintN, normalize( directLight.direction + geometryViewDir ) ) ), 700.0 );
+	reflectedLight.directSpecular += directLight.color * ( gGlintW * glint * 9.0 * dotNL );`)
+    .replace(b, `reflectedLight.directDiffuse += snowIrr * BRDF_Lambert( material.diffuseColor );`);
+}
+
 export function createTerrainMaterial(): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
@@ -20,19 +48,35 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     metalness: 0.0,
     flatShading: false,
   });
+  // uniforms live outside the hook so settings (flat light) can change them before the first compile
+  const uniforms = {
+    uTime: { value: 0 },
+    uSnow: { value: new THREE.Color(0.93, 0.95, 1.0) },
+    uSnowShade: { value: new THREE.Color(0.72, 0.80, 0.96) },
+    uRock: { value: new THREE.Color(0.36, 0.33, 0.30) },
+    uScree: { value: new THREE.Color(0.55, 0.53, 0.50) },
+    uGroomed: { value: new THREE.Color(0.97, 0.98, 1.0) },
+    /** sky fill on shaded snow: cool blue, not grey */
+    uShadeTint: { value: new THREE.Color(0.80, 0.93, 1.22) },
+    /** subsurface colour of the wrapped sunlight */
+    uSSS: { value: new THREE.Color(0.30, 0.48, 0.80) },
+    uWrap: { value: 0.45 },
+    uGlint: { value: 1.0 },
+    uFlat: { value: 0.0 },
+    /** baked AO strength (1 = as baked; debug A/B with 0) */
+    uAO: { value: 1.0 },
+  };
+  mat.userData.uniforms = uniforms;
   mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = { value: 0 };
-    shader.uniforms.uSnow = { value: new THREE.Color(0.93, 0.95, 1.0) };
-    shader.uniforms.uSnowShade = { value: new THREE.Color(0.72, 0.80, 0.96) };
-    shader.uniforms.uRock = { value: new THREE.Color(0.36, 0.33, 0.30) };
-    shader.uniforms.uScree = { value: new THREE.Color(0.55, 0.53, 0.50) };
-    shader.uniforms.uGroomed = { value: new THREE.Color(0.97, 0.98, 1.0) };
+    Object.assign(shader.uniforms, uniforms);
     (mat as any).userData.shader = shader;
 
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         attribute float forest;
         attribute vec2 fall;
+        attribute float ao;
+        varying float vAO;
         varying float vForest;
         varying vec2 vFall;
         varying vec3 vWorldPos;
@@ -41,16 +85,24 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
         vWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
         vFall = fall;
+        vAO = ao;
         vForest = forest;`);
 
     shader.fragmentShader = shader.fragmentShader
+      .replace('#include <lights_physical_pars_fragment>', snowLightsChunk())
       .replace('#include <common>', `#include <common>
         varying vec3 vWorldPos;
         varying vec3 vWorldNormal;
         varying float vForest;
+        varying float vAO;
         varying vec2 vFall;
         uniform float uTime;
-        uniform vec3 uSnow, uSnowShade, uRock, uScree, uGroomed;
+        uniform vec3 uSnow, uSnowShade, uRock, uScree, uGroomed, uShadeTint, uSSS;
+        uniform float uWrap, uGlint, uFlat, uAO;
+        // set in main() before lighting, read by the snow terms in RE_Direct_Physical
+        float gSnowW;
+        vec3 gGlintN;
+        float gGlintW;
         // cheap value noise
         float hash3(vec3 p) { p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3)); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
         float vnoise(vec3 x) {
@@ -109,9 +161,16 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         vec3 scree = uScree * (0.8 + 0.4 * vnoise(wp * 1.3));
         vec3 base = snow * wSnow + rock * wRock + scree * wScree;
         base = mix(base, groomed, wGroom * wSnow);
-        // snow is bright on sunlit faces: handled by lighting; add subtle sparkle facing the camera
-        vec3 vdir = normalize(cameraPosition - wp);
-        float spark = pow(vnoise(wp * 40.0 + vdir * 3.0), 18.0) * wSnow * 1.5;
+        // glints: about one 4 cm cell in twelve holds a crystal facet tilted at random off the surface;
+        // RE_Direct_Physical lights it when it faces the half vector. Gone once cells are sub-pixel.
+        vec3 gc = wp * 25.0;
+        vec3 gci = floor(gc);
+        vec3 gr = vec3(hash3(gci + 11.1), hash3(gci + 23.7), hash3(gci + 37.3)) * 2.0 - 1.0;
+        vec3 gn = normalize(normalize(vWorldNormal) + gr * 0.55);
+        gGlintN = normalize((viewMatrix * vec4(gn, 0.0)).xyz);
+        float gdot = 1.0 - smoothstep(0.12, 0.32, length(fract(gc) - 0.5));
+        float gpix = length(fwidth(gc));
+        gGlintW = step(0.92, hash3(gci + 5.3)) * gdot * (1.0 - smoothstep(0.35, 1.0, gpix)) * uGlint * (1.0 - uFlat);
         // distant forest: past the instanced trees, forested ground reads as dark conifer green
         // speckled with snow (real distant Colorado slopes are mostly dark timber, not white)
         float dist = length(cameraPosition - wp);
@@ -120,8 +179,9 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         vec3 timber = mix(vec3(0.06, 0.08, 0.06), vec3(0.14, 0.16, 0.13), speck);
         timber = mix(timber, snow * 0.8, smoothstep(0.62, 0.9, speck) * 0.6); // snowy gaps between crowns
         base = mix(base, timber, fd * 0.9);
-        spark *= 1.0 - fd;
-        diffuseColor.rgb = base + spark;
+        gSnowW = wSnow * (1.0 - fd);
+        gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd);
+        diffuseColor.rgb = base;
         float rough = mix(0.55, 0.95, wRock + wScree);
       `)
       // snow gets a soft bump so faces lit head-on (south-facing bowls with a southern sun) still show
@@ -150,7 +210,21 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           vec4 cdn = corduroy(wpn, vFall, pT, sm);
           vec3 acrossW = normalize(vec3(cdn.z, 0.0, cdn.w) - wn * dot(vec3(cdn.z, 0.0, cdn.w), wn));
           nn = normalize(nn - acrossW * cdn.y * 0.15 * gW);
+          // flat light: under overcast the eye loses the snow's shape; pull snow normals toward up
+          nn = normalize(mix(nn, vec3(0.0, 1.0, 0.0), 0.6 * uFlat * snowW));
           normal = normalize((viewMatrix * vec4(nn, 0.0)).xyz);
+        }`)
+      .replace('#include <aomap_fragment>', `#include <aomap_fragment>
+        {
+          // baked sky visibility with a contrast curve (most of the snow's light is direct sun, so
+          // occluding only the sky fill barely shows), faded out before the chunks that carry no AO
+          // (coarser than 32 m, beyond ~5 km); plus shade under the canopy (tree wells) near the trees
+          float aoK = uAO * (1.0 - smoothstep(3500.0, 5000.0, dist));
+          float aoT = mix(1.0, pow(vAO, 1.8), aoK) * (1.0 - 0.28 * vForest * (1.0 - fd));
+          reflectedLight.indirectDiffuse *= aoT * mix(vec3(1.0), uShadeTint, wSnow * (1.0 - 0.6 * uFlat));
+          reflectedLight.indirectSpecular *= aoT;
+          // gullies and couloirs read in depth in sun too, and it stands in for self-shadowing past the shadow maps
+          reflectedLight.directDiffuse *= mix(1.0, aoT, 0.45);
         }`)
       .replace('#include <roughnessmap_fragment>', `
         float roughnessFactor = roughness * mix(0.6, 1.0, clamp(vColor.r + vColor.g, 0.0, 1.0));`);

@@ -39,6 +39,8 @@ export interface PackMeta {
   zRange: [number, number];
   terrain: { fine?: HeightSetMeta; mid?: HeightSetMeta; far?: HeightSetMeta };
   mask?: MaskMeta;
+  /** baked sky visibility (greyscale PNG tiles, same layout as the mask), FEAT-047 */
+  ao?: MaskMeta;
   instances?: InstancesMeta;
   start: { x: number; y: number; heading: number };
   sun: { azimuth: number; elevation: number };

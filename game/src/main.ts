@@ -192,6 +192,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       env.setBluebird(s.clouds !== 'storm'); // deep blue sky behind the clouds too; only the storm is grey
       const storm = s.clouds === 'storm';
       env.setStorm(storm);
+      terrain.setFlatLight(storm ? 1 : 0); // storm: flat light, the snow surface reads poorly
       env.setValleyFog(!!s.valleyFog || params.has('valleyfog')); // ?valleyfog forces it on for render checks
       snow.points.visible = storm;
       snow.setCount(s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500);

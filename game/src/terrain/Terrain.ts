@@ -31,6 +31,8 @@ function proceduralForest(x: number, y: number, h: number, slope: number): numbe
   const valley = THREE.MathUtils.smoothstep(h, 2450, 2650); // towns and the I-70 corridor are open
   return below * open * flatOK * valley;
 }
+/** chunks at or below this vertex spacing (m) take baked AO from the pack; coarser ones are open sky */
+const AO_MAX_RES = 32;
 const SPLIT_K = 2.6; // split when distance < size * SPLIT_K
 const MAX_BUILDS_PER_FRAME = 10;
 
@@ -74,6 +76,12 @@ export class Terrain {
       s.onTileLoaded = (tx, ty) => this.onTileLoaded(s.meta.minX + tx * s.size, s.meta.minY + ty * s.size, s.size, s.meta.res);
     }
     if (pack.mask) pack.mask.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.mask!.meta.minX + tx * pack.mask!.size, pack.mask!.meta.minY + ty * pack.mask!.size, pack.mask!.size, 0);
+    if (pack.ao) pack.ao.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.ao!.meta.minX + tx * pack.ao!.size, pack.ao!.meta.minY + ty * pack.ao!.size, pack.ao!.size, 0);
+  }
+
+  /** Storm flat light: 0 = normal, 1 = overcast (snow relief and glints fade out). */
+  setFlatLight(v: number): void {
+    (this.material.userData.uniforms as { uFlat: { value: number } }).uFlat.value = v;
   }
 
   /** Finest resolution worth rendering at a point: 1 m inside the fine set, else mid, else far. */
@@ -108,6 +116,7 @@ export class Terrain {
       else if (c.res <= 64 && this.pack.mid) this.pack.mid.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       else if (this.pack.far) this.pack.far.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if (c.res <= 8 && this.pack.mask) this.pack.mask.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
+      if (c.res <= AO_MAX_RES && this.pack.ao) this.pack.ao.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if ((!c.mesh || this.dirty.has(c.key)) && builds < MAX_BUILDS_PER_FRAME) {
         this.build(c);
         this.dirty.delete(c.key);
@@ -180,6 +189,10 @@ export class Terrain {
     const nor = new Float32Array(vertCount * 3);
     const col = new Float32Array(vertCount * 3);
     const forest = new Float32Array(vertCount);
+    const ao = new Float32Array(vertCount);
+    const aoSet = pack.ao && res <= AO_MAX_RES ? pack.ao : null;
+    // footprint for the AO lookup: one 2 m sample near the rider, a 2 x 2 box of samples on coarser chunks
+    const aoOff = res > 2 ? res / 4 : 0;
     // smoothed downhill direction (three.js xz, length = slope) for groomer corduroy; heights 6 m
     // either side so the ridges follow the run, not every 1 m bump
     const fall = new Float32Array(vertCount * 2);
@@ -217,6 +230,16 @@ export class Terrain {
           rock = m[0]; scree = m[1]; groom = m[2]; fo = m[3];
         } else fo = proceduralForest(x, y, h, slope);
         forest[v] = fo;
+        let a = 1;
+        if (aoSet && aoSet.has(x, y)) {
+          if (aoOff === 0) a = aoSet.sample(x, y, this.maskSample)[0];
+          else {
+            a = 0;
+            for (let k = 0; k < 4; k++) a += aoSet.sample(x + (k & 1 ? aoOff : -aoOff), y + (k & 2 ? aoOff : -aoOff), this.maskSample)[0];
+            a *= 0.25;
+          }
+        }
+        ao[v] = a;
         // steep ground sheds snow regardless of the mask
         const steep = THREE.MathUtils.smoothstep(slope, 0.72, 1.0); // 41..57 degrees
         rock = Math.max(rock, steep);
@@ -240,7 +263,7 @@ export class Terrain {
       const e = edge[k];
       pos[v * 3] = pos[e * 3]; pos[v * 3 + 1] = pos[e * 3 + 1] - skirt; pos[v * 3 + 2] = pos[e * 3 + 2];
       nor[v * 3] = nor[e * 3]; nor[v * 3 + 1] = nor[e * 3 + 1]; nor[v * 3 + 2] = nor[e * 3 + 2];
-      col[v * 3] = col[e * 3]; col[v * 3 + 1] = col[e * 3 + 1]; col[v * 3 + 2] = col[e * 3 + 2]; forest[v] = forest[e];
+      col[v * 3] = col[e * 3]; col[v * 3 + 1] = col[e * 3 + 1]; col[v * 3 + 2] = col[e * 3 + 2]; forest[v] = forest[e]; ao[v] = ao[e];
       fall[v * 2] = fall[e * 2]; fall[v * 2 + 1] = fall[e * 2 + 1];
       v++;
     }
@@ -265,6 +288,7 @@ export class Terrain {
     geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setAttribute('forest', new THREE.BufferAttribute(forest, 1));
+    geo.setAttribute('ao', new THREE.BufferAttribute(ao, 1));
     geo.setAttribute('fall', new THREE.BufferAttribute(fall, 2));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
