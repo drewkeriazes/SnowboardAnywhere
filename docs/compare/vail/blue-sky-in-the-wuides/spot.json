@@ -1,0 +1,63 @@
+{
+  "name": "Blue Sky Basin, near In the Wuides",
+  "latlon": [
+    39.56999,
+    -106.3348908
+  ],
+  "game": {
+    "x": 1041,
+    "y": -3367
+  },
+  "views": [
+    {
+      "id": "east",
+      "heading": 159.4,
+      "pitch": 9.4,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.56999,-106.3348908,3a,75y,159.45h,99.36t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6js3Y3QE!2e10!3e11",
+      "x": 1040.6,
+      "y": -3367.0,
+      "h": 84.3,
+      "game": "http://localhost:5173/?pack=vail&x=1040.6&y=-3367.0&h=84.3&pitch=9.4&fov=75.0&cam=eye&spot=blue-sky-in-the-wuides/east",
+      "heading_offset": -76.0
+    },
+    {
+      "id": "south",
+      "heading": 246.2,
+      "pitch": 4.9,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.56999,-106.3348908,3a,75y,246.15h,94.94t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6js3Y3QE!2e10!3e11",
+      "x": 1040.6,
+      "y": -3367.0,
+      "h": 171.0,
+      "game": "http://localhost:5173/?pack=vail&x=1040.6&y=-3367.0&h=171.0&pitch=4.9&fov=75.0&cam=eye&spot=blue-sky-in-the-wuides/south",
+      "heading_offset": -76.0
+    },
+    {
+      "id": "west",
+      "heading": 345.2,
+      "pitch": 1.0,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.56999,-106.3348908,3a,75y,345.24h,91.01t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6js3Y3QE!2e10!3e11",
+      "x": 1040.6,
+      "y": -3367.0,
+      "h": 270.1,
+      "game": "http://localhost:5173/?pack=vail&x=1040.6&y=-3367.0&h=270.1&pitch=1.0&fov=75.0&cam=eye&spot=blue-sky-in-the-wuides/west",
+      "heading_offset": -76.0
+    },
+    {
+      "id": "north",
+      "heading": 62.8,
+      "pitch": 7.8,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.56999,-106.3348908,3a,75y,62.84h,97.82t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6js3Y3QE!2e10!3e11",
+      "x": 1040.6,
+      "y": -3367.0,
+      "h": 347.7,
+      "game": "http://localhost:5173/?pack=vail&x=1040.6&y=-3367.0&h=347.7&pitch=7.8&fov=75.0&cam=eye&spot=blue-sky-in-the-wuides/north",
+      "heading_offset": -76.0
+    }
+  ],
+  "streetview_capture": "Feb 2014, contributor Krishna Vinod (user photosphere; compass about 76 degrees off, found from the fall line: downhill is about 335 by the panorama's compass and 260 grid in the DEM)",
+  "game_capture": "2026-11-06, main after b548c69, eye camera"
+}
