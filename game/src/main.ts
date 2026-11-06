@@ -109,7 +109,11 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     let splitMsg = '', splitTimer = 0;
     const fmt = (t: number) => { const m = Math.floor(t / 60), sec = t - m * 60; return m > 0 ? `${m}:${sec.toFixed(2).padStart(5, '0')}` : `${sec.toFixed(2)}`; };
     trial.onEvent = (e) => {
-      if (e.kind === 'armed') { splitMsg = `<span class="dim">Ride through the gate to start</span>`; splitTimer = 99; }
+      if (e.kind === 'armed') {
+        const n = trial.candidates.length;
+        splitMsg = n > 1 ? `<span class="dim">${n} courses start here: follow the one you want</span>` : `<span class="dim">Ride through the gate to start</span>`;
+        splitTimer = 99;
+      }
       else if (e.kind === 'start') { splitMsg = e.best ? `Ghost: ${fmt(e.best.time)}` : 'No ghost yet: set the time'; splitTimer = 3; audio.chime(); }
       else if (e.kind === 'split') { splitMsg = e.delta === null ? `Split ${e.index + 1}: ${fmt(e.time)}` : `<span class="${e.delta <= 0 ? 'ahead' : 'behind'}">${e.delta <= 0 ? '' : '+'}${e.delta.toFixed(2)}</span>`; splitTimer = 3; }
       else if (e.kind === 'finish') { splitMsg = e.isBest ? `<span class="ahead">New best ${fmt(e.time)}</span>` : `Finished ${fmt(e.time)} <span class="dim">(best ${fmt(e.best!.time)})</span>`; splitTimer = 6; audio.chime(); }
@@ -322,7 +326,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         trialWorld.updateGates(rider.x, rider.y);
         trialWorld.updateGhost(trial.ghostAt(trial.time), dt);
         const active = trial.state !== 'idle' ? trial.course : null;
-        trialWorld.updateRoute(active, trial.along, trial.nextTarget, elapsed);
+        const showWalls = trial.state === 'running' || (trial.state === 'armed' && trial.candidates.length === 1);
+        trialWorld.updateRoute(showWalls ? active : null, trial.along, trial.nextTarget, elapsed, trial.outside > 0);
         map.trialRoute = active ? active.points : null;
         // edge arrow toward the finish when it is off-screen or behind
         if (active) {
@@ -349,7 +354,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
           const prog = trial.state === 'running' && trial.course
             ? `<div class="togo">${distStr(Math.max(0, trial.course.length - trial.along))} to the finish</div><div class="bar"><div style="width:${Math.min(100, trial.along / trial.course.length * 100).toFixed(1)}%"></div></div>`
             : '';
-          trialEl.innerHTML = head + clock + prog + best + (splitTimer > 0 ? `<div class="split">${splitMsg}</div>` : '');
+          const oob = trial.state === 'running' && trial.outside > 0 ? `<div class="split behind">Out of bounds: back in ${trial.graceLeft.toFixed(1)} s</div>` : '';
+          const headArmed = trial.state === 'armed' && trial.candidates.length > 1 ? `<div class="name">${trial.candidates.map((e) => e.c.name).slice(0, 4).join(' &middot; ')}</div>` : head;
+          trialEl.innerHTML = headArmed + clock + prog + oob + best + (splitTimer > 0 ? `<div class="split">${splitMsg}</div>` : '');
           trialEl.classList.add('show');
         } else trialEl.classList.remove('show');
       } else { trialEl.classList.remove('show'); finishArrow.style.display = 'none'; map.trialRoute = null; }

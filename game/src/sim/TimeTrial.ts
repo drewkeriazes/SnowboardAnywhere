@@ -4,7 +4,9 @@ import { nearestOnCourse, type Course } from './Courses';
 /**
  * Time-trial state machine and ghost recording.
  *   idle -> (inside a start gate) armed -> (ride through it, down the course) running
- *   running -> (all checkpoints, reach the finish) finished | (off course 4 s, R, lift) cancelled
+ *   running -> (all checkpoints, reach the finish) finished | (outside the boundary 5 s, R, lift) cancelled
+ * Several courses can share a start gate: all of them are candidates while armed and the clock
+ * starts on the one whose route the rider actually follows out of the gate.
  * The best run per course is saved to localStorage with its splits and a 10 Hz ghost track.
  */
 export interface GhostSample { t: number; x: number; y: number; z: number; h: number; lg: number; e: number; f: number } // f bits: 1 onGround, 2 tuck, 4 crashed
@@ -13,8 +15,8 @@ export interface Best { time: number; splits: number[]; samples: GhostSample[]; 
 const START_R = 14; // m around the start point that arms the gate
 const CHECK_R = 35; // m to count a checkpoint
 const FINISH_R = 25;
-const OFF_COURSE = 50; // m from the route
-const OFF_TIME = 4; // s off course before DNF
+export const OFF_COURSE = 50; // m from the route: the boundary walls stand here
+export const OFF_TIME = 5; // s of grace outside the boundary before DNF
 const SAMPLE_DT = 0.1;
 
 export type TrialEvent =
@@ -34,7 +36,11 @@ export class TimeTrial {
   private samples: GhostSample[] = [];
   private sampleAcc = 0;
   private offFor = 0;
-  private armedDist = 0;
+  /** courses whose start gate the rider is in, with the rider's progress along each when armed */
+  candidates: { c: Course; d0: number }[] = [];
+  /** seconds spent outside the boundary (0 when inside) */
+  get outside(): number { return this.offFor; }
+  get graceLeft(): number { return Math.max(0, OFF_TIME - this.offFor); }
   onEvent: ((e: TrialEvent) => void) | null = null;
   /** metres along the active course of the rider's closest point (armed or running) */
   along = 0;
@@ -51,6 +57,11 @@ export class TimeTrial {
     try { localStorage.setItem(this.key(c), JSON.stringify(b)); } catch { /* storage full or private mode */ }
   }
 
+  /** All course starts within `maxDist` m. */
+  startsNear(x: number, y: number, maxDist: number): Course[] {
+    return this.courses.filter((c) => Math.hypot(c.start[0] - x, c.start[1] - y) < maxDist);
+  }
+
   /** Nearest course start within `maxDist` m. */
   nearestStart(x: number, y: number, maxDist = Infinity): Course | null {
     let best: Course | null = null, bd = maxDist;
@@ -61,31 +72,39 @@ export class TimeTrial {
   cancel(reason: string): void {
     if (this.state === 'idle') return;
     const was = this.state;
-    this.state = 'idle'; this.course = null;
+    this.state = 'idle'; this.course = null; this.candidates = []; this.offFor = 0;
     if (was === 'running') this.onEvent?.({ kind: 'cancel', reason });
   }
 
   update(r: Rider, dt: number, tuck: boolean): void {
-    if (this.state === 'idle' || this.state === 'armed') {
-      const c = this.nearestStart(r.x, r.y, START_R);
-      if (this.state === 'idle') {
-        if (c) {
-          this.state = 'armed'; this.course = c; this.best = this.loadBest(c);
-          this.armedDist = nearestOnCourse(c, r.x, r.y).along;
-          this.next = 0; this.along = this.armedDist;
-          this.onEvent?.({ kind: 'armed', course: c, best: this.best });
-        }
-        return;
+    if (this.state === 'idle') {
+      const cs = this.startsNear(r.x, r.y, START_R);
+      if (cs.length) {
+        this.state = 'armed';
+        this.candidates = cs.map((c) => ({ c, d0: nearestOnCourse(c, r.x, r.y).along }));
+        // until the rider commits, show the nearest one
+        cs.sort((a, b) => Math.hypot(a.start[0] - r.x, a.start[1] - r.y) - Math.hypot(b.start[0] - r.x, b.start[1] - r.y));
+        this.course = cs[0]; this.best = this.loadBest(cs[0]);
+        this.next = 0; this.along = this.candidates.find((e) => e.c === cs[0])!.d0;
+        this.onEvent?.({ kind: 'armed', course: cs[0], best: this.best });
       }
-      // armed: leaving the gate area down the course starts the clock; leaving any other way disarms
-      const course = this.course!;
-      const dStart = Math.hypot(course.start[0] - r.x, course.start[1] - r.y);
-      if (dStart <= START_R) return;
-      const n = nearestOnCourse(course, r.x, r.y);
-      if (n.dist < 25 && n.along > this.armedDist + 5 && r.onGround) {
+      return;
+    }
+    if (this.state === 'armed') {
+      // still inside any candidate's gate: wait
+      if (this.candidates.some((e) => Math.hypot(e.c.start[0] - r.x, e.c.start[1] - r.y) <= START_R)) return;
+      // left the gate: start on the candidate route the rider is following, else disarm
+      let pick: Course | null = null, pd = 25;
+      for (const e of this.candidates) {
+        const n = nearestOnCourse(e.c, r.x, r.y);
+        if (n.along > e.d0 + 5 && n.dist < pd) { pd = n.dist; pick = e.c; }
+      }
+      if (pick && r.onGround) {
+        this.course = pick; this.best = this.loadBest(pick);
         this.state = 'running'; this.time = 0; this.next = 0; this.splits = []; this.samples = []; this.sampleAcc = SAMPLE_DT; this.offFor = 0;
-        this.onEvent?.({ kind: 'start', course, best: this.best });
-      } else { this.state = 'idle'; this.course = null; }
+        this.candidates = [];
+        this.onEvent?.({ kind: 'start', course: pick, best: this.best });
+      } else { this.state = 'idle'; this.course = null; this.candidates = []; }
       return;
     }
     // running
