@@ -1,0 +1,63 @@
+{
+  "name": "China Bowl, Poppyfields / Dragon's Teeth",
+  "latlon": [
+    39.6001189,
+    -106.32915
+  ],
+  "game": {
+    "x": 1583,
+    "y": -30
+  },
+  "views": [
+    {
+      "id": "north",
+      "heading": 121.7,
+      "pitch": -2.6,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6001189,-106.32915,3a,75y,121.73h,87.42t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6qZXiCQ!2e10!3e11",
+      "x": 1583.2,
+      "y": -30.3,
+      "h": 17.6,
+      "game": "http://localhost:5173/?pack=vail&x=1583.2&y=-30.3&h=17.6&pitch=-2.6&fov=75.0&cam=eye&spot=china-bowl-poppyfields/north",
+      "heading_offset": -105.0
+    },
+    {
+      "id": "east",
+      "heading": 207.4,
+      "pitch": 0.0,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6001189,-106.32915,3a,75y,207.44h,90t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6qZXiCQ!2e10!3e11",
+      "x": 1583.2,
+      "y": -30.3,
+      "h": 103.3,
+      "game": "http://localhost:5173/?pack=vail&x=1583.2&y=-30.3&h=103.3&pitch=0.0&fov=75.0&cam=eye&spot=china-bowl-poppyfields/east",
+      "heading_offset": -105.0
+    },
+    {
+      "id": "south",
+      "heading": 277.8,
+      "pitch": -2.5,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6001189,-106.32915,3a,75y,277.75h,87.51t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6qZXiCQ!2e10!3e11",
+      "x": 1583.2,
+      "y": -30.3,
+      "h": 173.6,
+      "game": "http://localhost:5173/?pack=vail&x=1583.2&y=-30.3&h=173.6&pitch=-2.5&fov=75.0&cam=eye&spot=china-bowl-poppyfields/south",
+      "heading_offset": -105.0
+    },
+    {
+      "id": "west",
+      "heading": 17.1,
+      "pitch": -3.8,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6001189,-106.32915,3a,75y,17.15h,86.25t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6qZXiCQ!2e10!3e11",
+      "x": 1583.2,
+      "y": -30.3,
+      "h": 273.0,
+      "game": "http://localhost:5173/?pack=vail&x=1583.2&y=-30.3&h=273.0&pitch=-3.8&fov=75.0&cam=eye&spot=china-bowl-poppyfields/west",
+      "heading_offset": -105.0
+    }
+  ],
+  "streetview_capture": "Mar 2014, contributor Josh Jett, listed as 'Vail Ski Resort' (user photosphere). Pin position is right; the compass is about 105 degrees off (found from the far peaks, confirmed on the saddle, ridge and valley in all four views).",
+  "game_capture": "2026-11-06, main after c89ab64, eye camera"
+}
