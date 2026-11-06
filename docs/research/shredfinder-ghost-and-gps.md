@@ -76,3 +76,18 @@ Short answer: not for terrain or trees (several metre GPS cannot beat 1 m lidar)
 2. ShredFinder: keep fix/dop, add `ghost` export, fix the waypoint bug.
 3. SnowboardAnywhere: `ghost_build.py`, then `Ghost.ts`.
 4. Validate: ghost line over the top-down render and the trail map; speed per run vs our physics.
+
+## 5. Where Drew's footage lives (checked 2026-11-06)
+
+All clips are HERO11 Black. Originals are `GX01xxxx.MP4`; files with a long numeric suffix (`GX010181_1706100760011.MP4`) are short trims made in the GoPro app, skip them.
+
+| Resort | Dates | Clips (riding-length) | Where |
+|---|---|---|---|
+| **Vail** | 2024-01-22 to 01-24 | GX010166 to GX0101xx, ~25 clips, ~77 min | GoPro cloud (gopro.com/media-library) |
+| **Vail** | 2024-02-10 to 02-11 | GX010190 to GX010207, ~17 clips, ~43 min | GoPro cloud |
+| **Breckenridge** | 2023-01-07 (folders "Day 1" and "Day 2") | GX010046 to GX010102, ~43 clips, ~55 GB | `M:\GoPro\Breck Day 1\`, `M:\GoPro\Breck Day 2\` (external SSD); also GoPro cloud. `G:\Photo Storage\gopro\` holds copies of GX010100 to 102 |
+| Park City | 2023-02-06 to 02-09 | GX010103 to GX010114 | `M:\GoPro\Park city\` and GoPro cloud |
+| Unknown, ask Drew | 2023-01-02 (17 clips), 2025-01-03 (14 clips) | | GoPro cloud |
+
+Good first test clips: Vail GX010182 (1.9 GB, 4.2 min, 2024-01-23), Breck `M:\GoPro\Breck Day 1\GX010070.MP4` (1.6 GB).
+Open question: does the GoPro cloud download keep the GPMF telemetry track? Verify on the first download before pulling more.
