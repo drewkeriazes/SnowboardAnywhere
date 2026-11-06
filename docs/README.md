@@ -16,6 +16,7 @@ Start here. Everything a session needs to know that is not code lives in this fo
 | [research/claude-code-tooling.md](research/claude-code-tooling.md) | Which Claude Code plugins, skills and MCP servers help on this project (Chrome DevTools MCP, Three.js DevTools MCP, parallax-threejs, game skills, GeoAI), install commands, and the repo-local skills in `.claude/skills/`. |
 | [developer-guide.md](developer-guide.md) | Full feature list, code layout, test tools, every pipeline script, URL parameters, milestone status (the detail behind the top-level README). |
 | [HANDOFF.md](HANDOFF.md) | Current state and next steps when a session picks the project up. |
+| [compare/README.md](compare/README.md) | Real vs game photo pairs (Street View spot vs the eye camera): the workflow, the checklist and the index of spots. |
 | [pack-format.md](pack-format.md) | The resort pack layout the pipeline writes and the game reads. |
 
 Conventions

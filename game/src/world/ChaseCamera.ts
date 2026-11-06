@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Rider } from '../sim/Rider';
 import type { Pack } from '../pack/Pack';
 
-export type CameraMode = 'chase' | 'close' | 'far' | 'fp' | 'free';
+export type CameraMode = 'chase' | 'close' | 'far' | 'fp' | 'free' | 'eye';
 
 /** Third-person chase camera with lag, speed-dependent FOV and terrain avoidance. */
 export class ChaseCamera {
@@ -77,6 +77,44 @@ export class ChaseCamera {
     this.camera.lookAt(this.freePos.clone().add(dir));
     this.camera.fov = 70;
     this.camera.updateProjectionMatrix();
+  }
+
+  // eye camera (DATA-008): a still view at eye height above a ground spot, for real vs game photo pairs
+  /** pack metres of the spot, eye height above the ground (m), vertical FOV (deg) */
+  eyeX = 0; eyeY = 0; eyeHeight = 1.7; eyeFov = 75;
+
+  /** Place the eye camera. heading is clockwise from pack north, pitch positive up, both in degrees. */
+  setEye(x: number, y: number, headingDeg: number, pitchDeg: number, fovDeg: number, height = 1.7): void {
+    this.mode = 'eye';
+    this.eyeX = x; this.eyeY = y; this.eyeHeight = height; this.eyeFov = fovDeg;
+    this.yaw = headingDeg * Math.PI / 180; this.pitch = pitchDeg * Math.PI / 180;
+  }
+
+  /** The current eye pose in the units of the URL params (degrees, pack metres). */
+  eyePose(): { x: number; y: number; h: number; pitch: number; fov: number; eye: number } {
+    const h = ((this.yaw * 180 / Math.PI) % 360 + 360) % 360;
+    return { x: this.eyeX, y: this.eyeY, h, pitch: this.pitch * 180 / Math.PI, fov: this.eyeFov, eye: this.eyeHeight };
+  }
+
+  /**
+   * Eye camera: stays put unless nudged, so a shot can be matched to a photo. Mouse (pointer lock)
+   * or arrow keys look, WASD walk (Shift faster), Q / E lower / raise the eye, [ / ] change the FOV.
+   */
+  updateEye(dt: number, keys: Set<string>, mouseDx: number, mouseDy: number): void {
+    const turn = dt * (keys.has('ShiftLeft') ? 0.5 : 0.12);
+    this.yaw += mouseDx * 0.002 + ((keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0)) * turn;
+    this.pitch = THREE.MathUtils.clamp(this.pitch - mouseDy * 0.002 + ((keys.has('ArrowUp') ? 1 : 0) - (keys.has('ArrowDown') ? 1 : 0)) * turn, -1.5, 1.5);
+    const step = dt * (keys.has('ShiftLeft') ? 15 : 2);
+    const fx = Math.sin(this.yaw), fy = Math.cos(this.yaw);
+    const fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), side = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
+    this.eyeX += (fx * fwd + fy * side) * step; this.eyeY += (fy * fwd - fx * side) * step;
+    this.eyeHeight = THREE.MathUtils.clamp(this.eyeHeight + ((keys.has('KeyE') ? 1 : 0) - (keys.has('KeyQ') ? 1 : 0)) * dt * 2, 0.3, 200);
+    this.eyeFov = THREE.MathUtils.clamp(this.eyeFov + ((keys.has('BracketRight') ? 1 : 0) - (keys.has('BracketLeft') ? 1 : 0)) * dt * 20, 10, 120);
+    const g = this.pack.groundHeight(this.eyeX, this.eyeY);
+    this.camera.position.set(this.eyeX, (Number.isFinite(g) ? g : 0) + this.eyeHeight, -this.eyeY);
+    // same convention as first person: yaw clockwise from north is a rotation of -yaw about +Y
+    this.camera.quaternion.setFromEuler(new THREE.Euler(this.pitch, -this.yaw, 0, 'YXZ'));
+    if (this.camera.fov !== this.eyeFov) { this.camera.fov = this.eyeFov; this.camera.updateProjectionMatrix(); }
   }
 
   /** hard-landing shake, 0..1, decays */
@@ -164,7 +202,7 @@ export class ChaseCamera {
   }
 
   update(r: Rider, dt: number, tuck: boolean, onLift = false): void {
-    if (this.mode === 'free' || this.mode === 'fp') return;
+    if (this.mode === 'free' || this.mode === 'fp' || this.mode === 'eye') return;
     if (onLift) {
       // chair: sit behind and a little above the seat, look up the line. No slope clamp, the
       // seat is already well above the snow.

@@ -1,0 +1,26 @@
+{
+  "name": "China Bowl, rock outcrop near the north rim",
+  "latlon": [
+    39.6029791,
+    -106.3310876
+  ],
+  "game": {
+    "x": 1422,
+    "y": 290
+  },
+  "views": [
+    {
+      "id": "southwest",
+      "heading": 218.0,
+      "pitch": -8.4,
+      "fov": 63.5,
+      "streetview": "https://www.google.com/maps/@39.6029791,-106.3310876,3a,63.5y,218.03h,81.56t",
+      "x": 1421.5,
+      "y": 289.6,
+      "h": 218.9,
+      "game": "http://localhost:5173/?pack=vail&x=1421.5&y=289.6&h=218.9&pitch=-8.4&fov=63.5&cam=eye&spot=china-bowl-north-rim/southwest"
+    }
+  ],
+  "streetview_capture": "Mar 2018 (contributor not recorded)",
+  "game_capture": "2026-11-06, main after FEAT-020 (d769a5c), eye camera (DATA-008)"
+}

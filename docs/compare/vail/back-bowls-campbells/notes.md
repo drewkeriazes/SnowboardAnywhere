@@ -22,3 +22,8 @@ Real: Street View, Jan 2019 (link in spot.json; not stored here). Game: `game-ea
 - **Trees:** the real view is a dense wall of tall spruce/fir along the crest, filling the skyline. The game shows the same crest with the lift line and patrol huts, but only about 12 small trees spread thinly along it, plus one lone tree on the right. This is the clearest BUG-023 evidence so far.
 - **Slope:** the real slope rises steeply right in front of the camera (the photo is tilted 15 degrees up). The game rises gently (9 degrees under the rider) to the ridge 300+ m away. Street View positions can be off by tens of metres, so check the DEM profile along 305 degrees before calling it a terrain error.
 - **Track:** the rider's own track shows as a bright white X in the foreground (BUG-021).
+
+## Eye camera shots (DATA-008, 2026-11-06)
+`eye-east.png` and `eye-northwest.png`: 1.7 m above the converted Street View position (-620, 94), headings corrected to grid north, Street View pitch and FOV. These replace the hand-framed shots above for future comparisons; re-shoot with `node tools/shoot_spots.mjs vail back-bowls-campbells --gpu`.
+- **North-west:** at the photo's 15 degrees up, the game slope rises gently to a crest well away from the camera, with about 15 small trees on it. Confirms the two findings above (slope too gentle at this point, stand edge far too thin). -> BUG-023
+- **East:** a large solid black pyramid right of centre is a krummholz instance 12 m from the camera (one dark 6-sided cone, 4.5 m tall). Up close it reads as a black tent, not a shrub. -> FEAT-070

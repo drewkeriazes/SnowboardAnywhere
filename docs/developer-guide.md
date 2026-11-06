@@ -43,6 +43,7 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 - `probe.mjs` step timing probe for hangs.
 - `brakecheck.mjs` brake physics on exact planes, no browser: hockey-stop time and distance against the snow-cutting targets, board swing, release, standing across the hill, ski snowplough. Exits 1 on a failed check.
 - `brakeshot.mjs [pack] [outDir] [--headed] [--ski]` hockey-stop render check: tucks to speed, holds brake, saves shots of the swing, spray and scraped track.
+- `shoot_spots.mjs [pack] [spot ...] [--gpu | --headed]` re-shoots the game side of the real vs game photo pairs in `docs/compare/<pack>/` with the eye camera, as `eye-<view>.png` (DATA-008; see [compare/README.md](compare/README.md)).
 - `fetch-music.ps1 -Source <folder> -Playlist <name>` converts downloaded tracks into a playlist (needs ffmpeg).
 
 Typecheck before committing: `cd game && npx tsc --noEmit`.
@@ -68,6 +69,7 @@ The data hosts (USGS, Planetary Computer, Overpass, Mapterhorn) are not reachabl
 - `pack=<slug>` resort pack to load (`vail`, `breckenridge`, `synth`)
 - `x=&y=&h=` spawn in local metres with heading in degrees
 - `cam=fp` start in first person
+- `cam=eye&pitch=&fov=&eye=&spot=` still camera at eye height (default 1.7 m) over `x, y`, looking along `h` with `pitch` degrees up (negative is down) and `fov` vertical degrees; HUD and rider hidden, P saves the shot (into `docs/compare/` when `spot=<slug>/<view>` is set). Make these links from a Street View URL with `python tools/gmaps2game.py`.
 - `time=now` or `time=16.5` override the time of day
 - `rider=ski` or `rider=board`
 - `lowgfx` reduced graphics for software GPUs; `headless` is used by the test tools; `csm` / `nocsm` force cascaded shadows on or off; `noimpostors` disables tree impostors

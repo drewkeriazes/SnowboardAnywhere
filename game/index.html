@@ -87,6 +87,8 @@
     #prompt .row { font-size: 16px; }
     #prompt .dim { opacity: .7; font-size: 13px; margin-left: 6px; }
     #prompt kbd { display: inline-block; min-width: 22px; padding: 2px 7px; margin: 0 4px; border-radius: 6px; background: #ffd166; color: #1a1a1a; font: 600 14px system-ui, sans-serif; box-shadow: 0 2px 0 #b8922e; }
+    /* ?cam=eye (DATA-008): only the 3D view, so screenshots match a photo */
+    body.eye-mode #hud, body.eye-mode #prompt, body.eye-mode #trial, body.eye-mode #finish-arrow, body.eye-mode #help, body.eye-mode #minimap, body.eye-mode #labels, body.eye-mode #goggles, body.eye-mode #lens { display: none !important; }
     #help { position: fixed; right: 16px; top: 16px; color: #fff; font-size: 12px; opacity: .8; text-align: right; text-shadow: 0 1px 3px rgba(0,0,0,.6); pointer-events: none; }
   </style>
 </head>

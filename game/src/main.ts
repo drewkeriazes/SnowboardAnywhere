@@ -68,13 +68,15 @@ async function main(): Promise<void> {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   // menu -> session -> (quit) -> menu ...
+  let skipMenu = params.get('cam') === 'eye'; // an eye link opens straight at its view
   for (;;) {
     let openMapAtStart = false;
-    if (!headless) {
+    if (!headless && !skipMenu) {
       const choice = await showMainMenu(pack.meta.name, audio, settings, () => undefined, resorts, packSlug);
       openMapAtStart = choice.action === 'map';
     }
     status.textContent = `Loading ${packSlug}...`;
+    skipMenu = false;
     await runSession(pack, renderer, canvas, audio, settings, openMapAtStart);
     if (headless) break;
   }
@@ -274,6 +276,36 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     // ---------------------------------------------------------------- scene setup
     applySettings(settings, 'init');
     cam.mode = params.get('cam') === 'fp' ? 'fp' : settings.camera;
+    // ?cam=eye&pitch=&fov=&eye=&spot= (DATA-008): a still camera at eye height over x, y for
+    // real vs game photo pairs; HUD hidden, rider frozen, P saves the shot (see docs/compare/README.md)
+    const num = (k: string, d: number) => { const v = Number(params.get(k)); return params.has(k) && Number.isFinite(v) ? v : d; };
+    if (params.get('cam') === 'eye') cam.setEye(sx, sy, sh * 180 / Math.PI, num('pitch', 0), num('fov', 75), num('eye', 1.7));
+    const spotName = params.get('spot') ?? '';
+    let shotPending = false;
+    /** Scripted shots (game/tools/shoot_spots.mjs): jump the eye camera and stream the tiles around it. */
+    const eyeAt = (x: number, y: number, h: number, pitch: number, fov: number, height = 1.7) => {
+      cam.setEye(x, y, h, pitch, fov, height);
+      pack.fine?.request(x - 600, y - 600, x + 600, y + 600);
+      pack.mask?.request(x - 600, y - 600, x + 600, y + 600);
+    };
+    /** Save the canvas: into docs/compare through the dev server when ?spot= is set, else a browser download. */
+    const saveShot = (dataUrl: string) => {
+      const p = cam.eyePose();
+      const pose = { x: +p.x.toFixed(1), y: +p.y.toFixed(1), h: +p.h.toFixed(1), pitch: +p.pitch.toFixed(1), fov: +p.fov.toFixed(1), eye: +p.eye.toFixed(2) };
+      const u = new URL(location.href);
+      for (const [k, v] of Object.entries(pose)) u.searchParams.set(k, String(v));
+      history.replaceState(null, '', u.toString());
+      console.log('eye shot', JSON.stringify({ spot: spotName, ...pose, link: u.toString() }));
+      const download = () => {
+        const a = document.createElement('a');
+        a.href = dataUrl; a.download = `${pack.meta.slug}_${pose.x}_${pose.y}_${pose.h.toFixed(0)}.png`; a.click();
+        showToast('Saved the shot to Downloads');
+      };
+      if (!spotName) { download(); return; }
+      fetch('/__compare/save', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack: pack.meta.slug, spot: spotName, pose, link: u.toString(), png: dataUrl }) })
+        .then(async (r) => { if (!r.ok) throw new Error(await r.text()); showToast(`Saved ${await r.text()}`); })
+        .catch((e) => { console.warn('compare save failed, downloading instead', e); download(); });
+    };
     pack.fine?.request(sx - 600, sy - 600, sx + 600, sy + 600);
     pack.mid?.request(sx - 20000, sy - 20000, sx + 20000, sy + 20000);
     pack.far?.request(-1e9, -1e9, 1e9, 1e9);
@@ -281,13 +313,14 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     // now-playing toast
     const toast = document.getElementById('toast')!;
     let toastTimer = 0;
-    audio.onTrack = (name) => { toast.textContent = `\u266B ${name}`; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => toast.classList.remove('show'), 4000); };
+    const showToast = (text: string) => { toast.textContent = text; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => toast.classList.remove('show'), 4000); };
+    audio.onTrack = (name) => showToast(`\u266B ${name}`);
     const prompt = document.getElementById('prompt')!;
     let promptShown = '';
     const showPrompt = (html: string) => { if (html !== promptShown) { promptShown = html; prompt.innerHTML = html; prompt.classList.toggle('show', html !== ''); } };
 
     let mouseDx = 0, mouseDy = 0;
-    const onClick = () => { if (!paused && (cam.mode === 'free' || cam.mode === 'fp')) canvas.requestPointerLock(); };
+    const onClick = () => { if (!paused && (cam.mode === 'free' || cam.mode === 'fp' || cam.mode === 'eye')) canvas.requestPointerLock(); };
     const onMove = (e: MouseEvent) => { if (document.pointerLockElement === canvas || (controls.looking && !paused)) { mouseDx += e.movementX; mouseDy += e.movementY; } };
     const onResize = () => { renderer.setSize(window.innerWidth, window.innerHeight); cam.camera.aspect = window.innerWidth / window.innerHeight; cam.camera.updateProjectionMatrix(); env.onCameraChanged(); };
     canvas.addEventListener('click', onClick);
@@ -370,20 +403,25 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       }
       if (controls.action('camera') || touch?.once('camera')) cam.cycle();
       if (controls.action('map') || touch?.once('map')) map.toggle();
-      if (controls.action('piste')) runs.toggle();
+      // the rider stands still while the camera is detached (free fly, eye)
+      const detached = cam.mode === 'free' || cam.mode === 'eye';
+      const eyeMode = cam.mode === 'eye';
+      document.body.classList.toggle('eye-mode', eyeMode);
+      riderView.group.visible = !eyeMode; riderView.sprayObject.visible = !eyeMode;
+      if (controls.action('piste')) { if (eyeMode) shotPending = true; else runs.toggle(); }
       if (controls.action('track')) audio.nextTrack();
       if (controls.action('fly')) { cam.mode = cam.mode === 'free' ? settings.camera : 'free'; if (cam.mode === 'free') cam.enterFree(); }
       // board on / off: unstrap when nearly stopped, strap in standing still
-      if ((controls.action('board') || touch?.once('board')) && cam.mode !== 'free' && !liftRide.riding && !map.fullOpen) {
+      if ((controls.action('board') || touch?.once('board')) && !detached && !liftRide.riding && !map.fullOpen) {
         const why = rider.toggleBoard();
         if (why === '' && rider.strapState === 'off') trial.cancel('Unstrapped');
         boardMsg = why === 'fast' ? 'slow down to unstrap' : why === 'moving' ? 'stand still to strap in' : why === 'air' ? 'land first' : '';
         boardMsgT = boardMsg ? 1.5 : 0;
       }
       boardMsgT -= dt;
-      const boardPressed = (controls.action('lift') || !!touch?.once('lift')) && cam.mode !== 'free';
-      const onLift = cam.mode !== 'free' && liftRide.update(rider, dt, boardPressed, input.tuck);
-      if (cam.mode !== 'free' && !onLift && !map.fullOpen) rider.update(dt, input);
+      const boardPressed = (controls.action('lift') || !!touch?.once('lift')) && !detached;
+      const onLift = !detached && liftRide.update(rider, dt, boardPressed, input.tuck);
+      if (!detached && !onLift && !map.fullOpen) rider.update(dt, input);
       // visuals draw the pose interpolated between the last two 120 Hz physics steps; gameplay
       // (trials, lifts, audio) keeps reading the sim pose
       riderView.setFirstPerson(cam.mode === 'fp');
@@ -435,6 +473,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       rider.lastHit = '';
       rider.applyRenderPose();
       if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
+      else if (eyeMode) { cam.updateEye(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
       else if (cam.mode === 'fp') { cam.updateFirstPerson(rider, dt, input.tuck, onLift || controls.looking, mouseDx, mouseDy, riderView.eye(eye)); mouseDx = mouseDy = 0; }
       else { cam.freeLook(controls.looking, dt, mouseDx, mouseDy); mouseDx = mouseDy = 0; cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); }
       goggles.strength = settings.goggleStrength;
@@ -448,7 +487,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       veg.setSun(env.sun.color, env.sun.intensity);
       const cp = cam.camera.position;
       terrain.update(cp.x, -cp.z, cp.y);
-      const fx = cam.mode === 'free' ? cp.x : rider.x, fy = cam.mode === 'free' ? -cp.z : rider.y;
+      const fx = detached ? cp.x : rider.x, fy = detached ? -cp.z : rider.y;
       // terrain, mask and instance tiles stream ahead along the direction of travel
       const liftTop = onLift && liftRide.lift ? liftRide.lift.top : null;
       prefetch.update(pack, fx, fy, dt, liftTop);
@@ -466,13 +505,13 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (onLift) {
         const pct = ((liftRide.up / (liftRide.lift ? lifts.rideLength(liftRide.lift) : 1)) * 100).toFixed(0);
         showPrompt(`<div class="name">${liftRide.lift?.feature.name ?? 'Lift'}</div><div class="row"><kbd>E</kbd> skip to the ${liftRide.lift?.kind === 'carpet' ? 'end' : 'top'} <span class="dim">${pct}%</span></div><div class="row"><kbd>W</kbd> hold for ${liftRide.fast ? '<b>5x speed</b>' : '5x speed'} &nbsp; <kbd>Alt</kbd> look around</div>`);
-      } else if (liftRide.nearby && !map.fullOpen && cam.mode !== 'free') {
+      } else if (liftRide.nearby && !map.fullOpen && !detached) {
         const name = liftRide.nearby.feature.name ?? 'Lift';
         const dist = settings.units === 'metric' ? `${liftRide.nearbyDist.toFixed(0)} m` : `${(liftRide.nearbyDist * 3.28084).toFixed(0)} ft`;
         if (liftRide.canBoard) showPrompt(`<div class="name">${name}</div><div class="row"><kbd>E</kbd> ${rider.unstrapped ? 'strap in and ' : ''}${liftRide.nearby.kind === 'gondola' ? 'board the gondola' : liftRide.nearby.kind === 'surface' ? 'grab the lift' : liftRide.nearby.kind === 'carpet' ? 'step on' : 'ride up'}</div>`);
         else if (liftRide.blocker === 'fast') showPrompt(`<div class="name">${name}</div><div class="row">slow down to board <kbd>&darr;</kbd> brake</div>`);
         else showPrompt(`<div class="name">${name}</div><div class="row">ride to the lift <span class="dim">${dist}</span> then <kbd>E</kbd></div>`);
-      } else if (!map.fullOpen && cam.mode !== 'free') {
+      } else if (!map.fullOpen && !detached) {
         // board on / off
         const bk = `<kbd>${keyName(settings.keys.board)}</kbd>`;
         if (boardMsgT > 0) showPrompt(`<div class="row">${boardMsg}</div>`);
@@ -481,13 +520,15 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         else if (rider.canUnstrap) showPrompt(`<div class="row">${bk} unstrap</div>`);
         else showPrompt('');
       } else showPrompt('');
-      env.update(fx, cam.mode === 'free' ? cp.y : rider.z, -fy);
+      env.update(fx, detached ? cp.y : rider.z, -fy);
       if (pack.fine && terrain.stats.builds === 0) pack.fine.evictBeyond(fx, fy, 3000, liftTop);
       map.riderPos = [rider.x, rider.y, rider.z];
       if (map.fullOpen) { if (fpsN % 10 === 0) map.drawFull(); }
       else if (fpsN % 3 === 0) map.drawMini(rider.x, rider.y, rider.heading);
       labels.update(cam.camera, settings.units === 'metric');
       render();
+      // the drawing buffer is only readable in the same task as the render
+      if (shotPending) { shotPending = false; saveShot(canvas.toDataURL('image/png')); }
       controls.endFrame();
 
       fpsAcc += dt; fpsN++;
@@ -498,7 +539,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         (rider.onGround || rider.onFoot ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') +
         `<br><span class="dim">${fps.toFixed(0)} fps &middot; ${terrain.stats.chunks} chunks &middot; ${(terrain.stats.triangles / 1000).toFixed(0)}k tris &middot; trees ${veg.stats.instances} &middot; cam ${cam.mode}` +
         ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}</span>`;
-      (window as any).__sim = { rider, riderView, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks };
+      (window as any).__sim = { rider, riderView, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, eyeAt };
       if (!headless) requestAnimationFrame(frame);
     }
 
