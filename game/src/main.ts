@@ -176,7 +176,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const applySettings = (s: Settings, what: string): void => {
       applySun(s);
       clouds.configure(s.clouds ?? 'scattered', s.quality);
-      env.setBluebird((s.clouds ?? 'scattered') === 'off');
+      env.setBluebird(s.clouds !== 'storm'); // deep blue sky behind the clouds too; only the storm is grey
       const storm = s.clouds === 'storm';
       env.setStorm(storm);
       snow.points.visible = storm;
