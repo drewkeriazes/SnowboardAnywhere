@@ -57,13 +57,14 @@ This re-renders every view's `eye-<view>.png` headless at 1280x720 (`--size WxH`
 | [Back Bowls, top of Campbell's](vail/back-bowls-campbells/notes.md) (Jan 2019) | <img src="vail/back-bowls-campbells/eye-east.png" width="240"> <img src="vail/back-bowls-campbells/eye-northwest.png" width="240"> | open | [FEAT-059 #92](https://github.com/drewkeriazes/SnowboardAnywhere/issues/92), [BUG-023 #108](https://github.com/drewkeriazes/SnowboardAnywhere/issues/108), [FEAT-070 #109](https://github.com/drewkeriazes/SnowboardAnywhere/issues/109), [FEAT-069 #106](https://github.com/drewkeriazes/SnowboardAnywhere/issues/106) |
 | [Back Bowls, on Yonder near Sun Up Express](vail/back-bowls-yonder/notes.md) (Feb 2014, 5 views) | <img src="vail/back-bowls-yonder/eye-west.png" width="240"> <img src="vail/back-bowls-yonder/eye-south-lift.png" width="240"> | open | [BUG-023 #108](https://github.com/drewkeriazes/SnowboardAnywhere/issues/108), [FEAT-070 #109](https://github.com/drewkeriazes/SnowboardAnywhere/issues/109) |
 | [Front Side, Eagle's Nest event deck](vail/eagles-nest-deck/notes.md) (Jan 2016, 4 views) | <img src="vail/eagles-nest-deck/eye-northeast.png" width="240"> <img src="vail/eagles-nest-deck/eye-southwest.png" width="240"> | open | [BUG-024 #110](https://github.com/drewkeriazes/SnowboardAnywhere/issues/110), [FEAT-070 #109](https://github.com/drewkeriazes/SnowboardAnywhere/issues/109), [BUG-023 #108](https://github.com/drewkeriazes/SnowboardAnywhere/issues/108) |
+| [Mid-Vail, Wildwood / Mountain Top Express bottoms](vail/mid-vail-wildwood/notes.md) (Mar 2016, 4 views) | <img src="vail/mid-vail-wildwood/eye-east.png" width="240"> <img src="vail/mid-vail-wildwood/eye-south.png" width="240"> | open | [DATA-009 #112](https://github.com/drewkeriazes/SnowboardAnywhere/issues/112), [BUG-023 #108](https://github.com/drewkeriazes/SnowboardAnywhere/issues/108), [FEAT-071 #111](https://github.com/drewkeriazes/SnowboardAnywhere/issues/111) |
 | [Blue Sky Basin, Hornsilver](vail/blue-sky-hornsilver/notes.md) (Feb 2014) | <img src="vail/blue-sky-hornsilver/eye-east.png" width="240"> <img src="vail/blue-sky-hornsilver/eye-south.png" width="240"> | open | [BUG-023 #108](https://github.com/drewkeriazes/SnowboardAnywhere/issues/108), [FEAT-070 #109](https://github.com/drewkeriazes/SnowboardAnywhere/issues/109), [FEAT-069 #106](https://github.com/drewkeriazes/SnowboardAnywhere/issues/106) |
 
 Still to find (aim for 20 per resort, spread across bowls, glades, groomers, ridges and bases):
 - China Bowl: the Poppyfields / Dragon's Teeth view (Mar 2014, used on FEAT-069; needs its full Street View URL).
 - Blue Sky Basin: China Bridge, Belle's Camp, Lover's Leap glades.
 - Back Bowls: Sun Down / Sun Up ridges, Forever, Game Creek Bowl.
-- Front Side: Mid-Vail, Riva Ridge, Born Free, Prima Cornice (cliff rock), Lionshead base.
+- Front Side: Riva Ridge, Born Free, Prima Cornice (cliff rock), Lionshead base.
 - Breckenridge: Imperial Bowl, Peak 8 base, T-bar.
 
 ## Licensing

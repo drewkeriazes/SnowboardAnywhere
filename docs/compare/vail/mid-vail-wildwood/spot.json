@@ -1,0 +1,59 @@
+{
+  "name": "Mid-Vail, between the Wildwood Express and Mountain Top Express bottom terminals",
+  "latlon": [
+    39.6144509,
+    -106.3661376
+  ],
+  "game": {
+    "x": -1568,
+    "y": 1608
+  },
+  "views": [
+    {
+      "id": "east",
+      "heading": 78.5,
+      "pitch": 11.7,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6144509,-106.3661376,3a,75y,78.54h,101.71t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIDqzdCLdg!2e10!3e11",
+      "x": -1568.4,
+      "y": 1608.0,
+      "h": 79.4,
+      "game": "http://localhost:5173/?pack=vail&x=-1568.4&y=1608.0&h=79.4&pitch=11.7&fov=75.0&cam=eye&spot=mid-vail-wildwood/east"
+    },
+    {
+      "id": "south",
+      "heading": 176.0,
+      "pitch": 11.1,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6144509,-106.3661376,3a,75y,175.97h,101.13t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIDqzdCLdg!2e10!3e11",
+      "x": -1568.4,
+      "y": 1608.0,
+      "h": 176.8,
+      "game": "http://localhost:5173/?pack=vail&x=-1568.4&y=1608.0&h=176.8&pitch=11.1&fov=75.0&cam=eye&spot=mid-vail-wildwood/south"
+    },
+    {
+      "id": "southwest",
+      "heading": 229.6,
+      "pitch": 8.9,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6144509,-106.3661376,3a,75y,229.59h,98.91t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIDqzdCLdg!2e10!3e11",
+      "x": -1568.4,
+      "y": 1608.0,
+      "h": 230.5,
+      "game": "http://localhost:5173/?pack=vail&x=-1568.4&y=1608.0&h=230.5&pitch=8.9&fov=75.0&cam=eye&spot=mid-vail-wildwood/southwest"
+    },
+    {
+      "id": "north",
+      "heading": 357.3,
+      "pitch": 6.7,
+      "fov": 90.0,
+      "streetview": "https://www.google.com/maps/@39.6144509,-106.3661376,3a,90y,357.34h,96.71t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIDqzdCLdg!2e10!3e11",
+      "x": -1568.4,
+      "y": 1608.0,
+      "h": 358.2,
+      "game": "http://localhost:5173/?pack=vail&x=-1568.4&y=1608.0&h=358.2&pitch=6.7&fov=90.0&cam=eye&spot=mid-vail-wildwood/north"
+    }
+  ],
+  "streetview_capture": "Mar 2016, contributor Scott Moss (user photosphere; compass checked against the Mountain Top Express terminal footprint, within about 1 degree)",
+  "game_capture": "2026-11-06, main after 95ea65c, eye camera"
+}
