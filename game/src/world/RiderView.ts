@@ -126,6 +126,12 @@ export class RiderView {
       // held level across the view; the glove still reaches in on carves, tucks and grabs
       t.lShoulder = [t.lShoulder[0], t.lShoulder[1], t.lShoulder[2] * 0.35];
       t.rShoulder = [t.rShoulder[0], t.rShoulder[1], t.rShoulder[2] * 0.35];
+      if (this.discipline === 'ski' && !seated && r.crashed <= 0) {
+        // hands forward and up so the gloves holding the poles sit in the lower corners of the view
+        const fwd = 30 * Math.PI / 180;
+        t.lShoulder = [t.lShoulder[0] + fwd, t.lShoulder[1], t.lShoulder[2]];
+        t.rShoulder = [t.rShoulder[0] + fwd, t.rShoulder[1], t.rShoulder[2]];
+      }
     }
     lerpPose(this.pose, this.pose, t, Math.min(1, dt * (r.crashed > 0 ? 6 : 10)));
     applyPose(this.joints, this.pose);

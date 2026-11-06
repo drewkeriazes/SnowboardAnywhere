@@ -14,6 +14,8 @@ export interface Joints {
   lShoulder: THREE.Group; rShoulder: THREE.Group; lElbow: THREE.Group; rElbow: THREE.Group;
   lHip: THREE.Group; rHip: THREE.Group; lKnee: THREE.Group; rKnee: THREE.Group;
   board: THREE.Group;
+  /** ski poles: grip pivots at the hands, turned each frame so the pole hangs from the fist */
+  lPole?: THREE.Group; rPole?: THREE.Group;
 }
 export interface Pose {
   hipsY: number; // hips height above the board (m)
@@ -139,6 +141,7 @@ export function buildRider(mats: RiderMaterials = defaultMaterials(), discipline
   head.add(mesh(new THREE.SphereGeometry(0.135, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.62), mats.helmet, 0, 0.11, 0)); // helmet shell
   head.add(mesh(new THREE.BoxGeometry(0.2, 0.07, 0.08), mats.goggles, 0, 0.1, -0.1)); // goggles (face is -Z, the nose of the board)
 
+  const poles: THREE.Group[] = [];
   const arm = (side: 1 | -1): [THREE.Group, THREE.Group] => {
     const sh = new THREE.Group(); sh.position.set(side * 0.22, 0.5, 0); torso.add(sh);
     sh.add(mesh(cap(0.055, 0.22), mats.jacket, 0, -0.15, 0));
@@ -146,10 +149,13 @@ export function buildRider(mats: RiderMaterials = defaultMaterials(), discipline
     el.add(mesh(cap(0.05, 0.2), mats.jacket, 0, -0.13, 0));
     el.add(mesh(new THREE.SphereGeometry(0.06, 8, 6), mats.gloves, 0, -0.28, 0));
     if (discipline === 'ski') {
-      const pole = mesh(new THREE.CylinderGeometry(0.008, 0.008, 1.15, 5), mats.helmet, 0, -0.28 - 0.45, -0.05);
-      pole.rotation.x = -0.25;
-      el.add(pole);
-      el.add(mesh(new THREE.TorusGeometry(0.05, 0.008, 5, 10), mats.boots, 0, -0.28 - 0.98, -0.3));
+      // grip at the glove; the shaft runs down from the fist (-Y of the grip) with the basket near the tip
+      const grip = new THREE.Group(); grip.position.set(0, -0.28, 0); el.add(grip);
+      grip.add(mesh(new THREE.CylinderGeometry(0.008, 0.008, 1.15, 5), mats.helmet, 0, -0.5, 0));
+      const basket = mesh(new THREE.TorusGeometry(0.05, 0.008, 5, 10), mats.boots, 0, -0.98, 0);
+      basket.rotation.x = Math.PI / 2;
+      grip.add(basket);
+      poles.push(grip);
     }
     return [sh, el];
   };
@@ -163,7 +169,7 @@ export function buildRider(mats: RiderMaterials = defaultMaterials(), discipline
     return [hp, kn];
   };
   const [lHip, lKnee] = leg(-1), [rHip, rKnee] = leg(1);
-  return { root, snowboard, mats, joints: { lean, hips, torso, head, lShoulder, rShoulder, lElbow, rElbow, lHip, rHip, lKnee, rKnee, board } };
+  return { root, snowboard, mats, joints: { lean, hips, torso, head, lShoulder, rShoulder, lElbow, rElbow, lHip, rHip, lKnee, rKnee, board, lPole: poles[0], rPole: poles[1] } };
 }
 
 /** Apply a pose to the joints. Elbows and knees bend about X. */
@@ -185,4 +191,9 @@ export function applyPose(j: Joints, p: Pose): void {
   j.rHip.rotation.set(p.rHip[0], p.rHip[1], p.rHip[2]);
   j.lKnee.rotation.set(-p.lKnee * d2r, 0, 0);
   j.rKnee.rotation.set(-p.rKnee * d2r, 0, 0);
+  // poles hang from the fist: undo the arm's forward swing (shoulder + elbow, less the waist bend)
+  // so the shaft points down, then trail the tip ~17 degrees back
+  const bend = p.torso[0] + p.hipsRot[0];
+  if (j.lPole) j.lPole.rotation.set(-(p.lShoulder[0] + p.lElbow * d2r) + bend - 0.3, 0, 0);
+  if (j.rPole) j.rPole.rotation.set(-(p.rShoulder[0] + p.rElbow * d2r) + bend - 0.3, 0, 0);
 }
