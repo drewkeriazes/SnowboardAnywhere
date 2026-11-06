@@ -52,11 +52,7 @@ export class MaskSet {
         return;
       }
       const bmp = await createImageBitmap(await resp.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-      const n = this.meta.tileSize;
-      const canvas = new OffscreenCanvas(n, n);
-      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-      ctx.drawImage(bmp, 0, 0);
-      this.tiles.set(k, ctx.getImageData(0, 0, n, n).data);
+      this.tiles.set(k, decodeRGBA(bmp, this.meta.tileSize));
       bmp.close();
       this.onTileLoaded?.(tx, ty);
     } catch (e) {
@@ -81,4 +77,37 @@ export class MaskSet {
     out[0] = t[i] / 255; out[1] = t[i + 1] / 255; out[2] = t[i + 2] / 255; out[3] = t[i + 3] / 255;
     return out;
   }
+}
+
+/**
+ * Read an image's RGBA bytes exactly. A 2D canvas stores colour premultiplied by alpha, so it
+ * zeroes RGB wherever alpha is 0; the mask keeps canopy in alpha, which would wipe rock, scree and
+ * groomed on all open ground. WebGL with premultiplication off returns the bytes unchanged.
+ */
+let gl: WebGL2RenderingContext | null | undefined;
+function decodeRGBA(bmp: ImageBitmap, n: number): Uint8ClampedArray {
+  if (gl === undefined) gl = new OffscreenCanvas(1, 1).getContext('webgl2', { premultipliedAlpha: false, antialias: false });
+  if (gl) {
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+    const fb = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    const px = new Uint8Array(n * n * 4);
+    // texture row 0 is the image's top row and readPixels starts at framebuffer row 0, so rows keep image order
+    gl.readPixels(0, 0, n, n, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const out = new Uint8ClampedArray(px.buffer);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(fb); gl.deleteTexture(tex);
+    return out;
+  }
+  // fallback: 2D canvas (loses RGB where alpha is 0)
+  const canvas = new OffscreenCanvas(n, n);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(bmp, 0, 0);
+  return ctx.getImageData(0, 0, n, n).data;
 }
