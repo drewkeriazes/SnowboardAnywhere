@@ -1,6 +1,6 @@
 # China Bowl, rock outcrop near the north rim
 
-Real: Street View, Mar 2018, taken standing on a rock outcrop near the north edge of the bowl, looking south-west back at the tree group used in the FEAT-069 pairs (link in spot.json; not stored here). The full write-up of the real photo is the third reference comment on [FEAT-069 (#106)](https://github.com/drewkeriazes/SnowboardAnywhere/issues/106). Game: `eye-southwest.png` (eye camera at the converted Street View pose, 2026-11-06, main after FEAT-020 d769a5c).
+Real: Street View, Mar 2018, taken standing on a rock outcrop near the north edge of the bowl, looking south-west back at the tree group used in the FEAT-069 pairs (link in spot.json; not stored here). The full write-up of the real photo is the third reference comment on [FEAT-069 (#106)](https://github.com/drewkeriazes/SnowboardAnywhere/issues/106). Game: `eye-southwest.png` (eye camera at the converted Street View pose, 2026-11-06, main after FEAT-020 1b06ab4).
 
 ## Findings
 - **No outcrop under the camera.** The real photo stands on a reddish-brown sandstone outcrop with a snow patch on its flat top, and a second red boulder pokes out on the slope to the right. In the game the spot is smooth, unbroken snow. Either the DEM smooths the outcrop away or no rock instance lands there. -> FEAT-069

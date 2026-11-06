@@ -1,16 +1,16 @@
 # Handoff: BUG-013 bridges not showing (China Bridge near Orient Express)
 
-Issue: https://github.com/drewkeriazes/SnowboardAnywhere/issues/64 (reopened). Commit with the first attempt: 7bd0e83.
+Issue: https://github.com/drewkeriazes/SnowboardAnywhere/issues/64 (reopened). Commit with the first attempt: b3f14f4.
 
 ## The ask
 
-Drew: "missing the bridge near orient express that takes you back to blue sky basin". After 7bd0e83 he reports "bridges are not there".
+Drew: "missing the bridge near orient express that takes you back to blue sky basin". After b3f14f4 he reports "bridges are not there".
 
 ## Why there is no bridge
 
 The terrain is bare-earth lidar, which strips bridges. `build_pack.py` also dropped the OSM `bridge` tag (now kept as `bridge: true` on runs and roads, but Vail has not been rebuilt since).
 
-## What 7bd0e83 added
+## What b3f14f4 added
 
 - `game/src/pack/Pack.ts`: `Deck` segments, `addDeck`, `deckHeight`, `terrainHeight`. `groundHeight(x, y, z?)` returns the deck when it is above the terrain (and the rider is not 2.5 m+ below it). `groundNormal` uses the deck plane on a deck.
 - `game/src/sim/Rider.ts`: passes `this.z` to `groundHeight` / `groundNormal`.
