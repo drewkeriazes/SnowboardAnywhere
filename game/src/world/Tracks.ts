@@ -207,7 +207,9 @@ export class Tracks {
     if (this.tickAcc > 0.5) { for (const l of this.lanes) l.tick(this.tickAcc); this.tickAcc = 0; }
     if (!r.onGround || riding || r.crashed > 0) { for (const l of this.lanes) l.gap(); this.lastX = NaN; return; }
     if (!Number.isNaN(this.lastX) && Math.hypot(r.x - this.lastX, r.y - this.lastY) < STEP) return;
-    if (Number.isNaN(this.lastX)) for (const l of this.lanes) l.gap();
+    // a jump in position (teleport, map drop, restart, time-trial start) starts a new track
+    // instead of joining the old spot to the new one with a long straight groove
+    if (Number.isNaN(this.lastX) || Math.hypot(r.x - this.lastX, r.y - this.lastY) > 6) for (const l of this.lanes) l.gap();
     this.lastX = r.x; this.lastY = r.y;
     const sp = Math.hypot(r.vx, r.vy);
     const fx = sp > 0.3 ? r.vx / sp : Math.sin(r.heading), fy = sp > 0.3 ? r.vy / sp : Math.cos(r.heading);
