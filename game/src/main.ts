@@ -4,6 +4,8 @@ import { Terrain } from './terrain/Terrain';
 import { Rider } from './sim/Rider';
 import { Collider } from './sim/Collider';
 import { Bridges } from './world/Bridges';
+import { Clouds } from './world/Clouds';
+import { Snow } from './world/Snow';
 import { Controls } from './sim/Controls';
 import { Vegetation, setVegetationBudget, setVegetationDensity } from './world/Vegetation';
 import { Rocks } from './world/Rocks';
@@ -82,6 +84,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const status = document.getElementById('status')!;
     const scene = new THREE.Scene();
     const env = new Environment(scene, renderer, pack.meta.sun.azimuth, pack.meta.sun.elevation);
+    const clouds = new Clouds();
+    scene.add(clouds.mesh);
+    const snow = new Snow();
+    scene.add(snow.points);
     const terrain = new Terrain(pack);
     scene.add(terrain.group);
     const collider = new Collider();
@@ -169,6 +175,14 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     // ---------------------------------------------------------------- settings application
     const applySettings = (s: Settings, what: string): void => {
       applySun(s);
+      clouds.configure(s.clouds ?? 'scattered', s.quality);
+      env.setBluebird((s.clouds ?? 'scattered') === 'off');
+      const storm = s.clouds === 'storm';
+      env.setStorm(storm);
+      snow.points.visible = storm;
+      snow.setCount(s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500);
+      // limited render distance in the storm: nothing past the fog is drawn
+      cam.camera.far = storm ? 1200 : 300000; cam.camera.updateProjectionMatrix();
       audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music);
       audio.setSource(s.musicSource);
       audio.setPlaylist(s.playlist);
@@ -191,7 +205,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (!s.timeTrials) trial.cancel('Time trials off');
       refreshCourseFlags();
       rider.discipline = s.discipline;
-      labels.visible = s.showLabels;
+      labels.visible = s.showLabels && s.clouds !== 'storm'; // peaks are hidden in the storm
       map.metric = s.units === 'metric';
       if (what === 'camera' || what === 'reset') cam.mode = s.camera;
     };
@@ -396,6 +410,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       goggles.update(rider, dt, cam.mode === 'fp', cam.mode === 'fp' && settings.fpVignette, onLift);
       cam.camera.updateMatrixWorld();
       env.updateCSM();
+      clouds.update(dt, cam.camera.position, env.sunDir, env.sun.color, env.sun.intensity, env.hemi.color, env.hemi.intensity);
+      env.stormDome.position.copy(cam.camera.position);
+      snow.update(dt, cam.camera, renderer.domElement.height, 0.45 + 0.6 * env.hemi.intensity / 1.4);
       veg.setSun(env.sun.color, env.sun.intensity);
       const cp = cam.camera.position;
       terrain.update(cp.x, -cp.z, cp.y);
@@ -413,7 +430,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
       if (onLift) {
         const pct = ((liftRide.up / (liftRide.lift ? lifts.rideLength(liftRide.lift) : 1)) * 100).toFixed(0);
-        showPrompt(`<div class="name">${liftRide.lift?.feature.name ?? 'Lift'}</div><div class="row"><kbd>E</kbd> skip to the ${liftRide.lift?.kind === 'carpet' ? 'end' : 'top'} <span class="dim">${pct}%</span></div><div class="row"><kbd>W</kbd> hold for ${liftRide.fast ? '<b>3x speed</b>' : '3x speed'} &nbsp; <kbd>Alt</kbd> look around</div>`);
+        showPrompt(`<div class="name">${liftRide.lift?.feature.name ?? 'Lift'}</div><div class="row"><kbd>E</kbd> skip to the ${liftRide.lift?.kind === 'carpet' ? 'end' : 'top'} <span class="dim">${pct}%</span></div><div class="row"><kbd>W</kbd> hold for ${liftRide.fast ? '<b>5x speed</b>' : '5x speed'} &nbsp; <kbd>Alt</kbd> look around</div>`);
       } else if (liftRide.nearby && !map.fullOpen && cam.mode !== 'free') {
         const name = liftRide.nearby.feature.name ?? 'Lift';
         const dist = settings.units === 'metric' ? `${liftRide.nearbyDist.toFixed(0)} m` : `${(liftRide.nearbyDist * 3.28084).toFixed(0)} ft`;

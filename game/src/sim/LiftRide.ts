@@ -12,7 +12,7 @@ export const PROMPT_RANGE = 60; // m: show the boarding card
 export const BOARD_RANGE = 14; // m: can press E
 export const BOARD_SPEED = 6; // m/s
 export const RIDE_SPEEDUP = 4; // real lift speeds feel far too slow in a game: ride at 4x
-export const FAST_FORWARD = 3; // extra multiplier while the tuck key is held (12x real)
+export const FAST_FORWARD = 5; // extra multiplier while the tuck key is held (20x real)
 
 export class LiftRide {
   lift: LiftRuntime | null = null;

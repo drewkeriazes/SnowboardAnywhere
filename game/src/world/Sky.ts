@@ -38,6 +38,10 @@ export class Environment {
     scene.add(this.sun);
     scene.add(this.sun.target);
     scene.add(this.hemi);
+    this.stormDome.visible = false;
+    this.stormDome.frustumCulled = false;
+    this.stormDome.renderOrder = -2;
+    scene.add(this.stormDome);
     this.sun.visible = false; // the CSM lights replace it once enableCSM runs
 
     this.fog = new THREE.Fog(0xc9d8ee, 4000, 90000);
@@ -82,7 +86,16 @@ export class Environment {
   onCameraChanged(): void { this.csm?.updateFrustums(); }
 
   private renderer: THREE.WebGLRenderer | null = null;
+  /** bluebird day: crisp, deep blue sky (low haze) when there are no clouds */
+  bluebird = false;
+  private lastSun: [number, number] = [160, 30];
+  setBluebird(on: boolean): void { this.bluebird = on; this.setSun(this.lastSun[0], this.lastSun[1]); }
+  /** snowstorm: no sky, grey overcast dome, thick fog (render distance ~400 m), flat light */
+  storm = false;
+  readonly stormDome = new THREE.Mesh(new THREE.SphereGeometry(1000, 24, 12), new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: true, depthWrite: false }));
+  setStorm(on: boolean): void { this.storm = on; this.setSun(this.lastSun[0], this.lastSun[1]); }
   setSun(azimuthDeg: number, elevationDeg: number): void {
+    this.lastSun = [azimuthDeg, elevationDeg];
     // azimuth measured clockwise from north; three.js: north = -z, east = +x
     const az = THREE.MathUtils.degToRad(azimuthDeg), el = THREE.MathUtils.degToRad(Math.max(-6, elevationDeg));
     this.sunDir.set(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
@@ -101,12 +114,28 @@ export class Environment {
     u.turbidity.value = 3.5 + (1 - warm) * 4;
     u.rayleigh.value = 1.6 + (1 - warm) * 1.2;
     u.mieCoefficient.value = 0.004 + (1 - warm) * 0.01;
+    if (this.bluebird) { u.turbidity.value *= 0.55; u.mieCoefficient.value *= 0.5; u.rayleigh.value *= 1.15; }
     // ambient: sky blue over snow, fades toward dusk blue
     const amb = 0.35 + 0.55 * up;
     this.hemi.intensity = amb;
     this.hemi.color.setRGB(0.81 * (0.7 + 0.3 * up), 0.89 * (0.75 + 0.25 * up), 1.0);
     this.fog.color.setRGB((0.79 - 0.3 * (1 - up)) + 0.1 * (1 - warm) * up, (0.85 - 0.3 * (1 - up)), 0.93 - 0.2 * (1 - up));
     if (this.renderer) this.renderer.toneMappingExposure = 0.75 * (0.55 + 0.45 * up);
+    this.sky.visible = !this.storm;
+    this.stormDome.visible = this.storm;
+    if (this.storm) {
+      // overcast: the sun is a dim diffuse glow, the sky fill does most of the lighting
+      this.sun.intensity *= 0.18;
+      if (this.csm) for (const l of this.csm.lights) l.intensity = this.sun.intensity;
+      this.hemi.intensity = 0.5 + 0.9 * up;
+      this.hemi.color.setRGB(0.86, 0.88, 0.92);
+      const g = 0.35 + 0.55 * up;
+      this.fog.color.setRGB(0.8 * g, 0.82 * g, 0.86 * g);
+      this.fog.near = 12; this.fog.far = 380;
+      (this.stormDome.material as THREE.MeshBasicMaterial).color.copy(this.fog.color);
+    } else {
+      this.fog.near = 4000; this.fog.far = 90000;
+    }
   }
 
   /** Keep the shadow frustum centred on the rider. */
