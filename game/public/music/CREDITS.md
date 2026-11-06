@@ -1,6 +1,6 @@
 # Music credits
 
-Every track below ships with the game. CC BY 4.0 tracks are used under https://creativecommons.org/licenses/by/4.0/ and credited here and in the in-game credits. Classic ska has no files: it plays the built-in procedural jukebox.
+Every track below ships with the game. CC0 tracks are public domain (https://creativecommons.org/publicdomain/zero/1.0/) and credited anyway. CC BY 4.0 tracks are used under https://creativecommons.org/licenses/by/4.0/ and credited here and in the in-game credits. Classic ska has no files: it plays the built-in procedural jukebox.
 
 ## Ska-punk
 
@@ -61,7 +61,7 @@ Every track below ships with the game. CC BY 4.0 tracks are used under https://c
 | house/12-atmospheric-house-ii.ogg | Atmospheric House II | BogartVGM | Free with credit and link (artist terms) | https://www.facebook.com/BogartVGM/ |
 | house/13-deep-house-underscore-006.ogg | Deep House Underscore 006 | Sascha Ende | CC BY 4.0 | https://ende.app/en/song/13947-deep-house-underscore-006 |
 
-## Hip-hop
+## Lofi hip-hop
 
 | File | Title | Artist | Licence | Source |
 |---|---|---|---|---|
@@ -71,11 +71,23 @@ Every track below ships with the game. CC BY 4.0 tracks are used under https://c
 | hiphop/04-the-same-sun-lofi-mix.ogg | The Same Sun [Lofi Mix] | Sascha Ende | CC BY 4.0 | https://ende.app/en/song/13953-the-same-sun-lofi-mix |
 | hiphop/05-sin-sensitivity.ogg | Sin & Sensitivity | Aila Scott | CC BY 4.0 | https://ailascott.itch.io/free-music-pack-lo-fi-indie-metal-orchestral |
 | hiphop/06-eepy.ogg | eepy | Aila Scott | CC BY 4.0 | https://ailascott.itch.io/free-music-pack-lo-fi-indie-metal-orchestral |
+| hiphop/07-first-snow.ogg | First Snow | HoliznaCC0 | CC0 1.0 | https://freemusicarchive.org/music/holiznacc0/winter-lofi/first-snowmp3/ |
+| hiphop/08-snow-drift.ogg | Snow Drift | HoliznaCC0 | CC0 1.0 | https://freemusicarchive.org/music/holiznacc0/winter-lofi/snow-drift/ |
+| hiphop/09-2-hour-delay.ogg | 2 Hour Delay | HoliznaCC0 | CC0 1.0 | https://freemusicarchive.org/music/holiznacc0/winter-lofi/2-hour-delay-1/ |
+| hiphop/10-winter-blues.ogg | Winter Blues | HoliznaCC0 | CC0 1.0 | https://freemusicarchive.org/music/holiznacc0/winter-lofi/winter-blues/ |
+| hiphop/11-fire-place.ogg | Fire Place | HoliznaCC0 | CC0 1.0 | https://freemusicarchive.org/music/holiznacc0/winter-lofi/fire-place/ |
+| hiphop/12-tokyo-sunset.ogg | Tokyo Sunset | HoliznaCC0 | CC0 1.0 | https://freemusicarchive.org/music/holiznacc0/public-domain-lofi/tokyo-sunset-lofi-peaceful-soft/ |
+| hiphop/13-warm-fuzz.ogg | Warm Fuzz | HoliznaCC0 | CC0 1.0 | https://freemusicarchive.org/music/holiznacc0/public-domain-lofi/warm-fuzz-lofi-retro/ |
+| hiphop/14-bubbles.ogg | Bubbles | HoliznaCC0 | CC0 1.0 | https://freemusicarchive.org/music/holiznacc0/public-domain-lofi/bubbles-lofi-bright-relaxed/ |
+| hiphop/15-walking-away.ogg | Walking Away | HoliznaCC0 | CC0 1.0 | https://freemusicarchive.org/music/holiznacc0/public-domain-lofi/walking-away-lofi-peaceful-motivating/ |
+| hiphop/16-shimmer.ogg | Shimmer | HoliznaCC0 | CC0 1.0 | https://freemusicarchive.org/music/holiznacc0/public-domain-lofi/shimmer-lofi-chill/ |
+| hiphop/17-into-the-mist.ogg | Into The Mist | HoliznaCC0 | CC0 1.0 | https://freemusicarchive.org/music/holiznacc0/public-domain-lofi/into-the-mist-lofi-calm-relaxed/ |
 
 Suggested credit lines from the artists:
 - Of Far Different Nature: Music: '[Track name]' by Of Far Different Nature (https://fardifferent.bandcamp.com/)
 - Aila Scott: '[Track name]' (c) 2024 by Aila Scott is licensed under CC BY 4.0 (https://ailascott.itch.io/free-music-pack-lo-fi-indie-metal-orchestral)
 - Sascha Ende: '[Track name]' by Sascha Ende, ende.app, CC BY 4.0 (attribution voluntary per the artist; credited anyway)
+- HoliznaCC0: CC0, no credit required per the artist; credited anyway (Winter Lofi and Public Domain Lofi albums, Free Music Archive)
 - BogartVGM: Atmospheric House II, free to use with credit and a link to https://www.facebook.com/BogartVGM/ (artist's own terms, not a CC licence)
 
 Jingles (not in a playlist, reserved for timed runs): jingle-victory.ogg, jingle-fail.ogg, from DavidKBD's Skank the Summer pack, CC BY 4.0.

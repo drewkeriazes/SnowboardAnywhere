@@ -17,7 +17,7 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 - Cameras: chase, close, far, first person and free fly. Hold Alt to look around. First person sees through goggles (dark frame, lens tint, snow drift, frost in powder, darken and shake on hard landings) with your legs, board and arms in view.
 - Maps: minimap with nearby lift names, and a full map (M) with zoom, pan and click to drop in anywhere.
 - Sound: layered surface-aware board sound (groomed, powder, hardpack, crust), carve and wind layers, varied one-shots, lift sounds.
-- Music: four playlists (Ska-punk, Melodic house, Metal, Hip-hop, plus Shuffle all) picked on the main menu or in Settings. Ska-punk is the DavidKBD "Skank the Summer" pack (CC BY 4.0); playlists without files play a procedural jukebox in that style. See `game/public/music/README.md`.
+- Music: four playlists (Ska-punk, Melodic house, Metal, Lofi hip-hop, plus Shuffle all) picked on the main menu or in Settings. Ska-punk is the DavidKBD "Skank the Summer" pack (CC BY 4.0); playlists without files play a procedural jukebox in that style. See `game/public/music/README.md`.
 - Menus: main menu (resort picker, snowboard or skis, music), Esc pause menu (resume, restart, map, settings, quit) and a shared settings panel for audio, graphics, controls (key remapping), rider and game options, saved in localStorage.
 - Touch controls on phones and tablets.
 

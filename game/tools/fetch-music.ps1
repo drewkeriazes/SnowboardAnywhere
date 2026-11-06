@@ -8,7 +8,7 @@
       file,title,artist,license,url
       Skank the Summer 01.wav,Skank the Summer,DavidKBD,CC BY 4.0,https://davidkbd.itch.io/...
   Then:  .\tools\fetch-music.ps1 -Source "$env:USERPROFILE\Downloads\house" -Playlist "Melodic house"
-  The game's built-in playlists are "Ska-punk", "Melodic house", "Metal" and "Hip-hop"; any other
+  The game's built-in playlists are "Ska-punk", "Melodic house", "Metal" and "Lofi hip-hop"; any other
   name becomes an extra playlist (heard under Shuffle all). The named playlist is replaced, the
   others are kept. Only ship CC0 or CC BY tracks, and fill in tracks.csv so the credits are right.
   Needs ffmpeg on PATH (winget install Gyan.FFmpeg).

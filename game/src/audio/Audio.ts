@@ -6,7 +6,7 @@ export interface TrackInfo { file: string; title: string; artist?: string; licen
 export type MusicSource = 'files' | 'builtin' | 'off';
 /** the built-in playlists, each with a matching jukebox style so it plays before files are added */
 export const PLAYLISTS: { name: string; style: JukeStyle }[] = [
-  { name: 'Ska-punk', style: 'ska' }, { name: 'Melodic house', style: 'house' }, { name: 'Metal', style: 'metal' }, { name: 'Hip-hop', style: 'hiphop' },
+  { name: 'Ska-punk', style: 'ska' }, { name: 'Melodic house', style: 'house' }, { name: 'Metal', style: 'metal' }, { name: 'Lofi hip-hop', style: 'hiphop' },
   // no files on purpose: always the procedural ska jukebox
   { name: 'Classic ska', style: 'ska' },
 ];
@@ -59,7 +59,7 @@ export class GameAudio {
   /** 'files' plays playlist.json (falls back to builtin when there is none), 'builtin' is the procedural jukebox */
   source: MusicSource = 'files';
   /** a playlist name or SHUFFLE_ALL */
-  playlist = PLAYLISTS[0].name;
+  playlist = 'Lofi hip-hop';
   private playlistLoaded = false;
   private loadedResolve!: () => void;
   /** resolves once playlist.json has been read (after the first start()) */

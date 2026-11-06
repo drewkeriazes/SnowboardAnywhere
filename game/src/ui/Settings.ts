@@ -16,6 +16,8 @@ export interface Settings {
   musicSource: 'files' | 'builtin' | 'off';
   /** a playlist name (see PLAYLISTS in audio/Audio.ts) or 'all' for Shuffle all */
   playlist: string;
+  /** 2 once the Lofi hip-hop default has been applied to a save made while Ska-punk was the default */
+  playlistDefault?: number;
   quality: Quality;
   shadows: boolean;
   /** cascaded shadow maps (experimental, off by default: turned the terrain black on Drew's GPU); off = single shadow camera around the rider */
@@ -63,7 +65,7 @@ export const DEFAULT_KEYS: Record<string, string> = {
 const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab (sprint on foot)', lift: 'Ride lift / skip', board: 'Board on / off', trial: 'Go to nearest time trial', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track', look: 'Free look (hold, move mouse)' };
 
 const DEFAULTS: Settings = {
-  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Ska-punk', quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
+  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
   fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
 };
 const KEY = 'settings';
@@ -71,7 +73,13 @@ const KEY = 'settings';
 export function loadSettings(): Settings {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? 'null');
-    if (raw && raw.v === DEFAULTS.v) return { ...DEFAULTS, ...raw, keys: { ...DEFAULT_KEYS, ...(raw.keys ?? {}) }, outfit: { ...DEFAULTS.outfit, ...(raw.outfit ?? {}) } };
+    if (raw && raw.v === DEFAULTS.v) {
+      // the Hip-hop playlist was renamed Lofi hip-hop
+      if (raw.playlist === 'Hip-hop') raw.playlist = 'Lofi hip-hop';
+      // saves from before the Lofi hip-hop default carry the old Ska-punk default: switch them once
+      if (raw.playlistDefault !== 2) { if (raw.playlist === 'Ska-punk') raw.playlist = 'Lofi hip-hop'; raw.playlistDefault = 2; }
+      return { ...DEFAULTS, ...raw, keys: { ...DEFAULT_KEYS, ...(raw.keys ?? {}) }, outfit: { ...DEFAULTS.outfit, ...(raw.outfit ?? {}) } };
+    }
     // migrate the older separate keys
     const s = { ...DEFAULTS, keys: { ...DEFAULT_KEYS }, outfit: { ...DEFAULTS.outfit } };
     const a = JSON.parse(localStorage.getItem('audio') ?? '{}');

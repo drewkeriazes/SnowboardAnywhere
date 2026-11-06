@@ -314,7 +314,7 @@
         "url": "https://ende.app/en/song/13947-deep-house-underscore-006"
       }
     ],
-    "Hip-hop": [
+    "Lofi hip-hop": [
       {
         "file": "hiphop/01-hiphop-vs-jazz-vol-1.ogg",
         "title": "HipHop vs. Jazz Vol 1",
@@ -356,6 +356,83 @@
         "artist": "Aila Scott",
         "license": "CC BY 4.0",
         "url": "https://ailascott.itch.io/free-music-pack-lo-fi-indie-metal-orchestral"
+      },
+      {
+        "file": "hiphop/07-first-snow.ogg",
+        "title": "First Snow",
+        "artist": "HoliznaCC0",
+        "license": "CC0 1.0",
+        "url": "https://freemusicarchive.org/music/holiznacc0/winter-lofi/first-snowmp3/"
+      },
+      {
+        "file": "hiphop/08-snow-drift.ogg",
+        "title": "Snow Drift",
+        "artist": "HoliznaCC0",
+        "license": "CC0 1.0",
+        "url": "https://freemusicarchive.org/music/holiznacc0/winter-lofi/snow-drift/"
+      },
+      {
+        "file": "hiphop/09-2-hour-delay.ogg",
+        "title": "2 Hour Delay",
+        "artist": "HoliznaCC0",
+        "license": "CC0 1.0",
+        "url": "https://freemusicarchive.org/music/holiznacc0/winter-lofi/2-hour-delay-1/"
+      },
+      {
+        "file": "hiphop/10-winter-blues.ogg",
+        "title": "Winter Blues",
+        "artist": "HoliznaCC0",
+        "license": "CC0 1.0",
+        "url": "https://freemusicarchive.org/music/holiznacc0/winter-lofi/winter-blues/"
+      },
+      {
+        "file": "hiphop/11-fire-place.ogg",
+        "title": "Fire Place",
+        "artist": "HoliznaCC0",
+        "license": "CC0 1.0",
+        "url": "https://freemusicarchive.org/music/holiznacc0/winter-lofi/fire-place/"
+      },
+      {
+        "file": "hiphop/12-tokyo-sunset.ogg",
+        "title": "Tokyo Sunset",
+        "artist": "HoliznaCC0",
+        "license": "CC0 1.0",
+        "url": "https://freemusicarchive.org/music/holiznacc0/public-domain-lofi/tokyo-sunset-lofi-peaceful-soft/"
+      },
+      {
+        "file": "hiphop/13-warm-fuzz.ogg",
+        "title": "Warm Fuzz",
+        "artist": "HoliznaCC0",
+        "license": "CC0 1.0",
+        "url": "https://freemusicarchive.org/music/holiznacc0/public-domain-lofi/warm-fuzz-lofi-retro/"
+      },
+      {
+        "file": "hiphop/14-bubbles.ogg",
+        "title": "Bubbles",
+        "artist": "HoliznaCC0",
+        "license": "CC0 1.0",
+        "url": "https://freemusicarchive.org/music/holiznacc0/public-domain-lofi/bubbles-lofi-bright-relaxed/"
+      },
+      {
+        "file": "hiphop/15-walking-away.ogg",
+        "title": "Walking Away",
+        "artist": "HoliznaCC0",
+        "license": "CC0 1.0",
+        "url": "https://freemusicarchive.org/music/holiznacc0/public-domain-lofi/walking-away-lofi-peaceful-motivating/"
+      },
+      {
+        "file": "hiphop/16-shimmer.ogg",
+        "title": "Shimmer",
+        "artist": "HoliznaCC0",
+        "license": "CC0 1.0",
+        "url": "https://freemusicarchive.org/music/holiznacc0/public-domain-lofi/shimmer-lofi-chill/"
+      },
+      {
+        "file": "hiphop/17-into-the-mist.ogg",
+        "title": "Into The Mist",
+        "artist": "HoliznaCC0",
+        "license": "CC0 1.0",
+        "url": "https://freemusicarchive.org/music/holiznacc0/public-domain-lofi/into-the-mist-lofi-calm-relaxed/"
       }
     ]
   }

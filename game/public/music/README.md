@@ -1,7 +1,7 @@
 # Music
 
 Five stations, picked on the main menu or in Settings > Audio (plus Shuffle all, which mixes
-every station): **Ska-punk**, **Melodic house**, **Metal**, **Hip-hop** (real tracks, in `metal/`, `house/`, `hiphop/`
+every station): **Ska-punk**, **Melodic house**, **Metal**, **Lofi hip-hop** (real tracks, in `metal/`, `house/`, `hiphop/`
 and the root for ska) and **Classic ska** (always the built-in jukebox). N skips within the station.
 All tracks are loudness-matched to about -11 LUFS, true peak -1 dB. See CREDITS.md.
 
