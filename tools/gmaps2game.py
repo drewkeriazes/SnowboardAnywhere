@@ -18,6 +18,9 @@ a link that opens the eye camera there:
 - `--offset DEG` corrects a panorama whose compass is wrong (common on contributor photospheres;
   Google's own imagery is calibrated). Find it by lining up a far landmark, then pass the same
   value for every view of that panorama; it is stored as `heading_offset` on the view.
+- `--at X,Y` puts the eye at pack metres X, Y instead of the URL's lat/lon, for a panorama the
+  contributor placed in the wrong spot (heading, pitch and FOV still come from the URL). It is
+  stored as `position_override` on the view.
 - Short links (maps.app.goo.gl) are expanded first, which needs the network.
 """
 from __future__ import annotations
@@ -82,6 +85,7 @@ def main() -> None:
     ap.add_argument('--name', default='', help='spot name for a new spot.json')
     ap.add_argument('--eye', type=float, default=1.7, help='eye height above the ground (m)')
     ap.add_argument('--offset', type=float, default=0.0, help='degrees added to the Street View heading (bad panorama compass)')
+    ap.add_argument('--at', default='', help='X,Y in pack metres: override a misplaced panorama position')
     ap.add_argument('--host', default='http://localhost:5173/')
     a = ap.parse_args()
 
@@ -95,6 +99,10 @@ def main() -> None:
     pitch = v['tilt'] - 90 if 'tilt' in v else 0.0
     fov = v.get('fov', 75.0)
     x, y, h = to_game(meta, v['lat'], v['lon'], heading + a.offset)
+    if a.at:
+        px, py = x, y
+        x, y = (float(t) for t in a.at.split(','))
+        print(f'  position override: {x:.0f}, {y:.0f} instead of the pin at {px:.0f}, {py:.0f} ({math.hypot(x - px, y - py):.0f} m)', file=sys.stderr)
     b = meta['bounds']
     if not (b['minX'] <= x <= b['maxX'] and b['minY'] <= y <= b['maxY']):
         print(f'warning: {x:.0f}, {y:.0f} is outside the {a.pack} pack bounds', file=sys.stderr)
@@ -128,6 +136,10 @@ def main() -> None:
             views.append(entry)
         entry.update({'heading': round(heading, 1), 'pitch': round(pitch, 1), 'fov': round(fov, 1), 'streetview': url,
                       'x': round(x, 1), 'y': round(y, 1), 'h': round(h, 1), 'game': link})
+        if a.at:
+            entry['position_override'] = True
+        else:
+            entry.pop('position_override', None)
         if a.offset:
             entry['heading_offset'] = a.offset
         else:

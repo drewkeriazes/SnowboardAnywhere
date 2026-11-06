@@ -1,0 +1,75 @@
+{
+  "name": "Prima, near Brown's Face (Street View pin misplaced 540 m west)",
+  "latlon": [
+    39.6154099,
+    -106.3617657
+  ],
+  "game": {
+    "x": -652,
+    "y": 1809
+  },
+  "views": [
+    {
+      "id": "northeast",
+      "heading": 33.8,
+      "pitch": -20.3,
+      "fov": 62.6,
+      "streetview": "https://www.google.com/maps/@39.6154099,-106.3617657,3a,62.6y,33.77h,69.67t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIDyg4PLSQ!2e10!3e11",
+      "x": -652.0,
+      "y": 1809.0,
+      "h": 34.6,
+      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=34.6&pitch=-20.3&fov=62.6&cam=eye&spot=prima-browns-face/northeast",
+      "position_override": true
+    },
+    {
+      "id": "east",
+      "heading": 104.1,
+      "pitch": -9.5,
+      "fov": 62.6,
+      "streetview": "https://www.google.com/maps/@39.6154099,-106.3617657,3a,62.6y,104.14h,80.48t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIDyg4PLSQ!2e10!3e11",
+      "x": -652.0,
+      "y": 1809.0,
+      "h": 105.0,
+      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=105.0&pitch=-9.5&fov=62.6&cam=eye&spot=prima-browns-face/east",
+      "position_override": true
+    },
+    {
+      "id": "south",
+      "heading": 163.2,
+      "pitch": 12.2,
+      "fov": 62.6,
+      "streetview": "https://www.google.com/maps/@39.6154099,-106.3617657,3a,62.6y,163.18h,102.17t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIDyg4PLSQ!2e10!3e11",
+      "x": -652.0,
+      "y": 1809.0,
+      "h": 164.0,
+      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=164.0&pitch=12.2&fov=62.6&cam=eye&spot=prima-browns-face/south",
+      "position_override": true
+    },
+    {
+      "id": "southwest",
+      "heading": 214.0,
+      "pitch": 24.0,
+      "fov": 62.6,
+      "streetview": "https://www.google.com/maps/@39.6154099,-106.3617657,3a,62.6y,214.03h,113.97t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIDyg4PLSQ!2e10!3e11",
+      "x": -652.0,
+      "y": 1809.0,
+      "h": 214.9,
+      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=214.9&pitch=24.0&fov=62.6&cam=eye&spot=prima-browns-face/southwest",
+      "position_override": true
+    },
+    {
+      "id": "northwest",
+      "heading": 324.8,
+      "pitch": -4.8,
+      "fov": 62.6,
+      "streetview": "https://www.google.com/maps/@39.6154099,-106.3617657,3a,62.6y,324.83h,85.15t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIDyg4PLSQ!2e10!3e11",
+      "x": -652.0,
+      "y": 1809.0,
+      "h": 325.7,
+      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=325.7&pitch=-4.8&fov=62.6&cam=eye&spot=prima-browns-face/northwest",
+      "position_override": true
+    }
+  ],
+  "streetview_capture": "Jan 2017, contributor Hongbin Zhuang, listed as 'Vail Ski Resort' (user photosphere). The pin is 540 m west, in forest near Riva Glade; the real position was found by scoring open slopes on fall line and landmark bearings, then confirmed by the three cut runs in the east view. Compass good.",
+  "game_capture": "2026-11-06, main after bc47fd8, eye camera"
+}
