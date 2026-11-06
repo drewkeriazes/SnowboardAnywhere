@@ -4,7 +4,7 @@ import { Terrain } from './terrain/Terrain';
 import { Rider } from './sim/Rider';
 import { Collider } from './sim/Collider';
 import { Bridges } from './world/Bridges';
-import { Clouds } from './world/Clouds';
+import { Clouds, isOvercast, parseWeather, type CloudCover } from './world/Clouds';
 import { Snow } from './world/Snow';
 import { Controls } from './sim/Controls';
 import { Vegetation, setVegetationBudget, setVegetationDensity } from './world/Vegetation';
@@ -186,18 +186,28 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       env.setSun(p.azimuth, Math.max(-5, p.elevation));
     };
     let sunClock = 0;
+    // ?weather=overcast (FEAT-078) and __sim.setWeather (shoot_spots.mjs, per spot) override the
+    // saved Weather setting for this session without saving it; picking a Weather in the menu clears it
+    let weatherOverride: CloudCover | null = parseWeather(params.get('weather'));
+    const initialWeather = weatherOverride;
 
     // ---------------------------------------------------------------- settings application
     const applySettings = (s: Settings, what: string): void => {
       applySun(s);
-      clouds.configure(s.clouds ?? 'scattered', s.quality);
-      env.setBluebird(s.clouds !== 'storm'); // deep blue sky behind the clouds too; only the storm is grey
-      const storm = s.clouds === 'storm';
+      if (what === 'clouds') weatherOverride = null;
+      const weather = weatherOverride ?? s.clouds ?? 'scattered';
+      clouds.configure(weather, s.quality);
+      const storm = weather === 'storm', overcast = isOvercast(weather);
+      env.setBluebird(!storm && !overcast); // deep blue sky behind the clouds too; storm and overcast are grey
       env.setStorm(storm);
-      terrain.setFlatLight(storm ? 1 : 0); // storm: flat light, the snow surface reads poorly
+      env.setOvercast(overcast);
+      // flat light: the snow surface reads poorly under a storm, a little less under overcast
+      terrain.setFlatLight(storm ? 1 : overcast ? 0.85 : 0);
       env.setValleyFog(!!s.valleyFog || params.has('valleyfog')); // ?valleyfog forces it on for render checks
-      snow.points.visible = storm;
-      snow.setCount(s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500);
+      // falling snow: the storm, or light flurries under overcast (a sixth of the flakes, no visibility cut)
+      snow.points.visible = storm || weather === 'flurries';
+      const flakes = s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500;
+      snow.setCount(storm ? flakes : Math.round(flakes / 6));
       // limited render distance in the storm: nothing past the fog is drawn
       cam.camera.far = storm ? 1200 : 300000; cam.camera.updateProjectionMatrix();
       audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music);
@@ -222,7 +232,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (!s.timeTrials) trial.cancel('Time trials off');
       refreshCourseFlags();
       rider.discipline = s.discipline;
-      labels.visible = s.showLabels && s.clouds !== 'storm'; // peaks are hidden in the storm
+      labels.visible = s.showLabels && !storm; // peaks are hidden in the storm
       map.metric = s.units === 'metric';
       if (what === 'camera' || what === 'reset') cam.mode = s.camera;
     };
@@ -542,7 +552,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         (rider.onGround || rider.onFoot ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') +
         `<br><span class="dim">${fps.toFixed(0)} fps &middot; ${terrain.stats.chunks} chunks &middot; ${(terrain.stats.triangles / 1000).toFixed(0)}k tris &middot; trees ${veg.stats.instances} &middot; cam ${cam.mode}` +
         ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}</span>`;
-      (window as any).__sim = { rider, riderView, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, eyeAt };
+      (window as any).__sim = { rider, riderView, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, eyeAt,
+        /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
+        setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); } };
       if (!headless) requestAnimationFrame(frame);
     }
 

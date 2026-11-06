@@ -18,8 +18,17 @@ const BASE = 4700; // m above sea level, above every summit in the Colorado pack
 const TOP = 6300;
 const RADIUS = 250000; // composite dome, < camera far (300 km)
 
-export type CloudCover = 'off' | 'few' | 'scattered' | 'broken' | 'storm';
-const COVER: Record<CloudCover, number> = { off: 0, few: 0.22, scattered: 0.3, broken: 0.42, storm: 0 };
+export type CloudCover = 'off' | 'few' | 'scattered' | 'broken' | 'overcast' | 'flurries' | 'storm';
+const COVER: Record<CloudCover, number> = { off: 0, few: 0.22, scattered: 0.3, broken: 0.42, overcast: 0, flurries: 0, storm: 0 };
+export const CLOUD_COVERS = Object.keys(COVER) as CloudCover[];
+/** A ?weather= / spot.json value as a cover ('clear' is an alias for 'off'); null when unknown. */
+export function parseWeather(w: string | null | undefined): CloudCover | null {
+  if (!w) return null;
+  const v = w === 'clear' ? 'off' : w;
+  return (CLOUD_COVERS as string[]).includes(v) ? v as CloudCover : null;
+}
+/** Full overcast: the cloud deck is drawn by the sky dome (Atmosphere.ts), not ray marched. */
+export const isOvercast = (c: CloudCover): boolean => c === 'overcast' || c === 'flurries';
 
 // ------------------------------------------------------------------ noise textures (CPU, once)
 function rng(seed: number): () => number {
@@ -281,7 +290,7 @@ export class Clouds {
       this.march = m; this.quad.material = m; old.dispose();
     }
     this.march.uniforms.uCoverage.value = COVER[cover] ?? COVER.scattered;
-    this.mesh.visible = cover !== 'off' && cover !== 'storm'; // a storm is fog and falling snow instead
+    this.mesh.visible = COVER[cover] > 0; // a storm is fog and falling snow instead; overcast is the sky dome's grey deck
   }
 
   /**

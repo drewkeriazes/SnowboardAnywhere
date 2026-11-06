@@ -13,4 +13,4 @@ Real: Street View, Jan 2017, contributor Hongbin Zhuang, listed as "Vail Ski Res
 1. **Trees look like black cones.** Real: tall, narrow spruce heavily flocked with fresh snow, grey-white rather than dark. -> FEAT-070
 2. **Far forest too pale (north-east left, north-west right):** the real valley slopes are dense dark forest with grey aspen; the game shows pale snow with green specks. -> BUG-023
 3. **Snow surface:** real is chopped powder with soft bumps on a steep advanced slope; the game is smooth. -> FEAT-059 (moguls), FEAT-047
-4. **Sky:** overcast with snow in the photo, clear in the game. Weather.
+4. **Sky:** overcast with snow in the photo. Fixed by FEAT-078: the spot is shot with `weather: flurries`.

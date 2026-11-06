@@ -16,4 +16,4 @@ The pair also confirmed the FOV convention: the Maps `y` value is the vertical F
 2. **Far forest reads as snow (south-west, west, south-lift):** the real valley slopes below the ridge are near-black continuous forest. The game shows pale snow with a green speckle, so the valley loses its dark mass. Either the far tree density is too low or the far terrain colour does not darken under forest. -> BUG-023
 3. **Lone pines:** the real slopes have several broad, round-crowned lone pines (west and south-lift views, also north-east). The game only has narrow cones. -> FEAT-070
 4. **Snow surface:** real is tracked-out and chalky with ski tracks and sharp small shadows; the game foreground is smooth. -> FEAT-047, BUG-021 (known)
-5. **Sky:** overcast in the photo, clear in the game. Weather, not a bug.
+5. **Sky:** overcast in the photo. Fixed by FEAT-078: the spot is shot with `weather: overcast`.

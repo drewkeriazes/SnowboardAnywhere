@@ -3,6 +3,8 @@
 //   reads ../docs/compare/<pack>/<spot>/spot.json and writes eye-<view>.png next to it.
 //   Pose per view: the saved `eye` pose (from the P key) if any, else x / y / h from
 //   tools/gmaps2game.py --add, else the spot's game x / y and the Street View heading.
+//   Weather per view: the view's `weather`, else the spot's `weather` (e.g. "overcast" to match an
+//   overcast photo, FEAT-078), else the page's own (SHOT_QUERY="&weather=..." or the default).
 //   Needs `npx vite build` first. Software GPU: SHOT_QUERY="&lowgfx".
 const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
 import http from 'node:http';
@@ -60,6 +62,8 @@ for (const { slug, spec } of spots) {
       pitch: e.pitch ?? v.pitch ?? 0, fov: e.fov ?? v.fov ?? 75, eye: e.eye ?? 1.7,
     };
     if (pose.x == null || pose.y == null) { console.log(`${slug}/${v.id}: no position, skipped`); continue; }
+    const weather = v.weather ?? spec.weather ?? null;
+    await page.evaluate((w) => window.__sim.setWeather(w), weather);
     await page.evaluate((p) => window.__sim.eyeAt(p.x, p.y, p.h, p.pitch, p.fov, p.eye), pose);
     // step until terrain, mask and tree tiles have streamed in and the terrain stops rebuilding
     // (a fixed wait leaves half-built LOD skirts and floating trees in the shot)
@@ -78,7 +82,7 @@ for (const { slug, spec } of spots) {
     const url = await page.evaluate(() => window.__shot());
     const out = path.join(compareDir, slug, `eye-${v.id}.png`);
     fs.writeFileSync(out, Buffer.from(url.split(',')[1], 'base64'));
-    console.log(`${slug}/${v.id}`, JSON.stringify(pose), '->', path.relative(path.resolve('..'), out).split(path.sep).join('/'));
+    console.log(`${slug}/${v.id}`, JSON.stringify(pose), weather ? `weather=${weather}` : '', '->', path.relative(path.resolve('..'), out).split(path.sep).join('/'));
     n++;
   }
 }

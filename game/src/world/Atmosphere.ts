@@ -89,6 +89,7 @@ uniform sampler2D uSkyView;
 uniform vec4 uAtmo[10];
 uniform vec3 uSunDisc;
 uniform vec2 uSunCos;
+uniform vec4 uDeck; // overcast: horizon grey (display), w = 1 when on
 varying vec3 vDir;
 ${ATMO_GLSL}
 void main() {
@@ -106,6 +107,14 @@ void main() {
   // at and below the horizon: exactly the colour the terrain fog converges to in this azimuth
   float k = exp(-max(rd.y, 0.0) * 30.0) * (1.0 - disc);
   gl_FragColor.rgb = mix(gl_FragColor.rgb, atmoHorizon(rd), k);
+  if (uDeck.w > 0.5) {
+    // overcast: a uniform grey deck, a little darker overhead, no sun disc, only a faint brighter
+    // patch where the sun is behind the cloud (kept off the horizon so distant ridges still meet it)
+    float up = max(rd.y, 0.0);
+    vec3 deck = uDeck.rgb * mix(1.0, 0.95, smoothstep(0.0, 0.8, up));
+    deck += uDeck.rgb * 0.07 * pow(max(dot(rd, s), 0.0), 4.0) * smoothstep(0.0, 0.25, up);
+    gl_FragColor.rgb = deck;
+  }
   gl_FragColor.rgb += (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 255.0;
 }`;
 
@@ -124,6 +133,10 @@ export interface AtmoState {
   stormColor: THREE.Color;
   /** morning valley fog layer on */
   valleyFog: boolean;
+  /** full overcast (FEAT-078): grey deck instead of the sky, greyer and denser haze */
+  overcast: boolean;
+  /** overcast deck colour at the horizon (display) */
+  deckColor: THREE.Color;
 }
 
 export class Atmosphere {
@@ -152,7 +165,7 @@ export class Atmosphere {
     this.lut.colorSpace = THREE.NoColorSpace;
     this.mat = new THREE.ShaderMaterial({
       vertexShader: skyVert, fragmentShader: skyFrag,
-      uniforms: { uSkyView: { value: this.lut }, uAtmo: ATMO_UNIFORM, uSunDisc: { value: new THREE.Vector3() }, uSunCos: { value: new THREE.Vector2(Math.cos(0.0085), Math.cos(0.0072)) } },
+      uniforms: { uSkyView: { value: this.lut }, uAtmo: ATMO_UNIFORM, uSunDisc: { value: new THREE.Vector3() }, uSunCos: { value: new THREE.Vector2(Math.cos(0.0085), Math.cos(0.0072)) }, uDeck: { value: new THREE.Vector4() } },
       side: THREE.BackSide, depthWrite: false,
     });
     this.sky = new THREE.Mesh(new THREE.BoxGeometry(1000, 1000, 1000), this.mat);
@@ -208,6 +221,7 @@ export class Atmosphere {
       if (i === 2) this.hazeLinear.setRGB(L[0], L[1], L[2]);
       toDisplay(L, st.exposure, D);
       if (st.storm) { D[0] = st.stormColor.r; D[1] = st.stormColor.g; D[2] = st.stormColor.b; }
+      else if (st.overcast) { D[0] = st.deckColor.r; D[1] = st.deckColor.g; D[2] = st.deckColor.b; }
       ATMO[8 + i * 4] = D[0]; ATMO[9 + i * 4] = D[1]; ATMO[10 + i * 4] = D[2];
       if (i === 2) this.hazeDisplay.setRGB(D[0], D[1], D[2]);
     }
@@ -216,6 +230,7 @@ export class Atmosphere {
     const hz = toDisplay([THREE.MathUtils.lerp(this.hazeLinear.r, hl * this.sunColor.r, 0.6), THREE.MathUtils.lerp(this.hazeLinear.g, hl * (0.5 + 0.5 * this.sunColor.g), 0.6), THREE.MathUtils.lerp(this.hazeLinear.b, hl * (0.4 + 0.6 * this.sunColor.b), 0.6)], st.exposure, [0, 0, 0]);
     ATMO[36] = hz[0]; ATMO[37] = hz[1]; ATMO[38] = hz[2]; ATMO[39] = 0.6;
 
+    (this.mat.uniforms.uDeck.value as THREE.Vector4).set(st.deckColor.r, st.deckColor.g, st.deckColor.b, st.overcast ? 1 : 0);
     if (st.storm) {
       // whiteout: uniform dense fog, visibility about 400 m, no air layer or valley structure
       ATMO[0] = 0.0103; ATMO[1] = 0; ATMO[2] = 0; ATMO[3] = 0;
@@ -225,6 +240,11 @@ export class Atmosphere {
     }
     // valley haze: about 35 km visibility scale at the valley floor, a tenth of that density 1 km up
     ATMO[0] = (st.bluebird ? 1 : 2) / 35000; ATMO[1] = 1 / 450; ATMO[2] = this.valleyY; ATMO[3] = 1.6;
+    if (st.overcast) {
+      // overcast: thicker, deeper haze in the deck's grey, so ridges a few km off go soft and grey
+      ATMO[0] = 5 / 35000; ATMO[1] = 1 / 1100;
+      ATMO[36] = st.deckColor.r; ATMO[37] = st.deckColor.g; ATMO[38] = st.deckColor.b; ATMO[39] = 1;
+    }
     // morning valley fog: a thick layer a hundred metres deep that burns off as the sun climbs
     const fog = st.valleyFog ? 0.15 + 0.85 * (1 - THREE.MathUtils.smoothstep(st.sunElevationDeg, 8, 40)) : 0;
     ATMO[32] = fog / 500; ATMO[33] = 1 / 100; ATMO[34] = this.valleyY + 150;

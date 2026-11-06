@@ -31,6 +31,8 @@ cd game && npx vite build && node tools/shoot_spots.mjs vail china-bowl-north-ri
 
 This re-renders every view's `eye-<view>.png` headless at 1280x720 (`--size WxH` to change; the current shots are 1919x910 to match a full-width Street View window), using the saved `eye` pose if there is one, else the converted Street View pose. It waits until the terrain, mask and tree tiles have finished streaming, so shots have no half-built LOD skirts. Commit the new shots with the change that moved them, so the pair history follows the code.
 
+**Weather (FEAT-078):** set `"weather"` in `spot.json` (or on one view) to shoot the pair in the photo's light: `overcast` (grey deck, no sun, shadowless flat light, more haze), `flurries` (overcast with light snowfall), `storm`, or `clear` / `few` / `scattered` / `broken`. Spots without it use the game's default weather. The same values work as `&weather=` on an eye link, overriding the Weather setting for that session without saving it. Tagged so far: Mid-Vail and Yonder `overcast`, Mongolia and Prima `flurries`.
+
 ### Conventions
 
 - **Heading:** Street View headings are from true north; the game's `h` is from grid north (UTM). `gmaps2game.py` adds the grid convergence (about +0.85 degrees at Vail). `spot.json` keeps both: `heading` (true) and `h` (grid).
@@ -48,7 +50,7 @@ This re-renders every view's `eye-<view>.png` headless at 1280x720 (`--size WxH`
 - **Snow:** tone, texture (corduroy, tracks, sun cups, wind ripples), shading in shadow, edges of tracks (FEAT-047, BUG-021).
 - **Built things:** lift towers and terminals, buildings, signs, fences, bridges (BUG-022).
 - **Far view:** horizon peaks, haze, forest colour on distant ridges (FEAT-041, FEAT-052).
-- **Sky and light:** sky colour, clouds, sun direction for the capture time.
+- **Sky and light:** sky colour, clouds, sun direction for the capture time. Tag an overcast or snowy photo's `weather` in `spot.json` so the pair compares like for like.
 
 ## Spot index
 

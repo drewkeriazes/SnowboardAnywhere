@@ -63,7 +63,7 @@ export class Environment {
     this.disableCSM();
     this.csm = new CSM({ camera, parent: this.scene, cascades, maxFar: 1200, mode: 'practical', shadowMapSize: mapSize, shadowBias: -0.00015, lightDirection: this.sunDir.clone().negate(), lightIntensity: this.sun.intensity, lightMargin: 300, lightNear: 1, lightFar: 3000 });
     this.csm.fade = true;
-    for (const l of this.csm.lights) { l.shadow.normalBias = 0.5; l.color.copy(this.sun.color); }
+    for (const l of this.csm.lights) { l.shadow.normalBias = 0.5; l.shadow.intensity = this.sun.shadow.intensity; l.color.copy(this.sun.color); }
     for (const m of this.registered) this.setupCSM(m);
     this.csm.updateFrustums();
   }
@@ -105,6 +105,10 @@ export class Environment {
   storm = false;
   readonly stormDome = new THREE.Mesh(new THREE.SphereGeometry(1000, 24, 12), new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: true, depthWrite: false }));
   setStorm(on: boolean): void { this.storm = on; this.setSun(this.lastSun[0], this.lastSun[1]); }
+  /** overcast (FEAT-078): grey cloud deck, no sun disc, soft shadowless light, flat snow, more haze; the sky still reaches the horizon */
+  overcast = false;
+  setOvercast(on: boolean): void { this.overcast = on; this.setSun(this.lastSun[0], this.lastSun[1]); }
+  private readonly deckColor = new THREE.Color();
   /** morning valley fog layer (burns off as the sun climbs) */
   valleyFog = false;
   setValleyFog(on: boolean): void { this.valleyFog = on; this.setSun(this.lastSun[0], this.lastSun[1]); }
@@ -122,7 +126,9 @@ export class Environment {
     if (this.renderer) this.renderer.toneMappingExposure = exposure;
     const g = 0.35 + 0.55 * up;
     this.stormColor.setRGB(0.8 * g, 0.82 * g, 0.86 * g);
-    this.atmo.update({ sunDir: this.sunDir, sunElevationDeg: elevationDeg, exposure, bluebird: this.bluebird, storm: this.storm, stormColor: this.stormColor, valleyFog: this.valleyFog });
+    const gd = 0.3 + 0.7 * up;
+    this.deckColor.setRGB(0.72 * gd, 0.74 * gd, 0.78 * gd); // the Mid-Vail photo's sky, about sRGB (182, 187, 197)
+    this.atmo.update({ sunDir: this.sunDir, sunElevationDeg: elevationDeg, exposure, bluebird: this.bluebird, storm: this.storm, stormColor: this.stormColor, valleyFog: this.valleyFog, overcast: this.overcast && !this.storm, deckColor: this.deckColor });
     this.sun.color.copy(this.atmo.sunColor);
     if (this.csm) {
       this.csm.lightDirection.copy(this.sunDir).negate();
@@ -142,7 +148,17 @@ export class Environment {
       this.hemi.intensity = 0.5 + 0.9 * up;
       this.hemi.color.setRGB(0.86, 0.88, 0.92);
       (this.stormDome.material as THREE.MeshBasicMaterial).color.copy(this.stormColor);
+    } else if (this.overcast) {
+      // the deck diffuses the sun: a weak directional term keeps some form, the grey sky does the rest
+      this.sun.intensity *= 0.2;
+      if (this.csm) for (const l of this.csm.lights) l.intensity = this.sun.intensity;
+      this.hemi.intensity = 0.6 + 1.8 * up; // snow a shade brighter than the deck, as in the photos
+      this.hemi.color.setRGB(0.88, 0.9, 0.94);
     }
+    // overcast is shadowless; shadow.intensity avoids the shader recompiles a castShadow toggle causes
+    const shadow = this.overcast && !this.storm ? 0 : 1;
+    this.sun.shadow.intensity = shadow;
+    if (this.csm) for (const l of this.csm.lights) l.shadow.intensity = shadow;
   }
 
   /** Per frame: keep the sky box and storm dome around the camera. */

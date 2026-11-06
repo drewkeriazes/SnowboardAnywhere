@@ -10,4 +10,4 @@ Real: Street View, Feb 2014, contributor Krishna Vinod (links in spot.json). Sno
 
 ## What doesn't
 1. **Trees on the open slope:** the real slope has spruce clumps and lone trees scattered across it within 30 to 60 m, and a line of them along the slope (north-west, north-east). The pack has 0 trees within 30 m and 3 within 100 m. -> BUG-023
-2. **Weather:** heavy cloud and falling snow in the photo; clear in the game. A snowstorm setting would make this pair a closer match.
+2. **Weather:** heavy cloud and falling snow in the photo. Fixed by FEAT-078: the spot is shot with `weather: flurries` (overcast with light snowfall); the storm's 400 m visibility would hide the far ridges the photo still shows.

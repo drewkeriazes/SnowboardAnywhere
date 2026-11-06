@@ -14,6 +14,6 @@ The compass is good: the Mountain Top Express terminal footprint's centre is at 
 2. **Dense spruce walls are missing (north, east).** Real: tall, snow-flocked spruce close on both sides of the loading area, framing the view down the valley. Game: a few small dark cones and open snow. -> BUG-023, FEAT-070
 3. **Mid-Vail area buildings (south-west):** the timber buildings beside the Wildwood terminal read as low grey boxes. -> FEAT-071 (#111)
 4. **Snow:** real is chopped up, packed and crowded around the lines; the game is fresh corduroy. Expected for a groomed area at opening; not a bug.
-5. **Sky:** overcast with light snow in the photo, clear in the game. Weather.
+5. **Sky:** overcast with light snow in the photo. Fixed by FEAT-078: the spot is shot with `weather: overcast` (grey deck, shadowless flat light). Measured on the south view: sky sRGB (184, 189, 199) game vs (181, 187, 197) photo, foreground snow (190, 194, 203) vs (190, 195, 206).
 
 A fifth Street View heading (196 degrees, 90y) was linked but not screenshotted; add it with `--spot mid-vail-wildwood/<id> --add` if a screenshot turns up.

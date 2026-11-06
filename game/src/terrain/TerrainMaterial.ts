@@ -18,7 +18,7 @@ import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from './rockShader';
  * off individual crystals (a random facet normal per 4 cm cell lights up when it lines up with the
  * half vector, fading out once cells shrink below a pixel); baked sky visibility from the pack (`ao`
  * attribute) darkens gullies, couloirs and cliff feet, and the canopy darkens the snow under trees.
- * `uFlat` (storm) flattens the snow relief and turns the glints off: flat light.
+ * `uFlat` (storm, overcast) flattens the snow relief, turns the glints off and roughens the snow: flat light.
  *
  * Rock and talus (FEAT-020): the vertex weights (imagery mask unioned with steep faces, wind-scoured
  * ridges and talus aprons from Terrain.build) are thresholds against multi-scale world-space noise,
@@ -241,7 +241,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           reflectedLight.directDiffuse *= mix(1.0, aoT, 0.45);
         }`)
       .replace('#include <roughnessmap_fragment>', `
-        float roughnessFactor = roughness * 0.6 * wSnow + rockR * rockCov + screeR * screeCov;`);
+        // flat light: no sheen toward a sun hidden behind cloud, so the snow goes fully rough
+        float roughnessFactor = roughness * mix(0.6, 1.1, uFlat) * wSnow + rockR * rockCov + screeR * screeCov;`);
   };
   return mat;
 }

@@ -21,7 +21,7 @@ export interface Settings {
   /** cascaded shadow maps (experimental, off by default: turned the terrain black on Drew's GPU); off = single shadow camera around the rider */
   csmExperimental: boolean;
   /** volumetric cloud cover */
-  clouds: 'off' | 'few' | 'scattered' | 'broken' | 'storm';
+  clouds: 'off' | 'few' | 'scattered' | 'broken' | 'overcast' | 'flurries' | 'storm';
   /** low morning fog lying in the valleys, burning off as the sun climbs */
   valleyFog: boolean;
   treeDensity: number; // 0.25 .. 1
@@ -127,7 +127,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Quality</label><select data-k="quality"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></div>
       <div class="row"><label>Shadows</label><input type="checkbox" data-k="shadows"></div>
       <div class="row"><label>Cascaded (beta)</label><input type="checkbox" data-k="csmExperimental"></div>
-      <div class="row"><label>Weather</label><select data-k="clouds"><option value="off">Bluebird (clear)</option><option value="few">Few clouds</option><option value="scattered">Scattered clouds</option><option value="broken">Broken clouds</option><option value="storm">Snowstorm</option></select></div>
+      <div class="row"><label>Weather</label><select data-k="clouds"><option value="off">Bluebird (clear)</option><option value="few">Few clouds</option><option value="scattered">Scattered clouds</option><option value="broken">Broken clouds</option><option value="overcast">Overcast (flat light)</option><option value="flurries">Overcast, light snow</option><option value="storm">Snowstorm</option></select></div>
       <div class="row"><label>Valley fog</label><input type="checkbox" data-k="valleyFog"></div>
       <div class="row"><label>Trees</label><input type="range" data-k="treeDensity" min="0.25" max="1" step="0.05"></div>
       <div class="row"><label>Resolution</label><input type="range" data-k="pixelRatio" min="0.5" max="2" step="0.25"></div>
