@@ -51,7 +51,7 @@ async function settle(frames, label) {
     await page.evaluate((n) => (window).__step(n, 1 / 60), Math.ceil(frames / 6));
     await page.waitForTimeout(500);
   }
-  const stats = await page.evaluate(() => { const s = (window).__sim; return { chunks: s.terrain.stats.chunks, tris: s.terrain.stats.triangles, trees: s.veg.stats.instances, x: s.rider.x, y: s.rider.y, z: s.rider.z, speed: s.rider.speed, onGround: s.rider.onGround, fine: s.pack.fine?.loadedCount, mid: s.pack.mid?.loadedCount, far: s.pack.far?.loadedCount }; });
+  const stats = await page.evaluate(() => { const s = (window).__sim; return { chunks: s.terrain.stats.chunks, tris: s.terrain.stats.triangles, trees: s.veg.stats.instances, x: s.rider.x, y: s.rider.y, z: s.rider.z, speed: s.rider.speed, onGround: s.rider.onGround, footGap: +(s.riderView?.footGap ?? 0).toFixed(4), fine: s.pack.fine?.loadedCount, mid: s.pack.mid?.loadedCount, far: s.pack.far?.loadedCount }; });
   const dataUrl = await page.evaluate(() => (window).__shot());
   fs.writeFileSync(path.join(outDir, `${label}.png`), Buffer.from(dataUrl.split(',')[1], 'base64'));
   console.log(label, JSON.stringify(stats));

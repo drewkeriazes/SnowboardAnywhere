@@ -1,11 +1,16 @@
 import * as THREE from 'three';
 import type { Rider } from '../sim/Rider';
-import { buildRider, applyPose, lerpPose, clonePose, POSES, SKI_POSES, type Joints, type Pose, type RiderMaterials } from './RiderModel';
+import { lerpPose, clonePose, defaultMaterials, POSES, SKI_POSES, type Pose, type RiderMaterials } from './RiderModel';
+import { buildRig, pinFeet, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, type RiderRig } from './RiderRig';
+
+const d2r = Math.PI / 180;
 
 /**
- * Articulated rider (RiderModel.ts) posed from the sim state: neutral, toe/heel carve, tuck,
- * crouch (jump charge), air and grab, landing compression, crash tumble, seated on a chair.
- * Poses blend by weight each frame and the result is smoothed, so transitions read as motion.
+ * Skeletal rider (RiderRig.ts) posed from the sim state. Pose tables (neutral, toe/heel carve,
+ * tuck, crouch, air, grab, landing, crash, seated) blend by weight and drive the pelvis, spine,
+ * head and arms; a physical layer adds g-load compression, balance arms and a spine twist toward
+ * the direction of travel; then two-bone IK pins both boots to the bindings every frame so the
+ * board and body cannot separate. Skiers also place their hands by IK and aim the poles.
  */
 /** Soft round particle: radial alpha falloff on a small canvas. */
 function sprayTexture(): THREE.Texture {
@@ -24,14 +29,18 @@ export class RiderView {
   readonly group = new THREE.Group();
   private fp = false;
   readonly mats: RiderMaterials;
-  private joints: Joints;
-  private root: THREE.Group;
+  private rig: RiderRig;
+  /** roll pivot at the board's engaged edge; the board and the body are both children */
+  private readonly lean = new THREE.Group();
   private poses: Record<string, Pose> = POSES;
   discipline: 'board' | 'ski' = 'board';
   private leanAngle = 0;
+  private twist = 0;
+  private wasSeated = false;
+  /** worst ankle-to-binding distance after the last solve (m); 0 means the boots are on the bindings */
+  footGap = 0;
   private readonly pose: Pose = clonePose(POSES.neutral);
   private readonly target: Pose = clonePose(POSES.neutral);
-  private readonly scratch: Pose = clonePose(POSES.neutral);
   private readonly spray: THREE.Points;
   private readonly sprayPos: Float32Array;
   private readonly sprayVel: Float32Array;
@@ -41,15 +50,16 @@ export class RiderView {
   private readonly tmpR = new THREE.Vector3();
   private readonly rot = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
+  private readonly pq = new THREE.Quaternion();
+  private readonly v1 = new THREE.Vector3();
+  private readonly v2 = new THREE.Vector3();
+  private readonly v3 = new THREE.Vector3();
+  private readonly v4 = new THREE.Vector3();
 
   constructor() {
-    const built = buildRider();
-    this.mats = built.mats;
-    this.joints = built.joints;
-    this.root = built.root;
-    this.group.add(built.root);
-    applyPose(this.joints, this.pose);
-    this.tagBody();
+    this.mats = defaultMaterials();
+    this.group.add(this.lean);
+    this.rig = this.mount('board');
 
     const n = 400;
     this.sprayPos = new Float32Array(n * 3);
@@ -65,21 +75,25 @@ export class RiderView {
     return this.spray;
   }
 
-  /** Swap between snowboard and skis (rebuilds the model with the same materials). */
+  private mount(d: 'board' | 'ski'): RiderRig {
+    const rig = buildRig(this.mats, d);
+    this.lean.add(rig.board, rig.body);
+    for (const o of [rig.body, rig.board]) o.traverse((m) => m.layers.enable(BODY_LAYER));
+    return rig;
+  }
+
+  /** Swap between snowboard and skis (rebuilds the rig with the same materials). */
   setDiscipline(d: 'board' | 'ski'): void {
     if (d === this.discipline) return;
     this.discipline = d;
-    this.group.remove(this.root);
-    const built = buildRider(this.mats, d);
-    this.joints = built.joints; this.root = built.root;
-    this.group.add(built.root);
+    this.lean.remove(this.rig.board, this.rig.body);
+    for (const o of [this.rig.body, this.rig.board]) o.traverse((m) => { if ((m as THREE.Mesh).isMesh) (m as THREE.Mesh).geometry.dispose(); });
+    this.rig = this.mount(d);
     this.poses = d === 'ski' ? SKI_POSES : POSES;
     Object.assign(this.pose, clonePose(this.poses.neutral));
-    this.tagBody();
+    this.wasSeated = false;
     this.setFirstPerson(this.fp);
   }
-
-  private tagBody(): void { this.root.traverse((o) => o.layers.enable(BODY_LAYER)); }
 
   /** Apply outfit colours (hex strings) to the material slots. */
   setOutfit(o: { jacket: string; pants: string; helmet: string; board: string; gloves: string }): void {
@@ -88,26 +102,95 @@ export class RiderView {
   }
 
   /**
-   * First person: hide the head, the torso shell and the pelvis block (within a few tens of cm of the
-   * eye, so they would fill the view or be seen from inside); arms, legs, boots and the board stay in
-   * view. The arms are also lowered toward the sides (see update) so they do not hang across the view.
+   * First person: hide the head and the torso (within a few tens of cm of the eye, so they would
+   * fill the view or be seen from inside); arms, legs, boots and the board stay in view. The arms
+   * are also lowered toward the sides (see update) so they do not hang across the view.
    */
   setFirstPerson(fp: boolean): void {
     this.fp = fp;
-    const j = this.joints;
-    j.head.visible = !fp;
-    for (const g of [j.torso, j.hips]) for (const c of g.children) if ((c as THREE.Mesh).isMesh) c.visible = !fp;
+    for (const m of [...this.rig.headParts, ...this.rig.coreParts]) m.visible = !fp;
   }
 
   /** World position of the eyes (three.js frame), from the posed head, for the first-person camera. */
   eye(out: THREE.Vector3): THREE.Vector3 {
     this.group.updateMatrixWorld(true);
-    return out.set(0, 0.1, 0).applyMatrix4(this.joints.head.matrixWorld);
+    return out.set(0, 0.1, -0.02).applyMatrix4(this.rig.bones.Head.matrixWorld);
+  }
+
+  /** FK from the blended pose: pelvis, spine, head and arms. Leg angles only stand when seated. */
+  private applyFK(p: Pose, xOff: number): void {
+    const B = this.rig.bones;
+    B.Hips.position.set(xOff, p.hipsY, 0);
+    // pitch convention in the tables: positive = bend toward the face; +X rotation tips +Y toward
+    // +Z (the back), so pitches are negated. The waist bend spreads over three spine bones.
+    B.Hips.rotation.set(-p.hipsRot[0], p.hipsRot[1], p.hipsRot[2]);
+    for (const [b, k] of [[B.Spine, 0.4], [B.Spine1, 0.3], [B.Spine2, 0.3]] as const) b.rotation.set(-p.torso[0] * k, p.torso[1] * k, p.torso[2] * k);
+    B.Neck.rotation.set(-p.head[0] * 0.4, p.head[1] * 0.4, p.head[2] * 0.4);
+    B.Head.rotation.set(-p.head[0] * 0.6, p.head[1] * 0.6, p.head[2] * 0.6);
+    B.LeftArm.rotation.set(p.lShoulder[0], p.lShoulder[1], p.lShoulder[2]);
+    B.RightArm.rotation.set(p.rShoulder[0], p.rShoulder[1], p.rShoulder[2]);
+    B.LeftForeArm.rotation.set(p.lElbow * d2r, 0, 0);
+    B.RightForeArm.rotation.set(p.rElbow * d2r, 0, 0);
+    B.LeftUpLeg.rotation.set(p.lHip[0], p.lHip[1], p.lHip[2]);
+    B.RightUpLeg.rotation.set(p.rHip[0], p.rHip[1], p.rHip[2]);
+    B.LeftLeg.rotation.set(-p.lKnee * d2r, 0, 0);
+    B.RightLeg.rotation.set(-p.rKnee * d2r, 0, 0);
+    // feet level with the pelvis (hip pitch minus knee bend)
+    B.LeftFoot.rotation.set(-p.lHip[0] + p.lKnee * d2r, 0, 0);
+    B.RightFoot.rotation.set(-p.rHip[0] + p.rKnee * d2r, 0, 0);
+  }
+
+  /** Skier: hands placed by IK in the chest frame, poles aimed at a plant point beside the boots. */
+  private skiHands(r: Rider, tuck: boolean, free: boolean): void {
+    const rig = this.rig, B = rig.bones;
+    const chest = B.Spine2;
+    if (free) {
+      const tk = tuck ? 1 : Math.min(1, r.jumpCharge + r.landingShock), air = r.onGround ? 0 : 1;
+      for (const [side, up, lo, end] of [[-1, B.LeftArm, B.LeftForeArm, B.LeftHand], [1, B.RightArm, B.RightForeArm, B.RightHand]] as const) {
+        // chest-frame target: neutral at the waist, tuck in front of the knees, air out to the side
+        const t = this.v1.set(side * 0.26, -0.25, -0.28);
+        t.lerp(this.v2.set(side * 0.14, -0.15, -0.38), tk * (1 - air));
+        t.lerp(this.v2.set(side * 0.38, -0.2, -0.15), air);
+        if (this.fp) { t.y += 0.1; t.z -= 0.08; }
+        chest.localToWorld(t);
+        // elbows out and back
+        const pole = this.v2.set(side * 0.7, -0.3, 0.6).applyQuaternion(chest.getWorldQuaternion(this.pq));
+        twoBone(up, lo, end, t, pole);
+      }
+    }
+    for (const [side, grip] of [[-1, rig.lPole], [1, rig.rPole]] as const) {
+      if (!grip) continue;
+      const g = grip.getWorldPosition(this.v1);
+      const dir = free
+        ? rig.board.localToWorld(this.v2.set(side * 0.34, r.onGround ? 0 : -0.3, r.onGround ? 0.3 : 0.55)).sub(g).normalize()
+        : this.v2.set(0, -1, 0.3).normalize();
+      setWorldQuat(grip, this.q.setFromUnitVectors(this.v3.set(0, -1, 0), dir));
+    }
   }
 
   update(r: Rider, dt: number, tuck: boolean, grab = false, seated = false): void {
     this.group.position.set(r.x, r.z, -r.y);
-    // ---- pose blend
+    // ---- orientation: board forward along heading, up along the ground normal (toward world up in the air)
+    const n = this.tmpN.set(r.normal[0], r.normal[2], -r.normal[1]);
+    if (!r.onGround) n.lerp(this.v1.set(0, 1, 0), 0.7).normalize();
+    const f = this.tmpF.set(Math.sin(r.heading), 0, -Math.cos(r.heading));
+    f.addScaledVector(n, -f.dot(n)).normalize();
+    const right = this.tmpR.crossVectors(f, n).normalize();
+    this.rot.makeBasis(right, n, this.v1.copy(f).negate());
+    this.q.setFromRotationMatrix(this.rot);
+    this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
+    // ---- inclination: lean into the turn until lateral acceleration balances gravity,
+    // phi = atan(a_lat / g), capped at 40 degrees. lateralG > 0 = toward the board's right (toe side).
+    const phi = r.onGround && !seated ? Math.max(-0.7, Math.min(0.7, Math.atan(r.lateralG * 0.8))) : 0;
+    this.leanAngle += (phi - this.leanAngle) * Math.min(1, dt * 8);
+    // the board and the rider roll together about the engaged edge (0.13 m off centre) so the edge
+    // stays in the snow; angulation comes from the carve poses bending at the waist
+    const side = Math.abs(this.leanAngle) > 0.03 ? Math.sign(this.leanAngle) : 0;
+    this.lean.position.set(side * 0.13, 0, 0);
+    this.lean.rotation.set(0, 0, -this.leanAngle); // positive lateralG tips +Y toward +X
+    this.rig.board.position.set(-side * 0.13, 0, 0);
+
+    // ---- pose blend from rider state
     const t = this.target;
     const P = this.poses;
     Object.assign(t, clonePose(P.neutral));
@@ -121,51 +204,59 @@ export class RiderView {
       if (r.jumpCharge > 0) lerpPose(t, t, P.crouch, Math.min(1, r.jumpCharge));
       if (r.landingShock > 0) lerpPose(t, t, P.land, Math.min(1, r.landingShock * 1.5));
     }
+    // ---- physical layer on top of the poses
+    const free = !seated && r.crashed <= 0;
+    if (free) {
+      const g = Math.min(1, Math.abs(r.lateralG));
+      if (r.onGround) t.hipsY -= 0.07 * g; // turn load compresses the legs
+      // arms out for balance with the turn load and in the air
+      // (capped at 80 degrees so a carve's leading arm stays below the shoulder)
+      const bal = 0.2 * g + (r.onGround ? 0 : 0.15), cap = 80 * d2r;
+      t.lShoulder = [t.lShoulder[0], t.lShoulder[1], Math.max(Math.min(t.lShoulder[2], -cap), t.lShoulder[2] - bal)];
+      t.rShoulder = [t.rShoulder[0], t.rShoulder[1], Math.min(Math.max(t.rShoulder[2], cap), t.rShoulder[2] + bal)];
+      // the upper body turns toward the direction of travel when the board slips sideways
+      let slip = 0;
+      if (r.onGround && r.speed > 2) {
+        slip = Math.atan2(r.vx, r.vy) - r.heading;
+        slip = Math.atan2(Math.sin(slip), Math.cos(slip));
+        if (Math.abs(slip) > Math.PI / 2) slip = 0; // backwards: no twist
+      }
+      this.twist += (Math.max(-0.5, Math.min(0.5, -slip * 0.6)) - this.twist) * Math.min(1, dt * 6);
+    } else this.twist *= Math.max(0, 1 - dt * 6);
+    t.torso = [t.torso[0], t.torso[1] + this.twist, t.torso[2]];
     if (this.fp) {
-      // first person: arms closer to the sides (a third of the outward swing) so the front arm is not
-      // held level across the view; the glove still reaches in on carves, tucks and grabs
+      // first person: arms closer to the sides so the front arm is not held level across the view
       t.lShoulder = [t.lShoulder[0], t.lShoulder[1], t.lShoulder[2] * 0.35];
       t.rShoulder = [t.rShoulder[0], t.rShoulder[1], t.rShoulder[2] * 0.35];
-      if (this.discipline === 'ski' && !seated && r.crashed <= 0) {
-        // hands forward and up so the gloves holding the poles sit in the lower corners of the view
-        const fwd = 30 * Math.PI / 180;
-        t.lShoulder = [t.lShoulder[0] + fwd, t.lShoulder[1], t.lShoulder[2]];
-        t.rShoulder = [t.rShoulder[0] + fwd, t.rShoulder[1], t.rShoulder[2]];
-      }
     }
     lerpPose(this.pose, this.pose, t, Math.min(1, dt * (r.crashed > 0 ? 6 : 10)));
-    applyPose(this.joints, this.pose);
-    // idle breathing / balance wobble so a standing rider is not frozen
+    // idle breathing and balance wobble so a standing rider is not frozen
     const now = performance.now() / 1000;
-    this.joints.torso.rotation.x += Math.sin(now * 1.3) * 0.015;
-    this.joints.hips.position.y += Math.sin(now * 2.1) * 0.004;
-    // orientation: board forward along heading, up along the ground normal (blend to world up in the air)
-    const n = this.tmpN.set(r.normal[0], r.normal[2], -r.normal[1]);
-    if (!r.onGround) n.lerp(new THREE.Vector3(0, 1, 0), 0.7).normalize();
-    const f = this.tmpF.set(Math.sin(r.heading), 0, -Math.cos(r.heading));
-    // make f orthogonal to n
-    f.sub(n.clone().multiplyScalar(f.dot(n))).normalize();
-    const right = this.tmpR.crossVectors(f, n).normalize();
-    this.rot.makeBasis(right, n, f.clone().negate());
-    this.q.setFromRotationMatrix(this.rot);
-    this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
-    // ---- carving physics for the picture
-    // inclination: the body leans into the turn until lateral acceleration balances gravity,
-    // phi = atan(a_lat / g), capped at about 50 degrees. lateralG > 0 = turning toward the
-    // board's right-hand side (the toe side in a regular stance).
-    const phi = r.onGround && !seated ? Math.max(-0.7, Math.min(0.7, Math.atan(r.lateralG * 0.8))) : 0; // cap 40 degrees
-    this.leanAngle += (phi - this.leanAngle) * Math.min(1, dt * 8);
-    const L = this.joints.lean, B = this.joints.board;
-    // the board and the rider roll together about the engaged edge (0.13 m off centre) so the
-    // edge stays in the snow and the feet stay on the board; angulation (body leaning more than
-    // the board) comes from the carve poses bending at the waist and knees
-    const side = Math.abs(this.leanAngle) > 0.03 ? Math.sign(this.leanAngle) : 0;
-    L.position.set(side * 0.13, 0, 0);
-    B.position.set(-side * 0.13, 0, 0);
-    this.joints.hips.position.x = -side * 0.13;
-    // rotation about the forward (Z) axis: positive lateralG tips +Y toward +X (the right), a negative Z rotation
-    L.rotation.set(0, 0, -this.leanAngle);
-    B.rotation.set(0, 0, 0);
+    const p = this.pose;
+    const hy = p.hipsY, tx = p.torso[0];
+    p.hipsY += Math.sin(now * 2.1) * 0.004; p.torso[0] += Math.sin(now * 1.3) * 0.015;
+    this.applyFK(p, -side * 0.13);
+    p.hipsY = hy; p.torso[0] = tx;
+
+    // ---- legs: boots pinned to the bindings, or on a chair the board hangs from the feet
+    const rig = this.rig;
+    this.group.updateMatrixWorld(true);
+    if (seated) {
+      hangCarriersFromFeet(rig);
+      this.wasSeated = true;
+      this.footGap = 0;
+    } else {
+      if (this.wasSeated) { restCarriers(rig); this.wasSeated = false; }
+      // knees point where the pelvis faces (the toe edge for a snowboarder, the tips for a skier);
+      // a snowboarder's knees also bow a little toward each other
+      const fwd = this.v1.set(0, 0, -1).applyQuaternion(rig.bones.Hips.getWorldQuaternion(this.pq));
+      const nose = this.v2.set(0, 0, -1).applyQuaternion(this.lean.getWorldQuaternion(this.pq));
+      const k = this.discipline === 'board' ? 0.25 : 0;
+      const lp = this.v3.copy(fwd).addScaledVector(nose, -k);
+      const rp = this.v4.copy(fwd).addScaledVector(nose, k);
+      this.footGap = pinFeet(rig, lp, rp);
+    }
+    if (this.discipline === 'ski') this.skiHands(r, tuck, free);
 
     // snow spray when skidding or braking hard
     const pos = this.sprayPos, vel = this.sprayVel, life = this.sprayLife;
