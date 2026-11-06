@@ -6,12 +6,13 @@ import { LOAD_OFFSET, type LiftRuntime, type Lifts } from '../world/Lifts';
 /**
  * Riding a lift back up. Near a bottom terminal and slow, pressing the board key puts the rider
  * on a chair; the rider then follows the cable at chair speed. Pressing the key again skips to
- * the top; holding the tuck key rides at FAST_FORWARD x speed. At the top the rider is placed a few metres past the terminal, facing downhill.
+ * the top; lifts run at RIDE_SPEEDUP x real speed and holding the tuck key multiplies that by FAST_FORWARD. At the top the rider is placed a few metres past the terminal, facing downhill.
  */
 export const PROMPT_RANGE = 60; // m: show the boarding card
 export const BOARD_RANGE = 14; // m: can press E
 export const BOARD_SPEED = 6; // m/s
-export const FAST_FORWARD = 5; // ride speed multiplier while the tuck key is held
+export const RIDE_SPEEDUP = 4; // real lift speeds feel far too slow in a game: ride at 4x
+export const FAST_FORWARD = 3; // extra multiplier while the tuck key is held (12x real)
 
 export class LiftRide {
   lift: LiftRuntime | null = null;
@@ -56,7 +57,7 @@ export class LiftRide {
     if (boardPressed) this.up = len; // skip to the top
     const before = this.up;
     this.fast = fastHeld;
-    this.up += this.lift.speed * dt * (fastHeld ? FAST_FORWARD : 1);
+    this.up += this.lift.speed * dt * RIDE_SPEEDUP * (fastHeld ? FAST_FORWARD : 1);
     this.passedTower = this.lift.towerUp.some((t) => t > before + LOAD_OFFSET && t <= this.up + LOAD_OFFSET);
     if (this.up >= len) { this.unload(rider); return false; }
     this.place(rider);
