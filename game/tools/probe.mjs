@@ -27,6 +27,6 @@ for (let i = 0; i < 6; i++) {
   log('ride', i, 'wall', Date.now() - t0, JSON.stringify(r));
 }
 const dataUrl = await page.evaluate(() => window.__shot());
-(await import('./outdir.mjs')).guardOutDir('shots'); fs.writeFileSync('shots/probe.png', Buffer.from(dataUrl.split(',')[1], 'base64'));
+fs.writeFileSync('shots/probe.png', Buffer.from(dataUrl.split(',')[1], 'base64'));
 log('shot written');
 await browser.close(); server.close();

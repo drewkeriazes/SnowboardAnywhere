@@ -30,7 +30,7 @@ On a machine without a GPU (cloud sandbox, CI), add `&lowgfx` to the URL (`SHOT_
 - Stats sanity: chunks 300 to 900, triangles under 2M, `fine` loaded tiles grow as the rider moves, `builds` returns to 0 when idle.
 
 ## Judging and recording
-Describe each screenshot in one line in the commit message or PR. Put reference screenshots in `docs/renders/<date>-<label>.png` (copy them there by hand) only when the look changes on purpose (new material, new trees); do not commit `game/shots*/`. The tools enforce this: `tools/outdir.mjs` makes every screenshot tool refuse an output folder that is not gitignored or that holds tracked files, so a run cannot overwrite a committed image. `tools/shoot_spots.mjs` is the one exception: it rewrites the tracked `docs/compare/<pack>/<spot>/eye-*.png` on purpose.
+Describe each screenshot in one line in the commit message or PR. Put reference screenshots in `docs/renders/<date>-<label>.png` (copy them there by hand) only when the look changes on purpose (new material, new trees); do not commit `game/shots*/`. Tool output is always `NN_label.png` in a `game/shots*/` folder and kept references are dated, so a check run never overwrites one; never point a tool's output folder at `docs/`.
 
 ## When it fails
 - Blank or black canvas: check `console issues` lines printed at the end for shader compile errors (TerrainMaterial `onBeforeCompile` string replacements silently fail if Three.js changed a chunk name; grep the shader for `vWorldPos`).
