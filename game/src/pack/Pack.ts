@@ -2,6 +2,10 @@ import { HeightSet } from './HeightSet';
 import { MaskSet } from './MaskSet';
 import type { Features, PackMeta } from './types';
 
+/** A straight bridge deck segment (pack metres). The surface runs from a to b at the given z. */
+export interface Deck { ax: number; ay: number; az: number; bx: number; by: number; bz: number; hw: number }
+const DECK_CELL = 32;
+
 /**
  * A loaded resort pack: metadata, the three height sets, the surface mask and features.
  * `height(x, y, res)` returns the best available height for a requested detail level,
@@ -64,14 +68,61 @@ export class Pack {
     return this.meta.zRange[0];
   }
 
-  /** Best available height for physics (finest loaded set). */
-  groundHeight(x: number, y: number): number {
+  /** Terrain height from the finest loaded set, ignoring bridges. */
+  terrainHeight(x: number, y: number): number {
     for (const s of this.sets) {
       if (!s.contains(x, y)) continue;
       const h = s.sample(x, y);
       if (!Number.isNaN(h)) return h;
     }
     return this.meta.zRange[0];
+  }
+
+  /**
+   * Best available height for physics: terrain, or a bridge deck above it. Pass the rider's z
+   * so something well below a deck (in the gully under it) keeps the terrain.
+   */
+  groundHeight(x: number, y: number, z?: number): number {
+    const t = this.terrainHeight(x, y);
+    if (this.deckGrid.size === 0) return t;
+    const d = this.deckHeight(x, y);
+    if (d > t && (z === undefined || z > d - 2.5)) return d;
+    return t;
+  }
+
+  private readonly deckGrid = new Map<string, Deck[]>();
+  readonly decks: Deck[] = [];
+  private deckHit: Deck | null = null;
+
+  addDeck(d: Deck): void {
+    this.decks.push(d);
+    const pad = d.hw + 1;
+    const x0 = Math.floor((Math.min(d.ax, d.bx) - pad) / DECK_CELL), x1 = Math.floor((Math.max(d.ax, d.bx) + pad) / DECK_CELL);
+    const y0 = Math.floor((Math.min(d.ay, d.by) - pad) / DECK_CELL), y1 = Math.floor((Math.max(d.ay, d.by) + pad) / DECK_CELL);
+    for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+      const k = `${cx},${cy}`;
+      let a = this.deckGrid.get(k);
+      if (!a) { a = []; this.deckGrid.set(k, a); }
+      a.push(d);
+    }
+  }
+
+  /** Highest deck surface over (x, y), or -Infinity. */
+  deckHeight(x: number, y: number): number {
+    const a = this.deckGrid.get(`${Math.floor(x / DECK_CELL)},${Math.floor(y / DECK_CELL)}`);
+    this.deckHit = null;
+    if (!a) return -Infinity;
+    let best = -Infinity;
+    for (const d of a) {
+      const ex = d.bx - d.ax, ey = d.by - d.ay, l2 = ex * ex + ey * ey;
+      const t = ((x - d.ax) * ex + (y - d.ay) * ey) / l2;
+      if (t < 0 || t > 1) continue;
+      const lat = Math.abs((x - d.ax) * ey - (y - d.ay) * ex) / Math.sqrt(l2);
+      if (lat > d.hw) continue;
+      const z = d.az + (d.bz - d.az) * t;
+      if (z > best) { best = z; this.deckHit = d; }
+    }
+    return best;
   }
 
   /** Finest resolution with data at this point (for normal estimation). */
@@ -83,10 +134,20 @@ export class Pack {
   }
 
   /** Ground normal from central differences at the finest loaded resolution. Returns [nx, ny, nz]. */
-  groundNormal(x: number, y: number, out: Float32Array | number[] = [0, 0, 1]): typeof out {
+  groundNormal(x: number, y: number, out: Float32Array | number[] = [0, 0, 1], z?: number): typeof out {
+    if (this.deckGrid.size) {
+      // on a deck: its own plane, so the gully beside it does not tilt the rider
+      const dz = this.deckHeight(x, y), k = this.deckHit;
+      if (k && dz > this.terrainHeight(x, y) && (z === undefined || z > dz - 2.5)) {
+        const ex = k.bx - k.ax, ey = k.by - k.ay, l2 = ex * ex + ey * ey, g = (k.bz - k.az) / l2;
+        const nx = -g * ex, ny = -g * ey, len = Math.hypot(nx, ny, 1);
+        out[0] = nx / len; out[1] = ny / len; out[2] = 1 / len;
+        return out;
+      }
+    }
     const d = Math.max(0.5, this.finestRes(x, y));
-    const hl = this.groundHeight(x - d, y), hr = this.groundHeight(x + d, y);
-    const hd = this.groundHeight(x, y - d), hu = this.groundHeight(x, y + d);
+    const hl = this.terrainHeight(x - d, y), hr = this.terrainHeight(x + d, y);
+    const hd = this.terrainHeight(x, y - d), hu = this.terrainHeight(x, y + d);
     let nx = -(hr - hl) / (2 * d), ny = -(hu - hd) / (2 * d), nz = 1;
     const len = Math.hypot(nx, ny, nz);
     out[0] = nx / len; out[1] = ny / len; out[2] = nz / len;

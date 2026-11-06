@@ -354,6 +354,8 @@ for el in ski["elements"]:
     rec = {"name": t.get("name") or t.get("piste:name"), "difficulty": diff, "groomed": bool(groomed),
            "gladed": t.get("piste:gladed") == "yes" or t.get("gladed") == "yes", "osmId": el["id"], "area": closed,
            "points": [[x, y, ground(x, y)] for x, y in pts]}
+    if t.get("bridge", "no") != "no":
+        rec["bridge"] = True   # bare-earth DEM has no bridge; the client builds a deck
     runs.append(rec)
 log(f"  runs {len(runs)}")
 
@@ -401,7 +403,10 @@ for el in built["elements"]:
     elif "highway" in t and len(pts) >= 2:
         kind = t["highway"]
         width = {"motorway": 24, "trunk": 14, "primary": 10, "secondary": 8, "tertiary": 7, "residential": 6, "service": 4, "track": 3, "path": 1.5, "footway": 1.5}.get(kind, 4)
-        roads.append({"name": t.get("name"), "kind": kind, "width": width, "points": [[x, y, ground(x, y)] for x, y in pts]})
+        rec = {"name": t.get("name"), "kind": kind, "width": width, "points": [[x, y, ground(x, y)] for x, y in pts]}
+        if t.get("bridge", "no") != "no":
+            rec["bridge"] = True
+        roads.append(rec)
 for el in natural["elements"]:
     if el.get("type") == "way" and el.get("tags", {}).get("natural") == "water":
         pts = way_points(el)

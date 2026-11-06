@@ -53,6 +53,9 @@ export interface RunFeature {
   groomed: boolean;
   gladed: boolean;
   osmId?: number | string | null;
+  area?: boolean;
+  /** OSM bridge=*: the way spans a gap the bare-earth DEM does not show */
+  bridge?: boolean;
   points: [number, number, number][];
 }
 
@@ -78,6 +81,7 @@ export interface RoadFeature {
   kind: string;
   points: [number, number, number][];
   width: number;
+  bridge?: boolean;
 }
 
 export interface PeakFeature {

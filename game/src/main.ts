@@ -3,6 +3,7 @@ import { Pack } from './pack/Pack';
 import { Terrain } from './terrain/Terrain';
 import { Rider } from './sim/Rider';
 import { Collider } from './sim/Collider';
+import { Bridges } from './world/Bridges';
 import { Controls } from './sim/Controls';
 import { Vegetation, setVegetationBudget, setVegetationDensity } from './world/Vegetation';
 import { Rocks } from './world/Rocks';
@@ -93,6 +94,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     scene.add(buildings.group);
     const roads = new Roads(pack);
     scene.add(roads.group);
+    const bridges = new Bridges(pack, collider);
+    scene.add(bridges.group);
     const tracks = new Tracks(pack);
     scene.add(tracks.group);
     const riderChair = new RiderChair(lifts.material);
@@ -379,6 +382,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       riderChair.update(carried, rider.x, rider.y, rider.z, rider.heading, liftRide.cableY);
       lifts.update(elapsed, carried ? chairPos.set(rider.x, rider.z, -rider.y) : null);
       lifts.maintain(dt, rider.x, rider.y);
+      bridges.maintain(dt, rider.x, rider.y);
       if (settings.timeOfDay === 'now' || timeParam === 'now') { sunClock += dt; if (sunClock > 60) { sunClock = 0; applySun(settings); } }
       lifts.updateMarkers(elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
       map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;

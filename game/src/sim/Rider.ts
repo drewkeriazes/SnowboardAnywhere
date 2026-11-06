@@ -87,8 +87,8 @@ export class Rider {
 
   private step(dt: number, input: Input): void {
     const pack = this.pack;
-    const n = pack.groundNormal(this.x, this.y, this.normal) as [number, number, number];
-    const ground = pack.groundHeight(this.x, this.y);
+    const n = pack.groundNormal(this.x, this.y, this.normal, this.z) as [number, number, number];
+    const ground = pack.groundHeight(this.x, this.y, this.z);
     this.slopeDeg = Math.acos(Math.min(1, n[2])) * 57.2958;
     if (pack.mask) {
       const m = pack.mask.sample(this.x, this.y, this.maskTmp);
@@ -100,7 +100,7 @@ export class Rider {
       const f = Math.exp(-dt * 2.5);
       this.vx *= f; this.vy *= f;
       this.x += this.vx * dt; this.y += this.vy * dt;
-      this.z = pack.groundHeight(this.x, this.y);
+      this.z = pack.groundHeight(this.x, this.y, this.z);
       this.vz = 0;
       this.speed = Math.hypot(this.vx, this.vy);
       return;
@@ -115,7 +115,7 @@ export class Rider {
       this.heading += input.steer * 3.5 * dt;
       this.x += this.vx * dt; this.y += this.vy * dt; this.z += this.vz * dt;
       this.airTime += dt;
-      const g2 = pack.groundHeight(this.x, this.y);
+      const g2 = pack.groundHeight(this.x, this.y, this.z);
       if (this.z <= g2) {
         this.land(g2, input);
       }
@@ -189,8 +189,8 @@ export class Rider {
     if (!input.jumpHeld) this.jumpCharge = Math.max(0, this.jumpCharge - dt * 3);
 
     // follow the ground; detect leaving it (convex rollovers at speed)
-    const g2 = pack.groundHeight(this.x, this.y);
-    const n2 = pack.groundNormal(this.x, this.y) as number[];
+    const g2 = pack.groundHeight(this.x, this.y, this.z);
+    const n2 = pack.groundNormal(this.x, this.y, undefined, this.z) as number[];
     // vertical velocity implied by following the surface
     const vzSurf = -(this.vx * n2[0] + this.vy * n2[1]) / Math.max(0.2, n2[2]);
     const ballistic = this.vz - G * dt;
@@ -247,7 +247,7 @@ export class Rider {
   }
 
   private land(ground: number, input: Input): void {
-    const n = this.pack.groundNormal(this.x, this.y) as number[];
+    const n = this.pack.groundNormal(this.x, this.y, undefined, this.z) as number[];
     this.z = ground;
     this.onGround = true;
     // impact normal to the surface

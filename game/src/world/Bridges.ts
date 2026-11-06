@@ -1,0 +1,135 @@
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { Deck, Pack } from '../pack/Pack';
+import type { Collider } from '../sim/Collider';
+
+/**
+ * Bridges. The terrain is bare-earth lidar, which has no bridges, so a run or road that crosses
+ * a gully would drop into it. Ways tagged bridge=* in OSM become decks straight away; for packs
+ * built before the pipeline kept that tag, short run/road segments whose straight line passes
+ * well above the loaded 1 m terrain are detected as bridges once the fine tiles arrive.
+ * A deck is registered with the pack (so rider ground follows it), drawn with railings and
+ * girders, and its railings are collider walls.
+ */
+const MIN_SAG = 4; // m the terrain must fall below the chord to count as a gap
+const MAX_SPAN = 120; // m longest segment considered by the detector
+const SCAN_R = 600; // m around the rider to evaluate segments
+const RAIL_H = 1.1;
+
+interface Candidate { a: [number, number, number]; b: [number, number, number]; hw: number; cx: number; cy: number }
+
+export class Bridges {
+  readonly group = new THREE.Group();
+  private readonly pending: Candidate[] = [];
+  private readonly seen = new Set<string>();
+  private acc = 0;
+  private readonly deckMat = new THREE.MeshStandardMaterial({ color: 0xf2f5f8, roughness: 0.9 });
+  private readonly woodMat = new THREE.MeshStandardMaterial({ color: 0x5a4636, roughness: 0.8 });
+  private readonly steelMat = new THREE.MeshStandardMaterial({ color: 0x3d4248, roughness: 0.6, metalness: 0.3 });
+
+  constructor(private readonly pack: Pack, private readonly collider: Collider | null) {
+    const ways: { pts: [number, number, number][]; hw: number; bridge: boolean }[] = [];
+    for (const r of pack.features.runs) if (!r.area && r.points.length >= 2) ways.push({ pts: r.points, hw: 3, bridge: !!r.bridge });
+    for (const r of pack.features.roads) if (r.points.length >= 2) ways.push({ pts: r.points, hw: Math.max(2.5, r.width / 2 + 0.5), bridge: !!r.bridge });
+    for (const w of ways) {
+      if (w.bridge) {
+        // tagged bridge: one straight deck between the abutments (inner nodes may sit over the gap)
+        const a = w.pts[0], b = w.pts[w.pts.length - 1];
+        this.addBridge(a, b, w.hw);
+        continue;
+      }
+      for (let i = 0; i + 1 < w.pts.length; i++) {
+        const a = w.pts[i], b = w.pts[i + 1];
+        const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        if (l < 6 || l > MAX_SPAN) continue;
+        this.pending.push({ a, b, hw: w.hw, cx: (a[0] + b[0]) / 2, cy: (a[1] + b[1]) / 2 });
+      }
+    }
+  }
+
+  /** Evaluate untested segments near the rider whose fine terrain has loaded. */
+  maintain(dt: number, rx: number, ry: number): void {
+    this.acc += dt;
+    if (this.acc < 0.5 || this.pending.length === 0) return;
+    this.acc = 0;
+    const fine = this.pack.fine;
+    if (!fine) return;
+    for (let i = this.pending.length - 1; i >= 0; i--) {
+      const c = this.pending[i];
+      if (Math.hypot(c.cx - rx, c.cy - ry) > SCAN_R) continue;
+      const l = Math.hypot(c.b[0] - c.a[0], c.b[1] - c.a[1]);
+      const n = Math.ceil(l);
+      let maxSag = 0, gap = 0, loaded = true;
+      for (let k = 0; k <= n; k++) {
+        const t = k / n, x = c.a[0] + (c.b[0] - c.a[0]) * t, y = c.a[1] + (c.b[1] - c.a[1]) * t;
+        const h = fine.contains(x, y) ? fine.sample(x, y) : NaN;
+        if (Number.isNaN(h)) { loaded = false; break; }
+        const sag = c.a[2] + (c.b[2] - c.a[2]) * t - h;
+        if (sag > maxSag) maxSag = sag;
+        if (sag > 1.5) gap++;
+      }
+      if (!loaded) continue;
+      this.pending.splice(i, 1);
+      // a real gap: deep, and a good part of the segment hangs over it (not a long gentle dip)
+      if (maxSag >= MIN_SAG && maxSag >= 0.06 * l && gap >= 0.25 * n) this.addBridge(c.a, c.b, c.hw);
+    }
+  }
+
+  private addBridge(a: [number, number, number], b: [number, number, number], hw: number): void {
+    const key = [a[0], a[1], b[0], b[1]].map((v) => Math.round(v)).join(',');
+    const rev = [b[0], b[1], a[0], a[1]].map((v) => Math.round(v)).join(',');
+    if (this.seen.has(key) || this.seen.has(rev)) return;
+    this.seen.add(key);
+    const lift = 0.15; // snow on the deck
+    const d: Deck = { ax: a[0], ay: a[1], az: a[2] + lift, bx: b[0], by: b[1], bz: b[2] + lift, hw };
+    this.pack.addDeck(d);
+    this.build(d);
+  }
+
+  private build(d: Deck): void {
+    const dx = d.bx - d.ax, dy = d.by - d.ay, dz = d.bz - d.az;
+    const lh = Math.hypot(dx, dy), l3 = Math.hypot(lh, dz);
+    const frame = new THREE.Object3D();
+    frame.position.set((d.ax + d.bx) / 2, (d.az + d.bz) / 2, -(d.ay + d.by) / 2);
+    frame.rotation.set(0, Math.atan2(dy, dx), Math.atan2(dz, lh), 'YZX');
+    frame.updateMatrix();
+    const piece = (w: number, h: number, depth: number, x: number, y: number, z: number) => {
+      const g = new THREE.BoxGeometry(w, h, depth);
+      g.translate(x, y, z);
+      return g;
+    };
+    // snow-covered deck and steel girders underneath, a little longer than the span to bite into the banks
+    const len = l3 + 4;
+    const deck = piece(len, 0.3, d.hw * 2, 0, -0.15, 0);
+    const girders = mergeGeometries([piece(len, 1.2, 0.4, 0, -0.9, d.hw - 0.6), piece(len, 1.2, 0.4, 0, -0.9, -(d.hw - 0.6))]);
+    // wooden railings: posts every 2.5 m and a top rail on each side
+    const wood: THREE.BufferGeometry[] = [];
+    for (const side of [-1, 1]) {
+      const z = side * (d.hw - 0.1);
+      wood.push(piece(l3, 0.12, 0.12, 0, RAIL_H, z), piece(l3, 0.1, 0.08, 0, RAIL_H * 0.5, z));
+      for (let s = -l3 / 2; s <= l3 / 2 + 0.01; s += 2.5) wood.push(piece(0.14, RAIL_H, 0.14, s, RAIL_H / 2, z));
+    }
+    const out: [THREE.BufferGeometry, THREE.Material][] = [[deck, this.deckMat], [girders, this.steelMat], [mergeGeometries(wood), this.woodMat]];
+    for (const [g, m] of out) {
+      g.applyMatrix4(frame.matrix);
+      const mesh = new THREE.Mesh(g, m);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      this.group.add(mesh);
+    }
+    // railings stop the rider (5 m pieces so each wall's z band follows the deck slope)
+    if (this.collider) {
+      const lx = -dy / lh, ly = dx / lh;
+      const n = Math.max(1, Math.ceil(lh / 5));
+      for (const side of [-1, 1]) {
+        const ox = lx * side * (d.hw - 0.1), oy = ly * side * (d.hw - 0.1);
+        for (let i = 0; i < n; i++) {
+          const t0 = i / n, t1 = (i + 1) / n;
+          const z0 = d.az + dz * t0, z1 = d.az + dz * t1;
+          this.collider.addWall(d.ax + dx * t0 + ox, d.ay + dy * t0 + oy, d.ax + dx * t1 + ox, d.ay + dy * t1 + oy, Math.min(z0, z1) - 0.3, Math.max(z0, z1) + RAIL_H);
+        }
+      }
+    }
+  }
+
+  get count(): number { return this.pack.decks.length; }
+}
