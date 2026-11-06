@@ -347,9 +347,9 @@ for el in ski["elements"]:
         continue
     diff = DIFF.get(t.get("piste:difficulty", ""), None)
     grooming = t.get("piste:grooming")
-    groomed = grooming in ("classic", "mogul", "classic+skating", "skating", "scooter") or (grooming is None and diff in ("novice", "easy", "intermediate"))
-    if grooming == "backcountry":
-        groomed = False
+    # groomed only where the map says so (piste:grooming); no guessing from difficulty, and mogul
+    # runs are not corduroy. The game is 1:1 with real data: an untagged run stays ungroomed snow.
+    groomed = grooming in ("classic", "classic+skating", "skating", "scooter")
     closed = pts[0] == pts[-1] and len(pts) > 3 and t.get("area") == "yes"
     rec = {"name": t.get("name") or t.get("piste:name"), "difficulty": diff, "groomed": bool(groomed),
            "gladed": t.get("piste:gladed") == "yes" or t.get("gladed") == "yes", "osmId": el["id"], "area": closed,
@@ -358,6 +358,56 @@ for el in ski["elements"]:
         rec["bridge"] = True   # bare-earth DEM has no bridge; the client builds a deck
     runs.append(rec)
 log(f"  runs {len(runs)}")
+
+# real grooming: the resort's own nightly reports (raw/<slug>/grooming/*.json from fetch_grooming.py).
+# A run is groomed if the resort groomed it on any saved night (or OSM tags it groomed above).
+# Names are compared with case, spaces and punctuation ignored; "Run - Section" also matches on the
+# run ("Simba - Lower" in the report vs one "Simba" way in OSM) when the exact section is not in both.
+# cfg["grooming_aliases"] maps report spellings to OSM ones ("mil creek road" -> "mill creek road").
+import re as _re
+def run_key(n):
+    return _re.sub(r"[^a-z0-9]", "", (n or "").lower())
+def run_base(n):
+    return run_key((n or "").split(" - ")[0])
+aliases = {run_key(a): run_key(b) for a, b in cfg.get("grooming_aliases", {}).items()}
+groom_nights = {}       # report trail key -> nights groomed
+base_nights = {}        # report run base -> nights any section was groomed
+listed = set()          # every trail key the reports list, groomed or not
+run_base_of = {}        # report trail key -> its run base
+reports = sorted(glob.glob(os.path.join(raw, "grooming", "*.json")))
+for fp in reports:
+    for tr in json.load(open(fp, encoding="utf-8"))["trails"]:
+        k = run_key(tr["name"]); k = aliases.get(k, k)
+        b = run_base(tr["name"]); b = aliases.get(b, b)
+        listed.add(k); run_base_of[k] = b
+        groom_nights.setdefault(k, 0); base_nights.setdefault(b, 0)
+        if tr["groomed"]:
+            groom_nights[k] += 1; base_nights[b] += 1
+if reports:
+    reported = {k for k, c in groom_nights.items() if c > 0}
+    matched = set()
+    for r in runs:
+        k, b = run_key(r["name"]), run_base(r["name"])
+        if not k:
+            continue
+        if k in listed:                       # the report names this exact run or section
+            nights = groom_nights.get(k, 0)
+            if nights:
+                matched.add(k)
+        else:                                 # match on the run, any section
+            nights = base_nights.get(b, 0)
+            if nights:
+                matched.update(x for x in reported if run_base_of.get(x) == b)
+        if nights:
+            r["groomed"] = True
+            r["groomNights"] = nights
+    log(f"  grooming reports {len(reports)}: {len(reported)} trails groomed on some night, "
+        f"{len(matched)} matched to OSM runs; groomed runs now {sum(1 for r in runs if r['groomed'])}")
+    missing = sorted(reported - matched)
+    if missing:
+        log(f"  groomed in reports but no OSM run of that name: {', '.join(missing[:40])}{' ...' if len(missing) > 40 else ''}")
+else:
+    log("  no grooming reports (raw/<slug>/grooming/*.json); groomed = OSM piste:grooming tags only")
 
 # lifts: aerialway ways + pylon/station nodes
 nodes_by_id = {el["id"]: el for el in ski["elements"] if el.get("type") == "node"}
@@ -553,7 +603,8 @@ lon_c, lat_c = to_ll.transform(OX, OY)
 def run_length(r):
     pts = r["points"]
     return sum(math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) for i in range(len(pts) - 1))
-cands = [r for r in runs if not r.get("area") and r["groomed"] and len(r["points"]) >= 2]
+# spawn choice only (not surface data): any green or blue run, groomed or not
+cands = [r for r in runs if not r.get("area") and (r["groomed"] or r["difficulty"] in ("novice", "easy", "intermediate")) and len(r["points"]) >= 2]
 want = cfg.get("start_run")
 named = [r for r in cands if want and r["name"] == want]
 if named:

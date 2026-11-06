@@ -1,6 +1,6 @@
 # Vail raw data inventory and fetch lessons
 
-Last updated 2026-11-05. Status: fetch COMPLETE for Vail.
+Last updated 2026-11-06. Status: fetch COMPLETE for Vail.
 
 Location: `raw/` at the repo root (gitignored). On Drew's PC that is `C:\Users\Drew\git\SnowboardAnywhere\raw\`. Stage files from there into a cloud session with the remote-devices tools; the data hosts are not reachable from the sandbox.
 
@@ -14,6 +14,8 @@ Location: `raw/` at the repo root (gitignored). On Drew's PC that is `C:\Users\D
 | `ept/` | `ept.json` + 388 x `{node}.laz` | 3DEP lidar Entwine Point Tiles (`USGS_LPC_CO_Central_Western_2016_LAS_2018`), pre-selected nodes covering the resort | SRS is EPSG:3857, see `docs/research/vegetation-and-landcover.md` for the scale trap. Read with laspy[lazrs]. |
 | `mapterhorn/{z}/` | 210 x `{x}_{y}.webp` | Terrarium-encoded 512 px WebP terrain tiles, far ring to ~100 km | Decode: `h = (R*256 + G + B/256) - 32768` metres. |
 | `osm/` | `ski.json`, `built.json`, `natural.json`, `peaks_far.json`, `places_far.json` | OpenStreetMap, Overpass `out geom` JSON format | Elements carry `type`, `id`, `tags`, plus `lat/lon` (nodes), `geometry[]` + `bounds` + `nodes[]` (ways), `members[]` with per-member `geometry` (relations). |
+| `landfire/` | LANDFIRE EVT clip (`*.tif` + `.tif.vat.dbf` class table) | Existing vegetation type, from `fetch_landfire.mjs` | Drives tree species and forest extent. A build without it falls back to NAIP-colour species and logs "no LANDFIRE clip". |
+| `grooming/` | 39 x `{wayback timestamp}.json` (Apr 2022 to Apr 2026) | Vail's own nightly grooming report: every trail with name, area, difficulty, open and groomed, from `FR.TerrainStatusFeed` on vail.com's terrain status page, via Internet Archive snapshots | From `fetch_grooming.py`. `build_pack.py` marks a run groomed if Vail groomed it on any saved night (plus OSM `piste:grooming` tags); nothing is inferred from difficulty. Names are joined to OSM ignoring case and punctuation, then by run base ("Simba - Lower" to "Simba"); `grooming_aliases` in the resort config covers spelling differences. vail.com itself returns 403 to scripted requests, so the live page is only saved by hand. |
 | `names/` | `gnis.json` | USGS GNIS official names: 1750 features in the far box (1174 Summits, 413 Populated Places, 118 Ridges, 22 Ranges), 34 inside the resort box | No elevations in the current GNIS format; sample from the DEM. Use for horizon labels. |
 
 Also `raw/static/`: `colorado-latest.osm.pbf` (369 MB Geofabrik extract, 2026-11-02) and `DomesticNames_CO_Text.zip` (USGS GNIS). These are the source for `osm/*` and `names/*` and can regenerate them for any Colorado resort with `pipeline/extract_osm.py` (pyosmium, ~5 min per run).
@@ -37,7 +39,8 @@ Also `raw/static/`: `colorado-latest.osm.pbf` (369 MB Geofabrik extract, 2026-11
 - `gen_manifest.py`: builds `manifests/vail.json` from `resorts/vail.json` (needs pyproj). DEM chunk size is `dem.chunk_px` in the resort config (1500).
 - `fetch_static.ps1` + `fetch_static.cmd` (repo root): downloads the Geofabrik PBF and GNIS zip.
 - `extract_osm.py <pbf> <gnis.txt> <out> --near lat0,lon0,lat1,lon1 --far ...`: produces `osm/*.json` and `names/gnis.json`.
-- `resorts/vail.json`: origin, UTM bbox, lonlat bbox, mid/far ring sizes, NAIP item bboxes, EPT path and node list.
+- `fetch_grooming.py <slug> <raw_dir>`: the resort's grooming history from archived snapshots of `terrain_status_url` (stdlib + curl, resumable).
+- `resorts/vail.json`: origin, UTM bbox, lonlat bbox, mid/far ring sizes, NAIP item bboxes, EPT path and node list, `terrain_status_url`, `grooming_aliases`.
 
 ## Adding a second resort
 1. Copy `pipeline/resorts/vail.json` to `<slug>.json`, set origin, bboxes, EPT dataset (check the 3DEP index at `usgs.entwine.io/boundaries/resources.geojson`) and NAIP item ids.

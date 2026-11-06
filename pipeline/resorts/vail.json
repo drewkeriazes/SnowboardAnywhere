@@ -126,5 +126,7 @@
     "Background terrain: Mapterhorn (mapterhorn.com)",
     "Runs, lifts, buildings, roads, names: OpenStreetMap contributors (ODbL)"
   ],
-  "start_run": "Born Free"
+  "start_run": "Born Free",
+  "grooming_aliases": {"Mil Creek Road": "Mill Creek Road", "Ruder's": "Ruder's Run"},
+  "terrain_status_url": "https://www.vail.com/the-mountain/mountain-conditions/terrain-and-lift-status.aspx"
 }
