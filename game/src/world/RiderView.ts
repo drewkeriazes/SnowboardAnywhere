@@ -17,11 +17,14 @@ function sprayTexture(): THREE.Texture {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
+/** Layer the body is also drawn on, so first person can redraw it with a close near plane. */
+export const BODY_LAYER = 1;
+
 export class RiderView {
   readonly group = new THREE.Group();
+  private fp = false;
   readonly mats: RiderMaterials;
   private joints: Joints;
-  private body: THREE.Group;
   private root: THREE.Group;
   private poses: Record<string, Pose> = POSES;
   discipline: 'board' | 'ski' = 'board';
@@ -43,10 +46,10 @@ export class RiderView {
     const built = buildRider();
     this.mats = built.mats;
     this.joints = built.joints;
-    this.body = built.joints.hips;
     this.root = built.root;
     this.group.add(built.root);
     applyPose(this.joints, this.pose);
+    this.tagBody();
 
     const n = 400;
     this.sprayPos = new Float32Array(n * 3);
@@ -66,15 +69,17 @@ export class RiderView {
   setDiscipline(d: 'board' | 'ski'): void {
     if (d === this.discipline) return;
     this.discipline = d;
-    const fp = !this.body.visible;
     this.group.remove(this.root);
     const built = buildRider(this.mats, d);
-    this.joints = built.joints; this.body = built.joints.hips; this.root = built.root;
+    this.joints = built.joints; this.root = built.root;
     this.group.add(built.root);
     this.poses = d === 'ski' ? SKI_POSES : POSES;
     Object.assign(this.pose, clonePose(this.poses.neutral));
-    this.body.visible = !fp;
+    this.tagBody();
+    this.setFirstPerson(this.fp);
   }
+
+  private tagBody(): void { this.root.traverse((o) => o.layers.enable(BODY_LAYER)); }
 
   /** Apply outfit colours (hex strings) to the material slots. */
   setOutfit(o: { jacket: string; pants: string; helmet: string; board: string; gloves: string }): void {
@@ -82,8 +87,23 @@ export class RiderView {
     this.mats.board.color.set(o.board); this.mats.gloves.color.set(o.gloves);
   }
 
-  /** Hide the body (keep the board) for first person. */
-  setFirstPerson(fp: boolean): void { this.body.visible = !fp; }
+  /**
+   * First person: hide the head, the torso shell and the pelvis block (within a few tens of cm of the
+   * eye, so they would fill the view or be seen from inside); arms, legs, boots and the board stay in
+   * view. The arms are also lowered toward the sides (see update) so they do not hang across the view.
+   */
+  setFirstPerson(fp: boolean): void {
+    this.fp = fp;
+    const j = this.joints;
+    j.head.visible = !fp;
+    for (const g of [j.torso, j.hips]) for (const c of g.children) if ((c as THREE.Mesh).isMesh) c.visible = !fp;
+  }
+
+  /** World position of the eyes (three.js frame), from the posed head, for the first-person camera. */
+  eye(out: THREE.Vector3): THREE.Vector3 {
+    this.group.updateMatrixWorld(true);
+    return out.set(0, 0.1, 0).applyMatrix4(this.joints.head.matrixWorld);
+  }
 
   update(r: Rider, dt: number, tuck: boolean, grab = false, seated = false): void {
     this.group.position.set(r.x, r.z, -r.y);
@@ -100,6 +120,12 @@ export class RiderView {
       if (tuck) lerpPose(t, t, P.tuck, 0.85);
       if (r.jumpCharge > 0) lerpPose(t, t, P.crouch, Math.min(1, r.jumpCharge));
       if (r.landingShock > 0) lerpPose(t, t, P.land, Math.min(1, r.landingShock * 1.5));
+    }
+    if (this.fp) {
+      // first person: arms closer to the sides (a third of the outward swing) so the front arm is not
+      // held level across the view; the glove still reaches in on carves, tucks and grabs
+      t.lShoulder = [t.lShoulder[0], t.lShoulder[1], t.lShoulder[2] * 0.35];
+      t.rShoulder = [t.rShoulder[0], t.rShoulder[1], t.rShoulder[2] * 0.35];
     }
     lerpPose(this.pose, this.pose, t, Math.min(1, dt * (r.crashed > 0 ? 6 : 10)));
     applyPose(this.joints, this.pose);

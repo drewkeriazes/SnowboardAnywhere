@@ -10,7 +10,8 @@ import { Rocks } from './world/Rocks';
 import { Lifts } from './world/Lifts';
 import { RunsOverlay } from './world/RunsOverlay';
 import { Environment } from './world/Sky';
-import { RiderView } from './world/RiderView';
+import { RiderView, BODY_LAYER } from './world/RiderView';
+import { GoggleView } from './ui/GoggleView';
 import { ChaseCamera } from './world/ChaseCamera';
 import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
@@ -143,7 +144,12 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     for (const m of Object.values(riderView.mats)) env.registerMaterial(m);
     let csmSize = 0;
     if (!params.has('noimpostors')) veg.enableImpostors(renderer, true);
-    const vignette = document.getElementById('vignette')!;
+    const goggles = new GoggleView();
+    // first person redraws the body with a close near plane so knees, gloves and the board are not clipped
+    const bodyCam = new THREE.PerspectiveCamera(70, 1, 0.05, 30);
+    bodyCam.layers.set(BODY_LAYER);
+    env.sun.layers.enable(BODY_LAYER); env.hemi.layers.enable(BODY_LAYER);
+    const eye = new THREE.Vector3();
 
     // ---------------------------------------------------------------- sun / time of day
     const [lon, lat] = pack.meta.lonlat;
@@ -277,7 +283,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       audio.onTrack = null;
       showPrompt('');
       hud.innerHTML = '';
-      vignette.classList.remove('show');
+      goggles.destroy();
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
         if (m.geometry) m.geometry.dispose();
@@ -295,6 +301,20 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const speedStr = (ms: number) => settings.units === 'metric' ? `${(ms * 3.6).toFixed(0)}</b> km/h` : `${(ms * 2.23694).toFixed(0)}</b> mph`;
     const altStr = (m: number) => settings.units === 'metric' ? `${m.toFixed(0)} m` : `${(m * 3.28084).toFixed(0)} ft`;
 
+    /** Main render, then in first person the body again over a cleared depth buffer (near 0.05 m). */
+    function render(): void {
+      renderer.render(scene, cam.camera);
+      if (cam.mode !== 'fp') return;
+      for (const l of env.csm?.lights ?? []) l.layers.enable(BODY_LAYER);
+      bodyCam.position.copy(cam.camera.position); bodyCam.quaternion.copy(cam.camera.quaternion);
+      if (bodyCam.fov !== cam.camera.fov || bodyCam.aspect !== cam.camera.aspect) { bodyCam.fov = cam.camera.fov; bodyCam.aspect = cam.camera.aspect; bodyCam.updateProjectionMatrix(); }
+      const auto = renderer.autoClear, shadows = renderer.shadowMap.autoUpdate;
+      renderer.autoClear = false; renderer.shadowMap.autoUpdate = false; // reuse this frame's shadow maps
+      renderer.clearDepth();
+      renderer.render(scene, bodyCam);
+      renderer.autoClear = auto; renderer.shadowMap.autoUpdate = shadows;
+    }
+
     function frame(): void {
       if (!alive) return;
       const now = performance.now();
@@ -303,7 +323,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       const input = controls.update();
       // pause has priority; Esc closes the map first if it is open
       if (controls.once('Escape') || touch?.once('pause')) { if (map.fullOpen) map.close(); else setPaused(!paused); }
-      if (paused) { controls.endFrame(); touch?.pressed.clear(); renderer.render(scene, cam.camera); if (!headless) requestAnimationFrame(frame); return; }
+      if (paused) { controls.endFrame(); touch?.pressed.clear(); render(); if (!headless) requestAnimationFrame(frame); return; }
       touch?.setVisible(!map.fullOpen);
       elapsed += dt;
       if (controls.action('restart')) { liftRide.cancel(); trial.cancel('Restarted'); rider.reset(sx, sy, sh); cam.snapTo(rider); }
@@ -370,9 +390,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       audio.update(rider, input.tuck, onLift, dt, liftRide.passedTower);
       rider.lastHit = '';
       if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
-      else if (cam.mode === 'fp') { cam.updateFirstPerson(rider, dt, input.tuck, onLift || controls.looking, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
+      else if (cam.mode === 'fp') { cam.updateFirstPerson(rider, dt, input.tuck, onLift || controls.looking, mouseDx, mouseDy, riderView.eye(eye)); mouseDx = mouseDy = 0; }
       else { cam.freeLook(controls.looking, dt, mouseDx, mouseDy); mouseDx = mouseDy = 0; cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); }
-      vignette.classList.toggle('show', cam.mode === 'fp' && settings.fpVignette);
+      goggles.strength = settings.goggleStrength;
+      goggles.update(rider, dt, cam.mode === 'fp', cam.mode === 'fp' && settings.fpVignette, onLift);
       cam.camera.updateMatrixWorld();
       env.updateCSM();
       veg.setSun(env.sun.color, env.sun.intensity);
@@ -407,7 +428,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (map.fullOpen) { if (fpsN % 10 === 0) map.drawFull(); }
       else if (fpsN % 3 === 0) map.drawMini(rider.x, rider.y, rider.heading);
       labels.update(cam.camera, settings.units === 'metric');
-      renderer.render(scene, cam.camera);
+      render();
       controls.endFrame();
 
       fpsAcc += dt; fpsN++;

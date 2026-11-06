@@ -25,7 +25,10 @@ export interface Settings {
   fov: number; // base chase FOV, 50 .. 100
   invertSteer: boolean;
   camera: CamMode;
+  /** first-person goggle frame and lens tint (was the plain vignette) */
   fpVignette: boolean;
+  /** goggle frame strength 0..1 */
+  goggleStrength: number;
   showMarkers: boolean;
   showLabels: boolean; // peak and town names
   /** time trials: start/finish gates on real runs, timer, ghost of your best run (off by default) */
@@ -57,7 +60,7 @@ const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer r
 
 const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Ska-punk', quality: 'high', shadows: true, csmExperimental: false, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-  fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, showMarkers: true, showLabels: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
+  fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
 };
 const KEY = 'settings';
 
@@ -123,7 +126,8 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Trees</label><input type="range" data-k="treeDensity" min="0.25" max="1" step="0.05"></div>
       <div class="row"><label>Resolution</label><input type="range" data-k="pixelRatio" min="0.5" max="2" step="0.25"></div>
       <div class="row"><label>Field of view</label><input type="range" data-k="fov" min="50" max="100" step="1"><span class="val" data-v="fov"></span></div>
-      <div class="row"><label>FP vignette</label><input type="checkbox" data-k="fpVignette"></div>
+      <div class="row"><label>FP goggles</label><input type="checkbox" data-k="fpVignette"></div>
+      <div class="row"><label>Goggle frame</label><input type="range" data-k="goggleStrength" min="0" max="1" step="0.05"></div>
     </div>
     <div class="tab hidden" data-t="controls">
       <div class="row"><label>Invert steer</label><input type="checkbox" data-k="invertSteer"></div>

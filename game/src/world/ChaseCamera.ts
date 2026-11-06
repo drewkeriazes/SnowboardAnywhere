@@ -79,11 +79,17 @@ export class ChaseCamera {
     this.camera.updateProjectionMatrix();
   }
 
+  /** hard-landing shake, 0..1, decays */
+  private shake = 0;
+  private lastShock = 0;
+
   /**
-   * First person: helmet height, looks along the velocity with a little lag, rolls into carves,
-   * bobs with speed, dips on landings. On a lift `onLift` enables mouse free look.
+   * First person: the eye sits at the posed rider's head (`eye`, from RiderView) a little in front
+   * of it, so tucks, carves and landings move the view with the body. Looks along the velocity with
+   * a little lag, rolls into carves, bobs with speed, shakes on hard landings. On a lift `onLift`
+   * enables mouse free look. Without `eye` it falls back to a fixed helmet height.
    */
-  updateFirstPerson(r: Rider, dt: number, tuck: boolean, onLift: boolean, mouseDx: number, mouseDy: number): void {
+  updateFirstPerson(r: Rider, dt: number, tuck: boolean, onLift: boolean, mouseDx: number, mouseDy: number, eye: THREE.Vector3 | null = null): void {
     const spd = Math.hypot(r.vx, r.vy);
     // heading to look along: velocity when moving, board heading when slow or airborne
     const hx = Math.sin(r.heading), hy = Math.cos(r.heading);
@@ -107,27 +113,39 @@ export class ChaseCamera {
     const bobAmp = r.onGround && !onLift ? Math.min(0.06, spd * 0.003) * (1 - r.surface.groomed * 0.5) : 0;
     this.fpBob += dt * (4 + spd * 0.3);
     const bob = Math.sin(this.fpBob) * bobAmp;
-    const eye = 1.6 - this.fpDip * 0.5 + bob + (onLift ? 0.2 : 0);
     // ground normal tilt so the head stays upright-ish relative to the slope, blended toward world up
     const n = this.fpUp.set(r.normal[0] * 0.35, 1, -r.normal[1] * 0.35).normalize();
-    this.fpPos.set(r.x, r.z, -r.y).addScaledVector(n, eye).addScaledVector(this.fpLook, 0.15);
+    if (eye) {
+      // the posed head already crouches, tucks and compresses; 0.12 m forward keeps the helmet behind the eye
+      this.fpPos.copy(eye).addScaledVector(n, bob).addScaledVector(this.fpLook, 0.12);
+    } else {
+      const h = 1.6 - this.fpDip * 0.5 + bob + (onLift ? 0.2 : 0);
+      this.fpPos.set(r.x, r.z, -r.y).addScaledVector(n, h).addScaledVector(this.fpLook, 0.15);
+    }
+    // hard landing: a short shake (a darken pulse is drawn by the goggle overlay)
+    if (r.landingShock > this.lastShock + 0.2 && r.landingShock > 0.4) this.shake = Math.min(1, r.landingShock);
+    this.lastShock = r.landingShock;
+    this.shake *= Math.exp(-dt * 7);
+    const sk = this.shake * this.shake;
+    const jx = (Math.random() - 0.5) * 0.06 * sk, jy = (Math.random() - 0.5) * 0.08 * sk;
+    this.fpPos.y += (Math.random() - 0.5) * 0.08 * sk;
     // roll into carves
     const rollT = r.onGround && !onLift ? -r.edgeAngle * 0.22 : 0;
     this.fpRoll += (rollT - this.fpRoll) * Math.min(1, dt * 6);
     // pitch: look slightly down the slope, more when tucking
-    const slopePitch = r.onGround ? Math.atan2(-(r.vx * r.normal[0] + r.vy * r.normal[1]), Math.max(0.3, spd)) * 0.5 : 0; // negative = looking downhill
-    const pitch = THREE.MathUtils.clamp(slopePitch - (tuck ? 0.12 : 0) + this.lookPitch, -1.2, 1.2);
+    const slopePitch = r.onGround ? Math.atan2(-(r.vx * r.normal[0] + r.vy * r.normal[1]), Math.max(0.3, spd)) * 0.25 : 0; // negative = looking downhill (a quarter of the slope)
+    const pitch = THREE.MathUtils.clamp(slopePitch - (tuck ? 0.06 : 0) + this.lookPitch + jy, -1.2, 1.2);
     const yaw = Math.atan2(this.fpLook.x, -this.fpLook.z) + this.lookYaw;
     // build orientation: yaw about up, then pitch, then roll about the view axis
     // camera forward is -Z; a yaw of `yaw` (clockwise from north) is a rotation of -yaw about +Y
-    const e = new THREE.Euler(pitch, -yaw, this.fpRoll, 'YXZ');
+    const e = new THREE.Euler(pitch, -yaw, this.fpRoll + jx, 'YXZ');
     this.fpQ.setFromEuler(e);
     this.camera.position.copy(this.fpPos);
     this.camera.quaternion.copy(this.fpQ);
     // keep the eye out of the snow
     const ground = this.pack.groundHeight(this.fpPos.x, -this.fpPos.z);
     if (this.camera.position.y < ground + 0.6) this.camera.position.y = ground + 0.6;
-    const fov = this.baseFov + 24 + Math.min(14, r.speed * 0.4) + (tuck ? 3 : 0) - r.landingShock * 6;
+    const fov = this.baseFov + 30 + Math.min(14, r.speed * 0.4) + (tuck ? 3 : 0) - r.landingShock * 6;
     this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 5);
     this.camera.updateProjectionMatrix();
     void this.fpM;
