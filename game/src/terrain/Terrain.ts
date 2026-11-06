@@ -180,6 +180,10 @@ export class Terrain {
     const nor = new Float32Array(vertCount * 3);
     const col = new Float32Array(vertCount * 3);
     const forest = new Float32Array(vertCount);
+    // smoothed downhill direction (three.js xz, length = slope) for groomer corduroy; heights 6 m
+    // either side so the ridges follow the run, not every 1 m bump
+    const fall = new Float32Array(vertCount * 2);
+    const FR = 6;
     const heights = new Float32Array((n + 2) * (n + 2)); // with a 1-sample border for normals
     // sample heights including border
     let dataRes = Infinity;
@@ -217,6 +221,11 @@ export class Terrain {
         const steep = THREE.MathUtils.smoothstep(slope, 0.72, 1.0); // 41..57 degrees
         rock = Math.max(rock, steep);
         col[v * 3] = rock; col[v * 3 + 1] = scree * (1 - rock); col[v * 3 + 2] = groom * (1 - rock);
+        if (groom > 0.02) {
+          const gx = (pack.height(x + FR, y, res) - pack.height(x - FR, y, res)) / (2 * FR);
+          const gy = (pack.height(x, y + FR, res) - pack.height(x, y - FR, res)) / (2 * FR);
+          fall[v * 2] = -gx; fall[v * 2 + 1] = gy; // downhill east, and z = -north
+        }
         v++;
       }
     }
@@ -232,6 +241,7 @@ export class Terrain {
       pos[v * 3] = pos[e * 3]; pos[v * 3 + 1] = pos[e * 3 + 1] - skirt; pos[v * 3 + 2] = pos[e * 3 + 2];
       nor[v * 3] = nor[e * 3]; nor[v * 3 + 1] = nor[e * 3 + 1]; nor[v * 3 + 2] = nor[e * 3 + 2];
       col[v * 3] = col[e * 3]; col[v * 3 + 1] = col[e * 3 + 1]; col[v * 3 + 2] = col[e * 3 + 2]; forest[v] = forest[e];
+      fall[v * 2] = fall[e * 2]; fall[v * 2 + 1] = fall[e * 2 + 1];
       v++;
     }
     const idx: number[] = [];
@@ -255,6 +265,7 @@ export class Terrain {
     geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setAttribute('forest', new THREE.BufferAttribute(forest, 1));
+    geo.setAttribute('fall', new THREE.BufferAttribute(fall, 2));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
     if (c.mesh) {
