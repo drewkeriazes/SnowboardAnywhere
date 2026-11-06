@@ -121,7 +121,7 @@ export class RiderView {
     // inclination: the body leans into the turn until lateral acceleration balances gravity,
     // phi = atan(a_lat / g), capped at about 50 degrees. lateralG > 0 = turning toward the
     // board's right-hand side (the toe side in a regular stance).
-    const phi = r.onGround && !seated ? Math.max(-0.87, Math.min(0.87, Math.atan(r.lateralG))) : 0;
+    const phi = r.onGround && !seated ? Math.max(-0.7, Math.min(0.7, Math.atan(r.lateralG * 0.8))) : 0; // cap 40 degrees
     this.leanAngle += (phi - this.leanAngle) * Math.min(1, dt * 8);
     const L = this.joints.lean, B = this.joints.board;
     // the board and the rider roll together about the engaged edge (0.13 m off centre) so the
