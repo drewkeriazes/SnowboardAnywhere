@@ -17,3 +17,8 @@ Real: Street View, Jan 2019 (link in spot.json; not stored here). Game: `game-ea
 - Game shot was taken from high above. Re-shoot at eye height looking 305 degrees, 15 degrees up.
 
 - Extra game shot `game-chase-549-121.png` (chase camera at -549, 121, about 70 m north-east of the spot, looking roughly east): the slope edge there has only 2 or 3 trees, where the real north-west view shows a dense stand edge.
+
+## North-west, matched (`game-northwest.png`, at -616, 92, heading 305, near eye height)
+- **Trees:** the real view is a dense wall of tall spruce/fir along the crest, filling the skyline. The game shows the same crest with the lift line and patrol huts, but only about 12 small trees spread thinly along it, plus one lone tree on the right. This is the clearest BUG-023 evidence so far.
+- **Slope:** the real slope rises steeply right in front of the camera (the photo is tilted 15 degrees up). The game rises gently (9 degrees under the rider) to the ridge 300+ m away. Street View positions can be off by tens of metres, so check the DEM profile along 305 degrees before calling it a terrain error.
+- **Track:** the rider's own track shows as a bright white X in the foreground (BUG-021).
