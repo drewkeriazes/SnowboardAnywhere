@@ -65,7 +65,7 @@ export class Environment {
   disableCSM(): void {
     if (!this.csm) return;
     this.csm.remove(); this.csm.dispose(); this.csm = null;
-    for (const m of this.registered) { (m as any).onBeforeCompile = (m as any).userData.baseHook ?? undefined; m.needsUpdate = true; }
+    for (const m of this.registered) { if ((m as any).userData.baseHook) (m as any).onBeforeCompile = (m as any).userData.baseHook; else delete (m as any).onBeforeCompile; delete (m as any).customProgramCacheKey; m.needsUpdate = true; }
   }
   /** Register a material so it receives cascaded shadows (also applies a material's own onBeforeCompile first). */
   registerMaterial(m: THREE.Material): void {
@@ -79,6 +79,11 @@ export class Environment {
     this.csm!.setupMaterial(m);
     const csmHook = (m as any).onBeforeCompile as (shader: any, renderer: any) => void;
     (m as any).onBeforeCompile = (shader: any, renderer: any) => { base?.(shader, renderer); csmHook(shader, renderer); };
+    // three.js caches programs by onBeforeCompile.toString(); the wrapper above has the same source
+    // for every material, so key on the material's own hook or the terrain reuses another
+    // material's shader (BUG-009: black terrain, white rocks)
+    const key = 'csm|' + (base ? base.toString() : '');
+    m.customProgramCacheKey = () => key;
     m.needsUpdate = true;
   }
   setShadows(on: boolean): void { if (this.csm) for (const l of this.csm.lights) l.castShadow = on; this.sun.castShadow = on; }
