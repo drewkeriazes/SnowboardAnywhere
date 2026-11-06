@@ -30,6 +30,13 @@ The terrain is bare-earth lidar, which strips bridges. `build_pack.py` also drop
 2. **Is it the right gully?** On the 1 m DEM the deep Two Elk Creek channel runs from about (1235, -1590) down to (1190, -1700). It sits 12 to 20 m below its banks around y -1600 to -1640. The OSM bridge segment crosses a shallower part further south-east, only about 7 to 9 m deep. Compare with Drew's Street View and Google Maps screenshots. The bridge he means may be a different OSM way, or the OSM line may be offset from the real crossing.
 3. If the OSM data is off, consider a pipeline fix: rebuild Vail so tagged bridges come through (`python pipeline\build_pack.py vail C:\Users\Drew\Documents\snowboard-sim\raw\vail packs\vail`). Then check `features.json` for runs and roads with `bridge: true`. The raw OSM JSON is in `Documents\snowboard-sim\raw\vail\osm`.
 
+## Second pass (Tea Cup bridge)
+
+- Step 1 answered: in the browser `__sim.pack.decks` has the China Bridge deck and it renders. Drew confirmed it shows.
+- Drew then reported the bridge by Tea Cup missing. It is Cloud 9 - Lower over the creek at the Tea Cup / Skyline base, around (627, -1777). OSM puts a node in the creek bed (z 2913.9, banks 2919), so both segments follow the ground and no single chord spans the gap.
+- Fix: `Bridges.addDips` finds dip vertices on ski runs (a node 4 m+ higher within 40 m on both sides, nearest such node as the rim) and tests the rim-to-rim chord with a stricter 12% sag-to-span rule. Dips are tested before plain segments, and a span that lands on an existing deck is skipped. Roads and trails are left out on purpose (they ford creeks and pass through underpasses).
+- An offline run over all Vail fine tiles passes exactly two dips: Cloud 9 - Lower (5.3 m deep, 36 m span) and China Spur (1855, -1513), which now gets one rim-to-rim deck instead of a ramp into the gully.
+
 ## Rules
 
 - Commit as Drew, plain message, no trailers, id BUG-013 in the message; comment the hash on #64 and close it when Drew confirms.

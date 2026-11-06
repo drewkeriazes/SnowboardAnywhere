@@ -15,8 +15,10 @@ const MIN_SAG = 4; // m the terrain must fall below the chord to count as a gap
 const MAX_SPAN = 120; // m longest segment considered by the detector
 const SCAN_R = 600; // m around the rider to evaluate segments
 const RAIL_H = 1.1;
+const DIP_REACH = 40; // m along the way on each side of a dip vertex to look for the rims
+const DIP_STEEP = 0.12; // a rim-to-rim span must sag at least this fraction of its length (a gully, not a swale)
 
-interface Candidate { a: [number, number, number]; b: [number, number, number]; hw: number; cx: number; cy: number }
+interface Candidate { a: [number, number, number]; b: [number, number, number]; hw: number; cx: number; cy: number; steep: number }
 
 export class Bridges {
   readonly group = new THREE.Group();
@@ -28,9 +30,9 @@ export class Bridges {
   private readonly steelMat = new THREE.MeshStandardMaterial({ color: 0x3d4248, roughness: 0.6, metalness: 0.3 });
 
   constructor(private readonly pack: Pack, private readonly collider: Collider | null) {
-    const ways: { pts: [number, number, number][]; hw: number; bridge: boolean }[] = [];
-    for (const r of pack.features.runs) if (!r.area && r.points.length >= 2) ways.push({ pts: r.points, hw: 3, bridge: !!r.bridge });
-    for (const r of pack.features.roads) if (r.points.length >= 2) ways.push({ pts: r.points, hw: Math.max(2.5, r.width / 2 + 0.5), bridge: !!r.bridge });
+    const ways: { pts: [number, number, number][]; hw: number; bridge: boolean; run: boolean }[] = [];
+    for (const r of pack.features.runs) if (!r.area && r.points.length >= 2) ways.push({ pts: r.points, hw: 3, bridge: !!r.bridge, run: true });
+    for (const r of pack.features.roads) if (r.points.length >= 2) ways.push({ pts: r.points, hw: Math.max(2.5, r.width / 2 + 0.5), bridge: !!r.bridge, run: false });
     for (const w of ways) {
       if (w.bridge) {
         // tagged bridge: one straight deck between the abutments (inner nodes may sit over the gap)
@@ -42,8 +44,37 @@ export class Bridges {
         const a = w.pts[i], b = w.pts[i + 1];
         const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
         if (l < 6 || l > MAX_SPAN) continue;
-        this.pending.push({ a, b, hw: w.hw, cx: (a[0] + b[0]) / 2, cy: (a[1] + b[1]) / 2 });
+        this.pending.push({ a, b, hw: w.hw, cx: (a[0] + b[0]) / 2, cy: (a[1] + b[1]) / 2, steep: 0.06 });
       }
+      // ski runs only: trails and roads really do ford creeks and duck through underpasses
+      if (w.run) this.addDips(w.pts, w.hw);
+    }
+  }
+
+  /**
+   * A run whose OSM node sits in the creek bed follows the ground down and back up, so no single
+   * segment spans the gap. Find such dip vertices (local lows with a node 4 m+ higher within
+   * DIP_REACH on both sides) and queue the rim-to-rim chord for the same terrain test as a segment.
+   */
+  private addDips(pts: [number, number, number][], hw: number): void {
+    // nearest node on one side that climbs back MIN_SAG above the dip
+    const rim = (k: number, dir: -1 | 1): number => {
+      let dist = 0;
+      for (let i = k + dir; i >= 0 && i < pts.length; i += dir) {
+        dist += Math.hypot(pts[i][0] - pts[i - dir][0], pts[i][1] - pts[i - dir][1]);
+        if (dist > DIP_REACH) break;
+        if (pts[i][2] - pts[k][2] >= MIN_SAG) return i;
+      }
+      return -1;
+    };
+    for (let k = 1; k + 1 < pts.length; k++) {
+      if (!(pts[k][2] <= pts[k - 1][2] && pts[k][2] < pts[k + 1][2])) continue;
+      const i = rim(k, -1), j = rim(k, 1);
+      if (i < 0 || j < 0) continue;
+      const a = pts[i], b = pts[j];
+      const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (l < 6 || l > 2 * DIP_REACH) continue;
+      this.pending.push({ a, b, hw, cx: (a[0] + b[0]) / 2, cy: (a[1] + b[1]) / 2, steep: DIP_STEEP });
     }
   }
 
@@ -54,8 +85,14 @@ export class Bridges {
     this.acc = 0;
     const fine = this.pack.fine;
     if (!fine) return;
+    // rim-to-rim dip spans first: where one fits, a plain segment ending on the gully node is a ramp into it
+    for (const dips of [true, false]) this.evaluate(fine, rx, ry, dips);
+  }
+
+  private evaluate(fine: NonNullable<Pack['fine']>, rx: number, ry: number, dips: boolean): void {
     for (let i = this.pending.length - 1; i >= 0; i--) {
       const c = this.pending[i];
+      if ((c.steep === DIP_STEEP) !== dips) continue;
       if (Math.hypot(c.cx - rx, c.cy - ry) > SCAN_R) continue;
       const l = Math.hypot(c.b[0] - c.a[0], c.b[1] - c.a[1]);
       const n = Math.ceil(l);
@@ -71,7 +108,7 @@ export class Bridges {
       if (!loaded) continue;
       this.pending.splice(i, 1);
       // a real gap: deep, and a good part of the segment hangs over it (not a long gentle dip)
-      if (maxSag >= MIN_SAG && maxSag >= 0.06 * l && gap >= 0.25 * n) this.addBridge(c.a, c.b, c.hw);
+      if (maxSag >= MIN_SAG && maxSag >= c.steep * l && gap >= 0.25 * n) this.addBridge(c.a, c.b, c.hw);
     }
   }
 
@@ -80,6 +117,10 @@ export class Bridges {
     const rev = [b[0], b[1], a[0], a[1]].map((v) => Math.round(v)).join(',');
     if (this.seen.has(key) || this.seen.has(rev)) return;
     this.seen.add(key);
+    // one deck per crossing: skip a span that lands on a deck already built (run and road copies, dip vs segment)
+    for (const t of [0.25, 0.5, 0.75]) {
+      if (this.pack.deckHeight(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t) > -Infinity) return;
+    }
     const lift = 0.15; // snow on the deck
     const d: Deck = { ax: a[0], ay: a[1], az: a[2] + lift, bx: b[0], by: b[1], bz: b[2] + lift, hw };
     this.pack.addDeck(d);
