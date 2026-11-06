@@ -12,8 +12,8 @@ const BASE = 4700; // m above sea level (above every summit in the Colorado pack
 const TOP = 6600;
 const RADIUS = 250000; // dome radius, < camera far (300 km)
 
-export type CloudCover = 'off' | 'few' | 'scattered' | 'broken';
-const COVER: Record<CloudCover, number> = { off: 0, few: 0.32, scattered: 0.48, broken: 0.66 };
+export type CloudCover = 'off' | 'few' | 'scattered' | 'broken' | 'storm';
+const COVER: Record<CloudCover, number> = { off: 0, few: 0.32, scattered: 0.48, broken: 0.66, storm: 0 };
 
 const vert = /* glsl */ `
 varying vec3 vWorld;
@@ -138,7 +138,7 @@ export class Clouds {
       this.mat = m; this.mesh.material = m; old.dispose();
     }
     this.mat.uniforms.uCoverage.value = COVER[cover] ?? COVER.scattered;
-    this.mesh.visible = cover !== 'off';
+    this.mesh.visible = cover !== 'off' && cover !== 'storm'; // a storm is fog and falling snow instead
   }
 
   /** Per frame: follow the camera, drift with the wind, light from the current sun. */

@@ -21,7 +21,7 @@ export interface Settings {
   /** cascaded shadow maps (experimental, off by default: turned the terrain black on Drew's GPU); off = single shadow camera around the rider */
   csmExperimental: boolean;
   /** volumetric cloud cover */
-  clouds: 'off' | 'few' | 'scattered' | 'broken';
+  clouds: 'off' | 'few' | 'scattered' | 'broken' | 'storm';
   treeDensity: number; // 0.25 .. 1
   pixelRatio: number; // 0.5 .. 2 (capped by the device)
   fov: number; // base chase FOV, 50 .. 100
@@ -122,7 +122,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Quality</label><select data-k="quality"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></div>
       <div class="row"><label>Shadows</label><input type="checkbox" data-k="shadows"></div>
       <div class="row"><label>Cascaded (beta)</label><input type="checkbox" data-k="csmExperimental"></div>
-      <div class="row"><label>Clouds</label><select data-k="clouds"><option value="off">Bluebird (clear)</option><option value="few">Few</option><option value="scattered">Scattered</option><option value="broken">Broken</option></select></div>
+      <div class="row"><label>Weather</label><select data-k="clouds"><option value="off">Bluebird (clear)</option><option value="few">Few clouds</option><option value="scattered">Scattered clouds</option><option value="broken">Broken clouds</option><option value="storm">Snowstorm</option></select></div>
       <div class="row"><label>Trees</label><input type="range" data-k="treeDensity" min="0.25" max="1" step="0.05"></div>
       <div class="row"><label>Resolution</label><input type="range" data-k="pixelRatio" min="0.5" max="2" step="0.25"></div>
       <div class="row"><label>Field of view</label><input type="range" data-k="fov" min="50" max="100" step="1"><span class="val" data-v="fov"></span></div>
