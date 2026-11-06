@@ -50,6 +50,9 @@ async function main(): Promise<void> {
   const settings = loadSettings();
   const rp = params.get('rider'); if (rp === 'ski' || rp === 'board') settings.discipline = rp;
   if (params.has('lowgfx')) { settings.quality = 'low'; settings.shadows = false; settings.treeDensity = 0.3; settings.pixelRatio = 1; }
+  // before the menu, so the first song comes from the saved source and playlist
+  audio.source = settings.musicSource;
+  audio.playlist = settings.playlist;
   status.textContent = '';
 
   // one renderer for the whole page; sessions build and tear down their scene
@@ -162,6 +165,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       applySun(s);
       audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music);
       audio.setSource(s.musicSource);
+      audio.setPlaylist(s.playlist);
       renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2));
       if (renderer.shadowMap.enabled !== s.shadows) { renderer.shadowMap.enabled = s.shadows; renderer.shadowMap.needsUpdate = true; scene.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) m.needsUpdate = true; }); }
       const wantSize = (s.csmExperimental || params.has('csm')) && !params.has('nocsm') ? (s.quality === 'high' ? 2048 : 1024) : 0;

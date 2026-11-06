@@ -1,3 +1,4 @@
+import { PLAYLISTS, SHUFFLE_ALL } from '../audio/Audio';
 /**
  * Player settings, persisted in localStorage under one versioned key. `renderPanel` builds the
  * same settings UI for the main menu and the pause menu; `onChange` fires on every edit so the
@@ -13,6 +14,8 @@ export interface Settings {
   music: number;
   mute: boolean;
   musicSource: 'files' | 'builtin' | 'off';
+  /** a playlist name (see PLAYLISTS in audio/Audio.ts) or 'all' for Shuffle all */
+  playlist: string;
   quality: Quality;
   shadows: boolean;
   /** cascaded shadow maps (experimental, off by default: turned the terrain black on Drew's GPU); off = single shadow camera around the rider */
@@ -53,7 +56,7 @@ export const DEFAULT_KEYS: Record<string, string> = {
 const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab', lift: 'Ride lift / skip', trial: 'Go to nearest time trial', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track', look: 'Free look (hold, move mouse)' };
 
 const DEFAULTS: Settings = {
-  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', quality: 'high', shadows: true, csmExperimental: false, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
+  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Ska-punk', quality: 'high', shadows: true, csmExperimental: false, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
   fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, showMarkers: true, showLabels: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
 };
 const KEY = 'settings';
@@ -94,6 +97,11 @@ export function keyName(code: string): string {
   return code.replace(/^Key/, '').replace(/^Arrow/, '').replace('ShiftLeft', 'Shift').replace('ShiftRight', 'R Shift').replace('Space', 'Space');
 }
 
+/** Playlist picker (shared by the settings panel and the main menu). */
+export function playlistSelect(): string {
+  return `<select data-k="playlist">${PLAYLISTS.map((p) => `<option value="${p.name}">${p.name}</option>`).join('')}<option value="${SHUFFLE_ALL}">Shuffle all</option></select>`;
+}
+
 /**
  * Render the settings panel into `host`. Every edit mutates `s`, saves, and calls `onChange`.
  */
@@ -105,6 +113,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Music</label><input type="range" data-k="music" min="0" max="1" step="0.05"></div>
       <div class="row"><label>Mute</label><input type="checkbox" data-k="mute"></div>
       <div class="row"><label>Music</label><select data-k="musicSource"><option value="files">Playlist (built-in if none)</option><option value="builtin">Built-in jukebox</option><option value="off">Off</option></select></div>
+      <div class="row"><label>Playlist</label>${playlistSelect()}</div>
       <div class="credits"></div>
     </div>
     <div class="tab hidden" data-t="graphics">

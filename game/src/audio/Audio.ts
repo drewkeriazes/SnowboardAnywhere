@@ -1,15 +1,22 @@
 import type { Rider } from '../sim/Rider';
-import { Jukebox } from './Jukebox';
+import { Jukebox, type JukeStyle } from './Jukebox';
 
 /** playlist.json entry: a bare filename or a credited track */
-export interface TrackInfo { file: string; title: string; artist?: string; license?: string; url?: string }
+export interface TrackInfo { file: string; title: string; artist?: string; license?: string; url?: string; playlist?: string }
 export type MusicSource = 'files' | 'builtin' | 'off';
+/** the built-in playlists, each with a matching jukebox style so it plays before files are added */
+export const PLAYLISTS: { name: string; style: JukeStyle }[] = [
+  { name: 'Ska-punk', style: 'ska' }, { name: 'Melodic house', style: 'house' }, { name: 'Metal', style: 'metal' }, { name: 'Hip-hop', style: 'hiphop' },
+];
+export const SHUFFLE_ALL = 'all';
+type QueueItem = { list: string } & ({ track: TrackInfo } | { style: JukeStyle; seed: number });
 
 /**
  * Sound: everything is synthesised through Web Audio from one looping noise buffer plus
- * oscillators, so nothing needs sample files. Music is a playlist from
- * `public/music/playlist.json` (`["a.mp3", ...]`). The AudioContext is created on the first
- * user gesture (menu click).
+ * oscillators, so nothing needs sample files. Music comes from `public/music/playlist.json`:
+ * `{ "playlists": { "Ska-punk": [...], "Metal": [...] } }` or an older flat list (one playlist).
+ * The player picks a playlist (or Shuffle all); a playlist with no files plays its jukebox style.
+ * The AudioContext is created on the first user gesture (menu click).
  *
  * Continuous layers (gains driven per frame from rider state):
  *  - flow: board on snow, mixed per surface: groomed corduroy hum, powder hush with a low
@@ -35,13 +42,21 @@ export class GameAudio {
   private liftGain!: GainNode;
   private crackleT = 0;
   private music: HTMLAudioElement | null = null;
-  private playlist: TrackInfo[] = [];
-  private track = 0;
+  /** file tracks per playlist name, from playlist.json */
+  private lists = new Map<string, TrackInfo[]>();
+  private queue: QueueItem[] = [];
+  private qi = 0;
+  private seed = Math.floor(Math.random() * 1000);
   private jukebox: Jukebox | null = null;
   private musicGain!: GainNode;
   /** 'files' plays playlist.json (falls back to builtin when there is none), 'builtin' is the procedural jukebox */
   source: MusicSource = 'files';
+  /** a playlist name or SHUFFLE_ALL */
+  playlist = PLAYLISTS[0].name;
   private playlistLoaded = false;
+  private loadedResolve!: () => void;
+  /** resolves once playlist.json has been read (after the first start()) */
+  readonly loaded = new Promise<void>((r) => { this.loadedResolve = r; });
   onTrack: ((name: string) => void) | null = null;
   sfxVolume = 0.8;
   musicVolume = 0.5;
@@ -63,7 +78,7 @@ export class GameAudio {
     this.sfx.gain.value = this.sfxVolume;
     this.musicGain = ctx.createGain(); this.musicGain.gain.value = this.musicVolume * this.duck; this.musicGain.connect(this.master);
     this.jukebox = new Jukebox(ctx, this.musicGain);
-    this.jukebox.onTrackStart = (n) => this.onTrack?.(n);
+    this.jukebox.onEnded = () => this.advance();
     // 2 s of white noise, looped by every noise source
     const n = ctx.sampleRate * 2;
     this.noiseBuf = ctx.createBuffer(1, n, ctx.sampleRate);
@@ -101,49 +116,82 @@ export class GameAudio {
   private async loadPlaylist(): Promise<void> {
     try {
       const r = await fetch(`${import.meta.env.BASE_URL}music/playlist.json`);
-      if (r.ok) {
-        const raw = (await r.json()) as (string | TrackInfo)[];
-        this.playlist = raw.map((e) => typeof e === 'string' ? { file: e, title: e.replace(/\.[a-z0-9]+$/i, '') } : e).filter((e) => e.file);
-      }
+      if (r.ok) this.lists = parsePlaylists(await r.json());
     } catch { /* no music shipped */ }
     this.playlistLoaded = true;
+    this.loadedResolve();
     this.startMusic();
   }
 
-  /** (Re)start music for the current source. */
+  /** Playlist names for the picker: the built-in four plus any extra ones playlist.json defines. */
+  get playlistNames(): string[] {
+    return [...PLAYLISTS.map((p) => p.name), ...[...this.lists.keys()].filter((n) => !PLAYLISTS.some((p) => p.name === n))];
+  }
+  private styleOf(list: string): JukeStyle { return PLAYLISTS.find((p) => p.name === list)?.style ?? 'ska'; }
+
+  /** Build the play queue for the current source and playlist. */
+  private buildQueue(): void {
+    const files = this.source === 'files';
+    const names = this.playlist === SHUFFLE_ALL ? this.playlistNames : [this.playlistNames.includes(this.playlist) ? this.playlist : PLAYLISTS[0].name];
+    const q: QueueItem[] = [];
+    for (const list of names) {
+      const tracks = files ? this.lists.get(list) ?? [] : [];
+      if (tracks.length) q.push(...tracks.map((track) => ({ list, track })));
+      else if (PLAYLISTS.some((p) => p.name === list)) for (let k = 0; k < (names.length > 1 ? 3 : 6); k++) q.push({ list, style: this.styleOf(list), seed: this.seed++ });
+    }
+    if (this.playlist === SHUFFLE_ALL) {
+      for (let i = q.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [q[i], q[j]] = [q[j], q[i]]; }
+    }
+    this.queue = q;
+    this.qi = 0;
+  }
+
+  /** (Re)start music for the current source and playlist. */
   startMusic(): void {
     if (!this.ctx || !this.playlistLoaded) return;
     this.music?.pause();
     this.jukebox?.stop();
     if (this.source === 'off') return;
-    if (this.source === 'files' && this.playlist.length) this.playTrack(this.track);
-    else this.jukebox?.play(this.track);
+    this.buildQueue();
+    this.playItem();
   }
   setSource(src: MusicSource): void { if (src !== this.source) { this.source = src; this.startMusic(); } }
-  get hasFiles(): boolean { return this.playlist.length > 0; }
-  get credits(): TrackInfo[] { return this.playlist; }
+  setPlaylist(name: string): void { if (name !== this.playlist) { this.playlist = name; this.startMusic(); } }
+  get hasFiles(): boolean { return this.lists.size > 0; }
+  /** every shipped file track, tagged with its playlist, for the credits */
+  get credits(): TrackInfo[] { return [...this.lists].flatMap(([list, ts]) => ts.map((t) => ({ ...t, playlist: list }))); }
 
-  playTrack(i: number): void {
-    if (!this.playlist.length) return;
-    this.track = ((i % this.playlist.length) + this.playlist.length) % this.playlist.length;
-    if (!this.music) {
-      this.music = new Audio();
-      this.music.addEventListener('ended', () => this.playTrack(this.track + 1));
+  private playItem(): void {
+    const it = this.queue[this.qi];
+    if (!it) return;
+    if ('track' in it) {
+      this.jukebox?.stop();
+      if (!this.music) {
+        this.music = new Audio();
+        this.music.addEventListener('ended', () => this.advance());
+      }
+      const t = it.track;
+      this.music.src = `${import.meta.env.BASE_URL}music/${t.file}`;
+      this.music.volume = this.musicVolume * this.duck;
+      void this.music.play().catch(() => undefined);
+      this.onTrack?.(`${t.artist ? `${t.title} by ${t.artist}` : t.title} · ${it.list}`);
+    } else {
+      this.music?.pause();
+      this.jukebox?.play(it.seed, it.style);
+      this.onTrack?.(`${this.jukebox?.trackName ?? ''} (built-in) · ${it.list}`);
     }
-    const t = this.playlist[this.track];
-    this.music.src = `${import.meta.env.BASE_URL}music/${t.file}`;
-    this.music.volume = this.musicVolume * this.duck;
-    void this.music.play().catch(() => undefined);
-    this.onTrack?.(t.artist ? `${t.title} by ${t.artist}` : t.title);
   }
-  nextTrack(): void {
+  /** next queue item; a finished queue is rebuilt (reshuffled, fresh jukebox seeds) */
+  private advance(): void {
     if (this.source === 'off') return;
-    if (this.source === 'files' && this.playlist.length) this.playTrack(this.track + 1);
-    else { this.track++; this.jukebox?.play(this.track); }
+    if (++this.qi >= this.queue.length) this.buildQueue();
+    this.playItem();
   }
+  nextTrack(): void { this.music?.pause(); this.jukebox?.stop(); this.advance(); }
   get trackName(): string | null {
-    if (this.source === 'files' && this.playlist.length) return this.playlist[this.track].title;
-    return this.jukebox?.playing ? this.jukebox.trackName : null;
+    const it = this.queue[this.qi];
+    if (!it || this.source === 'off') return null;
+    return 'track' in it ? it.track.title : this.jukebox?.playing ? this.jukebox.trackName : null;
   }
 
   private duck = 1;
@@ -272,4 +320,20 @@ export class GameAudio {
     this.wasOnGround = r.onGround;
     this.wasRiding = riding;
   }
+}
+
+/** playlist.json: `{ "playlists": { name: [entry, ...] } }`, or a flat `[entry, ...]` read as Ska-punk. */
+export function parsePlaylists(raw: unknown): Map<string, TrackInfo[]> {
+  const entry = (e: unknown): TrackInfo | null => {
+    if (typeof e === 'string') return { file: e, title: e.replace(/\.[a-z0-9]+$/i, '') };
+    if (e && typeof e === 'object' && typeof (e as TrackInfo).file === 'string') { const t = e as TrackInfo; return { ...t, title: t.title || t.file }; }
+    return null;
+  };
+  const list = (v: unknown) => (Array.isArray(v) ? v.map(entry).filter((t): t is TrackInfo => !!t) : []);
+  const out = new Map<string, TrackInfo[]>();
+  if (Array.isArray(raw)) { const l = list(raw); if (l.length) out.set(PLAYLISTS[0].name, l); }
+  else if (raw && typeof raw === 'object' && (raw as { playlists?: unknown }).playlists) {
+    for (const [name, v] of Object.entries((raw as { playlists: Record<string, unknown> }).playlists)) { const l = list(v); if (l.length) out.set(name, l); }
+  }
+  return out;
 }

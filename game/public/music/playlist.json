@@ -1,72 +1,76 @@
-[
-  {
-    "file": "01-beach-ska.ogg",
-    "title": "Beach Ska",
-    "artist": "DavidKBD",
-    "license": "CC BY 4.0",
-    "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
-  },
-  {
-    "file": "02-born-to-be-wild.ogg",
-    "title": "Born to be Wild",
-    "artist": "DavidKBD",
-    "license": "CC BY 4.0",
-    "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
-  },
-  {
-    "file": "03-coastal-groove-party.ogg",
-    "title": "Coastal Groove Party",
-    "artist": "DavidKBD",
-    "license": "CC BY 4.0",
-    "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
-  },
-  {
-    "file": "04-sunny-days.ogg",
-    "title": "Sunny Days",
-    "artist": "DavidKBD",
-    "license": "CC BY 4.0",
-    "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
-  },
-  {
-    "file": "05-shred-the-pavement.ogg",
-    "title": "Shred the Pavement",
-    "artist": "DavidKBD",
-    "license": "CC BY 4.0",
-    "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
-  },
-  {
-    "file": "06-summers-breeze.ogg",
-    "title": "Summers Breeze",
-    "artist": "DavidKBD",
-    "license": "CC BY 4.0",
-    "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
-  },
-  {
-    "file": "07-dancing-under-the-palm-trees.ogg",
-    "title": "Dancing Under the Palm Trees",
-    "artist": "DavidKBD",
-    "license": "CC BY 4.0",
-    "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
-  },
-  {
-    "file": "08-ska-revolution.ogg",
-    "title": "Ska Revolution",
-    "artist": "DavidKBD",
-    "license": "CC BY 4.0",
-    "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
-  },
-  {
-    "file": "09-golden-coast-rockers.ogg",
-    "title": "Golden Coast Rockers",
-    "artist": "DavidKBD",
-    "license": "CC BY 4.0",
-    "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
-  },
-  {
-    "file": "10-skank-the-summer.ogg",
-    "title": "Skank the Summer",
-    "artist": "DavidKBD",
-    "license": "CC BY 4.0",
-    "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
+{
+  "playlists": {
+    "Ska-punk": [
+      {
+        "file": "01-beach-ska.ogg",
+        "title": "Beach Ska",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
+      },
+      {
+        "file": "02-born-to-be-wild.ogg",
+        "title": "Born to be Wild",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
+      },
+      {
+        "file": "03-coastal-groove-party.ogg",
+        "title": "Coastal Groove Party",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
+      },
+      {
+        "file": "04-sunny-days.ogg",
+        "title": "Sunny Days",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
+      },
+      {
+        "file": "05-shred-the-pavement.ogg",
+        "title": "Shred the Pavement",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
+      },
+      {
+        "file": "06-summers-breeze.ogg",
+        "title": "Summers Breeze",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
+      },
+      {
+        "file": "07-dancing-under-the-palm-trees.ogg",
+        "title": "Dancing Under the Palm Trees",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
+      },
+      {
+        "file": "08-ska-revolution.ogg",
+        "title": "Ska Revolution",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
+      },
+      {
+        "file": "09-golden-coast-rockers.ogg",
+        "title": "Golden Coast Rockers",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
+      },
+      {
+        "file": "10-skank-the-summer.ogg",
+        "title": "Skank the Summer",
+        "artist": "DavidKBD",
+        "license": "CC BY 4.0",
+        "url": "https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack"
+      }
+    ]
   }
-]
+}
