@@ -10,7 +10,7 @@ The kanban lives in GitHub Projects: https://github.com/users/drewkeriazes/proje
 - Columns: **Backlog** (idea) -> **Ready** (specced, data available) -> **In Progress** -> **Done**.
 - Labels: `type: feature | bug | data`, `milestone`. `status: ready` / `status: backlog` mirror the column for issue-list filtering.
 - `type: data` cards are pipeline or raw-data work that runs on Drew's PC; they are Done only when the pack is rebuilt.
-- Ids never get reused. Next ids: FEAT-093, BUG-041, DATA-018.
+- Ids never get reused. Next ids: FEAT-093, BUG-042, DATA-018.
 
 ## What Claude does with a card
 
