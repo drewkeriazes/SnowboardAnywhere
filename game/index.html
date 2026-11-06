@@ -63,6 +63,12 @@
     #touch .btns button.big { width: 96px; height: 96px; grid-column: 2; grid-row: span 2; background: rgba(255,209,102,.35); border-color: #ffd166; font-size: 14px; }
     #touch .btns button.down { background: rgba(255,255,255,.45); }
     @media (max-width: 700px) { #help { display: none; } #minimap { width: 140px !important; height: 140px !important; right: 12px !important; bottom: 150px !important; } #hud { font-size: 16px; } }
+    #trial { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); min-width: 200px; text-align: center; color: #fff; background: rgba(20,24,34,.78); border: 2px solid #facc15; border-radius: 12px; padding: 8px 18px; display: none; pointer-events: none; font-family: system-ui, sans-serif; }
+    #trial.show { display: block; }
+    #trial .name { font-size: 14px; opacity: .9; }
+    #trial .clock { font: 700 30px ui-monospace, monospace; }
+    #trial .split { font-size: 18px; margin-top: 2px; }
+    #trial .ahead { color: #4ade80; } #trial .behind { color: #f87171; } #trial .dim { opacity: .7; font-size: 13px; }
     #vignette { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,.55) 100%); }
     #vignette.show { opacity: 1; }
     #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, #0b1020 0%, #1e3a5f 100%); z-index: 20; color: #fff; }
@@ -84,7 +90,8 @@
   <div id="hud"></div>
   <div id="prompt"></div>
   <div id="toast"></div>
-  <div id="help">&larr; &rarr; steer &middot; &uarr; tuck &middot; &darr; brake &middot; hold/release Space to jump &middot; Shift grab<br>E ride lift / skip to top &middot; M map (click to drop in) &middot; P piste lines &middot; N next track<br>R restart &middot; C camera &middot; F free fly &middot; Esc pause / settings</div>
+  <div id="trial"></div>
+  <div id="help">&larr; &rarr; steer &middot; &uarr; tuck &middot; &darr; brake &middot; hold/release Space to jump &middot; Shift grab<br>E ride lift / skip to top &middot; M map (click to drop in) &middot; P piste lines &middot; N next track &middot; T time trial (when on)<br>R restart &middot; C camera &middot; F free fly &middot; Esc pause / settings</div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

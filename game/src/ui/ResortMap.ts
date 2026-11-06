@@ -339,6 +339,8 @@ export class ResortMap {
   close(): void { this.fullOpen = false; this.fullWrap.style.display = 'none'; }
 
   riderPos: [number, number, number] = [0, 0, 0];
+  /** time-trial course starts to flag on the full map (empty when time trials are off) */
+  courseStarts: { x: number; y: number; name: string; best: number | null }[] = [];
   spawnPos: [number, number] | null = null;
 
   drawFull(): void {
@@ -356,6 +358,13 @@ export class ResortMap {
     const inside = (sx: number, sy: number) => sx >= 0 && sy >= 0 && sx <= c.width && sy <= c.height;
     this.drawLabels(ctx, toScreen, { max: 200, font: Math.min(16, 11 + 2 * this.zoom), runs: this.zoom >= 2, inside });
     const dot = (x: number, y: number, color: string, r: number) => { const [px, py] = this.toPixel(x, y); ctx.beginPath(); ctx.arc(ox + px * s, oy + py * s, r, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); };
+    for (const cs of this.courseStarts) {
+      const [px, py] = this.toPixel(cs.x, cs.y);
+      const sx = ox + px * s, sy = oy + py * s;
+      ctx.strokeStyle = '#111'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx, sy - 14); ctx.stroke();
+      ctx.fillStyle = '#facc15'; ctx.beginPath(); ctx.moveTo(sx, sy - 14); ctx.lineTo(sx + 10, sy - 10.5); ctx.lineTo(sx, sy - 7); ctx.closePath(); ctx.fill();
+      if (this.zoom >= 1.5) { ctx.font = '11px system-ui'; ctx.fillStyle = '#111'; ctx.fillText(cs.best !== null ? `${cs.name} ${cs.best.toFixed(1)}s` : cs.name, sx + 12, sy - 8); }
+    }
     if (this.spawnPos) dot(this.spawnPos[0], this.spawnPos[1], '#22c55e', 6);
     dot(this.riderPos[0], this.riderPos[1], '#ff3b30', 7);
     if (this.hover) {

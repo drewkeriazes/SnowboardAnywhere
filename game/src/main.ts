@@ -14,6 +14,9 @@ import { ChaseCamera } from './world/ChaseCamera';
 import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
 import { Tracks } from './world/Tracks';
+import { buildCourses } from './sim/Courses';
+import { TimeTrial } from './sim/TimeTrial';
+import { TrialWorld } from './world/TrialWorld';
 import { ResortMap } from './ui/ResortMap';
 import { LiftRide } from './sim/LiftRide';
 import { GameAudio } from './audio/Audio';
@@ -91,6 +94,22 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     scene.add(roads.group);
     const tracks = new Tracks(pack);
     scene.add(tracks.group);
+    // time trials (off unless enabled in Settings > Game)
+    const courses = buildCourses(pack);
+    const trial = new TimeTrial(pack.meta.slug, courses);
+    const trialWorld = new TrialWorld(pack, courses);
+    scene.add(trialWorld.group);
+    const trialEl = document.getElementById('trial')!;
+    let splitMsg = '', splitTimer = 0;
+    const fmt = (t: number) => { const m = Math.floor(t / 60), sec = t - m * 60; return m > 0 ? `${m}:${sec.toFixed(2).padStart(5, '0')}` : `${sec.toFixed(2)}`; };
+    trial.onEvent = (e) => {
+      if (e.kind === 'armed') { splitMsg = `<span class="dim">Ride through the gate to start</span>`; splitTimer = 99; }
+      else if (e.kind === 'start') { splitMsg = e.best ? `Ghost: ${fmt(e.best.time)}` : 'No ghost yet: set the time'; splitTimer = 3; audio.chime(); }
+      else if (e.kind === 'split') { splitMsg = e.delta === null ? `Split ${e.index + 1}: ${fmt(e.time)}` : `<span class="${e.delta <= 0 ? 'ahead' : 'behind'}">${e.delta <= 0 ? '' : '+'}${e.delta.toFixed(2)}</span>`; splitTimer = 3; }
+      else if (e.kind === 'finish') { splitMsg = e.isBest ? `<span class="ahead">New best ${fmt(e.time)}</span>` : `Finished ${fmt(e.time)} <span class="dim">(best ${fmt(e.best!.time)})</span>`; splitTimer = 6; audio.chime(); }
+      else if (e.kind === 'cancel') { splitMsg = `<span class="behind">${e.reason}</span>`; splitTimer = 3; }
+    };
+    const refreshCourseFlags = () => { map.courseStarts = settings.timeTrials ? courses.map((c) => ({ x: c.start[0], y: c.start[1], name: c.name, best: trial.loadBest(c)?.time ?? null })) : []; };
     const labels = new Labels(pack);
     const riderView = new RiderView();
     scene.add(riderView.group);
@@ -145,6 +164,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       riderView.setOutfit(s.outfit);
       riderView.setDiscipline(s.discipline);
       tracks.setDiscipline(s.discipline);
+      trialWorld.setEnabled(s.timeTrials);
+      if (!s.timeTrials) trial.cancel('Time trials off');
+      refreshCourseFlags();
       rider.discipline = s.discipline;
       labels.visible = s.showLabels;
       map.metric = s.units === 'metric';
@@ -169,6 +191,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const map = new ResortMap(pack);
     map.spawnPos = [sx, sy];
     map.onPick = (x, y) => {
+      trial.cancel('Moved');
       const n = pack.groundNormal(x, y) as number[];
       const h = Math.hypot(n[0], n[1]) > 0.02 ? Math.atan2(n[0], n[1]) : 0;
       setSpawn(x, y, h);
@@ -231,6 +254,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       pause.destroy();
       labels.destroy();
       tracks.dispose();
+      trialWorld.dispose();
+      trialEl.classList.remove('show');
       audio.onTrack = null;
       showPrompt('');
       hud.innerHTML = '';
@@ -263,7 +288,17 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (paused) { controls.endFrame(); touch?.pressed.clear(); renderer.render(scene, cam.camera); if (!headless) requestAnimationFrame(frame); return; }
       touch?.setVisible(!map.fullOpen);
       elapsed += dt;
-      if (controls.action('restart')) { liftRide.cancel(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      if (controls.action('restart')) { liftRide.cancel(); trial.cancel('Restarted'); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      if (controls.action('trial') && settings.timeTrials) {
+        const c = trial.nearestStart(rider.x, rider.y);
+        if (c) {
+          // a few metres above the start gate on the course line, facing down it
+          const x = c.start[0] - c.dir[0] * 6, y = c.start[1] - c.dir[1] * 6;
+          liftRide.cancel(); trial.cancel('Moved');
+          pack.fine?.request(x - 600, y - 600, x + 600, y + 600); pack.mask?.request(x - 600, y - 600, x + 600, y + 600);
+          rider.reset(x, y, Math.atan2(c.dir[0], c.dir[1])); cam.snapTo(rider);
+        }
+      }
       if (controls.action('camera') || touch?.once('camera')) cam.cycle();
       if (controls.action('map') || touch?.once('map')) map.toggle();
       if (controls.action('piste')) runs.toggle();
@@ -275,6 +310,19 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       riderView.setFirstPerson(cam.mode === 'fp');
       riderView.update(rider, dt, input.tuck, input.grab, onLift && liftRide.airborneRide);
       tracks.update(rider, dt, onLift && liftRide.airborneRide);
+      if (settings.timeTrials) {
+        if (onLift) trial.cancel('On a lift'); else trial.update(rider, dt, input.tuck);
+        trialWorld.updateGates(rider.x, rider.y);
+        trialWorld.updateGhost(trial.ghostAt(trial.time), dt);
+        splitTimer -= dt;
+        if (trial.state === 'running' || trial.state === 'armed' || splitTimer > 0) {
+          const head = trial.course ? `<div class="name">${trial.course.name}</div>` : '';
+          const clock = trial.state === 'running' ? `<div class="clock">${fmt(trial.time)}</div>` : '';
+          const best = trial.course && trial.best ? `<div class="dim">Best ${fmt(trial.best.time)}</div>` : '';
+          trialEl.innerHTML = head + clock + best + (splitTimer > 0 ? `<div class="split">${splitMsg}</div>` : '');
+          trialEl.classList.add('show');
+        } else trialEl.classList.remove('show');
+      } else trialEl.classList.remove('show');
       audio.update(rider, input.tuck, onLift, dt, liftRide.passedTower);
       rider.lastHit = '';
       if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
