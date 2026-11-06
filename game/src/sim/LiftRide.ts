@@ -18,6 +18,8 @@ export class LiftRide {
   /** nearest boardable lift within PROMPT_RANGE (for the prompt card), and its distance */
   nearby: LiftRuntime | null = null;
   nearbyDist = Infinity;
+  /** cable height at the rider's position along the line (for the rider's own chair hanger) */
+  cableY = 0;
   /** true on the frame the chair passes a tower (for the clunk sound) */
   passedTower = false;
   /** true when the current lift carries the rider above the snow (chair, gondola) */
@@ -66,6 +68,7 @@ export class LiftRide {
   private place(rider: Rider): void {
     const l = this.lift!;
     this.lifts.seatAt(l, this.up, this.seat);
+    this.cableY = this.seat.y + l.riderDrop;
     this.lifts.seatAt(l, Math.min(this.lifts.rideLength(l), this.up + 2), this.seat2);
     rider.x = this.seat.x; rider.y = -this.seat.z;
     const len = this.lifts.rideLength(l);

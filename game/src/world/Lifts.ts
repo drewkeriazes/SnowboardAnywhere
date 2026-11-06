@@ -366,9 +366,11 @@ export class Lifts {
     return out.copy(l.curve[lo]).lerp(l.curve[hi], t);
   }
 
-  update(time: number): void {
+  /** Move the carriers. `hide`: the rider's own chair position; the line's carrier nearest it is hidden. */
+  update(time: number, hide: THREE.Vector3 | null = null): void {
     for (const l of this.lifts) {
       if (!l.carriers) continue;
+      let hideI = -1, hideD = 6;
       const [lx, ly] = l.lateral;
       const off = ((l as any).lateralOff as number) ?? 1.6;
       this.q.setFromAxisAngle(this.tmp2.set(0, 1, 0), -l.yaw);
@@ -379,9 +381,11 @@ export class Lifts {
         if (d > l.length) { d = loop - d; side = -1; } // returning side
         this.pointAt(l, d, this.tmp);
         this.p.set(this.tmp.x + lx * off * side, this.tmp.y, this.tmp.z - ly * off * side);
+        if (hide) { const d = Math.hypot(this.p.x - hide.x, this.p.z - hide.z); if (d < hideD) { hideD = d; hideI = i; } }
         this.m.compose(this.p, this.q, this.s.set(1, 1, 1));
         l.carriers.setMatrixAt(i, this.m);
       }
+      if (hideI >= 0) { this.m.makeScale(0, 0, 0); l.carriers.setMatrixAt(hideI, this.m); }
       l.carriers.instanceMatrix.needsUpdate = true;
     }
   }

@@ -14,6 +14,7 @@ import { ChaseCamera } from './world/ChaseCamera';
 import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
 import { Tracks } from './world/Tracks';
+import { RiderChair } from './world/RiderChair';
 import { buildCourses } from './sim/Courses';
 import { TimeTrial } from './sim/TimeTrial';
 import { TrialWorld } from './world/TrialWorld';
@@ -94,6 +95,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     scene.add(roads.group);
     const tracks = new Tracks(pack);
     scene.add(tracks.group);
+    const riderChair = new RiderChair(lifts.material);
+    scene.add(riderChair.group);
+    const chairPos = new THREE.Vector3();
     // time trials (off unless enabled in Settings > Game)
     const courses = buildCourses(pack);
     const trial = new TimeTrial(pack.meta.slug, courses);
@@ -338,7 +342,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       veg.update(fx, fy);
       rocks.update(fx, fy);
       roads.update(fx, fy);
-      lifts.update(elapsed);
+      const carried = onLift && liftRide.airborneRide ? liftRide.lift : null;
+      riderChair.update(carried, rider.x, rider.y, rider.z, rider.heading, liftRide.cableY);
+      lifts.update(elapsed, carried ? chairPos.set(rider.x, rider.z, -rider.y) : null);
       lifts.maintain(dt, rider.x, rider.y);
       if (settings.timeOfDay === 'now' || timeParam === 'now') { sunClock += dt; if (sunClock > 60) { sunClock = 0; applySun(settings); } }
       lifts.updateMarkers(elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
