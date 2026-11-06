@@ -1,0 +1,63 @@
+{
+  "name": "Mongolia Bowl, on the open slope",
+  "latlon": [
+    39.5985389,
+    -106.3034178
+  ],
+  "game": {
+    "x": 3790,
+    "y": -238
+  },
+  "views": [
+    {
+      "id": "northeast",
+      "heading": 132.7,
+      "pitch": 14.1,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5985389,-106.3034178,3a,75y,132.7h,104.14t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6js3YbQ!2e10!3e11",
+      "x": 3790.0,
+      "y": -238.1,
+      "h": 57.5,
+      "game": "http://localhost:5173/?pack=vail&x=3790.0&y=-238.1&h=57.5&pitch=14.1&fov=75.0&cam=eye&spot=mongolia-bowl/northeast",
+      "heading_offset": -76.0
+    },
+    {
+      "id": "southeast",
+      "heading": 220.4,
+      "pitch": -9.7,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5985389,-106.3034178,3a,75y,220.38h,80.35t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6js3YbQ!2e10!3e11",
+      "x": 3790.0,
+      "y": -238.1,
+      "h": 145.2,
+      "game": "http://localhost:5173/?pack=vail&x=3790.0&y=-238.1&h=145.2&pitch=-9.7&fov=75.0&cam=eye&spot=mongolia-bowl/southeast",
+      "heading_offset": -76.0
+    },
+    {
+      "id": "southwest",
+      "heading": 290.4,
+      "pitch": -9.4,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5985389,-106.3034178,3a,75y,290.42h,80.57t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6js3YbQ!2e10!3e11",
+      "x": 3790.0,
+      "y": -238.1,
+      "h": 215.3,
+      "game": "http://localhost:5173/?pack=vail&x=3790.0&y=-238.1&h=215.3&pitch=-9.4&fov=75.0&cam=eye&spot=mongolia-bowl/southwest",
+      "heading_offset": -76.0
+    },
+    {
+      "id": "northwest",
+      "heading": 26.2,
+      "pitch": 10.5,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.5985389,-106.3034178,3a,75y,26.17h,100.48t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6js3YbQ!2e10!3e11",
+      "x": 3790.0,
+      "y": -238.1,
+      "h": 311.0,
+      "game": "http://localhost:5173/?pack=vail&x=3790.0&y=-238.1&h=311.0&pitch=10.5&fov=75.0&cam=eye&spot=mongolia-bowl/northwest",
+      "heading_offset": -76.0
+    }
+  ],
+  "streetview_capture": "Feb 2014, contributor Krishna Vinod (user photosphere; compass about 76 degrees off like In the Wuides, from the fall line: downhill about 270 by the panorama's compass, about 195 grid in the DEM). Snowing, low cloud. Real screenshots not saved locally (sent in chat).",
+  "game_capture": "2026-11-06, main after d145c32, eye camera"
+}
