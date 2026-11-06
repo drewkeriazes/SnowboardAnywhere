@@ -45,6 +45,8 @@ Relevant class codes (LANDFIRE EVT values from the Earth Engine catalog page), m
 | 3294 | Barren | rock mask |
 | 3296 to 3299 | Developed (low/med/high, roads) | built mask (base areas, I-70) |
 
+Update 2026-11-05: LF 2.4 / 2.5 (LF2023_EVT, LF2024_EVT from LFPS) renumbered these classes into the 7000s (aspen 7011, spruce-fir dry-mesic 7055, lodgepole 7050, meadow 7145). `build_pack.py` therefore matches by EVT_NAME from the clip's .vat.dbf, not by code. Vail LF2024 mix: spruce-fir 39 %, aspen 19 %, lodgepole 12 %, meadow and grassland 9 %, developed 6 %.
+
 Notes: there is no Colorado-specific krummholz class; derive krummholz from elevation > 3,450 m plus CHM < 4 m within a spruce-fir class. Resolution is 30 m, so species boundaries are blobby; refine with NAIP (aspen stands are distinctly brighter and greener with higher NDVI in leaf-on NAIP than conifer). LANDFIRE is not yet in `raw/`; it needs a one-time download of the Colorado EVT GeoTIFF from landfire.gov (LF 2024) or an export from Earth Engine. [LANDFIRE EVT on Earth Engine](https://developers.google.com/earth-engine/datasets/catalog/LANDFIRE_Vegetation_EVT_v1_4_0)
 
 ## 4. Masks from NAIP (`raw/vail/naip1m/`, 2023, 4-band)

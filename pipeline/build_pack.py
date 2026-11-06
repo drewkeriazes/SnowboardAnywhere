@@ -245,6 +245,68 @@ aspen_like = canopy & (ndvi2 > 0.50) & (grn2 > 68) & (nir2 > 135)
 del grn2, nir2, snowfield, scree
 log(f"  canopy {canopy.mean()*100:.1f}%  rock {rock.mean()*100:.1f}%  meadow {meadow.mean()*100:.1f}%  aspen-like {aspen_like.mean()*100:.1f}%")
 
+# ------------------------------------------------------------------ 5b. LANDFIRE EVT (30 m) species, optional
+# raw/<slug>/landfire/*.tif from fetch_landfire.mjs (LFPS, any LF version) + its .tif.vat.dbf class table.
+# Classes are matched by NAME, not code: LF 2.4/2.5 renumbered EVT (aspen 3011 -> 7011).
+def read_dbf(path):
+    f = open(path, "rb").read()
+    n = int.from_bytes(f[4:8], "little"); hl = int.from_bytes(f[8:10], "little"); rl = int.from_bytes(f[10:12], "little")
+    fields, o = [], 32
+    while f[o] != 0x0D:
+        fields.append((f[o:o + 11].split(b"\0")[0].decode(), f[o + 16])); o += 32
+    rows = []
+    for i in range(n):
+        rec = f[hl + i * rl + 1:hl + (i + 1) * rl]; p0 = 0; r = {}
+        for nm, ln in fields:
+            r[nm.upper()] = rec[p0:p0 + ln].decode("latin1").strip(); p0 += ln
+        rows.append(r)
+    return rows
+
+evt = None
+lf_tifs = sorted(glob.glob(os.path.join(raw, "landfire", "*.tif")))
+if lf_tifs:
+    lf = lf_tifs[-1]
+    tfw = [float(v) for v in open(lf[:-4] + ".tfw").read().split()]
+    evt_img = read_tiff(lf).astype(np.int32)
+    if evt_img.ndim == 3:
+        evt_img = evt_img[..., 0] if evt_img.shape[-1] < evt_img.shape[0] else evt_img[0]
+    table = read_dbf(lf + ".vat.dbf") if os.path.exists(lf + ".vat.dbf") else []
+    # per class: aspen fraction (0..1) and whether it is forest (Tree life form)
+    aspen_frac_of, forest_of = {}, {}
+    for r in table:
+        v = int(float(r.get("VALUE", "0") or 0)); name = r.get("EVT_NAME", "")
+        lfm = r.get("EVT_LF", "")
+        forest_of[v] = lfm == "Tree" and "Urban" not in name
+        if "Aspen-Mixed Conifer" in name or "Aspen-Mixed" in name:
+            aspen_frac_of[v] = 0.5
+        elif "Aspen" in name:
+            aspen_frac_of[v] = 0.85            # stands are mostly aspen with some conifer
+        else:
+            aspen_frac_of[v] = 0.0
+    lut_n = int(evt_img.max()) + 1
+    aspen_lut = np.zeros(lut_n, np.float32); forest_lut = np.zeros(lut_n, bool)
+    for v in range(lut_n):
+        aspen_lut[v] = aspen_frac_of.get(v, 0.0); forest_lut[v] = forest_of.get(v, False)
+    ex0, ey0, epx = tfw[4], tfw[5], tfw[0]   # top-left pixel centre and pixel size (m)
+    def evt_at(x_utm, y_utm):
+        c = np.clip(np.round((x_utm - ex0) / epx).astype(np.int64), 0, evt_img.shape[1] - 1)
+        r = np.clip(np.round((ey0 - y_utm) / epx).astype(np.int64), 0, evt_img.shape[0] - 1)
+        return evt_img[r, c]
+    evt = evt_at
+    # forest mask on the 2 m grid, for gating the synthetic fill trees
+    gx2 = X0 + (np.arange(W2) + 0.5) * R2; gy2 = Y1 - (np.arange(H2) + 0.5) * R2
+    cc = np.clip(np.round((gx2 - ex0) / epx).astype(np.int64), 0, evt_img.shape[1] - 1)
+    rr_ = np.clip(np.round((ey0 - gy2) / epx).astype(np.int64), 0, evt_img.shape[0] - 1)
+    lf_forest2 = forest_lut[np.clip(evt_img[np.ix_(rr_, cc)], 0, lut_n - 1)]
+    del gx2, gy2, cc, rr_
+    names = {int(float(r.get("VALUE", 0) or 0)): r.get("EVT_NAME", "") for r in table}
+    vals, cnts = np.unique(evt_img, return_counts=True)
+    top = sorted(zip(cnts, vals), reverse=True)[:5]
+    log(f"  LANDFIRE {os.path.basename(lf)} {evt_img.shape}: " + ", ".join(f"{names.get(int(v), v)[:28]} {c/cnts.sum()*100:.0f}%" for c, v in top))
+    log(f"  LANDFIRE forest on the 2 m grid {lf_forest2.mean()*100:.1f}%, aspen classes {sum(c for c, v in zip(cnts, vals) if aspen_lut[min(v, lut_n-1)] > 0)/cnts.sum()*100:.1f}%")
+else:
+    log("  no LANDFIRE clip (raw/<slug>/landfire/*.tif); species from NAIP colour only")
+
 # ------------------------------------------------------------------ 6. OSM features
 log("OSM")
 def load_osm(name):
@@ -436,6 +498,8 @@ occupied = np.zeros((H2, W2), bool); occupied[pr, pc] = True
 occupied = ndimage.binary_dilation(occupied, iterations=2)
 # fill density is the main lever on tree count: 0.33 gave 5.26 M trees at Vail (realistic stems, too many to render)
 fill = canopy & ~occupied & (rng.uniform(0, 1, (H2, W2)) < 0.10)
+if evt is not None:
+    fill &= lf_forest2   # synthetic fill trees only where LANDFIRE says forest (lidar-detected crowns stay everywhere)
 fr, fc = np.nonzero(fill)
 tree_rows.append(fr); tree_cols.append(fc); tree_h.append(np.maximum(chm_s[fr, fc], 3.0) * rng.uniform(0.75, 1.0, len(fr)))
 rows = np.concatenate(tree_rows); cols = np.concatenate(tree_cols); hgt = np.concatenate(tree_h).astype(np.float32)
@@ -444,7 +508,16 @@ tx = X0 + (cols + 0.5) * R2 + jx - OX
 ty = Y1 - (rows + 0.5) * R2 + jy - OY
 tz = dem2[rows, cols].astype(np.float32)
 elev = tz
-is_aspen = aspen_like[rows, cols] & (elev < 3150)
+if evt is not None:
+    # sample the class 0..15 m off each tree so 30 m pixel edges become ragged stand boundaries
+    ang = rng.uniform(0, 2 * np.pi, len(rows)); rad = rng.uniform(0, 15, len(rows))
+    v = evt(tx + OX + np.cos(ang) * rad, ty + OY + np.sin(ang) * rad)
+    a_frac = aspen_lut[np.clip(v, 0, lut_n - 1)]
+    # inside aspen classes: aspen with that probability; elsewhere keep small NAIP-detected groves at 50 %
+    roll = rng.uniform(0, 1, len(rows))
+    is_aspen = ((roll < a_frac) | (aspen_like[rows, cols] & (roll < 0.5))) & (elev < 3300)
+else:
+    is_aspen = aspen_like[rows, cols] & (elev < 3150)
 is_krumm = (elev > 3350) | ((hgt < 4) & (elev > 3250))
 species = np.where(is_krumm, 2, np.where(is_aspen, 1, 0)).astype(np.float32)
 hgt = np.where(is_krumm, np.minimum(hgt, 4.5), hgt)
