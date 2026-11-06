@@ -56,26 +56,26 @@ Closed subalpine spruce-fir and lodgepole stands carry hundreds of crown-forming
 Ordered by realism gained per effort, with the cards each step closes. Phase 1 is one pack rebuild.
 
 **Phase 1: tree data (pipeline, one rebuild)**
-1. BUG-025: krummholz only where CHM < 4 m and elevation > 3,450 m, or in LANDFIRE alpine / limber-bristlecone classes; never cap a lidar height.
-2. BUG-027: treat `Urban Evergreen Forest`, `Urban Mixed Forest` and `Developed-*` as "unknown, ask lidar and NAIP" instead of "not forest"; gate fill only on truly non-forest classes (meadow, grassland, shrubland, bare rock, water).
-3. Canopy detection: test `has_pts` dilation 2 cells, a 3 x 3 median before the local maxima (as the vegetation research suggested), and an NDVI floor of 0.20 where CHM > 5 m (dead lodgepole). Measure with the harness (section 5) at Born Free, Mid-Vail and Prima before and after.
-4. New data card: fetch LANDFIRE **EVC** (existing vegetation cover) and **EVH** (existing vegetation height) for the same clip as EVT, and optionally USFS Tree Canopy Cover (NLCD TCC, 30 m). Use EVC as the target canopy fraction per 30 m cell, so density no longer depends on how many lidar crowns survive.
-5. Optional, larger: re-fetch the EPT nodes one or two levels deeper inside the forest mask only (denser points for crown detection). Run on Drew's PC; size to be measured first.
+1. BUG-025 (#113, done in d417cc9): krummholz only where CHM < 4 m and elevation > 3,450 m, or in LANDFIRE alpine / limber-bristlecone classes; never cap a lidar height.
+2. BUG-027 (#115): treat `Urban Evergreen Forest`, `Urban Mixed Forest` and `Developed-*` as "unknown, ask lidar and NAIP" instead of "not forest"; gate fill only on truly non-forest classes (meadow, grassland, shrubland, bare rock, water).
+3. BUG-028 (#118), canopy detection: test `has_pts` dilation 2 cells, a 3 x 3 median before the local maxima (as the vegetation research suggested), and an NDVI floor of 0.20 where CHM > 5 m (dead lodgepole). Measure with the harness (section 5) at Born Free, Mid-Vail and Prima before and after.
+4. DATA-010 (#119): fetch LANDFIRE **EVC** (existing vegetation cover) and **EVH** (existing vegetation height) for the same clip as EVT, and optionally USFS Tree Canopy Cover (NLCD TCC, 30 m). Use EVC as the target canopy fraction per 30 m cell, so density no longer depends on how many lidar crowns survive.
+5. DATA-011 (#120), optional, larger: re-fetch the EPT nodes one or two levels deeper inside the forest mask only (denser points for crown detection). Run on Drew's PC; size to be measured first.
 
 **Phase 2: rendering dense forest within budget**
-6. Separate pack density from drawn density: store stand density (trees per cell from EVC / canopy) and the detected crowns, and generate the extra stems procedurally per cell at load with a seeded RNG, so 5 M stems never sit in the pack. Draw full meshes only in the near ring, impostors in the mid ring, and nothing beyond.
-7. Far forest: start the terrain's forest darkening at the impostor ring edge (about 300 to 600 m, tied to `NEAR_RADIUS`), driven by the improved canopy cover, so forested slopes read dark green at every distance.
-8. FEAT-070 tree shapes: snow-flocked spruce-fir with ragged narrow tops; lodgepole (tall bare trunk, small high crown) as its own species; winter aspen (white trunk, twig crown, no cone); a few percent grey snags; low wide krummholz lumps. Lighting: lit, textured crowns instead of near-black.
+6. FEAT-074 (#121), separate pack density from drawn density: store stand density (trees per cell from EVC / canopy) and the detected crowns, and generate the extra stems procedurally per cell at load with a seeded RNG, so 5 M stems never sit in the pack. Draw full meshes only in the near ring, impostors in the mid ring, and nothing beyond.
+7. FEAT-075 (#122), far forest: start the terrain's forest darkening at the impostor ring edge (about 300 to 600 m, tied to `NEAR_RADIUS`), driven by the improved canopy cover, so forested slopes read dark green at every distance.
+8. FEAT-070 (#109) tree shapes: snow-flocked spruce-fir with ragged narrow tops; lodgepole (tall bare trunk, small high crown) as its own species; winter aspen (white trunk, twig crown, no cone); a few percent grey snags; low wide krummholz lumps. Lighting: lit, textured crowns instead of near-black.
 
 **Phase 3: rock, buildings, roads**
-9. FEAT-069: a rock tint per region (red sandstone inside the ski area, grey Gore Range outside), plus winter burial: drop slope-only rock bands where snow depth covers them, keep outcrops on true cliffs.
-10. BUG-024, then FEAT-071 (building styles and heights) and DATA-009 (terminals from OSM footprints, dark roofs), BUG-026 (cat tracks as snow), BUG-022 (false bridges).
+9. FEAT-069 (#106): a rock tint per region (red sandstone inside the ski area, grey Gore Range outside), plus winter burial: drop slope-only rock bands where snow depth covers them, keep outcrops on true cliffs.
+10. BUG-024 (#110), then FEAT-071 (#111, building styles and heights) and DATA-009 (#112, terminals from OSM footprints, dark roofs), BUG-026 (#114, cat tracks as snow), BUG-022 (#105, false bridges).
 
 **Phase 4: snow and sky**
-11. Snow surface by run and day: corduroy only on groomed runs (grooming reports exist), tracked and chopped elsewhere, bumps on ungroomed steeps (FEAT-059), spring texture late in the season; blend tracks (BUG-021).
-12. Weather presets matched to the photos: overcast and falling snow are common in the pairs (Mongolia, Mid-Vail, Riva / Prima). The snowstorm mode exists; add an overcast-flat-light preset so pairs can be compared like for like.
+11. FEAT-077 (#124), snow surface by run and day: corduroy only on groomed runs (grooming reports exist), tracked and chopped elsewhere, bumps on ungroomed steeps (FEAT-059), spring texture late in the season; blend tracks (BUG-021).
+12. FEAT-078 (#125), weather presets matched to the photos: overcast and falling snow are common in the pairs (Mongolia, Mid-Vail, Riva / Prima). The snowstorm mode exists; add an overcast-flat-light preset so pairs can be compared like for like.
 
-## 5. Measuring progress: a compare metrics harness
+## 5. Measuring progress: a compare metrics harness (FEAT-076, #123)
 
 The pairs become a regression test. Proposed `tools/compare_metrics.py` (Python, reads only the pack and `docs/compare`):
 - For every spot: trees within 30 m and 100 m, trees per hectare, species mix, median height, krummholz share, canopy cover within 30 m and 80 m, and the LANDFIRE classes.
