@@ -38,13 +38,14 @@ export class Rocks {
     this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1.0, metalness: 0.0, flatShading: true });
   }
 
-  update(x: number, y: number): void {
+  /** Stream cells in the box around the rider (x, y) and the look-ahead point (ax, ay). */
+  update(x: number, y: number, ax = x, ay = y): void {
     const inst = this.pack.meta.instances;
     if (!inst) return;
     const cs = inst.cellSize;
     const keep = new Set<string>();
-    const cx0 = Math.max(0, Math.floor((x - RADIUS - inst.minX) / cs)), cx1 = Math.min(inst.cellsX - 1, Math.floor((x + RADIUS - inst.minX) / cs));
-    const cy0 = Math.max(0, Math.floor((y - RADIUS - inst.minY) / cs)), cy1 = Math.min(inst.cellsY - 1, Math.floor((y + RADIUS - inst.minY) / cs));
+    const cx0 = Math.max(0, Math.floor((Math.min(x, ax) - RADIUS - inst.minX) / cs)), cx1 = Math.min(inst.cellsX - 1, Math.floor((Math.max(x, ax) + RADIUS - inst.minX) / cs));
+    const cy0 = Math.max(0, Math.floor((Math.min(y, ay) - RADIUS - inst.minY) / cs)), cy1 = Math.min(inst.cellsY - 1, Math.floor((Math.max(y, ay) + RADIUS - inst.minY) / cs));
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         const key = `${cx}_${cy}`;

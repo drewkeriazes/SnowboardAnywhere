@@ -162,19 +162,20 @@ export class Vegetation {
     for (const i of this.impostor) { (i.mat.uniforms.sunColor.value as THREE.Color).copy(color); i.mat.uniforms.sunIntensity.value = intensity; }
   }
 
-  update(x: number, y: number): void {
+  /** Stream cells around the rider (x, y) and the look-ahead point (ax, ay): a cell's distance is to the nearer of the two. */
+  update(x: number, y: number, ax = x, ay = y): void {
     const inst = this.pack.meta.instances;
     if (!inst) return;
     const cs = inst.cellSize;
     const r = FAR_RADIUS;
-    const cx0 = Math.max(0, Math.floor((x - r - inst.minX) / cs)), cx1 = Math.min(inst.cellsX - 1, Math.floor((x + r - inst.minX) / cs));
-    const cy0 = Math.max(0, Math.floor((y - r - inst.minY) / cs)), cy1 = Math.min(inst.cellsY - 1, Math.floor((y + r - inst.minY) / cs));
+    const cx0 = Math.max(0, Math.floor((Math.min(x, ax) - r - inst.minX) / cs)), cx1 = Math.min(inst.cellsX - 1, Math.floor((Math.max(x, ax) + r - inst.minX) / cs));
+    const cy0 = Math.max(0, Math.floor((Math.min(y, ay) - r - inst.minY) / cs)), cy1 = Math.min(inst.cellsY - 1, Math.floor((Math.max(y, ay) + r - inst.minY) / cs));
     const keep = new Set<string>();
     let count = 0;
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         const ccx = inst.minX + (cx + 0.5) * cs, ccy = inst.minY + (cy + 0.5) * cs;
-        const d = Math.hypot(ccx - x, ccy - y) - cs * 0.71;
+        const d = Math.min(Math.hypot(ccx - x, ccy - y), Math.hypot(ccx - ax, ccy - ay)) - cs * 0.71;
         if (d > FAR_RADIUS) continue;
         const key = `${cx}_${cy}`;
         keep.add(key);

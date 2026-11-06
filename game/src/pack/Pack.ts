@@ -68,12 +68,23 @@ export class Pack {
     return this.meta.zRange[0];
   }
 
-  /** Terrain height from the finest loaded set, ignoring bridges. */
+  /**
+   * Count of terrainHeight() calls that wanted a finer set (the point is inside it) but had to
+   * use a coarser one because the tile was not loaded yet. Physics diffs it per step to warn.
+   */
+  coarseFallbacks = 0;
+
+  /** Terrain height from the finest loaded set, ignoring bridges. Independent of render LOD. */
   terrainHeight(x: number, y: number): number {
+    let skipped = false;
     for (const s of this.sets) {
       if (!s.contains(x, y)) continue;
       const h = s.sample(x, y);
-      if (!Number.isNaN(h)) return h;
+      if (!Number.isNaN(h)) {
+        if (skipped) this.coarseFallbacks++;
+        return h;
+      }
+      skipped = true;
     }
     return this.meta.zRange[0];
   }

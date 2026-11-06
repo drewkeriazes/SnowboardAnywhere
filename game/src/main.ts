@@ -24,6 +24,7 @@ import { TimeTrial } from './sim/TimeTrial';
 import { TrialWorld } from './world/TrialWorld';
 import { ResortMap } from './ui/ResortMap';
 import { LiftRide } from './sim/LiftRide';
+import { Prefetch } from './sim/Prefetch';
 import { GameAudio } from './audio/Audio';
 import { showMainMenu } from './ui/MainMenu';
 import { PauseMenu } from './ui/PauseMenu';
@@ -140,6 +141,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
 
     const rider = new Rider(pack, collider);
     const liftRide = new LiftRide(pack, lifts);
+    const prefetch = new Prefetch();
     const cam = new ChaseCamera(pack, window.innerWidth / window.innerHeight);
     const controls = new Controls(canvas);
     const touch = TouchControls.wanted() ? new TouchControls(controls) : null;
@@ -329,10 +331,12 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       renderer.autoClear = auto; renderer.shadowMap.autoUpdate = shadows;
     }
 
+    /** headless only: exact frame dt for __step, so scripted runs replay step for step */
+    let fixedDt: number | null = null;
     function frame(): void {
       if (!alive) return;
       const now = performance.now();
-      const dt = Math.min(0.1, (now - last) / 1000);
+      const dt = fixedDt ?? Math.min(0.1, (now - last) / 1000);
       last = now;
       const input = controls.update();
       // pause has priority; Esc closes the map first if it is open
@@ -359,9 +363,13 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       const boardPressed = (controls.action('lift') || !!touch?.once('lift')) && cam.mode !== 'free';
       const onLift = cam.mode !== 'free' && liftRide.update(rider, dt, boardPressed, input.tuck);
       if (cam.mode !== 'free' && !onLift && !map.fullOpen) rider.update(dt, input);
+      // visuals draw the pose interpolated between the last two 120 Hz physics steps; gameplay
+      // (trials, lifts, audio) keeps reading the sim pose
       riderView.setFirstPerson(cam.mode === 'fp');
+      rider.applyRenderPose();
       riderView.update(rider, dt, input.tuck, input.grab, onLift && liftRide.airborneRide);
       tracks.update(rider, dt, onLift && liftRide.airborneRide);
+      rider.restoreSimPose();
       if (settings.timeTrials) {
         if (onLift) trial.cancel('On a lift'); else trial.update(rider, dt, input.tuck);
         trialWorld.updateGates(rider.x, rider.y);
@@ -403,11 +411,13 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       } else { trialEl.classList.remove('show'); finishArrow.style.display = 'none'; map.trialRoute = null; }
       audio.update(rider, input.tuck, onLift, dt, liftRide.passedTower);
       rider.lastHit = '';
+      rider.applyRenderPose();
       if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
       else if (cam.mode === 'fp') { cam.updateFirstPerson(rider, dt, input.tuck, onLift || controls.looking, mouseDx, mouseDy, riderView.eye(eye)); mouseDx = mouseDy = 0; }
       else { cam.freeLook(controls.looking, dt, mouseDx, mouseDy); mouseDx = mouseDy = 0; cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); }
       goggles.strength = settings.goggleStrength;
       goggles.update(rider, dt, cam.mode === 'fp', cam.mode === 'fp' && settings.fpVignette, onLift);
+      rider.restoreSimPose();
       cam.camera.updateMatrixWorld();
       env.updateCSM();
       clouds.render(renderer, cam.camera, dt, env.sunDir, env.sun.color, env.sun.intensity, env.hemi.color, env.hemi.intensity, env.fog.color);
@@ -417,8 +427,11 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       const cp = cam.camera.position;
       terrain.update(cp.x, -cp.z, cp.y);
       const fx = cam.mode === 'free' ? cp.x : rider.x, fy = cam.mode === 'free' ? -cp.z : rider.y;
-      veg.update(fx, fy);
-      rocks.update(fx, fy);
+      // terrain, mask and instance tiles stream ahead along the direction of travel
+      const liftTop = onLift && liftRide.lift ? liftRide.lift.top : null;
+      prefetch.update(pack, fx, fy, dt, liftTop);
+      veg.update(fx, fy, prefetch.ax, prefetch.ay);
+      rocks.update(fx, fy, prefetch.ax, prefetch.ay);
       roads.update(fx, fy);
       const carried = onLift && liftRide.airborneRide ? liftRide.lift : null;
       riderChair.update(carried, rider.x, rider.y, rider.z, rider.heading, liftRide.cableY);
@@ -439,8 +452,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         else showPrompt(`<div class="name">${name}</div><div class="row">ride to the lift <span class="dim">${dist}</span> then <kbd>E</kbd></div>`);
       } else showPrompt('');
       env.update(fx, cam.mode === 'free' ? cp.y : rider.z, -fy);
-      if (pack.fine) { pack.fine.request(fx - 400, fy - 400, fx + 400, fy + 400); if (terrain.stats.builds === 0) pack.fine.evictBeyond(fx, fy, 3000); }
-      pack.mask?.request(fx - 400, fy - 400, fx + 400, fy + 400);
+      if (pack.fine && terrain.stats.builds === 0) pack.fine.evictBeyond(fx, fy, 3000, liftTop);
       map.riderPos = [rider.x, rider.y, rider.z];
       if (map.fullOpen) { if (fpsN % 10 === 0) map.drawFull(); }
       else if (fpsN % 3 === 0) map.drawMini(rider.x, rider.y, rider.heading);
@@ -470,7 +482,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (openMapAtStart) map.open();
       last = performance.now();
       if (headless) {
-        (window as any).__step = (n: number, dtOverride = 1 / 60) => { for (let i = 0; i < n; i++) { last = performance.now() - dtOverride * 1000; frame(); } };
+        (window as any).__step = (n: number, dtOverride = 1 / 60) => { fixedDt = dtOverride; for (let i = 0; i < n; i++) frame(); fixedDt = null; last = performance.now(); };
         (window as any).__shot = () => { last = performance.now() - 1000 / 60; frame(); return canvas.toDataURL('image/png'); };
         frame();
       } else {

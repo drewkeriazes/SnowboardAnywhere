@@ -134,13 +134,15 @@ export class HeightSet {
     return (h00 * (1 - ax) + h10 * ax) * (1 - ay) + (h01 * (1 - ax) + h11 * ax) * ay;
   }
 
-  /** Drop tiles far from a point to bound memory. */
-  evictBeyond(x: number, y: number, radius: number): void {
+  /** Drop tiles far from a point (and from an optional second keep point) to bound memory. */
+  evictBeyond(x: number, y: number, radius: number, keep?: readonly number[] | null): void {
     for (const [k, t] of this.tiles) {
       if (!t) continue;
       const tx = k % 4096, ty = Math.floor(k / 4096);
       const cx = this.meta.minX + (tx + 0.5) * this.size, cy = this.meta.minY + (ty + 0.5) * this.size;
-      if (Math.hypot(cx - x, cy - y) > radius + this.size) this.tiles.delete(k);
+      const far = Math.hypot(cx - x, cy - y) > radius + this.size;
+      const farKeep = !keep || Math.hypot(cx - keep[0], cy - keep[1]) > radius + this.size;
+      if (far && farKeep) this.tiles.delete(k);
     }
   }
 

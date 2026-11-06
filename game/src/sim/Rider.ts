@@ -1,5 +1,6 @@
 import type { Pack } from '../pack/Pack';
 import type { Collider } from './Collider';
+import { Rng } from './Rng';
 
 export interface Input {
   steer: number; // -1 left .. +1 right
@@ -59,30 +60,95 @@ export class Rider {
   distance = 0;
   maxSpeed = 0;
   discipline: Discipline = 'board';
+  /** sim randomness: seeded on reset so the same inputs replay the same run */
+  readonly rng = new Rng(1);
+  /** physics steps so far, and how many of them sampled a coarser height set than the point has */
+  steps = 0;
+  coarseSteps = 0;
   private readonly pack: Pack;
   private readonly collider: Collider | null;
   private accum = 0;
   private readonly maskTmp = [0, 0, 0, 0];
+  // render interpolation: pose before the last step, pose after it (to spot external moves), and
+  // the sim pose stashed while the interpolated one is applied
+  private readonly prev = [0, 0, 0, 0];
+  private readonly end = [NaN, NaN, NaN, NaN];
+  private readonly stash = [0, 0, 0, 0];
+  private alpha = 1;
+  private posed = false;
+  private lastWarn = -Infinity;
 
   constructor(pack: Pack, collider: Collider | null) {
     this.pack = pack;
     this.collider = collider;
   }
 
-  reset(x: number, y: number, heading: number): void {
+  reset(x: number, y: number, heading: number, seed = 1): void {
     this.x = x; this.y = y; this.z = this.pack.groundHeight(x, y) + 0.5;
     this.vx = this.vy = this.vz = 0;
     this.heading = heading; this.onGround = true; this.airTime = 0; this.jumpCharge = 0;
     this.crashed = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
+    this.edgeAngle = 0; this.lateralG = 0; this.landingShock = 0;
+    this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
+    this.rng.seed(seed);
+    this.snapPose();
   }
 
+  /**
+   * Advance the sim by real time dt in fixed 1/120 s steps. Catch-up is capped at 0.1 s per call
+   * (12 steps), so a tab switch or a long hitch drops time instead of fast-forwarding the run.
+   */
   update(dt: number, input: Input): void {
+    // moved from outside since the last step (lift, reset, teleport): nothing to interpolate from
+    if (this.x !== this.end[0] || this.y !== this.end[1] || this.z !== this.end[2] || this.heading !== this.end[3]) this.snapPose();
     this.accum += Math.min(dt, 0.1);
     while (this.accum >= STEP) {
+      this.prev[0] = this.x; this.prev[1] = this.y; this.prev[2] = this.z; this.prev[3] = this.heading;
+      const fb = this.pack.coarseFallbacks;
       this.step(STEP, input);
+      this.steps++;
+      if (this.pack.coarseFallbacks !== fb) this.onCoarse();
       this.accum -= STEP;
       input.jumpReleased = false; // consume the release edge
     }
+    this.end[0] = this.x; this.end[1] = this.y; this.end[2] = this.z; this.end[3] = this.heading;
+    this.alpha = this.accum / STEP;
+  }
+
+  private snapPose(): void {
+    this.prev[0] = this.end[0] = this.x; this.prev[1] = this.end[1] = this.y;
+    this.prev[2] = this.end[2] = this.z; this.prev[3] = this.end[3] = this.heading;
+  }
+
+  private onCoarse(): void {
+    this.coarseSteps++;
+    const now = performance.now();
+    if (now - this.lastWarn < 2000) return;
+    this.lastWarn = now;
+    console.warn(`physics: 1 m terrain not loaded at ${this.x.toFixed(0)}, ${this.y.toFixed(0)}; riding on a coarser set (${this.coarseSteps}/${this.steps} steps so far)`);
+  }
+
+  /**
+   * Swap in the pose interpolated between the last two physics steps for drawing (call
+   * restoreSimPose after). Without it the rider judders when the frame rate does not divide
+   * 120 Hz evenly. Big heading jumps (fakie flip, landing snap) are not blended.
+   */
+  applyRenderPose(): void {
+    if (this.posed) return;
+    this.posed = true;
+    const s = this.stash, p = this.prev, a = this.alpha;
+    s[0] = this.x; s[1] = this.y; s[2] = this.z; s[3] = this.heading;
+    if (this.x !== this.end[0] || this.y !== this.end[1] || this.z !== this.end[2] || this.heading !== this.end[3]) return; // moved outside the sim
+    this.x = p[0] + (s[0] - p[0]) * a; this.y = p[1] + (s[1] - p[1]) * a; this.z = p[2] + (s[2] - p[2]) * a;
+    const dh = s[3] - p[3];
+    if (Math.abs(dh) < 1) this.heading = p[3] + dh * a;
+  }
+
+  restoreSimPose(): void {
+    if (!this.posed) return;
+    this.posed = false;
+    const s = this.stash;
+    this.x = s[0]; this.y = s[1]; this.z = s[2]; this.heading = s[3];
   }
 
   private step(dt: number, input: Input): void {
