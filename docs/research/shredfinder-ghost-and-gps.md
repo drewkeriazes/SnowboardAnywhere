@@ -91,3 +91,13 @@ All clips are HERO11 Black. Originals are `GX01xxxx.MP4`; files with a long nume
 
 Good first test clips: Vail GX010182 (1.9 GB, 4.2 min, 2024-01-23), Breck `M:\GoPro\Breck Day 1\GX010070.MP4` (1.6 GB).
 Open question: does the GoPro cloud download keep the GPMF telemetry track? Verify on the first download before pulling more.
+
+## 6. Other riders' GPS: OpenStreetMap public traces (checked 2026-11-06)
+
+Queried `api.openstreetmap.org/api/0.6/trackpoints?bbox=-106.4166,39.5424,-106.2777,39.6582` (the Vail OSM box) through Drew's browser; the cloud sandbox cannot reach openstreetmap.org.
+- About **453,000 GPS points** in the box (91 pages of 5,000).
+- **122 separate identifiable traces** in the first 300,000 points, so roughly 150 to 200 in total. Timestamps seen run 2023 to 2026.
+- Not all of it is skiing: the box includes Vail Village, Lionshead, I-70 and summer hiking. Filter by date (Nov to Apr) and by speed/descent before using any of it.
+- Use: heat map of where people actually ride, and checks on run and lift lines. Not ghosts: most uploads have no rider metadata and points are low rate.
+- Licence for reuse outside OSM editing needs checking before shipping anything derived from them (see `licensing-and-attribution.md`).
+- YouTube videos carry no telemetry after upload (re-encoded) and downloading them breaks YouTube's terms; embed them as reference video only.
