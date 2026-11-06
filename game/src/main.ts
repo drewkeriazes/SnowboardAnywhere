@@ -469,7 +469,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         (rider.onGround ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') +
         `<br><span class="dim">${fps.toFixed(0)} fps &middot; ${terrain.stats.chunks} chunks &middot; ${(terrain.stats.triangles / 1000).toFixed(0)}k tris &middot; trees ${veg.stats.instances} &middot; cam ${cam.mode}` +
         ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}</span>`;
-      (window as any).__sim = { rider, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings };
+      (window as any).__sim = { rider, riderView, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings };
       if (!headless) requestAnimationFrame(frame);
     }
 
