@@ -141,7 +141,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     scene.add(riderView.sprayObject);
 
     const rider = new Rider(pack, collider);
-    const liftRide = new LiftRide(pack, lifts);
+    const liftRide = new LiftRide(pack, lifts, collider);
     const prefetch = new Prefetch();
     const cam = new ChaseCamera(pack, window.innerWidth / window.innerHeight);
     const controls = new Controls(canvas);

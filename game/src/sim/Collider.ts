@@ -13,11 +13,31 @@ export interface Hit {
   kind: number;
   /** obstacle top height (m) for ramp launches */
   top: number;
+  /** true when the point started inside a building footprint and was pushed out across an edge */
+  inside: boolean;
+}
+
+/** Closed building footprint, counter-clockwise in x/y, for inside tests. */
+interface Footprint {
+  pts: [number, number][];
+  zBase: number;
+  zTop: number;
+}
+
+/** Even-odd point-in-polygon test. */
+function insidePoly(pts: [number, number][], x: number, y: number): boolean {
+  let c = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+  }
+  return c;
 }
 
 export class Collider {
   private readonly cells = new Map<string, Float32Array[]>(); // packed [x, y, radius, zBase, zTop, kind]
-  private readonly hit: Hit = { x: 0, y: 0, nx: 0, ny: 0, kind: 0, top: 0 };
+  private readonly hit: Hit = { x: 0, y: 0, nx: 0, ny: 0, kind: 0, top: 0, inside: false };
+  private readonly footprints = new Map<string, Footprint[]>();
 
   private key(cx: number, cy: number): string {
     return `${cx},${cy}`;
@@ -45,6 +65,65 @@ export class Collider {
     }
   }
 
+  /**
+   * Add a closed building footprint (counter-clockwise). Its edges become walls, and a point inside
+   * it is pushed out across the nearest edge instead of being held in by the walls.
+   */
+  addFootprint(pts: [number, number][], zBase: number, zTop: number): void {
+    const n = pts.length;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const a = pts[i], c = pts[(i + 1) % n];
+      this.addWall(a[0], a[1], c[0], c[1], zBase, zTop);
+      minX = Math.min(minX, a[0]); maxX = Math.max(maxX, a[0]); minY = Math.min(minY, a[1]); maxY = Math.max(maxY, a[1]);
+    }
+    const f: Footprint = { pts, zBase, zTop };
+    for (let cy = Math.floor(minY / CELL); cy <= Math.floor(maxY / CELL); cy++) {
+      for (let cx = Math.floor(minX / CELL); cx <= Math.floor(maxX / CELL); cx++) {
+        const k = this.key(cx, cy);
+        let arr = this.footprints.get(k);
+        if (!arr) { arr = []; this.footprints.set(k, arr); }
+        arr.push(f);
+      }
+    }
+  }
+
+  /** The footprint containing (x, y) at height z, or null. */
+  private footprintAt(x: number, y: number, z: number): Footprint | null {
+    const arr = this.footprints.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
+    if (!arr) return null;
+    for (const f of arr) if (z <= f.zTop && z + 1.5 >= f.zBase && insidePoly(f.pts, x, y)) return f;
+    return null;
+  }
+
+  /**
+   * True when a rider at (x, y, z) would be inside a building, or within `clear` metres of a
+   * building wall, railing, trunk or rock. `clear` up to CELL is covered by the 3x3 lookup.
+   */
+  blocked(x: number, y: number, z: number, clear: number): boolean {
+    if (this.footprintAt(x, y, z)) return true;
+    const cx = Math.floor(x / CELL), cy = Math.floor(y / CELL);
+    for (let j = -1; j <= 1; j++) {
+      for (let i = -1; i <= 1; i++) {
+        const k = this.key(cx + i, cy + j);
+        const cyl = this.cells.get(k);
+        if (cyl) for (const c of cyl) {
+          if (z > c[4] || z + 1.5 < c[3]) continue;
+          if (Math.hypot(x - c[0], y - c[1]) < c[2] + clear) return true;
+        }
+        const walls = this.walls.get(k);
+        if (walls) for (const w of walls) {
+          if (z > w[5] || z + 1.5 < w[4]) continue;
+          const ex = w[2] - w[0], ey = w[3] - w[1];
+          const len2 = ex * ex + ey * ey || 1e-6;
+          const t = Math.max(0, Math.min(1, ((x - w[0]) * ex + (y - w[1]) * ey) / len2));
+          if (Math.hypot(x - w[0] - ex * t, y - w[1] - ey * t) < clear) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   clearCell(cellKey: string): void {
     this.cells.delete(cellKey);
   }
@@ -58,8 +137,28 @@ export class Collider {
 
   /** Push a circle of radius r at (x, y, z) out of any cylinder it overlaps. Returns the hit or null. */
   resolve(x: number, y: number, z: number, r: number): Hit | null {
-    const cx = Math.floor(x / CELL), cy = Math.floor(y / CELL);
     let found: Hit | null = null;
+    this.hit.inside = false;
+    // inside a building footprint (spawned, teleported or unloaded there): push out across the
+    // nearest edge. The two-sided walls below would otherwise hold the rider in.
+    const fp = this.footprintAt(x, y, z);
+    if (fp) {
+      const p = fp.pts, n = p.length;
+      let bestD = Infinity, bx = x, by = y, bnx = 1, bny = 0;
+      for (let i = 0; i < n; i++) {
+        const a = p[i], c = p[(i + 1) % n];
+        const ex = c[0] - a[0], ey = c[1] - a[1];
+        const len2 = ex * ex + ey * ey || 1e-6;
+        const t = Math.max(0, Math.min(1, ((x - a[0]) * ex + (y - a[1]) * ey) / len2));
+        const px = a[0] + ex * t, py = a[1] + ey * t;
+        const d = Math.hypot(x - px, y - py);
+        if (d < bestD) { const l = Math.sqrt(len2); bestD = d; bx = px; by = py; bnx = ey / l; bny = -ex / l; } // outward for CCW
+      }
+      x = bx + bnx * (r + 1e-3); y = by + bny * (r + 1e-3);
+      this.hit.x = x; this.hit.y = y; this.hit.nx = bnx; this.hit.ny = bny; this.hit.kind = 0; this.hit.top = fp.zTop; this.hit.inside = true;
+      found = this.hit;
+    }
+    const cx = Math.floor(x / CELL), cy = Math.floor(y / CELL);
     for (let j = -1; j <= 1; j++) {
       for (let i = -1; i <= 1; i++) {
         const arr = this.cells.get(this.key(cx + i, cy + j));

@@ -72,7 +72,7 @@ export class Buildings {
     for (let i = 0; i < pts.length; i++) { const a = pts[i], c = pts[(i + 1) % pts.length]; area += a[0] * c[1] - c[0] * a[1]; }
     if (area < 0) pts = [...pts].reverse();
     const n = pts.length;
-    if (this.collider) for (let i = 0; i < n; i++) { const a = pts[i], c = pts[(i + 1) % n]; this.collider.addWall(a[0], a[1], c[0], c[1], base, top); }
+    if (this.collider) this.collider.addFootprint(pts.map((p) => [p[0], p[1]] as [number, number]), base, top);
     // walls: one quad per edge with a flat normal
     for (let i = 0; i < n; i++) {
       const a = pts[i], c = pts[(i + 1) % n];

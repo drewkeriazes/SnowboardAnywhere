@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Rider } from './Rider';
 import type { Pack } from '../pack/Pack';
+import type { Collider } from './Collider';
 import { LOAD_OFFSET, type LiftRuntime, type Lifts } from '../world/Lifts';
 
 /**
@@ -13,6 +14,10 @@ export const BOARD_RANGE = 14; // m: can press E
 export const BOARD_SPEED = 6; // m/s
 export const RIDE_SPEEDUP = 4; // real lift speeds feel far too slow in a game: ride at 4x
 export const FAST_FORWARD = 5; // extra multiplier while the tuck key is held (20x real)
+const UNLOAD_CLEAR = 1.5; // m: unload spot keeps this far from walls, trunks and rocks
+const UNLOAD_RUN = 10; // m: and has this much clear snow straight downhill
+const UNLOAD_SEARCH = 60; // m: furthest the unload spot may move from the nominal point
+const UNLOAD_MIN_SLOPE = 4; // degrees: preferred minimum slope at the unload spot
 
 export class LiftRide {
   lift: LiftRuntime | null = null;
@@ -33,7 +38,7 @@ export class LiftRide {
   private readonly seat = new THREE.Vector3();
   private readonly seat2 = new THREE.Vector3();
 
-  constructor(private readonly pack: Pack, private readonly lifts: Lifts) {}
+  constructor(private readonly pack: Pack, private readonly lifts: Lifts, private readonly collider: Collider | null = null) {}
 
   get riding(): boolean { return this.lift !== null; }
 
@@ -106,10 +111,58 @@ export class LiftRide {
     const dirX = l.top[0] - l.bottom[0], dirY = l.top[1] - l.bottom[1];
     const dl = Math.hypot(dirX, dirY) || 1;
     const side = l.upFromA ? 1 : -1;
-    let x = l.top[0] + (dirX / dl) * 3 + l.lateral[0] * 3 * side, y = l.top[1] + (dirY / dl) * 3 + l.lateral[1] * 3 * side;
+    const x = l.top[0] + (dirX / dl) * 3 + l.lateral[0] * 3 * side, y = l.top[1] + (dirY / dl) * 3 + l.lateral[1] * 3 * side;
+    const spot = this.clearSpot(x, y, Math.atan2(-dirX, -dirY));
+    rider.reset(spot[0], spot[1], spot[2]);
+  }
+
+  /** Downhill heading at (x, y), or `fallback` on flat ground. */
+  private downhill(x: number, y: number, fallback: number): number {
     const n = this.pack.groundNormal(x, y) as number[];
-    let heading = Math.hypot(n[0], n[1]) > 0.02 ? Math.atan2(n[0], n[1]) : Math.atan2(-dirX, -dirY);
-    rider.reset(x, y, heading);
+    return Math.hypot(n[0], n[1]) > 0.02 ? Math.atan2(n[0], n[1]) : fallback;
+  }
+
+  /**
+   * The unloading point is often inside the OSM footprint of the top terminal or a summit lodge.
+   * Search rings outward from the nominal point (2 m steps, out to UNLOAD_SEARCH) for the nearest
+   * spot clear of buildings and trees with a clear run downhill and at least UNLOAD_MIN_SLOPE; on
+   * each ring take the lowest one, which puts the rider on the downhill side. Returns [x, y, heading].
+   */
+  private clearSpot(x0: number, y0: number, fallback: number): [number, number, number] {
+    const col = this.collider;
+    if (!col) return [x0, y0, this.downhill(x0, y0, fallback)];
+    const free = (x: number, y: number, clear: number): boolean => {
+      const z = this.pack.groundHeight(x, y);
+      return !Number.isNaN(z) && !col.blocked(x, y, z, clear);
+    };
+    const runClear = (x: number, y: number, h: number): boolean => {
+      const dx = Math.sin(h), dy = Math.cos(h);
+      for (let t = 1; t <= UNLOAD_RUN; t++) if (!free(x + dx * t, y + dy * t, 0.5)) return false;
+      return true;
+    };
+    // there is no skating, so prefer a spot steep enough to glide away from; the nearest clear
+    // spot on flatter ground is the fallback
+    const minNz = Math.cos(UNLOAD_MIN_SLOPE * (Math.PI / 180));
+    let flat: [number, number, number] | null = null;
+    for (let r = 0; r <= UNLOAD_SEARCH; r += 2) {
+      const steps = r === 0 ? 1 : Math.ceil((2 * Math.PI * r) / 2);
+      let best: [number, number, number] | null = null, bestZ = Infinity;
+      let bestFlat: [number, number, number] | null = null, bestFlatZ = Infinity;
+      for (let k = 0; k < steps; k++) {
+        const a = (k / steps) * Math.PI * 2;
+        const x = x0 + Math.cos(a) * r, y = y0 + Math.sin(a) * r;
+        if (!free(x, y, UNLOAD_CLEAR)) continue;
+        const h = this.downhill(x, y, fallback);
+        if (!runClear(x, y, h)) continue;
+        const z = this.pack.groundHeight(x, y);
+        const steep = (this.pack.groundNormal(x, y) as number[])[2] <= minNz;
+        if (steep && z < bestZ) { bestZ = z; best = [x, y, h]; }
+        if (!steep && z < bestFlatZ) { bestFlatZ = z; bestFlat = [x, y, h]; }
+      }
+      if (best) return best;
+      if (!flat && bestFlat) flat = bestFlat;
+    }
+    return flat ?? [x0, y0, this.downhill(x0, y0, fallback)];
   }
 
   /** Leave the lift at the current spot (used on R while riding). */

@@ -278,6 +278,8 @@ export class Rider {
     if (this.collider) {
       const hit = this.collider.resolve(this.x, this.y, this.z, 0.4);
       if (hit) {
+        // started inside a building: always take the pushed-out position, even when already moving out
+        if (hit.inside) { this.x = hit.x; this.y = hit.y; }
         const vn = this.vx * hit.nx + this.vy * hit.ny; // negative = moving into the obstacle
         const spdNow = Math.hypot(this.vx, this.vy) || 1;
         const headOn = -vn / spdNow; // 1 = straight into it, 0 = grazing
