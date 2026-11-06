@@ -68,138 +68,210 @@ export class Lifts {
     termChair: terminalGeometry('chair'), termGondola: terminalGeometry('gondola'), termSurface: terminalGeometry('surface'),
   };
 
+  private readonly pack: Pack;
+  /** one group per lift so a lift can be rebuilt on better terrain */
+  private readonly liftGroups: THREE.Group[] = [];
+  /** terrain level each lift was built on: 0 none (station heights only), 1 mid (16 m), 2 fine (1 m) */
+  private readonly level: number[] = [];
+  private maintainAcc = 0;
+
   constructor(pack: Pack) {
+    this.pack = pack;
     for (const lift of pack.features.lifts) {
       if (lift.stations.length < 2) continue;
-      const a = lift.stations[0], b = lift.stations[lift.stations.length - 1];
-      const kind = kindOf(lift.type);
-      const dirX = b[0] - a[0], dirY = b[1] - a[1];
-      const dl = Math.hypot(dirX, dirY) || 1;
-      const lx = dirY / dl, ly = -dirX / dl; // lateral unit
-      const yaw = Math.atan2(dirX, dirY); // heading of the line
-      const upFromA = a[2] <= b[2];
-      const lo = upFromA ? a : b, hi = upFromA ? b : a;
-      const ux = (hi[0] - lo[0]) / dl, uy = (hi[1] - lo[1]) / dl;
-      const bx = lo[0] + ux * LOAD_OFFSET, by = lo[1] + uy * LOAD_OFFSET;
-      const tx = hi[0] - ux * LOAD_OFFSET, ty = hi[1] - uy * LOAD_OFFSET;
-      const bottom: [number, number, number] = [bx, by, pack.groundHeight(bx, by)];
-      const top: [number, number, number] = [tx, ty, pack.groundHeight(tx, ty)];
+      const { rt, group } = this.build(lift);
+      this.lifts.push(rt); this.liftGroups.push(group); this.level.push(0);
+      this.group.add(group);
+    }
+  }
 
-      if (kind === 'carpet') {
-        // a belt on the snow from a to b, no towers or cable
-        const pts: THREE.Vector3[] = [];
-        const n = Math.max(2, Math.ceil(dl / 4));
-        for (let i = 0; i <= n; i++) { const t = i / n; const x = a[0] + dirX * t, y = a[1] + dirY * t; pts.push(new THREE.Vector3(x, pack.groundHeight(x, y) + 0.05, -y)); }
-        for (let i = 0; i < n; i++) {
-          const p0 = pts[i], p1 = pts[i + 1];
-          const seg = new THREE.Mesh(this.geos.carpet, this.mat);
-          seg.position.copy(p0).lerp(p1, 0.5);
-          seg.scale.set(1, 1, p0.distanceTo(p1) + 0.05);
-          seg.lookAt(p1);
-          seg.receiveShadow = true;
-          this.group.add(seg);
-        }
-        const cum = [0];
-        for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
-        this.lifts.push({ feature: lift, kind, speed: SPEEDS.carpet, riderDrop: 0, curve: pts, cum, length: cum[cum.length - 1], carriers: null, nCarriers: 0, spacing: 0, offset: 0, lateral: [lx, ly], yaw, upFromA, bottom, top, towerUp: [] });
-        continue;
-      }
+  /**
+   * Height of the loaded terrain at (x, y), or NaN when no tile covering it has loaded yet.
+   * Never the zRange fallback: building on that put cables and terminals underground (BUG-011).
+   */
+  private realGround(x: number, y: number): number {
+    for (const s of this.pack.sets) { if (s.contains(x, y)) { const h = s.sample(x, y); if (!Number.isNaN(h)) return h; } }
+    return NaN;
+  }
 
-      const towerH = kind === 'surface' ? 4.5 : kind === 'gondola' ? 14 : 11;
-      const termH = kind === 'surface' ? 3.6 : 7.5; // cable height at the terminals
-      // towers: given, else every 140 m (60 m for surface lifts) along the line
-      let towers = lift.towers;
-      if (!towers || towers.length === 0) {
-        const n = Math.max(1, Math.floor(dl / (kind === 'surface' ? 60 : 140)));
-        towers = [];
-        for (let i = 1; i < n; i++) {
-          const t = i / n;
-          const x = a[0] + dirX * t, y = a[1] + dirY * t;
-          towers.push([x, y, pack.groundHeight(x, y), towerH]);
-        }
-      } else towers = towers.map((t) => [t[0], t[1], t[2], kind === 'surface' ? towerH : t[3]]);
-      // cable anchors with ground-clearance check (virtual towers where a span runs too low)
-      const anchors: [number, number, number][] = [[a[0], a[1], pack.groundHeight(a[0], a[1]) + termH], ...towers.map((t) => [t[0], t[1], t[2] + t[3]] as [number, number, number]), [b[0], b[1], pack.groundHeight(b[0], b[1]) + termH]];
-      const CLEARANCE = kind === 'surface' ? 2.6 : 7;
-      for (let guard = 0; guard < 80; guard++) {
-        let worst = -1, wi = -1, wx = 0, wy = 0;
-        for (let i = 0; i < anchors.length - 1; i++) {
-          const p0 = anchors[i], p1 = anchors[i + 1];
-          const span = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
-          if (span < 25) continue;
-          const sag = this.sag(span, kind);
-          const n = Math.min(24, Math.max(4, Math.floor(span / 10)));
-          for (let k = 1; k < n; k++) {
-            const t = k / n;
-            const x = p0[0] + (p1[0] - p0[0]) * t, y = p0[1] + (p1[1] - p0[1]) * t;
-            const z = p0[2] + (p1[2] - p0[2]) * t - sag * 4 * t * (1 - t);
-            const v = pack.groundHeight(x, y) + CLEARANCE - z;
-            if (v > worst) { worst = v; wi = i; wx = x; wy = y; }
-          }
-        }
-        if (worst <= 0) break;
-        const gz = pack.groundHeight(wx, wy);
-        anchors.splice(wi + 1, 0, [wx, wy, gz + towerH]);
-        towers.push([wx, wy, gz, towerH]);
-      }
-      // tower meshes: mast (scaled), head, footing
-      const masts = new THREE.InstancedMesh(this.geos.tower, this.mat, towers.length);
-      const heads = new THREE.InstancedMesh(this.geos.head, this.mat, towers.length);
-      const feet = new THREE.InstancedMesh(this.geos.footing, this.mat, towers.length);
-      masts.castShadow = true; heads.castShadow = true;
-      const headQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw);
-      towers.forEach((t, i) => {
-        this.p.set(t[0], t[2], -t[1]); this.q.identity(); this.s.set(1, t[3], 1); this.m.compose(this.p, this.q, this.s); masts.setMatrixAt(i, this.m);
-        this.p.set(t[0], t[2] + t[3], -t[1]); this.s.set(1, 1, 1); this.m.compose(this.p, headQ, this.s); heads.setMatrixAt(i, this.m);
-        this.p.set(t[0], t[2] - 0.3, -t[1]); this.m.compose(this.p, this.q, this.s); feet.setMatrixAt(i, this.m);
-      });
-      masts.instanceMatrix.needsUpdate = true; heads.instanceMatrix.needsUpdate = true; feet.instanceMatrix.needsUpdate = true;
-      this.group.add(masts, heads, feet);
-      // terminals: building at each station node, facing the line
-      const termGeo = kind === 'gondola' ? this.geos.termGondola : kind === 'surface' ? this.geos.termSurface : this.geos.termChair;
-      for (const [st, towardOther] of [[a, 1], [b, -1]] as const) {
-        const term = new THREE.Mesh(termGeo, this.mat);
-        term.position.set(st[0], pack.groundHeight(st[0], st[1]), -st[1]);
-        // model's -Z is the line end with the bull wheel; point it away from the line so the carpet faces the slope
-        term.rotation.y = -yaw + (towardOther === 1 ? Math.PI : 0);
-        term.castShadow = true; term.receiveShadow = true;
-        this.group.add(term);
-      }
-      // cable path with catenary sag between anchors
+  /** Build one lift's meshes and runtime. Station z comes from the pipeline (1 m DEM). */
+  private build(lift: LiftFeature): { rt: LiftRuntime; group: THREE.Group } {
+    const group = new THREE.Group();
+    const a = lift.stations[0], b = lift.stations[lift.stations.length - 1];
+    const kind = kindOf(lift.type);
+    const dirX = b[0] - a[0], dirY = b[1] - a[1];
+    const dl = Math.hypot(dirX, dirY) || 1;
+    const lx = dirY / dl, ly = -dirX / dl; // lateral unit
+    const yaw = Math.atan2(dirX, dirY); // heading of the line
+    // ground along the line: loaded terrain where we have it, else straight between the station heights
+    const lineZ = (x: number, y: number) => { const t = Math.max(0, Math.min(1, ((x - a[0]) * dirX + (y - a[1]) * dirY) / (dl * dl))); return a[2] + (b[2] - a[2]) * t; };
+    const ground = (x: number, y: number) => { const h = this.realGround(x, y); return Number.isNaN(h) ? lineZ(x, y) : h; };
+    const upFromA = a[2] <= b[2];
+    const lo = upFromA ? a : b, hi = upFromA ? b : a;
+    const ux = (hi[0] - lo[0]) / dl, uy = (hi[1] - lo[1]) / dl;
+    const bx = lo[0] + ux * LOAD_OFFSET, by = lo[1] + uy * LOAD_OFFSET;
+    const tx = hi[0] - ux * LOAD_OFFSET, ty = hi[1] - uy * LOAD_OFFSET;
+    const bottom: [number, number, number] = [bx, by, ground(bx, by)];
+    const top: [number, number, number] = [tx, ty, ground(tx, ty)];
+
+    if (kind === 'carpet') {
       const pts: THREE.Vector3[] = [];
+      const n = Math.max(2, Math.ceil(dl / 4));
+      for (let i = 0; i <= n; i++) { const t = i / n; const x = a[0] + dirX * t, y = a[1] + dirY * t; pts.push(new THREE.Vector3(x, ground(x, y) + 0.05, -y)); }
+      for (let i = 0; i < n; i++) {
+        const p0 = pts[i], p1 = pts[i + 1];
+        const seg = new THREE.Mesh(this.geos.carpet, this.mat);
+        seg.position.copy(p0).lerp(p1, 0.5);
+        seg.scale.set(1, 1, p0.distanceTo(p1) + 0.05);
+        seg.lookAt(p1);
+        seg.receiveShadow = true;
+        group.add(seg);
+      }
+      const cum = [0];
+      for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
+      return { group, rt: { feature: lift, kind, speed: SPEEDS.carpet, riderDrop: 0, curve: pts, cum, length: cum[cum.length - 1], carriers: null, nCarriers: 0, spacing: 0, offset: 0, lateral: [lx, ly], yaw, upFromA, bottom, top, towerUp: [] } };
+    }
+
+    const towerH = kind === 'surface' ? 4.5 : kind === 'gondola' ? 14 : 11;
+    const termH = kind === 'surface' ? 3.6 : 7.5; // cable height at the terminals
+    // towers: OSM pylons (heights from the pipeline), else every 140 m (60 m for surface lifts)
+    let towers = lift.towers;
+    if (!towers || towers.length === 0) {
+      const n = Math.max(1, Math.floor(dl / (kind === 'surface' ? 60 : 140)));
+      towers = [];
+      for (let i = 1; i < n; i++) {
+        const t = i / n;
+        const x = a[0] + dirX * t, y = a[1] + dirY * t;
+        towers.push([x, y, ground(x, y), towerH]);
+      }
+    } else towers = towers.map((t) => [t[0], t[1], t[2], kind === 'surface' ? towerH : t[3]]);
+    // terminals sit on the station heights from the 1 m DEM
+    const anchors: [number, number, number][] = [[a[0], a[1], a[2] + termH], ...towers.map((t) => [t[0], t[1], t[2] + t[3]] as [number, number, number]), [b[0], b[1], b[2] + termH]];
+    // ground clearance: where a span runs closer than CLEARANCE to loaded terrain, insert a virtual
+    // tower at the worst point. Points without loaded terrain are skipped (not guessed).
+    const CLEARANCE = kind === 'surface' ? 2.6 : 7;
+    for (let guard = 0; guard < 80; guard++) {
+      let worst = 0, wi = -1, wx = 0, wy = 0;
       for (let i = 0; i < anchors.length - 1; i++) {
         const p0 = anchors[i], p1 = anchors[i + 1];
         const span = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+        if (span < 25) continue;
         const sag = this.sag(span, kind);
-        const segs = Math.max(4, Math.min(12, Math.round(span / 20)));
-        for (let k = 0; k < segs; k++) {
-          const t = k / segs;
+        const n = Math.min(60, Math.max(4, Math.floor(span / 8)));
+        for (let k = 1; k < n; k++) {
+          const t = k / n;
+          const x = p0[0] + (p1[0] - p0[0]) * t, y = p0[1] + (p1[1] - p0[1]) * t;
+          const g = this.realGround(x, y);
+          if (Number.isNaN(g)) continue;
           const z = p0[2] + (p1[2] - p0[2]) * t - sag * 4 * t * (1 - t);
-          pts.push(new THREE.Vector3(p0[0] + (p1[0] - p0[0]) * t, z, -(p0[1] + (p1[1] - p0[1]) * t)));
+          const v = g + CLEARANCE - z;
+          if (v > worst) { worst = v; wi = i; wx = x; wy = y; }
         }
       }
-      const last = anchors[anchors.length - 1];
-      pts.push(new THREE.Vector3(last[0], last[2], -last[1]));
-      const lateralOff = kind === 'surface' ? 0.9 : 1.6;
-      for (const side of [-1, 1]) {
-        const offs = pts.map((v) => new THREE.Vector3(v.x + lx * lateralOff * side, v.y, v.z - ly * lateralOff * side));
-        this.group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(offs), this.cableMat));
+      if (wi < 0) break;
+      const gz = this.realGround(wx, wy);
+      anchors.splice(wi + 1, 0, [wx, wy, gz + towerH]);
+      towers.push([wx, wy, gz, towerH]);
+    }
+    // tower meshes: mast (scaled), head, footing
+    const masts = new THREE.InstancedMesh(this.geos.tower, this.mat, towers.length);
+    const heads = new THREE.InstancedMesh(this.geos.head, this.mat, towers.length);
+    const feet = new THREE.InstancedMesh(this.geos.footing, this.mat, towers.length);
+    masts.castShadow = true; heads.castShadow = true;
+    const headQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw);
+    towers.forEach((t, i) => {
+      this.p.set(t[0], t[2], -t[1]); this.q.identity(); this.s.set(1, t[3], 1); this.m.compose(this.p, this.q, this.s); masts.setMatrixAt(i, this.m);
+      this.p.set(t[0], t[2] + t[3], -t[1]); this.s.set(1, 1, 1); this.m.compose(this.p, headQ, this.s); heads.setMatrixAt(i, this.m);
+      this.p.set(t[0], t[2] - 0.3, -t[1]); this.m.compose(this.p, this.q, this.s); feet.setMatrixAt(i, this.m);
+    });
+    masts.instanceMatrix.needsUpdate = true; heads.instanceMatrix.needsUpdate = true; feet.instanceMatrix.needsUpdate = true;
+    group.add(masts, heads, feet);
+    // terminals: building at each station node, facing the line
+    const termGeo = kind === 'gondola' ? this.geos.termGondola : kind === 'surface' ? this.geos.termSurface : this.geos.termChair;
+    for (const [st, towardOther] of [[a, 1], [b, -1]] as const) {
+      const term = new THREE.Mesh(termGeo, this.mat);
+      term.position.set(st[0], st[2], -st[1]);
+      term.rotation.y = -yaw + (towardOther === 1 ? Math.PI : 0);
+      term.castShadow = true; term.receiveShadow = true;
+      group.add(term);
+    }
+    // cable path with catenary sag between anchors
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i < anchors.length - 1; i++) {
+      const p0 = anchors[i], p1 = anchors[i + 1];
+      const span = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+      const sag = this.sag(span, kind);
+      const segs = Math.max(4, Math.min(12, Math.round(span / 20)));
+      for (let k = 0; k < segs; k++) {
+        const t = k / segs;
+        const z = p0[2] + (p1[2] - p0[2]) * t - sag * 4 * t * (1 - t);
+        pts.push(new THREE.Vector3(p0[0] + (p1[0] - p0[0]) * t, z, -(p0[1] + (p1[1] - p0[1]) * t)));
       }
-      // carriers
-      const cum = [0];
-      for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
-      const length = cum[cum.length - 1];
-      const spacing = SPACING[kind];
-      const nCarriers = Math.max(2, Math.floor((2 * length) / spacing));
-      const seats = (lift.capacity ?? 2400) >= 3000 ? 6 : (lift.capacity ?? 2400) >= 1800 ? 4 : 2;
-      const carrierGeo = kind === 'gondola' ? this.geos.gondola : kind === 'surface' ? (lift.type === 't-bar' ? this.geos.tbar : this.geos.platter) : seats === 6 ? this.geos.chair6 : seats === 4 ? this.geos.chair4 : this.geos.chair2;
-      const carriers = new THREE.InstancedMesh(carrierGeo, this.mat, nCarriers);
-      carriers.castShadow = true;
-      this.group.add(carriers);
-      const riderDrop = kind === 'gondola' ? 3.3 : kind === 'surface' ? 0 : SEAT_DROP;
-      const towerUp = towers.map((t) => Math.hypot(t[0] - lo[0], t[1] - lo[1])).sort((p, q) => p - q);
-      this.lifts.push({ feature: lift, kind, speed: SPEEDS[kind], riderDrop, curve: pts, cum, length, carriers, nCarriers, spacing, offset: Math.random() * spacing, lateral: [lx, ly], yaw, upFromA, bottom, top, towerUp });
-      (this.lifts[this.lifts.length - 1] as any).lateralOff = lateralOff;
+    }
+    const last = anchors[anchors.length - 1];
+    pts.push(new THREE.Vector3(last[0], last[2], -last[1]));
+    const lateralOff = kind === 'surface' ? 0.9 : 1.6;
+    for (const side of [-1, 1]) {
+      const offs = pts.map((v) => new THREE.Vector3(v.x + lx * lateralOff * side, v.y, v.z - ly * lateralOff * side));
+      group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(offs), this.cableMat));
+    }
+    // carriers
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
+    const length = cum[cum.length - 1];
+    const spacing = SPACING[kind];
+    const nCarriers = Math.max(2, Math.floor((2 * length) / spacing));
+    const seats = (lift.capacity ?? 2400) >= 3000 ? 6 : (lift.capacity ?? 2400) >= 1800 ? 4 : 2;
+    const carrierGeo = kind === 'gondola' ? this.geos.gondola : kind === 'surface' ? (lift.type === 't-bar' ? this.geos.tbar : this.geos.platter) : seats === 6 ? this.geos.chair6 : seats === 4 ? this.geos.chair4 : this.geos.chair2;
+    const carriers = new THREE.InstancedMesh(carrierGeo, this.mat, nCarriers);
+    carriers.castShadow = true;
+    group.add(carriers);
+    const riderDrop = kind === 'gondola' ? 3.3 : kind === 'surface' ? 0 : SEAT_DROP;
+    const towerUp = towers.map((t) => Math.hypot(t[0] - lo[0], t[1] - lo[1])).sort((p, q) => p - q);
+    const rt: LiftRuntime = { feature: lift, kind, speed: SPEEDS[kind], riderDrop, curve: pts, cum, length, carriers, nCarriers, spacing, offset: Math.random() * spacing, lateral: [lx, ly], yaw, upFromA, bottom, top, towerUp };
+    (rt as any).lateralOff = lateralOff;
+    return { rt, group };
+  }
+
+  /** Rebuild lift i on the terrain loaded now; the runtime object keeps its identity (a ride in progress continues). */
+  private rebuild(i: number, level: number): void {
+    const old = this.liftGroups[i];
+    this.group.remove(old);
+    old.traverse((o) => {
+      if ((o as THREE.InstancedMesh).isInstancedMesh) (o as THREE.InstancedMesh).dispose();
+      else if ((o as THREE.Line).isLine) (o as THREE.Line).geometry.dispose();
+    });
+    const rt = this.lifts[i];
+    const offset = rt.offset;
+    const { rt: fresh, group } = this.build(rt.feature);
+    Object.assign(rt, fresh, { offset });
+    this.liftGroups[i] = group;
+    this.level[i] = level;
+    this.group.add(group);
+    this.placeMarker(rt);
+  }
+
+  /**
+   * Called every frame: rebuild lifts as better terrain arrives. Level 1 once the mid set covers
+   * the whole line; level 2 (1 m) for lifts whose bottom is within 400 m of the rider once the
+   * fine tiles along the line are in.
+   */
+  maintain(dt: number, riderX: number, riderY: number): void {
+    this.maintainAcc += dt;
+    if (this.maintainAcc < 0.5) return;
+    this.maintainAcc = 0;
+    let rebuilt = 0;
+    for (let i = 0; i < this.lifts.length && rebuilt < 2; i++) {
+      const l = this.lifts[i].feature, st = l.stations;
+      const xs = st.map((p) => p[0]), ys = st.map((p) => p[1]);
+      const x0 = Math.min(...xs) - 30, x1 = Math.max(...xs) + 30, y0 = Math.min(...ys) - 30, y1 = Math.max(...ys) + 30;
+      if (this.level[i] < 1 && this.pack.mid && this.pack.mid.request(x0, y0, x1, y1)) { this.rebuild(i, 1); rebuilt++; continue; }
+      if (this.level[i] < 2 && this.pack.fine) {
+        const b = this.lifts[i].bottom;
+        if (Math.hypot(b[0] - riderX, b[1] - riderY) > 400) continue;
+        if ((x1 - x0) * (y1 - y0) > 4e6) continue; // very long lines: mid level is enough
+        if (this.pack.fine.request(x0, y0, x1, y1)) { this.rebuild(i, 2); rebuilt++; }
+      }
     }
   }
 
@@ -210,7 +282,7 @@ export class Lifts {
 
   /** Floating markers above each loading point (chair glyph + name) and a ring on the snow. */
   readonly markers = new THREE.Group();
-  private markerSprites: { sprite: THREE.Sprite; base: THREE.Vector3; lift: LiftRuntime }[] = [];
+  private markerSprites: { sprite: THREE.Sprite; base: THREE.Vector3; lift: LiftRuntime; ring: THREE.Mesh }[] = [];
   private markersBuilt = false;
   buildMarkers(pack: Pack): void {
     if (this.markersBuilt) return;
@@ -220,7 +292,7 @@ export class Lifts {
     const ringMat = new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide });
     for (const l of this.lifts) {
       const [x, y] = l.bottom;
-      const z = pack.groundHeight(x, y);
+      const z = l.bottom[2];
       const tex = makeMarkerTexture(l.feature.name ?? 'Lift', l.kind);
       const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: true });
       const sprite = new THREE.Sprite(mat);
@@ -229,13 +301,22 @@ export class Lifts {
       sprite.center.set(0.5, 0);
       sprite.renderOrder = 999;
       this.markers.add(sprite);
-      this.markerSprites.push({ sprite, base, lift: l });
       const ring = new THREE.Mesh(ringGeo, ringMat);
-      ring.position.set(x, z + 0.3, -y);
-      const n = pack.groundNormal(x, y) as number[];
-      ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(n[0], n[2], -n[1]).normalize());
       this.markers.add(ring);
+      this.markerSprites.push({ sprite, base, lift: l, ring });
+      this.placeMarker(l);
     }
+  }
+  /** Put a lift's marker and ring on the current ground at its loading point. */
+  private placeMarker(l: LiftRuntime): void {
+    const m = this.markerSprites.find((e) => e.lift === l);
+    if (!m) return;
+    const [x, y] = l.bottom;
+    const z = l.bottom[2];
+    m.base.set(x, z + 14, -y);
+    m.ring.position.set(x, z + 0.3, -y);
+    const n = this.pack.groundNormal(x, y) as number[];
+    m.ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(n[0], n[2], -n[1]).normalize());
   }
   /** Bob and scale the markers; the one the rider can board pulses. */
   updateMarkers(time: number, camX: number, camY: number, boardable: LiftRuntime | null): void {
