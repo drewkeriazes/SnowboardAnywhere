@@ -319,7 +319,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (controls.action('track')) audio.nextTrack();
       if (controls.action('fly')) { cam.mode = cam.mode === 'free' ? settings.camera : 'free'; if (cam.mode === 'free') cam.enterFree(); }
       const boardPressed = (controls.action('lift') || !!touch?.once('lift')) && cam.mode !== 'free';
-      const onLift = cam.mode !== 'free' && liftRide.update(rider, dt, boardPressed);
+      const onLift = cam.mode !== 'free' && liftRide.update(rider, dt, boardPressed, input.tuck);
       if (cam.mode !== 'free' && !onLift && !map.fullOpen) rider.update(dt, input);
       riderView.setFirstPerson(cam.mode === 'fp');
       riderView.update(rider, dt, input.tuck, input.grab, onLift && liftRide.airborneRide);
@@ -388,7 +388,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
       if (onLift) {
         const pct = ((liftRide.up / (liftRide.lift ? lifts.rideLength(liftRide.lift) : 1)) * 100).toFixed(0);
-        showPrompt(`<div class="name">${liftRide.lift?.feature.name ?? 'Lift'}</div><div class="row"><kbd>E</kbd> skip to the ${liftRide.lift?.kind === 'carpet' ? 'end' : 'top'} <span class="dim">${pct}%</span></div>`);
+        showPrompt(`<div class="name">${liftRide.lift?.feature.name ?? 'Lift'}</div><div class="row"><kbd>E</kbd> skip to the ${liftRide.lift?.kind === 'carpet' ? 'end' : 'top'} <span class="dim">${pct}%</span></div><div class="row"><kbd>W</kbd> hold for ${liftRide.fast ? '<b>5x speed</b>' : '5x speed'} &nbsp; <kbd>Alt</kbd> look around</div>`);
       } else if (liftRide.nearby && !map.fullOpen && cam.mode !== 'free') {
         const name = liftRide.nearby.feature.name ?? 'Lift';
         const dist = settings.units === 'metric' ? `${liftRide.nearbyDist.toFixed(0)} m` : `${(liftRide.nearbyDist * 3.28084).toFixed(0)} ft`;

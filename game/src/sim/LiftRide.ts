@@ -6,11 +6,12 @@ import { LOAD_OFFSET, type LiftRuntime, type Lifts } from '../world/Lifts';
 /**
  * Riding a lift back up. Near a bottom terminal and slow, pressing the board key puts the rider
  * on a chair; the rider then follows the cable at chair speed. Pressing the key again skips to
- * the top. At the top the rider is placed a few metres past the terminal, facing downhill.
+ * the top; holding the tuck key rides at FAST_FORWARD x speed. At the top the rider is placed a few metres past the terminal, facing downhill.
  */
 export const PROMPT_RANGE = 60; // m: show the boarding card
 export const BOARD_RANGE = 14; // m: can press E
 export const BOARD_SPEED = 6; // m/s
+export const FAST_FORWARD = 5; // ride speed multiplier while the tuck key is held
 
 export class LiftRide {
   lift: LiftRuntime | null = null;
@@ -36,7 +37,10 @@ export class LiftRide {
   get riding(): boolean { return this.lift !== null; }
 
   /** Call every frame before the physics step. Returns true when the rider is on a lift (physics skipped). */
-  update(rider: Rider, dt: number, boardPressed: boolean): boolean {
+  /** true while fast-forwarding (for the prompt) */
+  fast = false;
+
+  update(rider: Rider, dt: number, boardPressed: boolean, fastHeld = false): boolean {
     if (!this.lift) {
       this.nearby = this.lifts.nearestBoardable(rider.x, rider.y, PROMPT_RANGE);
       this.nearbyDist = this.nearby ? Math.hypot(this.nearby.bottom[0] - rider.x, this.nearby.bottom[1] - rider.y) : Infinity;
@@ -51,7 +55,8 @@ export class LiftRide {
     const len = this.lifts.rideLength(this.lift);
     if (boardPressed) this.up = len; // skip to the top
     const before = this.up;
-    this.up += this.lift.speed * dt;
+    this.fast = fastHeld;
+    this.up += this.lift.speed * dt * (fastHeld ? FAST_FORWARD : 1);
     this.passedTower = this.lift.towerUp.some((t) => t > before + LOAD_OFFSET && t <= this.up + LOAD_OFFSET);
     if (this.up >= len) { this.unload(rider); return false; }
     this.place(rider);

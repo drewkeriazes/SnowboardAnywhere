@@ -153,11 +153,15 @@ export class ChaseCamera {
       const spd = Math.hypot(r.vx, r.vy) || 1;
       this.fwd.set(r.vx / spd, 0, -r.vy / spd);
       const seat = new THREE.Vector3(r.x, r.z, -r.y);
-      this.desired.copy(seat).addScaledVector(this.fwd, -6.5).add(new THREE.Vector3(0, 2.2, 0));
+      // free look orbits the chair the same way it orbits the rider on the snow
+      const back = this.fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -this.orbitYaw);
+      const cp = Math.cos(this.orbitPitch), sp = Math.sin(this.orbitPitch);
+      const orbiting = Math.abs(this.orbitYaw) > 0.02 || Math.abs(this.orbitPitch) > 0.02;
+      this.desired.copy(seat).addScaledVector(back, -6.5 * cp).add(new THREE.Vector3(0, 2.2 + 6.5 * sp, 0));
       const ground = this.pack.groundHeight(this.desired.x, -this.desired.z);
       if (this.desired.y < ground + 1.5) this.desired.y = ground + 1.5;
-      this.pos.lerp(this.desired, 1 - Math.exp(-dt * 4));
-      this.look.lerp(seat.clone().addScaledVector(this.fwd, 6).add(new THREE.Vector3(0, 0.5, 0)), 1 - Math.exp(-dt * 6));
+      this.pos.lerp(this.desired, 1 - Math.exp(-dt * (orbiting ? 12 : 4)));
+      this.look.lerp(seat.clone().addScaledVector(back, orbiting ? 0 : 6).add(new THREE.Vector3(0, 0.5, 0)), 1 - Math.exp(-dt * (orbiting ? 12 : 6)));
       this.camera.position.copy(this.pos);
       this.camera.lookAt(this.look);
       this.camera.fov += (this.baseFov - this.camera.fov) * Math.min(1, dt * 4);
