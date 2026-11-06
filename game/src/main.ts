@@ -22,13 +22,21 @@ import { Labels } from './ui/Labels';
 import { TouchControls } from './ui/TouchControls';
 import { sunPosition, guessUtcOffset } from './world/Sun';
 import { loadSettings, type Settings } from './ui/Settings';
+import { availableResorts } from './resorts';
 
 const params = new URLSearchParams(location.search);
-const packSlug = params.get('pack') ?? 'synth';
+let packSlug = params.get('pack') ?? '';
 const headless = params.has('headless');
 
 async function main(): Promise<void> {
   const status = document.getElementById('status')!;
+  // no ?pack: last resort played if it is built, else the first built real resort, else the synthetic mountain
+  const resorts = await availableResorts(import.meta.env.BASE_URL);
+  if (!packSlug) {
+    let last = ''; try { last = localStorage.getItem('lastPack') ?? ''; } catch { /* ignore */ }
+    packSlug = resorts.find((r) => r.slug === last)?.slug ?? resorts.find((r) => r.slug !== 'synth')?.slug ?? 'synth';
+  }
+  try { localStorage.setItem('lastPack', packSlug); } catch { /* ignore */ }
   status.textContent = `Loading ${packSlug}...`;
   const pack = await Pack.load(`${import.meta.env.BASE_URL}packs/${packSlug}`);
   document.title = `${pack.meta.name} - snowboard sim`;
@@ -48,7 +56,7 @@ async function main(): Promise<void> {
   for (;;) {
     let openMapAtStart = false;
     if (!headless) {
-      const choice = await showMainMenu(pack.meta.name, audio, settings, () => undefined);
+      const choice = await showMainMenu(pack.meta.name, audio, settings, () => undefined, resorts, packSlug);
       openMapAtStart = choice.action === 'map';
     }
     status.textContent = `Loading ${packSlug}...`;

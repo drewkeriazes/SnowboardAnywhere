@@ -7,7 +7,7 @@ export interface MenuChoice { action: 'ride' | 'map' }
  * Start screen: resort name, Free ride (continue from the last spawn), Drop in from the map,
  * and the shared settings panel. The first click also unlocks audio. Resolves once per show.
  */
-export function showMainMenu(resortName: string, audio: GameAudio, settings: Settings, onChange: (s: Settings, what: string) => void): Promise<MenuChoice> {
+export function showMainMenu(resortName: string, audio: GameAudio, settings: Settings, onChange: (s: Settings, what: string) => void, resorts: { slug: string; name: string }[] = [], current = ''): Promise<MenuChoice> {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.id = 'menu';
@@ -15,6 +15,7 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
       <div class="panel">
         <div class="eyebrow">SnowboardAnywhere</div>
         <h1>${resortName}</h1>
+        ${resorts.length > 1 ? `<div class="row resort"><label>Resort</label><select data-r="1">${resorts.map((r) => `<option value="${r.slug}" ${r.slug === current ? 'selected' : ''}>${r.name}</option>`).join('')}</select></div>` : ''}
         <div class="row seg"><button data-d="board" class="${settings.discipline === 'board' ? 'on' : ''}">Snowboard</button><button data-d="ski" class="${settings.discipline === 'ski' ? 'on' : ''}">Skis</button></div>
         <button data-a="ride" class="primary">Free ride</button>
         <button data-a="map">Drop in from the map</button>
@@ -23,6 +24,13 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
         <div class="keys">&larr; &rarr; steer &middot; &uarr; tuck &middot; &darr; brake &middot; Space jump &middot; E lift &middot; M map &middot; Esc pause</div>
       </div>`;
     document.body.appendChild(wrap);
+    // switching resort reloads with ?pack= (the pack loads before the menu)
+    wrap.querySelector<HTMLSelectElement>('select[data-r]')?.addEventListener('change', (e) => {
+      const u = new URL(location.href);
+      u.searchParams.set('pack', (e.target as HTMLSelectElement).value);
+      for (const k of ['x', 'y', 'h']) u.searchParams.delete(k);
+      location.href = u.toString();
+    });
     const panel = wrap.querySelector('.settings') as HTMLElement;
     renderPanel(panel, settings, (s, what) => { audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music); audio.setSource(s.musicSource); onChange(s, what); });
     const credits = panel.querySelector('.credits') as HTMLElement;

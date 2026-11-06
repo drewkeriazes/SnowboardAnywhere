@@ -1,0 +1,131 @@
+{
+  "slug": "breckenridge",
+  "name": "Breckenridge",
+  "country": "US",
+  "region": "Colorado",
+  "osm_ski_area_way": null,
+  "crs": "EPSG:26913",
+  "utm_zone": "13N",
+  "lonlat_bbox": [
+    -106.128,
+    39.438,
+    -106.036,
+    39.512
+  ],
+  "buffer_m": 1000,
+  "utm_bbox": [
+    401900,
+    4364800,
+    412000,
+    4375300
+  ],
+  "origin": [
+    406950,
+    4370050
+  ],
+  "elevation_range_m": [
+    2850,
+    4000
+  ],
+  "mid_ring": {
+    "size_m": 40000,
+    "res_m": 10
+  },
+  "far_ring": {
+    "size_m": 200000,
+    "mapterhorn_zoom": 11
+  },
+  "dem": {
+    "source": "3DEP ImageServer",
+    "res_m": 1,
+    "chunk_px": 1500
+  },
+  "naip": {
+    "source": "Planetary Computer naip 2023 30cm",
+    "res_m": 1,
+    "max_px": 4000,
+    "items": [
+      "co_m_3910639_se_13_030_20230924_20240104",
+      "co_m_3910640_sw_13_030_20230831_20240104",
+      "co_m_3910640_se_13_030_20230831_20240104",
+      "co_m_3910640_nw_13_030_20230831_20240104",
+      "co_m_3910640_ne_13_030_20230831_20240104",
+      "co_m_3910639_ne_13_030_20230831_20240104",
+      "co_m_3910632_sw_13_030_20230831_20240104",
+      "co_m_3910632_se_13_030_20230831_20240104",
+      "co_m_3910631_se_13_030_20230831_20240104"
+    ],
+    "item_bboxes_ll": {
+      "co_m_3910639_se_13_030_20230924_20240104": [
+        -106.192,
+        39.372,
+        -106.12,
+        39.441
+      ],
+      "co_m_3910640_sw_13_030_20230831_20240104": [
+        -106.13,
+        39.372,
+        -106.058,
+        39.441
+      ],
+      "co_m_3910640_se_13_030_20230831_20240104": [
+        -106.067,
+        39.372,
+        -105.996,
+        39.441
+      ],
+      "co_m_3910640_nw_13_030_20230831_20240104": [
+        -106.13,
+        39.434,
+        -106.058,
+        39.503
+      ],
+      "co_m_3910640_ne_13_030_20230831_20240104": [
+        -106.067,
+        39.434,
+        -105.996,
+        39.503
+      ],
+      "co_m_3910639_ne_13_030_20230831_20240104": [
+        -106.192,
+        39.434,
+        -106.12,
+        39.503
+      ],
+      "co_m_3910632_sw_13_030_20230831_20240104": [
+        -106.13,
+        39.497,
+        -106.058,
+        39.566
+      ],
+      "co_m_3910632_se_13_030_20230831_20240104": [
+        -106.067,
+        39.497,
+        -105.996,
+        39.566
+      ],
+      "co_m_3910631_se_13_030_20230831_20240104": [
+        -106.192,
+        39.497,
+        -106.12,
+        39.566
+      ]
+    }
+  },
+  "lidar": {
+    "ept": "https://s3-us-west-2.amazonaws.com/usgs-lidar-public/USGS_LPC_CO_Central_Western_2016_LAS_2018/",
+    "dataset": "USGS_LPC_CO_Central_Western_2016_LAS_2018",
+    "max_depth_resort": 9,
+    "max_depth_outside": 8,
+    "nodes_file": "breckenridge_ept_nodes.txt"
+  },
+  "attribution": [
+    "Elevation: USGS 3DEP 1 m lidar DEM, public domain",
+    "Canopy: USGS 3DEP lidar point cloud USGS_LPC_CO_Central_Western_2016_LAS_2018 via AWS usgs-lidar-public, public domain",
+    "Imagery: USDA NAIP 2023 via Microsoft Planetary Computer, public domain",
+    "Background terrain: Mapterhorn (mapterhorn.com)",
+    "Runs, lifts, buildings, roads, names: OpenStreetMap contributors (ODbL)"
+  ],
+  "start_run": "Four O'Clock",
+  "notes": "Ski-area box spans Peak 6 (north) to Peak 10 (south) and the town base (east); OSM way id not looked up (Overpass unreachable from the cloud sandbox) and unused by the build. NAIP items from a Planetary Computer STAC search 2026-11-05; EPT node list from /tmp ept_select walk, depth 9 over the ski area and 8 in the buffer (350 nodes, 33M points over the ski box)."
+}
