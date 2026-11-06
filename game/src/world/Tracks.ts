@@ -15,7 +15,10 @@ import type { Rider } from '../sim/Rider';
  * the floor is below the terrain surface, the vertex shader pulls the depth value a few cm toward
  * the camera so the terrain does not hide it, while real objects in front still occlude it.
  * Clean narrow groove when carving, wide shallow smear when skidding, deeper in powder.
- * Skis cut two narrow grooves. Ring buffer of MAX sections per lane (about 3 km); old track
+ * Skis cut two narrow grooves. The width is the board's footprint across the travel direction,
+ * L |sin(gamma)| + W |cos(gamma)| for slip angle gamma (FEAT-065), so a hockey stop scrapes a band
+ * about a board length wide: a shallow, polished floor with a ridge of pushed snow on the downhill
+ * side that grows as the rider slows. Ring buffer of MAX sections per lane (about 3 km); old track
  * fills back in (depth and alpha fade) over FADE seconds.
  */
 const MAX = 6000;
@@ -35,6 +38,12 @@ const PROFILE: { sx: number; dx: number; h: number; a: number }[] = [
   { sx: 1, dx: 0.09, h: 0.0, a: 0 },
 ];
 const P = PROFILE.length;
+/** floats stored per section */
+const SEC = 11;
+/** the berm and lip spread wider when scraping, so the ridge is a mound rather than a spike */
+const lipWidth = (polish: number) => 1 + 2.5 * polish;
+/** across-track offset of profile vertex k (the floor edges keep their fixed inset) */
+const profileOff = (k: number, half: number, lw: number) => PROFILE[k].sx * half + PROFILE[k].dx * (Math.abs(PROFILE[k].dx) > 0.03 ? lw : 1);
 
 class Lane {
   readonly mesh: THREE.Mesh;
@@ -43,7 +52,7 @@ class Lane {
   private readonly col: Float32Array;
   private readonly idx: Uint32Array;
   // per section: the data needed to re-shape it as it fills in
-  private readonly secC: Float32Array; // centre x, y, z(surface) in three.js coords, across x, across z, half width, depth, tilt
+  private readonly secC: Float32Array; // centre x, y, z(surface) in three.js coords, across x, across z, half width, depth, tilt, ridge (m), ridge side, polish
   private readonly age: Float32Array;
   private head = 0;
   private count = 0;
@@ -55,7 +64,7 @@ class Lane {
     this.nor = new Float32Array(MAX * P * 3);
     this.col = new Float32Array(MAX * P * 4);
     this.idx = new Uint32Array(MAX * (P - 1) * 6);
-    this.secC = new Float32Array(MAX * 8);
+    this.secC = new Float32Array(MAX * SEC);
     this.age = new Float32Array(MAX).fill(1e9);
     this.geo = new THREE.BufferGeometry();
     this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
@@ -74,16 +83,19 @@ class Lane {
   /**
    * Add a section. (cx, cy, cz) centre on the snow in three.js coords; (ax, az) unit vector
    * across the track (three.js x/z); half width; depth (m); surface(x, z) returns the snow height.
+   * Scraping: ridge height (m) of pushed snow, ridgeSide -1..1 (which lip gets it, + = the right
+   * side), polish 0..1 (how much the floor is a flat scraped band rather than a cut groove).
    */
-  add(cx: number, cy: number, cz: number, ax: number, az: number, half: number, depth: number, tilt: number, surface: (x: number, z: number) => number): void {
+  add(cx: number, cy: number, cz: number, ax: number, az: number, half: number, depth: number, tilt: number, surface: (x: number, z: number) => number, ridge = 0, ridgeSide = 0, polish = 0): void {
     const s = this.head;
-    const o = s * 8;
-    this.secC[o] = cx; this.secC[o + 1] = cy; this.secC[o + 2] = cz; this.secC[o + 3] = ax; this.secC[o + 4] = az; this.secC[o + 5] = half; this.secC[o + 6] = depth; this.secC[o + 7] = tilt;
+    const o = s * SEC, c = this.secC;
+    c[o] = cx; c[o + 1] = cy; c[o + 2] = cz; c[o + 3] = ax; c[o + 4] = az; c[o + 5] = half; c[o + 6] = depth; c[o + 7] = tilt;
+    c[o + 8] = ridge; c[o + 9] = ridgeSide; c[o + 10] = polish;
     this.age[s] = 0;
     // snow heights under each profile vertex (follow the slope across the track)
+    const lw = lipWidth(polish);
     for (let k = 0; k < P; k++) {
-      const pr = PROFILE[k];
-      const off = pr.sx * half + pr.dx;
+      const off = profileOff(k, half, lw);
       this.ground[s * P + k] = surface(cx + ax * off, cz + az * off);
     }
     this.shape(s);
@@ -106,8 +118,9 @@ class Lane {
 
   /** Write positions, normals and colours of section s from its stored data and age. */
   private shape(s: number): void {
-    const o = s * 8;
+    const o = s * SEC;
     const cx = this.secC[o], cz = this.secC[o + 2], ax = this.secC[o + 3], az = this.secC[o + 4], half = this.secC[o + 5];
+    const ridgeSide = this.secC[o + 9], polish = this.secC[o + 10], lw = lipWidth(polish);
     // tilt -1..1: the board on its edge. Positive = the right-hand edge is engaged: that side of the
     // floor is deepest with a near-vertical wall, the other side rises to a shallow shelf, and the
     // displaced snow piles up on the outside of the turn.
@@ -115,15 +128,19 @@ class Lane {
     const ringAge = ((this.head - s + MAX) % MAX) / MAX;
     const fill = Math.max(0, 1 - this.age[s] / FADE) * (1 - ringAge * ringAge); // 1 fresh .. 0 filled in
     const depth = this.secC[o + 6] * fill;
+    const ridge = this.secC[o + 8] * fill;
     const xs: number[] = [], ys: number[] = [];
     for (let k = 0; k < P; k++) {
       const pr = PROFILE[k];
-      const off = pr.sx * half + pr.dx;
+      const off = profileOff(k, half, lw);
       const side = pr.sx; // -1 left, +1 right
       let h = pr.h;
       if (h < 0) h = -(1 + 0.85 * tilt * side);                 // floor: deep at the engaged edge, shelf at the other
       else if (pr.h > 0.2) h = pr.h * (1 - 0.6 * tilt * side);  // lip: bigger on the outside of the turn
-      xs.push(off); ys.push(this.ground[s * P + k] + h * depth);
+      // pushed snow: a ridge on the downhill lip (a little on the other), half height at the wall top
+      const rs = 0.25 + 0.75 * Math.max(0, side * ridgeSide);
+      const rh = pr.h > 0.2 ? ridge * rs : pr.h > 0.1 ? 0.5 * ridge * rs : 0;
+      xs.push(off); ys.push(this.ground[s * P + k] + h * depth + rh);
       const v = (s * P + k) * 3;
       this.pos[v] = cx + ax * off; this.pos[v + 1] = ys[k]; this.pos[v + 2] = cz + az * off;
     }
@@ -141,7 +158,7 @@ class Lane {
     for (let k = 0; k < P; k++) {
       const c = (s * P + k) * 4;
       const floor = PROFILE[k].h < 0;
-      const tone = floor ? 0.97 : 0.93;
+      const tone = floor ? 0.97 + 0.025 * polish : 0.93; // scraped floor polished a touch brighter
       this.col[c] = tone * 0.95; this.col[c + 1] = tone * 0.97; this.col[c + 2] = tone; this.col[c + 3] = PROFILE[k].a * Math.min(1, fill * 3);
     }
   }
@@ -218,19 +235,30 @@ export class Tracks {
     const skid = Math.min(1, r.skid);
     const s = r.surface;
     const powder = Math.max(0, 1 - s.groomed - s.rock - s.scree);
+    // footprint across the travel direction from the board's slip angle: the board's width when
+    // running straight, up to its length when it is across (a hockey stop)
+    const ski = this.discipline === 'ski';
+    const gs = Math.abs(Math.sin(r.slip)), gc = Math.abs(Math.cos(r.slip));
+    const L = ski ? 1.7 : 1.55, W = ski ? 0.1 : 0.26;
+    const scrape = Math.max(skid, gs); // 0 a clean cut, 1 a flat scraped band
     // edge angle from the physics (same inclination the rider model leans by): flat base going
     // straight presses the full board width; on edge the board cuts a narrow, deeper, tilted trench
     const phi = Math.atan(r.lateralG * 0.8);                 // + = turning toward the right-hand side
-    const edge = Math.min(1, Math.abs(phi) / 0.6) * (1 - skid);
+    const edge = Math.min(1, Math.abs(phi) / 0.6) * (1 - scrape);
     const tilt = Math.sign(phi) * edge;
-    const boardHalf = this.discipline === 'ski' ? 0.05 : 0.13;
-    const half = boardHalf * (1 - 0.7 * edge) + (this.discipline === 'ski' ? 0.2 : 0.55) * skid;
-    const depth = DEPTH * (1 + 0.6 * powder) * (1 + 0.6 * edge) * (1 - 0.6 * skid) * (s.rock + s.scree > 0.5 ? 0.3 : 1);
+    const half = 0.5 * (L * gs + W * gc * (1 - 0.7 * edge)) + (ski ? 0.05 : 0.15) * skid;
+    const depth = DEPTH * (1 + 0.6 * powder) * (1 + 0.6 * edge) * (1 - 0.6 * scrape) * (s.rock + s.scree > 0.5 ? 0.3 : 1);
+    // braking pushes snow ahead of the cutting edge: a ridge on the downhill side of the band,
+    // highest where the stop ends (it builds as the rider slows), more of it in soft snow
+    const ridge = 0.07 * r.scrape * (0.4 + 0.6 * Math.max(0, 1 - sp / 12)) * (0.6 + 0.6 * powder);
+    const dn = Math.hypot(r.normal[0], r.normal[1]);
+    const ridgeSide = dn > 0.02 ? (ax * r.normal[0] + ay * r.normal[1]) / dn : 0; // + = the right side is downhill
     const surface = (x: number, z: number) => this.pack.groundHeight(x, -z);
     this.offsets.forEach((off, i) => {
-      const cx = r.x + ax * off, cy = r.y + ay * off;
+      const o = off * gc; // skis turned across the travel direction sweep the same band
+      const cx = r.x + ax * o, cy = r.y + ay * o;
       const g = this.pack.groundHeight(cx, cy);
-      this.lanes[i].add(cx, g, -cy, ax, -ay, half, depth, tilt, surface);
+      this.lanes[i].add(cx, g, -cy, ax, -ay, half, depth, tilt, surface, ridge, ridgeSide, gs);
     });
   }
 

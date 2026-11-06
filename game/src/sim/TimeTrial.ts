@@ -114,7 +114,7 @@ export class TimeTrial {
     if (this.sampleAcc >= SAMPLE_DT) {
       this.sampleAcc = 0;
       const f = (r.onGround ? 1 : 0) | (tuck ? 2 : 0) | (r.crashed > 0 ? 4 : 0);
-      this.samples.push({ t: +this.time.toFixed(2), x: +r.x.toFixed(2), y: +r.y.toFixed(2), z: +r.z.toFixed(2), h: +r.heading.toFixed(3), lg: +r.lateralG.toFixed(2), e: +r.edgeAngle.toFixed(2), f });
+      this.samples.push({ t: +this.time.toFixed(2), x: +r.x.toFixed(2), y: +r.y.toFixed(2), z: +r.z.toFixed(2), h: +r.boardYaw.toFixed(3), lg: +r.lateralG.toFixed(2), e: +r.edgeAngle.toFixed(2), f });
     }
     const n = nearestOnCourse(c, r.x, r.y);
     this.along = n.along;

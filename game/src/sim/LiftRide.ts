@@ -96,7 +96,7 @@ export class LiftRide {
     rider.normal[0] = 0; rider.normal[1] = 0; rider.normal[2] = 1;
     // face the direction of travel
     const dx = this.seat2.x - this.seat.x, dy = -(this.seat2.z - this.seat.z);
-    if (Math.hypot(dx, dy) > 0.01) rider.heading = Math.atan2(dx, dy);
+    if (Math.hypot(dx, dy) > 0.01) rider.heading = rider.boardYaw = Math.atan2(dx, dy);
     // velocity for the chase camera (it follows the velocity direction above 2.5 m/s)
     const dl = Math.hypot(dx, dy) || 1;
     rider.vx = (dx / dl) * l.speed; rider.vy = (dy / dl) * l.speed;

@@ -8,7 +8,7 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 ## Features in detail
 
 - Terrain: quadtree LOD over the 262 km far ring, 1 m near the rider, snow / rock / scree / groomed material.
-- Riding: carve and skid edge model, tuck, brake, charged jumps, grabs, air spin, landings; collisions with trees, rocks and building walls. Snowboard or skis, outfit colours, articulated rider with blended poses.
+- Riding: carve and skid edge model, tuck, brake (the board swings across into a hockey stop, scrapes a wide track and holds on its edge once stopped), charged jumps, grabs, air spin, landings; collisions with trees, rocks and building walls. Snowboard or skis, outfit colours, articulated rider with blended poses.
 - Snow: 3D tracks pressed into the snow behind the rider.
 - World: instanced forests (species from LANDFIRE, impostors at distance), rocks with snow caps, extruded buildings, roads and catwalks draped on the terrain, bridges over gaps the bare-earth lidar removes, piste overlay, peak and town labels on the horizon (hidden behind nearer ridges).
 - Lifts: towers, cables and moving chairs from OSM. E at a bottom terminal boards (prompt card, floating markers and a loading zone show where); while riding, E skips to the top and holding W fast-forwards. The rider sits on a real chair.
@@ -41,6 +41,8 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 - `shoot.mjs [pack] [outDir] [--headed]` render and ride test, screenshots into `game/shots/`; `--headed` opens a visible window on the real GPU. Also `npm run shoot` / `npm run shoot:headed`. Use `SHOT_QUERY="&lowgfx"` on software GPUs.
 - `shoot_features.mjs` map, buildings, rocks and lift feature check.
 - `probe.mjs` step timing probe for hangs.
+- `brakecheck.mjs` brake physics on exact planes, no browser: hockey-stop time and distance against the snow-cutting targets, board swing, release, standing across the hill, ski snowplough. Exits 1 on a failed check.
+- `brakeshot.mjs [pack] [outDir] [--headed] [--ski]` hockey-stop render check: tucks to speed, holds brake, saves shots of the swing, spray and scraped track.
 - `fetch-music.ps1 -Source <folder> -Playlist <name>` converts downloaded tracks into a playlist (needs ffmpeg).
 
 Typecheck before committing: `cd game && npx tsc --noEmit`.

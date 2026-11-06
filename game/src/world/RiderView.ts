@@ -61,7 +61,7 @@ export class RiderView {
     this.group.add(this.lean);
     this.rig = this.mount('board');
 
-    const n = 400;
+    const n = 1200;
     this.sprayPos = new Float32Array(n * 3);
     this.sprayVel = new Float32Array(n * 3);
     this.sprayLife = new Float32Array(n);
@@ -170,10 +170,12 @@ export class RiderView {
 
   update(r: Rider, dt: number, tuck: boolean, grab = false, seated = false): void {
     this.group.position.set(r.x, r.z, -r.y);
-    // ---- orientation: board forward along heading, up along the ground normal (toward world up in the air)
+    // ---- orientation: board forward along its yaw (the heading, swung across the travel direction
+    // while braking), up along the ground normal (toward world up in the air)
+    const yaw = seated ? r.heading : r.boardYaw;
     const n = this.tmpN.set(r.normal[0], r.normal[2], -r.normal[1]);
     if (!r.onGround) n.lerp(this.v1.set(0, 1, 0), 0.7).normalize();
-    const f = this.tmpF.set(Math.sin(r.heading), 0, -Math.cos(r.heading));
+    const f = this.tmpF.set(Math.sin(yaw), 0, -Math.cos(yaw));
     f.addScaledVector(n, -f.dot(n)).normalize();
     const right = this.tmpR.crossVectors(f, n).normalize();
     this.rot.makeBasis(right, n, this.v1.copy(f).negate());
@@ -181,7 +183,11 @@ export class RiderView {
     this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
     // ---- inclination: lean into the turn until lateral acceleration balances gravity,
     // phi = atan(a_lat / g), capped at 40 degrees. lateralG > 0 = toward the board's right (toe side).
-    const phi = r.onGround && !seated ? Math.max(-0.7, Math.min(0.7, Math.atan(r.lateralG * 0.8))) : 0;
+    // Braking, the board lies across the travel direction, so the braking deceleration is lateral
+    // to it: the rider leans back into the hill onto the trailing edge (heelside -, toeside +).
+    const brakeG = r.brakeSide * r.brakeAcc / 9.81;
+    const latG = r.lateralG * (1 - r.brakeAmt) + brakeG;
+    const phi = r.onGround && !seated ? Math.max(-0.7, Math.min(0.7, Math.atan(latG * 0.8))) : 0;
     this.leanAngle += (phi - this.leanAngle) * Math.min(1, dt * 8);
     // the board and the rider roll together about the engaged edge (0.13 m off centre) so the edge
     // stays in the snow; angulation comes from the carve poses bending at the waist
@@ -198,11 +204,16 @@ export class RiderView {
     else if (r.crashed > 0) { lerpPose(t, t, P.crash, 1); }
     else if (!r.onGround) { lerpPose(t, t, grab ? P.grab : P.air, 1); }
     else {
-      const edge = Math.max(-1, Math.min(1, r.edgeAngle));
+      // braking stance: sitting back on the heel edge or kneeling into the toe edge
+      const b = r.brakeSide !== 0 ? r.brakeAmt : 0;
+      const edge = Math.max(-1, Math.min(1, r.edgeAngle * (1 - b) + r.brakeSide * b));
       if (edge > 0) lerpPose(t, t, P.carveToe, Math.min(1, edge * 1.2)); else if (edge < 0) lerpPose(t, t, P.carveHeel, Math.min(1, -edge * 1.2));
       if (tuck) lerpPose(t, t, P.tuck, 0.85);
       if (r.jumpCharge > 0) lerpPose(t, t, P.crouch, Math.min(1, r.jumpCharge));
       if (r.landingShock > 0) lerpPose(t, t, P.land, Math.min(1, r.landingShock * 1.5));
+      // knees bent and hips low in proportion to how hard the edge is biting
+      const bite = b * Math.min(1, r.brakeAcc / 8);
+      if (bite > 0) { lerpPose(t, t, P.crouch, 0.45 * bite); t.hipsY -= 0.05 * bite; }
     }
     // ---- physical layer on top of the poses
     const free = !seated && r.crashed <= 0;
@@ -214,14 +225,15 @@ export class RiderView {
       const bal = 0.2 * g + (r.onGround ? 0 : 0.15), cap = 80 * d2r;
       t.lShoulder = [t.lShoulder[0], t.lShoulder[1], Math.max(Math.min(t.lShoulder[2], -cap), t.lShoulder[2] - bal)];
       t.rShoulder = [t.rShoulder[0], t.rShoulder[1], Math.min(Math.max(t.rShoulder[2], cap), t.rShoulder[2] + bal)];
-      // the upper body turns toward the direction of travel when the board slips sideways
+      // the upper body keeps facing the direction of travel when the board slips sideways (a
+      // skid, or a hockey stop where the board is across and the shoulders stay down the hill)
       let slip = 0;
       if (r.onGround && r.speed > 2) {
-        slip = Math.atan2(r.vx, r.vy) - r.heading;
+        slip = Math.atan2(r.vx, r.vy) - yaw;
         slip = Math.atan2(Math.sin(slip), Math.cos(slip));
         if (Math.abs(slip) > Math.PI / 2) slip = 0; // backwards: no twist
       }
-      this.twist += (Math.max(-0.5, Math.min(0.5, -slip * 0.6)) - this.twist) * Math.min(1, dt * 6);
+      this.twist += (Math.max(-1.05, Math.min(1.05, -slip * 0.7)) - this.twist) * Math.min(1, dt * 6);
     } else this.twist *= Math.max(0, 1 - dt * 6);
     t.torso = [t.torso[0], t.torso[1] + this.twist, t.torso[2]];
     if (this.fp) {
@@ -258,14 +270,27 @@ export class RiderView {
     }
     if (this.discipline === 'ski') this.skiHands(r, tuck, free);
 
-    // snow spray when skidding or braking hard
+    // snow spray when skidding, and a sheet of it off the cutting edge when braking: thrown ahead
+    // of the board along the travel direction (downhill in a hockey stop), spread along its length
     const pos = this.sprayPos, vel = this.sprayVel, life = this.sprayLife;
     const emit = r.onGround ? Math.floor((r.skid * 10 + (r.speed > 8 ? 1 : 0)) * 1.0) : 0;
-    let emitted = 0;
+    const sheet = r.onGround && r.speed > 1 ? Math.floor(r.scrape * 18) : 0;
+    let emitted = 0, sheeted = 0;
     const g = this.group.position;
+    const sp = Math.max(1e-3, r.speed), dirX = r.vx / sp, dirZ = -r.vy / sp; // travel direction (three.js)
     for (let i = 0; i < life.length; i++) {
       if (life[i] <= 0) {
-        if (emitted < emit) {
+        if (sheeted < sheet) {
+          sheeted++;
+          life[i] = 0.45 + Math.random() * 0.5;
+          const along = (Math.random() - 0.5) * 1.5;
+          pos[i * 3] = g.x + f.x * along + dirX * 0.2; pos[i * 3 + 1] = g.y + 0.05; pos[i * 3 + 2] = g.z + f.z * along + dirZ * 0.2;
+          // the board's own velocity plus a throw: the spray flies on ahead as the rider slows
+          const throwV = sp * (0.9 + 0.5 * Math.random()) + 1;
+          vel[i * 3] = dirX * throwV + (Math.random() - 0.5) * 1.5;
+          vel[i * 3 + 1] = (1.2 + 2.8 * Math.random()) * (0.5 + 0.5 * r.scrape);
+          vel[i * 3 + 2] = dirZ * throwV + (Math.random() - 0.5) * 1.5;
+        } else if (emitted < emit) {
           emitted++;
           life[i] = 0.5 + Math.random() * 0.4;
           pos[i * 3] = g.x + (Math.random() - 0.5) * 0.6; pos[i * 3 + 1] = g.y + 0.1; pos[i * 3 + 2] = g.z + (Math.random() - 0.5) * 0.6;

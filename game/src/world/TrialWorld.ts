@@ -23,7 +23,7 @@ export class TrialWorld {
   readonly ghost: RiderView;
   private readonly gates = new Map<string, THREE.Group>();
   private readonly poleMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.5, metalness: 0.4 });
-  private readonly fake: Record<string, unknown> = { normal: [0, 0, 1], onGround: true, crashed: 0, edgeAngle: 0, jumpCharge: 0, landingShock: 0, lateralG: 0, skid: 0, speed: 0, vx: 0, vy: 0, airTime: 0 };
+  private readonly fake: Record<string, unknown> = { normal: [0, 0, 1], onGround: true, crashed: 0, edgeAngle: 0, jumpCharge: 0, landingShock: 0, lateralG: 0, skid: 0, brakeAmt: 0, brakeSide: 0, brakeAcc: 0, scrape: 0, slip: 0, speed: 0, vx: 0, vy: 0, airTime: 0 };
   enabled = false;
   // boundary walls for the active course
   private walls: THREE.Mesh[] = [];
@@ -173,7 +173,7 @@ export class TrialWorld {
     if (!s || !this.enabled) { this.ghost.group.visible = false; return; }
     this.ghost.group.visible = true;
     const f = this.fake;
-    f.x = s.x; f.y = s.y; f.z = s.z; f.heading = s.h; f.lateralG = s.lg; f.edgeAngle = s.e;
+    f.x = s.x; f.y = s.y; f.z = s.z; f.heading = f.boardYaw = s.h; f.lateralG = s.lg; f.edgeAngle = s.e;
     f.onGround = (s.f & 1) !== 0; f.crashed = (s.f & 4) !== 0 ? 1 : 0;
     const n = this.pack.groundNormal(s.x, s.y) as number[];
     f.normal = [n[0], n[1], n[2]];

@@ -297,8 +297,10 @@ export class GameAudio {
     lerp(this.carveHeel.gain, r.edgeAngle < 0 ? carveG : 0);
     this.carveToe.filter.frequency.value = 2600 + 1200 * edge + 30 * spd;
     this.carveHeel.filter.frequency.value = 1700 + 900 * edge + 30 * spd;
-    lerp(this.skidL.gain, onSnow ? Math.min(0.45, r.skid * 0.5 * (0.6 + 0.4 * v) * (1 + hard)) : 0);
-    this.skidL.filter.frequency.value = 4500 + 2000 * r.skid;
+    // skid chatter, and the edge scraping through a brake (louder and higher on hard snow)
+    const scrub = Math.max(r.skid, r.scrape);
+    lerp(this.skidL.gain, onSnow ? Math.min(0.5, scrub * 0.5 * (0.6 + 0.4 * v) * (1 + hard)) : 0);
+    this.skidL.filter.frequency.value = 4500 + 2000 * scrub;
     // wind
     const windV = riding ? 0.25 : 1;
     lerp(this.windLo.gain, Math.min(0.5, Math.max(0, spd - 6) * 0.018 * (tuck ? 1.4 : 1)) * windV);
