@@ -15,3 +15,5 @@ Real: Street View, Jan 2019 (link in spot.json; not stored here). Game: `game-ea
 - **No rock at all** on the real slope; the game has three or four grey boulders scattered on it. -> FEAT-069
 - Snow: wind-crusted and chalky, with crossing ski tracks and small ridges. -> FEAT-047
 - Game shot was taken from high above. Re-shoot at eye height looking 305 degrees, 15 degrees up.
+
+- Extra game shot `game-chase-549-121.png` (chase camera at -549, 121, about 70 m north-east of the spot, looking roughly east): the slope edge there has only 2 or 3 trees, where the real north-west view shows a dense stand edge.
