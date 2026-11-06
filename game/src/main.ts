@@ -313,7 +313,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     // now-playing toast
     const toast = document.getElementById('toast')!;
     let toastTimer = 0;
-    const showToast = (text: string) => { toast.textContent = text; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => toast.classList.remove('show'), 4000); };
+    const showToast = (text: string, ms = 4000) => { toast.textContent = text; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => toast.classList.remove('show'), ms); };
+    if (params.get('cam') === 'eye' && !headless) showToast('Eye camera: click, then mouse to look · WASD move · Q/E height · [ ] zoom · P save shot · F free fly', 10000);
     audio.onTrack = (name) => showToast(`\u266B ${name}`);
     const prompt = document.getElementById('prompt')!;
     let promptShown = '';
@@ -408,6 +409,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       const eyeMode = cam.mode === 'eye';
       document.body.classList.toggle('eye-mode', eyeMode);
       riderView.group.visible = !eyeMode; riderView.sprayObject.visible = !eyeMode;
+      // lift markers and piste lines are game UI, not in a photo
+      lifts.markers.visible = !eyeMode; if (eyeMode) runs.group.visible = false;
       if (controls.action('piste')) { if (eyeMode) shotPending = true; else runs.toggle(); }
       if (controls.action('track')) audio.nextTrack();
       if (controls.action('fly')) { cam.mode = cam.mode === 'free' ? settings.camera : 'free'; if (cam.mode === 'free') cam.enterFree(); }

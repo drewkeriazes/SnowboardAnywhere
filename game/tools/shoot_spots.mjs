@@ -61,8 +61,20 @@ for (const { slug, spec } of spots) {
     };
     if (pose.x == null || pose.y == null) { console.log(`${slug}/${v.id}: no position, skipped`); continue; }
     await page.evaluate((p) => window.__sim.eyeAt(p.x, p.y, p.h, p.pitch, p.fov, p.eye), pose);
-    // step and wait for terrain, mask and instance tiles to stream in around the new spot
-    for (let i = 0; i < 8; i++) { await page.evaluate(() => window.__step(4, 1 / 60)); await page.waitForTimeout(400); }
+    // step until terrain, mask and tree tiles have streamed in and the terrain stops rebuilding
+    // (a fixed wait leaves half-built LOD skirts and floating trees in the shot)
+    let quiet = 0;
+    for (let i = 0; i < 80 && quiet < 3; i++) {
+      await page.evaluate(() => window.__step(4, 1 / 60));
+      await page.waitForTimeout(250);
+      const busy = await page.evaluate(() => {
+        const s = window.__sim, p = s.pack;
+        const pend = [p.fine, p.mid, p.far, p.mask].reduce((n, t) => n + (t?.pending?.size ?? 0), 0);
+        const veg = [...(s.veg.cells?.values?.() ?? [])].filter((c) => c.loading).length;
+        return pend + veg + s.terrain.stats.builds;
+      });
+      quiet = busy === 0 ? quiet + 1 : 0;
+    }
     const url = await page.evaluate(() => window.__shot());
     const out = path.join(compareDir, slug, `eye-${v.id}.png`);
     fs.writeFileSync(out, Buffer.from(url.split(',')[1], 'base64'));

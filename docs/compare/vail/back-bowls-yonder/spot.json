@@ -1,0 +1,76 @@
+{
+  "name": "Back Bowls, on Yonder near Sun Up Express (Lift 9)",
+  "latlon": [
+    39.6009039,
+    -106.3407339
+  ],
+  "game": {
+    "x": 590,
+    "y": 72
+  },
+  "views": [
+    {
+      "id": "northeast",
+      "heading": 132.3,
+      "pitch": 13.2,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6009039,-106.3407339,3a,75y,132.29h,103.21t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6js2klAE!2e10!3e11",
+      "x": 589.9,
+      "y": 71.6,
+      "h": 45.1,
+      "game": "http://localhost:5173/?pack=vail&x=589.9&y=71.6&h=45.1&pitch=13.2&fov=75.0&cam=eye&spot=back-bowls-yonder/northeast",
+      "heading_offset": -88.0
+    },
+    {
+      "id": "south-lift",
+      "heading": 250.2,
+      "pitch": 8.0,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6009039,-106.3407339,3a,75y,250.2h,98t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6js2klAE!2e10!3e11",
+      "x": 589.9,
+      "y": 71.6,
+      "h": 163.1,
+      "game": "http://localhost:5173/?pack=vail&x=589.9&y=71.6&h=163.1&pitch=8.0&fov=75.0&cam=eye&spot=back-bowls-yonder/south-lift",
+      "heading_offset": -88.0,
+      "note": "No URL in the screenshot: heading and tilt estimated by matching the lift tower in the game (game h about 163). The real panorama is also rolled a few degrees."
+    },
+    {
+      "id": "southwest",
+      "heading": 331.1,
+      "pitch": -2.0,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6009039,-106.3407339,3a,75y,331.13h,88t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6js2klAE!2e10!3e11",
+      "x": 589.9,
+      "y": 71.6,
+      "h": 244.0,
+      "game": "http://localhost:5173/?pack=vail&x=589.9&y=71.6&h=244.0&pitch=-2.0&fov=75.0&cam=eye&spot=back-bowls-yonder/southwest",
+      "heading_offset": -88.0
+    },
+    {
+      "id": "west",
+      "heading": 3.4,
+      "pitch": 3.2,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6009039,-106.3407339,3a,75y,3.44h,93.25t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6js2klAE!2e10!3e11",
+      "x": 589.9,
+      "y": 71.6,
+      "h": 276.3,
+      "game": "http://localhost:5173/?pack=vail&x=589.9&y=71.6&h=276.3&pitch=3.2&fov=75.0&cam=eye&spot=back-bowls-yonder/west",
+      "heading_offset": -88.0
+    },
+    {
+      "id": "northwest",
+      "heading": 39.3,
+      "pitch": 0.8,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6009039,-106.3407339,3a,75y,39.29h,90.78t/data=!3m8!1e1!3m6!1sCIHM0ogKEICAgIC6js2klAE!2e10!3e11",
+      "x": 589.9,
+      "y": 71.6,
+      "h": 312.1,
+      "game": "http://localhost:5173/?pack=vail&x=589.9&y=71.6&h=312.1&pitch=0.8&fov=75.0&cam=eye&spot=back-bowls-yonder/northwest",
+      "heading_offset": -88.0
+    }
+  ],
+  "streetview_capture": "Feb 2014, contributor Krishna Vinod (user photosphere, compass about 88 degrees off)",
+  "game_capture": "2026-11-06, main after DATA-008 (d886f12), eye camera"
+}

@@ -15,6 +15,9 @@ a link that opens the eye camera there:
 - `--spot back-bowls-campbells/east` adds `&spot=...` so the game's P key saves
   docs/compare/<pack>/back-bowls-campbells/eye-east.png and records the pose.
 - `--add` also writes the view into docs/compare/<pack>/<spot>/spot.json (creates it if new).
+- `--offset DEG` corrects a panorama whose compass is wrong (common on contributor photospheres;
+  Google's own imagery is calibrated). Find it by lining up a far landmark, then pass the same
+  value for every view of that panorama; it is stored as `heading_offset` on the view.
 - Short links (maps.app.goo.gl) are expanded first, which needs the network.
 """
 from __future__ import annotations
@@ -78,6 +81,7 @@ def main() -> None:
     ap.add_argument('--add', action='store_true', help='write the view into the spot.json')
     ap.add_argument('--name', default='', help='spot name for a new spot.json')
     ap.add_argument('--eye', type=float, default=1.7, help='eye height above the ground (m)')
+    ap.add_argument('--offset', type=float, default=0.0, help='degrees added to the Street View heading (bad panorama compass)')
     ap.add_argument('--host', default='http://localhost:5173/')
     a = ap.parse_args()
 
@@ -90,7 +94,7 @@ def main() -> None:
     heading = v.get('heading', 0.0)
     pitch = v['tilt'] - 90 if 'tilt' in v else 0.0
     fov = v.get('fov', 75.0)
-    x, y, h = to_game(meta, v['lat'], v['lon'], heading)
+    x, y, h = to_game(meta, v['lat'], v['lon'], heading + a.offset)
     b = meta['bounds']
     if not (b['minX'] <= x <= b['maxX'] and b['minY'] <= y <= b['maxY']):
         print(f'warning: {x:.0f}, {y:.0f} is outside the {a.pack} pack bounds', file=sys.stderr)
@@ -103,6 +107,7 @@ def main() -> None:
     link = a.host + '?' + urllib.parse.urlencode(q, safe='/')
     print(link)
     print(f'  lat {v["lat"]:.7f} lon {v["lon"]:.7f} -> x {x:.1f} y {y:.1f}; heading {heading:.1f} true = {h:.1f} grid; pitch {pitch:.1f}; fov {fov:.1f}'
+          + (f'; compass offset {a.offset:+.1f} applied' if a.offset else '')
           + ('' if v['streetview'] else ' (not a Street View URL: heading and pitch defaulted)'), file=sys.stderr)
 
     if a.add:
@@ -123,6 +128,10 @@ def main() -> None:
             views.append(entry)
         entry.update({'heading': round(heading, 1), 'pitch': round(pitch, 1), 'fov': round(fov, 1), 'streetview': url,
                       'x': round(x, 1), 'y': round(y, 1), 'h': round(h, 1), 'game': link})
+        if a.offset:
+            entry['heading_offset'] = a.offset
+        else:
+            entry.pop('heading_offset', None)
         spec_file.write_text(json.dumps(spec, indent=2) + '\n', encoding='utf-8')
         print(f'  wrote {spec_file.relative_to(REPO).as_posix()}', file=sys.stderr)
 
