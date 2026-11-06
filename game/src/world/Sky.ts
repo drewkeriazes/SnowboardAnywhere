@@ -27,6 +27,11 @@ export class Environment {
     this.scene = scene;
     this.atmo = new Atmosphere(valleyY, viewerAlt);
     this.sky = this.atmo.sky;
+    this.sky.name = 'sky';
+    this.sun.name = 'sun';
+    this.sun.target.name = 'sun target';
+    this.hemi.name = 'hemisphere light';
+    this.stormDome.name = 'storm dome';
     scene.add(this.sky);
 
     this.sun.castShadow = true;

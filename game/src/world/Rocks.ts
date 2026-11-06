@@ -78,6 +78,7 @@ export class Rocks {
         const list = buckets[v];
         if (list.length === 0) continue;
         const mesh = new THREE.InstancedMesh(this.geos[v], this.mat, list.length);
+        mesh.name = `rocks ${cell.cx}_${cell.cy} v${v}`;
         mesh.castShadow = true; mesh.receiveShadow = true;
         list.forEach((i, k) => {
           const o = i * 6;

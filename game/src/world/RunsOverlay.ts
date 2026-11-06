@@ -23,6 +23,7 @@ export class RunsOverlay {
       const geo = new THREE.BufferGeometry().setFromPoints(pts);
       const mat = new THREE.LineBasicMaterial({ color: COLORS[(run.difficulty ?? 'intermediate') as Difficulty] ?? 0x888888, transparent: true, opacity: 0.85 });
       const line = new THREE.Line(geo, mat);
+      line.name = `run ${run.name ?? '(unnamed)'}`;
       line.userData.run = run;
       this.group.add(line);
     }

@@ -150,10 +150,11 @@ export class Bridges {
       wood.push(piece(l3, 0.12, 0.12, 0, RAIL_H, z), piece(l3, 0.1, 0.08, 0, RAIL_H * 0.5, z));
       for (let s = -l3 / 2; s <= l3 / 2 + 0.01; s += 2.5) wood.push(piece(0.14, RAIL_H, 0.14, s, RAIL_H / 2, z));
     }
-    const out: [THREE.BufferGeometry, THREE.Material][] = [[deck, this.deckMat], [girders, this.steelMat], [mergeGeometries(wood), this.woodMat]];
-    for (const [g, m] of out) {
+    const out: [THREE.BufferGeometry, THREE.Material, string][] = [[deck, this.deckMat, 'bridge deck'], [girders, this.steelMat, 'bridge girders'], [mergeGeometries(wood), this.woodMat, 'bridge railings']];
+    for (const [g, m, name] of out) {
       g.applyMatrix4(frame.matrix);
       const mesh = new THREE.Mesh(g, m);
+      mesh.name = name;
       mesh.castShadow = true; mesh.receiveShadow = true;
       this.group.add(mesh);
     }

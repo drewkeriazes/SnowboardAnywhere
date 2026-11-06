@@ -63,6 +63,7 @@ class Lane {
     this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 4).setUsage(THREE.DynamicDrawUsage));
     this.geo.setIndex(new THREE.BufferAttribute(this.idx, 1).setUsage(THREE.DynamicDrawUsage));
     this.mesh = new THREE.Mesh(this.geo, material);
+    this.mesh.name = 'board tracks';
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 1;
     this.mesh.receiveShadow = true;

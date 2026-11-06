@@ -28,7 +28,7 @@ export class Buildings {
       if (!arr) { arr = []; cells.set(k, arr); }
       arr.push(b);
     }
-    for (const list of cells.values()) {
+    for (const [key, list] of cells) {
       const pos: number[] = [], nor: number[] = [], col: number[] = [], idx: number[] = [];
       for (const b of list) this.extrude(pack, b, pos, nor, col, idx);
       if (pos.length === 0) continue;
@@ -39,6 +39,7 @@ export class Buildings {
       geo.setIndex(idx);
       geo.computeBoundingSphere();
       const mesh = new THREE.Mesh(geo, this.mat);
+      mesh.name = `buildings ${key}`;
       mesh.castShadow = true; mesh.receiveShadow = true;
       this.group.add(mesh);
     }

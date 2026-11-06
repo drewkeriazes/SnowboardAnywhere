@@ -273,6 +273,7 @@ export class Terrain {
       c.mesh.geometry = geo;
     } else {
       const mesh = new THREE.Mesh(geo, this.material);
+      mesh.name = `chunk ${c.key}`;
       mesh.castShadow = c.res <= 4;
       mesh.receiveShadow = true;
       mesh.frustumCulled = true;

@@ -97,6 +97,7 @@ export class Lifts {
   /** Build one lift's meshes and runtime. Station z comes from the pipeline (1 m DEM). */
   private build(lift: LiftFeature): { rt: LiftRuntime; group: THREE.Group } {
     const group = new THREE.Group();
+    group.name = `lift ${lift.name ?? '(unnamed)'}`;
     const a = lift.stations[0], b = lift.stations[lift.stations.length - 1];
     const kind = kindOf(lift.type);
     const dirX = b[0] - a[0], dirY = b[1] - a[1];
@@ -124,6 +125,7 @@ export class Lifts {
         seg.position.copy(p0).lerp(p1, 0.5);
         seg.scale.set(1, 1, p0.distanceTo(p1) + 0.05);
         seg.lookAt(p1);
+        seg.name = 'carpet';
         seg.receiveShadow = true;
         group.add(seg);
       }
@@ -177,6 +179,7 @@ export class Lifts {
     const masts = new THREE.InstancedMesh(this.geos.tower, this.mat, towers.length);
     const heads = new THREE.InstancedMesh(this.geos.head, this.mat, towers.length);
     const feet = new THREE.InstancedMesh(this.geos.footing, this.mat, towers.length);
+    masts.name = 'towers'; heads.name = 'tower heads'; feet.name = 'tower footings';
     masts.castShadow = true; heads.castShadow = true;
     const headQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -yaw);
     towers.forEach((t, i) => {
@@ -190,6 +193,7 @@ export class Lifts {
     const termGeo = kind === 'gondola' ? this.geos.termGondola : kind === 'surface' ? this.geos.termSurface : this.geos.termChair;
     for (const [st, towardOther] of [[a, 1], [b, -1]] as const) {
       const term = new THREE.Mesh(termGeo, this.mat);
+      term.name = towardOther === 1 ? 'terminal A' : 'terminal B';
       term.position.set(st[0], st[2], -st[1]);
       term.rotation.y = -yaw + (towardOther === 1 ? Math.PI : 0);
       term.castShadow = true; term.receiveShadow = true;
@@ -213,7 +217,9 @@ export class Lifts {
     const lateralOff = kind === 'surface' ? 0.9 : 1.6;
     for (const side of [-1, 1]) {
       const offs = pts.map((v) => new THREE.Vector3(v.x + lx * lateralOff * side, v.y, v.z - ly * lateralOff * side));
-      group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(offs), this.cableMat));
+      const cable = new THREE.Line(new THREE.BufferGeometry().setFromPoints(offs), this.cableMat);
+      cable.name = side < 0 ? 'cable left' : 'cable right';
+      group.add(cable);
     }
     // carriers
     const cum = [0];
@@ -224,6 +230,7 @@ export class Lifts {
     const seats = (lift.capacity ?? 2400) >= 3000 ? 6 : (lift.capacity ?? 2400) >= 1800 ? 4 : 2;
     const carrierGeo = kind === 'gondola' ? this.geos.gondola : kind === 'surface' ? (lift.type === 't-bar' ? this.geos.tbar : this.geos.platter) : seats === 6 ? this.geos.chair6 : seats === 4 ? this.geos.chair4 : this.geos.chair2;
     const carriers = new THREE.InstancedMesh(carrierGeo, this.mat, nCarriers);
+    carriers.name = 'carriers';
     carriers.castShadow = true;
     group.add(carriers);
     const riderDrop = kind === 'gondola' ? 3.3 : kind === 'surface' ? 0 : SEAT_DROP;
@@ -300,8 +307,10 @@ export class Lifts {
       sprite.position.copy(base);
       sprite.center.set(0.5, 0);
       sprite.renderOrder = 999;
+      sprite.name = `marker ${l.feature.name ?? '(unnamed)'}`;
       this.markers.add(sprite);
       const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.name = `marker ring ${l.feature.name ?? '(unnamed)'}`;
       this.markers.add(ring);
       this.markerSprites.push({ sprite, base, lift: l, ring });
       this.placeMarker(l);

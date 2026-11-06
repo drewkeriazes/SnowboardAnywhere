@@ -60,6 +60,7 @@ export class Roads {
     }
     this.major = this.build((k) => !KINDS[k]?.minor);
     this.minor = this.build((k) => !!KINDS[k]?.minor);
+    this.major.name = 'roads major'; this.minor.name = 'roads minor';
     this.group.add(this.major, this.minor);
     // rebuild once the fine tiles near the start are in so ribbons drape on the 1 m surface
     let rebuilt = 0;

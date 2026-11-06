@@ -15,6 +15,8 @@ export function setVegetationBudget(near: number, far: number): void { NEAR_RADI
 /** Scale the near/far radii by a 0.25..1 density (1 = full 1500 / 4500 m). */
 export function setVegetationDensity(d: number): void { const k = Math.max(0.25, Math.min(1, d)); NEAR_RADIUS = 1500 * k; FAR_RADIUS = 4500 * k; }
 
+const SPECIES_NAME = ['conifer', 'aspen', 'krummholz'];
+
 interface Cell {
   key: string;
   cx: number;
@@ -262,12 +264,14 @@ export class Vegetation {
           k++;
         }
         const bmesh = new THREE.Mesh(ig, this.impostor[s].mat);
+        bmesh.name = `trees ${cell.cx}_${cell.cy} ${SPECIES_NAME[s]} impostor`;
         bmesh.frustumCulled = false;
         this.group.add(bmesh);
         cell.meshes.push(bmesh as unknown as THREE.InstancedMesh);
         continue;
       }
       const mesh = new THREE.InstancedMesh(geo, mat, ids.length);
+      mesh.name = `trees ${cell.cx}_${cell.cy} ${SPECIES_NAME[s]} ${near ? 'near' : 'far'}`;
       mesh.castShadow = near;
       mesh.receiveShadow = false;
       mesh.frustumCulled = true;
