@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
+import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from '../terrain/rockShader';
 
 const RADIUS = 2500;
 const VARIANTS = 4;
@@ -9,9 +10,14 @@ interface Cell { cx: number; cy: number; meshes: THREE.InstancedMesh[]; loading:
 
 /**
  * Instanced rocks streamed per cell. Each rock picks one of four noise-displaced low-poly
- * variants, is sunk into the ground, tilted so its base follows the slope, and tinted with a
- * little per-instance variation plus a snow cap on top. Types: 0 outcrop (wide slab),
- * 1 boulder, 2 talus clump (flat spread).
+ * variants, is sunk into the ground and tilted halfway between the slope and upright, so on a
+ * steep face it is buried uphill and stands out downhill like a step in the outcrop. Types:
+ * 0 outcrop, 1 boulder, 2 talus clump (flat spread).
+ *
+ * Material (FEAT-020): the same CC0 rock surface as the terrain's rock patches (rockShader.ts,
+ * triplanar in world space on the faceted normal), a per-instance tint near 1, crevice shade
+ * from the vertex colour, and snow on faces flat enough to hold it, by the same rule as the
+ * terrain's rock ledges.
  */
 export class Rocks {
   readonly group = new THREE.Group();
@@ -36,6 +42,38 @@ export class Rocks {
     this.collider = collider;
     for (let v = 0; v < VARIANTS; v++) this.geos.push(makeRock(v * 7.31 + 1.7));
     this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1.0, metalness: 0.0, flatShading: true });
+    const uniforms = rockUniforms();
+    this.mat.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, uniforms);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+          varying vec3 vRockWP;`)
+        .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
+          {
+            vec4 rp = vec4(transformed, 1.0);
+            #ifdef USE_INSTANCING
+              rp = instanceMatrix * rp;
+            #endif
+            vRockWP = (modelMatrix * rp).xyz;
+          }`);
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>
+          varying vec3 vRockWP;
+          ${NOISE_GLSL}
+          ${ROCK_GLSL}`)
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          // faceted world normal, as flat shading computes it
+          vec3 rng = normalize(cross(dFdx(vRockWP), dFdy(vRockWP)));
+          float rdist = length(cameraPosition - vRockWP);
+          vec3 rN; float rR;
+          vec3 ralb = rockSurface(vRockWP, rng, rdist, rN, rR);
+          // snow holds on faces flat enough, like the terrain's rock ledges
+          float cap = smoothstep(0.74, 0.9, rN.y + (vnoise(vRockWP * 1.7) - 0.5) * 0.14);
+          diffuseColor.rgb = mix(ralb * diffuseColor.rgb, vec3(0.93, 0.95, 1.0), cap);`)
+        .replace('#include <roughnessmap_fragment>', `float roughnessFactor = mix(rR, 0.55, cap);`)
+        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+          normal = normalize((viewMatrix * vec4(normalize(mix(rN, rng, cap * 0.7)), 0.0)).xyz);`);
+    };
   }
 
   /** Stream cells in the box around the rider (x, y) and the look-ahead point (ax, ay). */
@@ -86,24 +124,26 @@ export class Rocks {
           // snap to loaded terrain when we have it; the pack's z is the fallback before tiles arrive
           let z = d[o + 2];
           for (const set of this.pack.sets) { if (set.contains(x, y)) { const h = set.sample(x, y); if (!Number.isNaN(h)) { z = h; break; } } }
-          // orient the rock's up axis to the ground normal, then spin around it
+          // orient the rock's up axis halfway between the ground normal and upright, then spin around it
           const nn = this.pack.groundNormal(x, y, this.normalTmp) as number[];
-          this.n.set(nn[0], nn[2], -nn[1]);
+          this.n.set(nn[0], nn[2], -nn[1]).add(this.up).normalize();
           this.q.setFromUnitVectors(this.up, this.n);
           this.q2.setFromAxisAngle(this.up, yaw);
           this.q.multiply(this.q2);
-          // sink: outcrops and talus sit deep, boulders a bit less
-          const sink = type === 1 ? 0.35 : 0.5;
+          // sink: outcrops and talus sit deep, boulders a bit less; outcrops are taller blocks now
+          // that they are only half tilted, so the uphill side is buried and the downhill side stands
+          const sink = type === 1 ? 0.35 : type === 0 ? 0.55 : 0.5;
           this.p.set(x, z - size * sink, -y);
-          if (type === 0) this.s.set(size * 2.4, size * 1.0, size * 1.7);
+          if (type === 0) this.s.set(size * 2.0, size * 1.4, size * 1.6);
           else if (type === 1) this.s.set(size * 1.1, size * 1.0, size * 1.0);
           else this.s.set(size * 1.6, size * 0.6, size * 1.3);
           this.m.compose(this.p, this.q, this.s);
           mesh.setMatrixAt(k, this.m);
-          // greys with a slight warm or cool cast per instance
+          // tint near 1 (the shader supplies the rock tone): a little lighter or darker, warmer or cooler
           const t = hash01(x * 0.37 + y * 0.11);
           const u = hash01(x * 0.07 - y * 0.23);
-          this.c.setRGB(0.30 + 0.18 * t + 0.05 * u, 0.29 + 0.16 * t, 0.28 + 0.14 * t + 0.06 * (1 - u));
+          const tk = 0.85 + 0.3 * t;
+          this.c.setRGB(tk * (0.98 + 0.05 * u), tk, tk * (1.0 + 0.05 * (1 - u)));
           mesh.setColorAt(k, this.c);
           // tall boulders are walls; slabs, talus and small boulders can be ridden up and launched off
           if (this.collider && size > 0.9) this.collider.add(x, y, size * 0.55, z - 1, z + size * 0.6, type === 1 && size > 2.2 ? 0 : 1);
@@ -127,8 +167,8 @@ function hashIndex(x: number, y: number): number { return Math.floor(hash01(x * 
 
 /**
  * A rock: icosphere with two octaves of value noise pushed along the normals, flattened a
- * little, with per-vertex colour that is lighter on upward faces (snow dusting) and darker
- * in crevices. Unit size (about 1 m across).
+ * little, with per-vertex shade that is darker low down and in crevices (the snow cap is done
+ * in the shader). Unit size (about 1 m across).
  */
 function makeRock(seed: number): THREE.BufferGeometry {
   const g = new THREE.IcosahedronGeometry(0.5, 2).toNonIndexed();
@@ -150,17 +190,12 @@ function makeRock(seed: number): THREE.BufferGeometry {
     pos.setXYZ(i, v.x, v.y, v.z);
   }
   g.computeVertexNormals();
-  // vertex colour: snow on top-facing faces, darker low
+  // vertex colour: crevice and underside shade, multiplied into the rock albedo
   const col = new Float32Array(pos.count * 3);
   const nor = g.getAttribute('normal') as THREE.BufferAttribute;
   for (let i = 0; i < pos.count; i++) {
-    const ny = nor.getY(i);
-    const snow = THREE.MathUtils.smoothstep(ny, 0.55, 0.9);
-    const shade = 0.7 + 0.3 * Math.max(0, ny);
-    // vertex colour multiplies the per-instance grey (about 0.35), so snow is > 1 to come out white
-    col[i * 3] = (1 - snow) * shade + snow * 2.5;
-    col[i * 3 + 1] = (1 - snow) * shade + snow * 2.55;
-    col[i * 3 + 2] = (1 - snow) * shade + snow * 2.7;
+    const shade = 0.72 + 0.28 * Math.max(0, nor.getY(i)) - 0.12 * Math.max(0, -pos.getY(i) * 2);
+    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = shade;
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return g;

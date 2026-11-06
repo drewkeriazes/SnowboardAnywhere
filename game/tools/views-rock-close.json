@@ -1,0 +1,5 @@
+[
+  { "label": "j_face_close", "x": 1700, "y": -1575, "above": 2, "yaw": 355, "pitch": 18 },
+  { "label": "k_band_mid", "x": 1913, "y": -1520, "above": 3, "yaw": 315, "pitch": 6 },
+  { "label": "m_face_30m", "x": 1690, "y": -1600, "above": 2, "yaw": 10, "pitch": 12 }
+]

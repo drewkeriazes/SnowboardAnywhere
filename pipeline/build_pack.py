@@ -236,8 +236,12 @@ del sat2, red2, blu2
 # very steep bare ground is rock whatever colour the imagery gives it (shadowed cliff bands read as dark, not grey)
 rock_steep = (rock & (slope2 > 28)) | ((slope2 > 38) & (ndvi2 < 0.30) & (chm < 1.5) & have2)
 scree = rock & (slope2 <= 28) & (slope2 > 12)
-rock_w = np.clip((slope2 - 25) / 15, 0, 1) * 0.6 + rock_steep * 0.6
-rock_w = np.clip(rock_w, 0, 1)
+# R carries rock the imagery saw, nothing else (FEAT-020): full weight on steep bare ground, half on
+# grey rock on gentler slopes, where winter snow covers most of it. The renderer adds rock from slope
+# (> ~45 deg) and wind-scoured ridges itself and breaks the weight into crisp patches with noise; a
+# slope-only ramp here put 0.3..0.6 rock on every 30..40 deg snow slope and read as a brown wash.
+rock_w = rock_steep.astype(np.float32) + (rock & ~rock_steep).astype(np.float32) * 0.5
+rock_w = np.clip(ndimage.gaussian_filter(rock_w, 0.75), 0, 1)
 scree_w = np.clip(scree.astype(np.float32) * 0.8, 0, 1) * (1 - rock_w)
 # aspen vs conifer: aspen is bright green and high NIR in summer; conifer darker
 # aspen vs conifer from NAIP alone is approximate (no clean NIR split in the Sept 2023 imagery);

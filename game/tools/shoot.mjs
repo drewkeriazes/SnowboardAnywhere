@@ -2,6 +2,7 @@
 // node tools/shoot.mjs [pack] [outDir] [--headed]
 //   default: headless Chromium on SwiftShader (no GPU needed; add SHOT_QUERY="&lowgfx" for big packs)
 //   --headed (or SHOT_HEADED=1): visible window on the real GPU; stays open at the end until you close it
+//   --gpu: headless on the real GPU (Windows), no window; full density renders in milliseconds
 // Local: game/node_modules (npm i). Cloud sandbox: preinstalled copy under /opt/npm-tools.
 const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
 import http from 'node:http';
@@ -10,6 +11,7 @@ import path from 'node:path';
 
 const args = process.argv.slice(2);
 const headed = args.includes('--headed') || process.env.SHOT_HEADED === '1';
+const gpu = args.includes('--gpu'); // headless on the real GPU (Windows: ANGLE D3D11), no window
 const positional = args.filter((a) => !a.startsWith('--'));
 const pack = positional[0] ?? 'synth';
 const outDir = positional[1] ?? 'shots';
@@ -31,6 +33,7 @@ const port = server.address().port;
 
 const browser = headed
   ? await chromium.launch({ headless: false })
+  : gpu ? await chromium.launch({ args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] })
   : await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
 const errors = [];

@@ -1,0 +1,8 @@
+[
+  { "label": "a_orient_bank", "x": 1913, "y": -1477, "above": 2, "yaw": 270, "pitch": 6 },
+  { "label": "b_1913_n", "x": 1913, "y": -1477, "above": 2, "yaw": 0, "pitch": 6 },
+  { "label": "c_backbowls_air", "x": -900, "y": 700, "above": 160, "yaw": 180, "pitch": -28 },
+  { "label": "d_backbowls_ridge", "x": -950, "y": -20, "above": 14, "yaw": 5, "pitch": 8 },
+  { "label": "e_lovers_leap", "x": 1700, "y": -3300, "above": 14, "yaw": 320, "pitch": 4 },
+  { "label": "f_gore_horizon", "x": -700, "y": 420, "above": 30, "yaw": 45, "pitch": 1 }
+]

@@ -44,6 +44,10 @@ Still outside the ranges in the pack-build skill, for the visual pass (step 4):
 
 Also: raw data on this PC is at `C:\Users\Drew\Documents\snowboard-sim\raw\`, not the repo-root `raw\` that CLAUDE.md and the inventory doc describe. Either move it or update those docs. Python packages install to the user site (`%APPDATA%\Python\Python313`), so `python -I` cannot see them; use `python -E -P` for isolated runs. The commit "add topo data" (8fa9b3e) accidentally added 158 MB of pack tiles from a mis-named `packsvail/` output folder; they were untracked again in 3e0b712 but remain in history.
 
+## 2026-11-06: snow lighting, terrain AO, rock (FEAT-047, FEAT-020, DATA-005)
+
+Packs need a rebuild from 3c81785 or later: `ao/` tiles (baked sky visibility, `pipeline/terrain_ao.py`) and a mask whose R channel is imagery rock only (slope and ridge rock come from the renderer now). Vail on Drew's PC is rebuilt; features.json came out identical. Rock and talus textures are CC0 ambientCG sets in `game/public/textures/` (regenerate with `pipeline/prep_textures.py`). For look checks use `node tools/views.mjs <pack> <outDir> tools/views-rock.json --gpu` (fixed free-camera stills, headless on the real GPU); `tools/shoot.mjs` takes `--gpu` too. Reference renders: `docs/renders/2026-11-06-feat020-*.jpg`.
+
 ## Session lanes (2026-11-05 14:50 ET, synced by the cloud session)
 
 Two sessions are active. To avoid overlapping edits:

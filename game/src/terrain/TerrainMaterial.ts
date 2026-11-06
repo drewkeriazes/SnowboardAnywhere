@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from './rockShader';
 
 /**
  * Snow / rock / scree / groomed material. Per-vertex class weights arrive in the color attribute
@@ -18,6 +19,11 @@ import * as THREE from 'three';
  * half vector, fading out once cells shrink below a pixel); baked sky visibility from the pack (`ao`
  * attribute) darkens gullies, couloirs and cliff feet, and the canopy darkens the snow under trees.
  * `uFlat` (storm) flattens the snow relief and turns the glints off: flat light.
+ *
+ * Rock and talus (FEAT-020): the vertex weights (imagery mask unioned with steep faces, wind-scoured
+ * ridges and talus aprons from Terrain.build) are thresholds against multi-scale world-space noise,
+ * so rock pokes through the snow in crisp patches instead of a wash; flat ledges on the rock's own
+ * detail normal keep snow. Surfaces come from rockShader.ts (CC0 photo textures, triplanar).
  */
 
 /** three.js's physical direct-light function with the snow wrap/subsurface and glint terms added. */
@@ -53,8 +59,6 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     uTime: { value: 0 },
     uSnow: { value: new THREE.Color(0.93, 0.95, 1.0) },
     uSnowShade: { value: new THREE.Color(0.72, 0.80, 0.96) },
-    uRock: { value: new THREE.Color(0.36, 0.33, 0.30) },
-    uScree: { value: new THREE.Color(0.55, 0.53, 0.50) },
     uGroomed: { value: new THREE.Color(0.97, 0.98, 1.0) },
     /** sky fill on shaded snow: cool blue, not grey */
     uShadeTint: { value: new THREE.Color(0.80, 0.93, 1.22) },
@@ -65,6 +69,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     uFlat: { value: 0.0 },
     /** baked AO strength (1 = as baked; debug A/B with 0) */
     uAO: { value: 1.0 },
+    ...rockUniforms(),
   };
   mat.userData.uniforms = uniforms;
   mat.onBeforeCompile = (shader) => {
@@ -97,19 +102,14 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         varying float vAO;
         varying vec2 vFall;
         uniform float uTime;
-        uniform vec3 uSnow, uSnowShade, uRock, uScree, uGroomed, uShadeTint, uSSS;
+        uniform vec3 uSnow, uSnowShade, uGroomed, uShadeTint, uSSS;
         uniform float uWrap, uGlint, uFlat, uAO;
         // set in main() before lighting, read by the snow terms in RE_Direct_Physical
         float gSnowW;
         vec3 gGlintN;
         float gGlintW;
-        // cheap value noise
-        float hash3(vec3 p) { p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3)); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
-        float vnoise(vec3 x) {
-          vec3 i = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
-          return mix(mix(mix(hash3(i), hash3(i + vec3(1,0,0)), f.x), mix(hash3(i + vec3(0,1,0)), hash3(i + vec3(1,1,0)), f.x), f.y),
-                     mix(mix(hash3(i + vec3(0,0,1)), hash3(i + vec3(1,0,1)), f.x), mix(hash3(i + vec3(0,1,1)), hash3(i + vec3(1,1,1)), f.x), f.y), f.z);
-        }
+        ${NOISE_GLSL}
+        ${ROCK_GLSL}
         float fbm2(vec2 p) { return 0.6 * vnoise(vec3(p, 0.0)) + 0.3 * vnoise(vec3(p * 2.1, 1.7)) + 0.1 * vnoise(vec3(p * 4.3, 3.1)); }
         // corduroy across the fall line. Returns x = ridge profile (-1..1, already faded by distance),
         // y = ridge slope for the bump, zw = the across-slope direction in world xz. Also outputs the
@@ -142,9 +142,10 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         }`)
       .replace('#include <color_fragment>', `
         // class weights from the vertex colour
-        float wRock = vColor.r, wScree = vColor.g, wGroom = vColor.b;
-        float wSnow = clamp(1.0 - wRock - wScree, 0.0, 1.0);
+        float wRockV = vColor.r, wScreeV = vColor.g, wGroom = vColor.b;
         vec3 wp = vWorldPos;
+        float dist = length(cameraPosition - wp);
+        vec3 ngW = normalize(vWorldNormal);
         // ungroomed snow: large wind-scoured tone, wind ripples (stretched along the prevailing
         // westerly), fine grain
         float wind = fbm2(wp.xz * 0.08 + vec2(wp.y * 0.01, 0.0));
@@ -155,11 +156,24 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float passTone, seam;
         vec4 cd = corduroy(wp, vFall, passTone, seam);
         vec3 groomed = uGroomed * (0.975 + 0.025 * passTone) * (0.97 + 0.03 * cd.x) * (1.0 - 0.05 * seam);
-        // rock: strata noise
-        float strata = fbm2(vec2(wp.y * 0.35, (wp.x + wp.z) * 0.05));
-        vec3 rock = uRock * (0.7 + 0.6 * strata);
-        vec3 scree = uScree * (0.8 + 0.4 * vnoise(wp * 1.3));
-        vec3 base = snow * wSnow + rock * wRock + scree * wScree;
+        // rock and talus poke through the snow: the weight is a threshold against multi-scale noise
+        // (fine octave fades with distance), with a narrow soft edge that widens far away
+        float fineOct = 1.0 - smoothstep(60.0, 300.0, dist);
+        float bn = vnoise(wp * 0.09) * 0.5 + vnoise(wp * 0.31 + 3.1) * 0.3 + mix(0.5, vnoise(wp * 1.1 + 7.7), fineOct) * 0.2;
+        float edge = 0.025 + 0.1 * smoothstep(150.0, 3000.0, dist);
+        vec3 rockN; float rockR;
+        vec3 rockAlb = rockSurface(wp, ngW, dist, rockN, rockR);
+        float rockCov = smoothstep(0.5 - edge, 0.5 + edge, wRockV + (bn - 0.5) * 0.6);
+        // ledges and benches hold snow: the rock's own detail normal decides, so snow lines its ledges
+        float ledge = smoothstep(0.8, 0.93, rockN.y + (vnoise(wp * 0.6) - 0.5) * 0.12);
+        rockCov *= 1.0 - 0.9 * ledge;
+        vec3 screeN; float screeR;
+        vec3 screeAlb = screeSurface(wp, ngW, dist, screeN, screeR);
+        float bn2 = vnoise(wp * 0.17 + 11.0) * 0.6 + mix(0.5, vnoise(wp * 0.8 + 5.0), fineOct) * 0.4;
+        // winter buries most talus: only part of a full-weight field shows
+        float screeCov = smoothstep(0.5 - edge, 0.5 + edge, wScreeV * 0.65 + (bn2 - 0.5) * 0.7) * (1.0 - rockCov);
+        float wSnow = 1.0 - rockCov - screeCov;
+        vec3 base = snow * wSnow + rockAlb * rockCov + screeAlb * screeCov;
         base = mix(base, groomed, wGroom * wSnow);
         // glints: about one 4 cm cell in twelve holds a crystal facet tilted at random off the surface;
         // RE_Direct_Physical lights it when it faces the half vector. Gone once cells are sub-pixel.
@@ -173,7 +187,6 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         gGlintW = step(0.92, hash3(gci + 5.3)) * gdot * (1.0 - smoothstep(0.35, 1.0, gpix)) * uGlint * (1.0 - uFlat);
         // distant forest: past the instanced trees, forested ground reads as dark conifer green
         // speckled with snow (real distant Colorado slopes are mostly dark timber, not white)
-        float dist = length(cameraPosition - wp);
         float fd = smoothstep(2500.0, 6000.0, dist) * vForest;
         float speck = vnoise(wp * 0.02) * 0.6 + vnoise(wp * 0.11) * 0.4;
         vec3 timber = mix(vec3(0.06, 0.08, 0.06), vec3(0.14, 0.16, 0.13), speck);
@@ -182,7 +195,6 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         gSnowW = wSnow * (1.0 - fd);
         gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd);
         diffuseColor.rgb = base;
-        float rough = mix(0.55, 0.95, wRock + wScree);
       `)
       // snow gets a soft bump so faces lit head-on (south-facing bowls with a southern sun) still show
       // drifts and relief instead of a flat white sheet
@@ -196,7 +208,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           float hx = SNOWH(wpn.xz + vec2(e, 0.0));
           float hz = SNOWH(wpn.xz + vec2(0.0, e));
           vec3 bump = normalize(vec3(-(hx - h0) / e, 1.0, -(hz - h0) / e));
-          float snowW = clamp(1.0 - vColor.r - vColor.g, 0.0, 1.0);
+          float snowW = wSnow;
           float gW = vColor.b * snowW;
           // drift relief: strong on ungroomed snow, almost flat on a groomer
           float wS = snowW * (1.0 - 0.85 * vColor.b);
@@ -210,6 +222,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           vec4 cdn = corduroy(wpn, vFall, pT, sm);
           vec3 acrossW = normalize(vec3(cdn.z, 0.0, cdn.w) - wn * dot(vec3(cdn.z, 0.0, cdn.w), wn));
           nn = normalize(nn - acrossW * cdn.y * 0.15 * gW);
+          // rock and talus carry their own photo normals
+          nn = normalize(nn * max(wSnow, 1e-3) + rockN * rockCov + screeN * screeCov);
           // flat light: under overcast the eye loses the snow's shape; pull snow normals toward up
           nn = normalize(mix(nn, vec3(0.0, 1.0, 0.0), 0.6 * uFlat * snowW));
           normal = normalize((viewMatrix * vec4(nn, 0.0)).xyz);
@@ -227,7 +241,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           reflectedLight.directDiffuse *= mix(1.0, aoT, 0.45);
         }`)
       .replace('#include <roughnessmap_fragment>', `
-        float roughnessFactor = roughness * mix(0.6, 1.0, clamp(vColor.r + vColor.g, 0.0, 1.0));`);
+        float roughnessFactor = roughness * 0.6 * wSnow + rockR * rockCov + screeR * screeCov;`);
   };
   return mat;
 }

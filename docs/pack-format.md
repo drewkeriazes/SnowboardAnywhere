@@ -34,6 +34,12 @@ RGBA PNG at 2 m. R = rock (0..255), G = scree/talus, B = groomed piste, A = cano
 Snow is implicit: `snow = 1 - max(rock, scree)`. Alpha drives forest-floor darkening and
 snow-depth reduction under trees.
 
+R is rock the imagery saw (full weight on steep bare ground, half on grey rock on gentler slopes),
+softened over about 2 m; it carries no slope-only term. The renderer adds rock on faces steeper than
+about 45 degrees, on wind-scoured ridges and talus below cliffs, and thresholds the weights against
+noise so rock shows as crisp patches (FEAT-020). Packs built before FEAT-020 put 0.3 to 0.6 rock on
+every 30 to 40 degree slope and should be rebuilt.
+
 ## AO tiles (optional)
 
 Greyscale PNG on the mask grid: sky visibility 0..255 from `pipeline/terrain_ao.py` (16 directions,

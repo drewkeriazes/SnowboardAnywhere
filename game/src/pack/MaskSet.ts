@@ -70,6 +70,27 @@ export class MaskSet {
     return !!this.tiles.get(this.key(tx, ty));
   }
 
+  private readonly corner = [0, 0, 0, 0];
+  /**
+   * Bilinear version of sample() between the four nearest cell centres (works across tile edges).
+   * The terrain uses it so thresholded classes (rock patches) follow smooth outlines, not 2 m cells.
+   */
+  sampleBilinear(x: number, y: number, out: number[] = [0, 0, 0, 0]): number[] {
+    const m = this.meta;
+    const fx = (x - m.minX) / m.res - 0.5, fy = (y - m.minY) / m.res - 0.5;
+    const x0 = Math.floor(fx), y0 = Math.floor(fy);
+    const tx = fx - x0, ty = fy - y0;
+    out[0] = out[1] = out[2] = out[3] = 0;
+    for (let k = 0; k < 4; k++) {
+      const cx = x0 + (k & 1), cy = y0 + (k >> 1);
+      const w = ((k & 1) ? tx : 1 - tx) * ((k >> 1) ? ty : 1 - ty);
+      if (w === 0) continue;
+      const c = this.sample(m.minX + (cx + 0.5) * m.res, m.minY + (cy + 0.5) * m.res, this.corner);
+      out[0] += c[0] * w; out[1] += c[1] * w; out[2] += c[2] * w; out[3] += c[3] * w;
+    }
+    return out;
+  }
+
   /** out = [rock, scree, groomed, canopy] in 0..1; zeros when not loaded. */
   sample(x: number, y: number, out: number[] = [0, 0, 0, 0]): number[] {
     out[0] = out[1] = out[2] = out[3] = 0;

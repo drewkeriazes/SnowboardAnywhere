@@ -226,7 +226,7 @@ export class Terrain {
         let rock = 0, scree = 0, groom = 0;
         let fo: number;
         if (useMask) {
-          const m = pack.mask!.sample(x, y, this.maskSample);
+          const m = pack.mask!.sampleBilinear(x, y, this.maskSample);
           rock = m[0]; scree = m[1]; groom = m[2]; fo = m[3];
         } else fo = proceduralForest(x, y, h, slope);
         forest[v] = fo;
@@ -240,9 +240,25 @@ export class Terrain {
           }
         }
         ao[v] = a;
-        // steep ground sheds snow regardless of the mask
-        const steep = THREE.MathUtils.smoothstep(slope, 0.72, 1.0); // 41..57 degrees
-        rock = Math.max(rock, steep);
+        // exposure (FEAT-020): rock and talus where snow cannot stay, unioned with the imagery mask.
+        // The shader thresholds these weights against noise, so 0.5 is where patches start.
+        // Steep faces: weight 0.5 at about 45 deg near the rider; coarse chunks average slopes down,
+        // so the threshold eases lower with vertex spacing (about 37 deg at 128 m).
+        const steepLo = 0.68 - 0.022 * Math.log2(Math.max(1, res));
+        const steep = THREE.MathUtils.smoothstep(slope, steepLo, steepLo + 0.2);
+        // wind-scoured convex ridges above about 3,250 m: relief over the mean of four neighbours d away
+        const d = Math.max(12, res);
+        const relief = h - 0.25 * (pack.height(x + d, y, res) + pack.height(x - d, y, res) + pack.height(x, y + d, res) + pack.height(x, y - d, res));
+        const scour = THREE.MathUtils.smoothstep(relief / d, 0.06, 0.2) * THREE.MathUtils.smoothstep(h, 3250, 3550) * (1 - fo);
+        rock = Math.max(rock, steep, scour * 0.8);
+        // talus apron at the foot of steep faces: the line to a point 15 m uphill is steeper than about
+        // 48 deg while the ground here is gentler
+        if (res <= 8 && slope > 0.2) {
+          const du = 15, gl = Math.hypot(nxp, nyp);
+          const up = pack.height(x - (nxp / gl) * du, y - (nyp / gl) * du, res);
+          const talus = THREE.MathUtils.smoothstep((up - h) / du, 0.95, 1.4) * (1 - steep);
+          scree = Math.max(scree, talus * 0.9);
+        }
         col[v * 3] = rock; col[v * 3 + 1] = scree * (1 - rock); col[v * 3 + 2] = groom * (1 - rock);
         if (groom > 0.02) {
           const gx = (pack.height(x + FR, y, res) - pack.height(x - FR, y, res)) / (2 * FR);
