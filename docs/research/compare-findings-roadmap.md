@@ -73,7 +73,7 @@ Ordered by realism gained per effort, with the cards each step closes. Phase 1 i
 
 **Phase 4: snow and sky**
 11. FEAT-077 (#124), snow surface by run and day: corduroy only on groomed runs (grooming reports exist), tracked and chopped elsewhere, bumps on ungroomed steeps (FEAT-059), spring texture late in the season; blend tracks (BUG-021).
-12. FEAT-078 (#125), weather presets matched to the photos: overcast and falling snow are common in the pairs (Mongolia, Mid-Vail, Riva / Prima). The snowstorm mode exists; add an overcast-flat-light preset so pairs can be compared like for like.
+12. FEAT-078 (#125, done in f2b60f5), weather presets matched to the photos: overcast and falling snow are common in the pairs (Mongolia, Mid-Vail, Riva / Prima). The snowstorm mode exists; add an overcast-flat-light preset so pairs can be compared like for like. Built as the `overcast` and `flurries` presets, set per spot by `weather` in `spot.json`.
 
 ## 5. Measuring progress: a compare metrics harness (FEAT-076, #123)
 
