@@ -215,11 +215,13 @@ export class ChaseCamera {
     // FEAT-045 helmet cam: a GoPro on top of the helmet, a little back, wide and level
     const helmet = this.mode === 'helmet';
     if (helmet) this.fpPos.addScaledVector(n, 0.2).addScaledVector(this.fpLook, -0.2);
-    // hard landing and terrain rumble (a darken pulse on landing is drawn by the goggle overlay)
+    // hard landing and terrain rumble (a darken pulse on landing is drawn by the goggle overlay).
+    // First person gets the surface rumble too, on top of the slower stride bob above: rx sways the
+    // eye sideways (along the view's right, -look.z, look.x), ry lifts it, rr rolls it.
     const [rx, ry, rr] = this.rumble(r, dt, helmet ? 1.4 : 1);
     const jx = rr, jy = ry * 0.6;
+    this.fpPos.x -= this.fpLook.z * rx; this.fpPos.z += this.fpLook.x * rx;
     this.fpPos.y += ry;
-    void rx;
     // roll into carves (BUG-031): a body lean, not the horizon tipping over. Grows with speed and
     // stays within FP_ROLL_MAX however hard the edge, so a carving traverse tilts at most ~10 deg.
     const rollT = r.onGround && !onLift

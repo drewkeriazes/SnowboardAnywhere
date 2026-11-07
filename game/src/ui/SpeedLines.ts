@@ -4,6 +4,7 @@
  * canvas over the game, drawn only while visible.
  */
 const LINES_FROM = 18, LINES_FULL = 27, N = 48;
+const EDGE = 'rgb(40,52,70)', CORE = '#fff';
 
 export class SpeedLines {
   private readonly canvas = document.createElement('canvas');
@@ -41,10 +42,12 @@ export class SpeedLines {
       const c = Math.cos(l.a), s = Math.sin(l.a), r0 = l.r * R, r1 = (l.r + l.len * (0.5 + k)) * R;
       const al = 0.3 * k * Math.min(1, (l.r - 0.42) * 6), lw = 1 + 1.5 * l.len * 10 * k;
       // a thin dark edge under a white core, so the streak reads over bright snow and over sky
+      // fixed colours and globalAlpha, so no colour string is built per line per frame
       ctx.beginPath(); ctx.moveTo(cx + c * r0, cy + s * r0); ctx.lineTo(cx + c * r1, cy + s * r1);
-      ctx.strokeStyle = `rgba(40,52,70,${(0.45 * al).toFixed(3)})`; ctx.lineWidth = lw + 1.5; ctx.stroke();
-      ctx.strokeStyle = `rgba(255,255,255,${al.toFixed(3)})`; ctx.lineWidth = lw; ctx.stroke();
+      ctx.globalAlpha = 0.45 * al; ctx.strokeStyle = EDGE; ctx.lineWidth = lw + 1.5; ctx.stroke();
+      ctx.globalAlpha = al; ctx.strokeStyle = CORE; ctx.lineWidth = lw; ctx.stroke();
     }
+    ctx.globalAlpha = 1;
     this.shown = true;
   }
 
