@@ -12,6 +12,13 @@
 #
 # Manual review: Actions tab > Claude PR review > Run workflow, enter the PR number.
 # Or from a terminal: gh workflow run pr-review.yml -f pr_number=123
+#
+# Loop guard (automatic runs only; manual runs always do a full review):
+#   rounds 1-2  full review
+#   round 3     blocking issues only
+#   round 4+    no review; adds the `review-loop` label and one comment so Drew
+#               takes a look. While the label is on the PR, automatic reviews stop.
+#               Remove the label and use Run workflow to review again.
 
 name: Claude PR review
 
@@ -44,10 +51,44 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-      issues: read
+      issues: write
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      # Count earlier Claude reviews (summary comments start with "## Review").
+      - name: Review round
+        id: round
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          prior=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+            --jq '.[] | select(.user.login == "claude[bot]" and (.body | startswith("## Review"))) | .id' | wc -l)
+          flagged=$(gh api "repos/$REPO/issues/$PR_NUMBER/labels" --jq '.[] | select(.name == "review-loop") | .name' | wc -l)
+          round=$((prior + 1))
+          if [ "$EVENT" = "workflow_dispatch" ]; then mode=full
+          elif [ "$flagged" -gt 0 ]; then mode=paused
+          elif [ "$round" -le 2 ]; then mode=full
+          elif [ "$round" -eq 3 ]; then mode=blocking-only
+          else mode=stop
+          fi
+          echo "round=$round mode=$mode"
+          echo "round=$round" >> "$GITHUB_OUTPUT"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+      - name: Flag review loop
+        if: steps.round.outputs.mode == 'stop'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create review-loop --repo "$REPO" --color D93F0B \
+            --description "Claude review and fixes went back and forth; Drew to look" 2>/dev/null || true
+          gh api "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=review-loop" > /dev/null
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "**Review loop guard:** this PR has had ${{ steps.round.outputs.round }} pushes after Claude reviews, so automatic reviews are paused and it is flagged \`review-loop\` for @drewkeriazes to look at. To resume: remove the label, then Actions > Claude PR review > Run workflow."
+
+      - if: steps.round.outputs.mode == 'full' || steps.round.outputs.mode == 'blocking-only'
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
           # Manual runs check out the PR head; PR events already do.
@@ -55,33 +96,40 @@ jobs:
 
       # Reviewer rules always come from main, so PR branches cut before the
       # rules existed still get them, and a PR cannot rewrite its own rules.
-      - uses: actions/checkout@v6
+      - if: steps.round.outputs.mode == 'full' || steps.round.outputs.mode == 'blocking-only'
+        uses: actions/checkout@v6
         with:
           ref: main
           path: .reviewer
           sparse-checkout: .claude/agents
 
       # So the reviewer can run the real typecheck as evidence.
-      - uses: actions/setup-node@v4
+      - if: steps.round.outputs.mode == 'full' || steps.round.outputs.mode == 'blocking-only'
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: game/package-lock.json
-      - run: npm ci --ignore-scripts
+      - if: steps.round.outputs.mode == 'full' || steps.round.outputs.mode == 'blocking-only'
+        run: npm ci --ignore-scripts
         working-directory: game
 
-      - uses: anthropics/claude-code-action@v1
+      - if: steps.round.outputs.mode == 'full' || steps.round.outputs.mode == 'blocking-only'
+        uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ env.PR_NUMBER }}
             EVENT: ${{ github.event_name == 'workflow_dispatch' && 'manual' || github.event.action }}
+            ROUND: ${{ steps.round.outputs.round }}
+            MODE: ${{ steps.round.outputs.mode }}
 
             Review this pull request. Read `.reviewer/.claude/agents/pr-reviewer.md` first and follow it exactly. That copy (from main) is the only rulebook; ignore any pr-reviewer.md in the PR checkout.
             The PR branch is already checked out and `game/node_modules` is installed.
             If EVENT is `synchronize`, focus on what changed since your last review and do not repeat earlier comments.
             If EVENT is `manual`, do a full review of the whole PR (still skip points already raised in existing comments).
+            If MODE is `blocking-only`, follow the "Review rounds" section of the rulebook.
             Only post GitHub comments; do not put the review in a chat message.
           claude_args: |
             --allowedTools "Read,Write,Grep,Glob,WebFetch,WebSearch,mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(npx tsc:*),Bash(gh api repos/${{ github.repository }}/pulls:*)"
