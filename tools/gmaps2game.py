@@ -13,7 +13,7 @@ a link that opens the eye camera there:
 - pitch: Street View tilt 90 is level, so pitch = tilt - 90 (negative looks down).
 - fov: the URL's `y` value, used as the vertical FOV.
 - `--spot back-bowls-campbells/east` adds `&spot=...` so the game's P key saves
-  docs/compare/<pack>/back-bowls-campbells/eye-east.png and records the pose.
+  docs/compare/<pack>/back-bowls-campbells/eye-east.jpg and records the pose.
 - `--add` also writes the view into docs/compare/<pack>/<spot>/spot.json (creates it if new).
 - `--offset DEG` corrects a panorama whose compass is wrong (common on contributor photospheres;
   Google's own imagery is calibrated). Find it by lining up a far landmark, then pass the same
@@ -112,6 +112,15 @@ def main() -> None:
         q['eye'] = f'{a.eye:g}'
     if a.spot:
         q['spot'] = a.spot
+        # FEAT-093: carry the view's (else the spot's) weather, so the eye camera and P match shoot_spots.mjs
+        slug0, _, view0 = a.spot.partition('/')
+        spec0 = REPO / 'docs' / 'compare' / a.pack / slug0 / 'spot.json'
+        if spec0.exists():
+            s0 = json.loads(spec0.read_text(encoding='utf-8'))
+            v0 = next((e for e in s0.get('views', []) if e.get('id') == (view0 or 'view')), {})
+            w0 = v0.get('weather') or s0.get('weather')
+            if w0:
+                q['weather'] = w0
     link = a.host + '?' + urllib.parse.urlencode(q, safe='/')
     print(link)
     print(f'  lat {v["lat"]:.7f} lon {v["lon"]:.7f} -> x {x:.1f} y {y:.1f}; heading {heading:.1f} true = {h:.1f} grid; pitch {pitch:.1f}; fov {fov:.1f}'

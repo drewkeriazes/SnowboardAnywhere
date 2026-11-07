@@ -1,6 +1,6 @@
 # Mid-Vail, between the Wildwood Express and Mountain Top Express bottom terminals
 
-Real: Street View, Mar 2016, contributor Scott Moss (links in spot.json; `real-*.png` local only). Overcast, light snow, busy lift lines. Game: `eye-<view>.png`, eye camera at (-1568, 1608), 1919x910, 2026-11-06. Mid-Vail lodge is 167 m to the west-north-west, out of these frames.
+Real: Street View, Mar 2016, contributor Scott Moss (links in spot.json; `real-*.png` local only). Overcast, light snow, busy lift lines. Game: `eye-<view>.jpg`, eye camera at (-1568, 1608), 1919x910, 2026-11-06. Mid-Vail lodge is 167 m to the west-north-west, out of these frames.
 
 The compass is good: the Mountain Top Express terminal footprint's centre is at 83.6 degrees true in the pack and at about 84 degrees in the photo. No offset needed.
 

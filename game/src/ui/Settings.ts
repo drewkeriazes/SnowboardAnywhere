@@ -39,6 +39,7 @@ export interface Settings {
   goggleStrength: number;
   showMarkers: boolean;
   showLabels: boolean; // peak and town names
+  roadsOnSnow: boolean; // BUG-042: catwalks and roads drawn on the mountain (off: plain snow)
   /** time trials: start/finish gates on real runs, timer, ghost of your best run (off by default) */
   timeTrials: boolean;
   /** 'pack' = the pack's fixed sun, 'now' = real clock at the resort, or a fixed hour 6..20 */
@@ -63,14 +64,14 @@ export const OUTFIT_PRESETS: Record<string, Outfit> = {
 };
 
 export const DEFAULT_KEYS: Record<string, string> = {
-  left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft',
+  left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft', squat: 'ControlLeft', skate: 'KeyX', pressNose: 'KeyV', pressTail: 'KeyZ',
   lift: 'KeyE', board: 'KeyB', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft', boost: 'KeyQ', glance: 'KeyG',
 };
-const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab (sprint on foot)', lift: 'Ride lift / skip', board: 'Board on / off', trial: 'Go to nearest time trial', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track', look: 'Free look (hold, move mouse)', boost: 'Outrun boost', glance: 'Outrun look back (hold)' };
+const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab (sprint on foot)', squat: 'Squat (hold)', skate: 'Skate on the flat (hold)', pressNose: 'Nose press (hold)', pressTail: 'Tail press (hold)', lift: 'Ride lift / skip', board: 'Board on / off', trial: 'Go to nearest time trial', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track', look: 'Free look (hold, move mouse)', boost: 'Outrun boost', glance: 'Outrun look back (hold)' };
 
 const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-  fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
+  fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, roadsOnSnow: false, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
   outrun: { difficulty: 'normal', escape: 'base', gentle: false },
 };
 const KEY = 'settings';
@@ -164,6 +165,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Units</label><select data-k="units"><option value="imperial">mph, ft</option><option value="metric">km/h, m</option></select></div>
       <div class="row"><label>Lift markers</label><input type="checkbox" data-k="showMarkers"></div>
       <div class="row"><label>Peak names</label><input type="checkbox" data-k="showLabels"></div>
+      <div class="row"><label>Roads and trails on snow</label><input type="checkbox" data-k="roadsOnSnow"></div>
       <div class="row"><label>Time trials</label><input type="checkbox" data-k="timeTrials"></div>
       <div class="row"><label>Time of day</label><select data-k="timeOfDay"><option value="pack">Resort default</option><option value="now">Now (real time)</option><option value="7">7 am</option><option value="9">9 am</option><option value="11">11 am</option><option value="13">1 pm</option><option value="15">3 pm</option><option value="16.5">4:30 pm</option><option value="17.5">5:30 pm</option></select></div>
       <div class="row"><label>Month</label><select data-k="month"><option value="12">December</option><option value="1">January</option><option value="2">February</option><option value="3">March</option><option value="4">April</option><option value="7">July</option></select></div>

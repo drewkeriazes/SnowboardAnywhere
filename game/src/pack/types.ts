@@ -77,6 +77,8 @@ export interface BuildingFeature {
   name?: string | null;
   points: [number, number][];
   zBase: number;
+  /** highest ground under the footprint (BUG-024); absent in packs built before it */
+  zMax?: number;
   height: number;
   kind?: string;
 }

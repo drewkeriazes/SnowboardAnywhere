@@ -17,11 +17,12 @@ import { GoggleView } from './ui/GoggleView';
 import { ChaseCamera } from './world/ChaseCamera';
 import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
-import { Tracks } from './world/Tracks';
+import { FILL_RATE, Tracks, setTrackFillRate } from './world/Tracks';
 import { Bootprints } from './world/Bootprints';
 import { Outrun } from './sim/Outrun';
 import { Monsters } from './world/Monster';
 import { Puffs } from './world/Puffs';
+import { ParticleLight } from './world/ParticleLight';
 import { Eat } from './world/Eat';
 import { OutrunUI } from './ui/OutrunUI';
 import { RiderChair } from './world/RiderChair';
@@ -120,7 +121,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('run lines', runs.group);
     const buildings = new Buildings(pack, collider);
     add('buildings', buildings.group);
-    const roads = new Roads(pack);
+    const roads = new Roads(pack, settings.roadsOnSnow);
     add('roads', roads.group);
     const bridges = new Bridges(pack, collider, params.has('bridgeguess')); // BUG-022: OSM-tagged bridges only by default
     add('bridges', bridges.group);
@@ -133,6 +134,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     // Outrun (FEAT-097 to FEAT-101): the chase sim, the monsters, their big prints, puffs, the eat sequence, the HUD
     const outrun = new Outrun(pack, lifts);
     const puffs = new Puffs();
+    const particleLight = new ParticleLight();
     add('puffs', puffs.points);
     const bigprints = new Bootprints(pack, 3.2);
     add('monster prints', bigprints.mesh);
@@ -176,16 +178,19 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const rider = new Rider(pack, collider);
     // on foot (FEAT-067): every foot plant of the skeleton leaves a print and a footstep
     riderView.setPack(pack);
+    rider.onSkateStroke = () => audio.footstep(rider.surface, rider.speed, 0); // FEAT-085: a crunch per push
     riderView.onPlant = (p) => { bootprints.add(p, rider.sink); audio.footstep(rider.surface, p.speed, rider.sink); };
     let boardMsg = '', boardMsgT = 0;
     const liftRide = new LiftRide(pack, lifts, collider);
     const prefetch = new Prefetch();
     const cam = new ChaseCamera(pack, window.innerWidth / window.innerHeight);
+    cam.collider = collider; // BUG-032: keep the chase camera out of trees
     const controls = new Controls(canvas);
     const touch = TouchControls.wanted() ? new TouchControls(controls) : null;
     // cascaded shadows: every lit material gets the CSM hook
     env.registerMaterial(terrain.material);
     for (const m of Object.values(veg.mat)) env.registerMaterial(m);
+    env.registerMaterial(tracks.material); // BUG-021: tree and ridge shadows fall on the track like on the snow
     env.registerMaterial(rocks.material); env.registerMaterial(buildings.material); env.registerMaterial(roads.material); env.registerMaterial(lifts.material);
     for (const m of Object.values(riderView.mats)) env.registerMaterial(m);
     for (const m of Object.values(monsters.materials)) env.registerMaterial(m);
@@ -217,6 +222,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     // saved Weather setting for this session without saving it; picking a Weather in the menu clears it
     let weatherOverride: CloudCover | null = parseWeather(params.get('weather'));
     const initialWeather = weatherOverride;
+    /** the weather on screen right now (FEAT-093: saved with P-key shots) */
+    const currentWeather = (): CloudCover => weatherOverride ?? settings.clouds ?? 'scattered';
 
     // ---------------------------------------------------------------- settings application
     let weatherNow: CloudCover = 'scattered';
@@ -241,6 +248,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       snow.points.visible = storm || weather === 'flurries';
       const flakes = s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500;
       snow.setCount(storm ? flakes : Math.round(flakes / 6));
+      // old tracks and boot prints fill in faster while it snows (FEAT-107)
+      setTrackFillRate(storm ? FILL_RATE.storm : weather === 'flurries' ? FILL_RATE.flurries : FILL_RATE.clear);
       // limited render distance in the storm: nothing past the fog is drawn
       cam.camera.far = storm ? 1200 : 300000; cam.camera.updateProjectionMatrix();
       audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music);
@@ -258,6 +267,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       controls.keymap = { ...s.keys };
       controls.invertSteer = s.invertSteer;
       lifts.markers.visible = s.showMarkers;
+      roads.setOnSnow(s.roadsOnSnow);
       riderView.setOutfit(s.outfit);
       riderView.setDiscipline(s.discipline);
       tracks.setDiscipline(s.discipline);
@@ -308,6 +318,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     let paused = false;
     const setPaused = (p: boolean) => {
       paused = p;
+      controls.guardLeave = !p; // FEAT-111: no leave prompt from the pause menu
       if (p) pause.show(); else pause.hide();
       audio.setDuck(p ? 0.3 : 1);
     };
@@ -369,7 +380,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       pack.mask?.request(x - 600, y - 600, x + 600, y + 600);
     };
     /** Save the canvas: into docs/compare through the dev server when ?spot= is set, else a browser download. */
-    const saveShot = (dataUrl: string) => {
+    const saveShot = (dataUrl: string, jpgUrl: string) => {
       const p = cam.eyePose();
       const pose = { x: +p.x.toFixed(1), y: +p.y.toFixed(1), h: +p.h.toFixed(1), pitch: +p.pitch.toFixed(1), fov: +p.fov.toFixed(1), eye: +p.eye.toFixed(2) };
       const u = new URL(location.href);
@@ -382,8 +393,13 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         showToast('Saved the shot to Downloads');
       };
       if (!spotName) { download(); return; }
-      fetch('/__compare/save', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack: pack.meta.slug, spot: spotName, pose, link: u.toString(), png: dataUrl }) })
-        .then(async (r) => { if (!r.ok) throw new Error(await r.text()); showToast(`Saved ${await r.text()}`); })
+      fetch('/__compare/save', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack: pack.meta.slug, spot: spotName, pose, weather: currentWeather(), link: u.toString(), png: dataUrl, jpg: jpgUrl }) })
+        .then(async (r) => {
+          if (!r.ok) throw new Error(await r.text());
+          const { file, warning } = await r.json() as { file: string; warning?: string };
+          if (warning) console.warn(warning);
+          showToast(warning ? `Saved ${file}. ${warning}` : `Saved ${file}`);
+        })
         .catch((e) => { console.warn('compare save failed, downloading instead', e); download(); });
     };
     pack.fine?.request(sx - 600, sy - 600, sx + 600, sy + 600);
@@ -394,6 +410,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const toast = document.getElementById('toast')!;
     let toastTimer = 0;
     const showToast = (text: string, ms = 4000) => { toast.textContent = text; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => toast.classList.remove('show'), ms); };
+    rider.onTrick = (name) => showToast(name, 1800); // FEAT-110: flips
     if (params.get('cam') === 'eye' && !headless) showToast('Eye camera: click, then mouse to look · WASD move · Q/E height · [ ] zoom · P save shot · F free fly', 10000);
     audio.onTrack = (name) => showToast(`\u266B ${name}`);
     // the menu may already have started a song before onTrack was set (BUG-033): announce it now
@@ -612,6 +629,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       clouds.render(renderer, cam.camera, dt, env.sunDir, env.sun.color, env.sun.intensity, env.hemi.color, env.hemi.intensity, env.atmo.hazeLinear);
       env.followCamera(cam.camera.position);
       snow.update(dt, cam.camera, renderer.domElement.height, 0.45 + 0.6 * env.hemi.intensity / 1.4);
+      // BUG-046: spray and puffs are unlit points; give them the light flat snow gets at the rider (dark at dusk, darker in a ridge's shade)
+      const pl = particleLight.update(dt, env, (x, y) => pack.terrainHeight(x, y), rider.x, rider.y, rider.z);
+      (riderView.sprayObject.material as THREE.PointsMaterial).color.copy(pl);
+      (puffs.points.material as THREE.PointsMaterial).color.copy(pl);
       veg.setSun(env.sun.color, env.sun.intensity);
       const cp = cam.camera.position;
       terrain.update(cp.x, -cp.z, cp.y);
@@ -660,7 +681,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       labels.update(cam.camera, settings.units === 'metric');
       render();
       // the drawing buffer is only readable in the same task as the render
-      if (shotPending) { shotPending = false; saveShot(canvas.toDataURL('image/png')); }
+      if (shotPending) { shotPending = false; saveShot(canvas.toDataURL('image/png'), canvas.toDataURL('image/jpeg', 0.9)); }
       controls.endFrame();
 
       fpsAcc += dt; fpsN++;

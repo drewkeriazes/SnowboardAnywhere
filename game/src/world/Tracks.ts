@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Rider } from '../sim/Rider';
+import { rockCover } from '../terrain/rockCover';
 
 /**
  * Tracks in the snow as real 3D grooves. Every STEP metres on the snow a cross-section is laid
@@ -29,23 +30,41 @@ import type { Rider } from '../sim/Rider';
  */
 const MAX = 6000;
 const STEP = 0.5; // m between sections
+/** BUG-019: below this speed (m/s) the track keeps its last direction */
+const ACROSS_FREEZE = 1;
+/** BUG-019: the band may grow this many m of half width per m ridden */
+const HALF_GROW_PER_M = 0.5;
 const DEPTH = 0.05; // m, about 2 in on a groomer
-export const FADE = 600; // s until the snow has filled the track back in (bootprints too)
+export const FADE = 600; // s until the snow has filled the track back in in clear weather (bootprints too)
+/**
+ * How many times faster tracks and boot prints fill in while it snows (FEAT-107): clear 1, flurries 2,
+ * storm 5 (a groove is gone in about 2 minutes). Depth goes first and the edges fade last, because the
+ * alpha only drops once fill is under a third, so a filling track softens into a faint dent.
+ */
+export const FILL_RATE = { clear: 1, flurries: 2, storm: 5 } as const;
+let fillRate: number = FILL_RATE.clear;
+export function setTrackFillRate(rate: number): void { fillRate = rate; }
+export const trackFillRate = (): number => fillRate;
+/** BUG-043: rock coverage above which no groove is laid, and where it starts to fade out */
+const ROCK_CUT = 0.5, ROCK_FADE = 0.3;
 // cross-section profile: [offset across in units of the half width (+ fixed metres), height factor of DEPTH, alpha]
 // x = sx * half + dx
 const PROFILE: { sx: number; dx: number; h: number; a: number }[] = [
   { sx: -1, dx: -0.09, h: 0.0, a: 0 },   // outer edge, blends into snow
-  { sx: -1, dx: -0.04, h: 0.35, a: 1 },  // berm lip
+  { sx: -1, dx: -0.04, h: 0.35, a: 0.45 },  // berm lip (feathered, BUG-021)
   { sx: -1, dx: 0.0, h: 0.15, a: 1 },    // wall top
   { sx: -1, dx: 0.025, h: -1.0, a: 1 },  // floor edge
   { sx: 1, dx: -0.025, h: -1.0, a: 1 },  // floor edge
   { sx: 1, dx: 0.0, h: 0.15, a: 1 },
-  { sx: 1, dx: 0.04, h: 0.35, a: 1 },
+  { sx: 1, dx: 0.04, h: 0.35, a: 0.45 },
   { sx: 1, dx: 0.09, h: 0.0, a: 0 },
 ];
 const P = PROFILE.length;
+const UP = [0, 1, 0];
+/** BUG-021: the terrain's typical snow albedo: mix(uSnowShade, uSnow, 0.72) times its 0.95 grain tone */
+const SNOW_RGB = [0.83, 0.86, 0.94];
 /** floats stored per section */
-const SEC = 11;
+const SEC = 14; // ... + terrain normal (three.js x, y, z) at the centre (BUG-021)
 /** the berm and lip spread wider when scraping, so the ridge is a mound rather than a spike */
 const lipWidth = (polish: number) => 1 + 2.5 * polish;
 /**
@@ -112,12 +131,13 @@ class Lane {
    * Scraping: ridge height (m) of pushed snow, ridgeSide -1..1 (which lip gets it, + = the right
    * side), polish 0..1 (how much the floor is a flat scraped band rather than a cut groove).
    */
-  add(cx: number, cy: number, cz: number, ax: number, az: number, half: number, depth: number, tilt: number, surface: (x: number, z: number) => number, ridge = 0, ridgeSide = 0, polish = 0): void {
+  add(cx: number, cy: number, cz: number, ax: number, az: number, half: number, depth: number, tilt: number, surface: (x: number, z: number) => number, ridge = 0, ridgeSide = 0, polish = 0, fill = 1, gn: ArrayLike<number> = UP): void {
     const s = this.head;
     const o = s * SEC, c = this.secC;
     c[o] = cx; c[o + 1] = cy; c[o + 2] = cz; c[o + 3] = ax; c[o + 4] = az; c[o + 5] = half; c[o + 6] = depth; c[o + 7] = tilt;
     c[o + 8] = ridge; c[o + 9] = ridgeSide; c[o + 10] = polish;
-    this.age[s] = 0;
+    c[o + 11] = gn[0]; c[o + 12] = gn[1]; c[o + 13] = gn[2];
+    this.age[s] = FADE * (1 - fill); // fill < 1 (a rock edge, BUG-043) starts part filled in: shallower and fainter
     // snow heights under each profile vertex (follow the slope across the track)
     const lw = lipWidth(polish);
     for (let k = 0; k < P; k++) {
@@ -183,6 +203,11 @@ class Lane {
     }
     // normals from the profile slope across the track (smoothed between neighbours); the wall
     // vertices of a carve take the wall's own slope so a 1 cm wall still catches the light
+    const gx = this.secC[o + 11], gy = this.secC[o + 12], gz = this.secC[o + 13];
+    // the across direction made perpendicular to the slope normal
+    const ad = ax * gx + az * gz;
+    let tax = ax - gx * ad, tay = -gy * ad, taz = az - gz * ad;
+    const tl = Math.hypot(tax, tay, taz) || 1; tax /= tl; tay /= tl; taz /= tl;
     for (let k = 0; k < P; k++) {
       const k0 = Math.max(0, k - 1), k1 = Math.min(P - 1, k + 1);
       let dx = xs[k1] - xs[k0], dy = ys[k1] - ys[k0];
@@ -196,7 +221,9 @@ class Lane {
       // across-track 2D normal (-dy, dx) mapped back to world: across vector * nx + up * ny
       const nx = -dy / len, ny = dx / len;
       const v = (s * P + k) * 3;
-      this.nor[v] = ax * nx; this.nor[v + 1] = ny; this.nor[v + 2] = az * nx;
+      // BUG-021: tilt the cross-section onto the slope, so the track is lit like the snow it is cut
+      // into (it used to face straight up and glowed on shaded slopes): across * nx + slope normal * ny
+      this.nor[v] = tax * nx + gx * ny; this.nor[v + 1] = tay * nx + gy * ny; this.nor[v + 2] = taz * nx + gz * ny;
     }
     // colour: pressed floor slightly brighter and smoother, walls pick up their shading from the
     // normals; the slot of a knife cut sits in its own shadow, so it darkens into a thin line that
@@ -204,9 +231,11 @@ class Lane {
     for (let k = 0; k < P; k++) {
       const c = (s * P + k) * 4;
       const floor = PROFILE[k].h < 0;
-      let tone = floor ? 0.97 + 0.025 * polish : 0.93; // scraped floor polished a touch brighter
+      // BUG-021: the terrain's average snow colour (TerrainMaterial uSnow / uSnowShade mix), not white;
+      // the floor 1 to 3 % brighter where it was polished, the walls the snow itself
+      let tone = floor ? 1.0 + 0.03 * polish : 0.98;
       if (k >= 2 && k <= 5) tone *= 1 - 0.22 * ec;
-      this.col[c] = tone * 0.95; this.col[c + 1] = tone * 0.97; this.col[c + 2] = tone; this.col[c + 3] = PROFILE[k].a * Math.min(1, fill * 3);
+      this.col[c] = tone * SNOW_RGB[0]; this.col[c + 1] = tone * SNOW_RGB[1]; this.col[c + 2] = tone * SNOW_RGB[2]; this.col[c + 3] = PROFILE[k].a * Math.min(1, fill * 3);
     }
   }
 
@@ -219,7 +248,8 @@ class Lane {
 
   /** Age and re-shape (called a couple of times a second). */
   tick(dt: number): void {
-    for (let s = 0; s < this.count; s++) { this.age[s] += dt; this.shape(s); }
+    const aged = dt * fillRate;
+    for (let s = 0; s < this.count; s++) { this.age[s] += aged; this.shape(s); }
     this.flag();
   }
 
@@ -230,9 +260,17 @@ class Lane {
 export class Tracks {
   readonly group = new THREE.Group();
   private readonly pack: Pack;
-  private readonly mat: THREE.MeshLambertMaterial;
+  private readonly mat: THREE.MeshStandardMaterial;
   private lanes: Lane[] = [];
   private offsets: number[] = [0];
+  /** BUG-044: the two ski lanes are drawn as one band (overlapping in a stop) */
+  private merged = false;
+  /** BUG-019: travel direction kept from the last section ridden faster than ACROSS_FREEZE, and the last half width */
+  private dirX = NaN;
+  private dirFromHeading = false;
+  private dirY = NaN;
+  private lastHalf = NaN;
+  private laneHalf: number[] = [NaN, NaN];
   private lastX = NaN;
   private lastY = NaN;
   /** edge tilt smoothed over distance, so the line crosses the board in a soft S between turns (FEAT-109) */
@@ -246,7 +284,8 @@ export class Tracks {
 
   constructor(pack: Pack) {
     this.pack = pack;
-    this.mat = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, depthWrite: true, side: THREE.DoubleSide });
+    // BUG-021: the same lighting model and roughness as the terrain's snow (was Lambert, lit brighter)
+    this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, depthWrite: true, side: THREE.DoubleSide, roughness: 0.9, metalness: 0 });
     // the floor is below the terrain surface: bias the depth a few cm toward the camera so the
     // terrain does not cover it, but nearer geometry (rider, trees, ridges) still does
     this.mat.onBeforeCompile = (shader) => {
@@ -290,7 +329,9 @@ export class Tracks {
       const cx = r.x + rx * side * 0.11, cy = r.y + ry * side * 0.11;
       const g = this.pack.groundHeight(cx, cy);
       if (Number.isNaN(g)) continue;
-      this.bootLanes[i].add(cx, g, -cy, ax, -ay, 0.07, depth, 0, surface, 0.01, 0, 0.4);
+      const pn = this.pack.groundNormal(cx, cy, this.nTmp); // BUG-021: lit like the slope, not flat ground
+      this.gnTmp[0] = pn[0]; this.gnTmp[1] = pn[2]; this.gnTmp[2] = -pn[1];
+      this.bootLanes[i].add(cx, g, -cy, ax, -ay, 0.07, depth, 0, surface, 0.01, 0, 0.4, 1, this.gnTmp);
     }
   }
 
@@ -299,6 +340,7 @@ export class Tracks {
   setDiscipline(d: 'board' | 'ski'): void {
     if (d === this.discipline && this.lanes.length) return;
     this.discipline = d;
+    this.merged = false;
     for (const l of this.lanes) { this.group.remove(l.mesh); l.dispose(); }
     this.offsets = d === 'ski' ? [-0.12, 0.12] : [0];
     this.lanes = this.offsets.map(() => new Lane(this.mat));
@@ -319,7 +361,16 @@ export class Tracks {
     if (moved > 6) for (const l of this.lanes) l.gap();
     this.lastX = r.x; this.lastY = r.y;
     const sp = Math.hypot(r.vx, r.vy);
-    const fx = sp > 0.3 ? r.vx / sp : Math.sin(r.heading), fy = sp > 0.3 ? r.vy / sp : Math.cos(r.heading);
+    // BUG-019: below ACROSS_FREEZE the velocity direction is noise (the end of a hockey stop, standing
+    // across the hill) and the heading is the board's, 84 deg off the travel, so the across vector
+    // swung between sections and twisted the quads into arrows and bow-ties. Keep the last good
+    // direction instead; a fresh stroke with no history falls back to the heading.
+    // a direction guessed from the board heading (standing start) is replaced as soon as there is real travel
+    if (sp > ACROSS_FREEZE || moved > 6 || Number.isNaN(this.dirX) || (this.dirFromHeading && sp > 0.3)) {
+      this.dirFromHeading = sp <= 0.3;
+      this.dirX = sp > 0.3 ? r.vx / sp : Math.sin(r.heading); this.dirY = sp > 0.3 ? r.vy / sp : Math.cos(r.heading);
+    }
+    const fx = this.dirX, fy = this.dirY;
     const ax = fy, ay = -fx; // right-hand side, pack coords
     const skid = Math.min(1, r.skid);
     const s = r.surface;
@@ -342,7 +393,10 @@ export class Tracks {
     const edge = Math.abs(tilt);
     // a committed carve collapses the trench to a knife cut about 1 cm wide (FEAT-109)
     const ec = edgeCurve(edge);
-    const half = Math.max(MIN_HALF, 0.5 * (L * gs + W * gc * (1 - 0.95 * ec)) + (ski ? 0.05 : 0.15) * skid);
+    const halfRaw = Math.max(MIN_HALF, 0.5 * (L * gs + W * gc * (1 - 0.95 * ec)) + (ski ? 0.05 : 0.15) * skid);
+    // BUG-019: ease the width so a stop widens the band over a few sections, not in one long wedge
+    const half = moved > 6 || Number.isNaN(this.lastHalf) ? halfRaw : Math.min(halfRaw, this.lastHalf + HALF_GROW_PER_M * moved);
+    this.lastHalf = half;
     const depth = DEPTH * (1 + 0.6 * powder) * (1 + 0.3 * edge) * (1 - 0.6 * scrape) * (s.rock + s.scree > 0.5 ? 0.3 : 1);
     // the cut sits under the engaged edge, not the middle of the board: slide the section across by
     // up to half the width as the board goes on edge, so the line crosses the board between turns
@@ -353,12 +407,47 @@ export class Tracks {
     const dn = Math.hypot(r.normal[0], r.normal[1]);
     const ridgeSide = dn > 0.02 ? (ax * r.normal[0] + ay * r.normal[1]) / dn : 0; // + = the right side is downhill
     const surface = (x: number, z: number) => this.pack.groundHeight(x, -z);
+    // BUG-044: once the two ski bands overlap (a hockey stop) their lips poke through each other's
+    // floor; draw one band centred between the skis instead, and split back when they separate.
+    // Hysteresis (merge at overlap, split once the gap is back to 80 %) stops it flickering.
+    const spread = this.offsets.length > 1 ? Math.abs(this.offsets[1] - this.offsets[0]) * 0.5 * gc : 0;
+    const wasMerged = this.merged;
+    this.merged = spread > 0 && (this.merged ? half > spread * 0.8 : half > spread);
+    if (this.merged !== wasMerged && this.lanes.length) this.lanes[0].gap(); // lane 0 jumps between the centre and its ski; no skewed joining quad
     this.offsets.forEach((off, i) => {
-      const o = off * gc + shift; // skis turned across the travel direction sweep the same band
+      if (this.merged && i > 0) { this.lanes[i].gap(); return; } // the first lane carries the one band
+      const o = this.merged ? shift : off * gc + shift; // skis turned across the travel direction sweep the same band
+      const want = this.merged ? half + spread : half;
+      // the merged band is wider than either groove: grow into it at the same rate (BUG-019)
+      const prev = this.laneHalf[i];
+      const bandHalf = moved > 6 || Number.isNaN(prev) ? want : Math.min(want, prev + HALF_GROW_PER_M * moved);
+      this.laneHalf[i] = bandHalf;
       const cx = r.x + ax * o, cy = r.y + ay * o;
       const g = this.pack.groundHeight(cx, cy);
-      this.lanes[i].add(cx, g, -cy, ax, -ay, half, depth, tilt, surface, ridge, ridgeSide, gs);
+      // BUG-043: no groove in rock the player can see; it fades out over the last bit of snow
+      // before the rock edge and starts again on the snow below
+      const rock = this.rockAt(cx, cy, g);
+      if (rock > ROCK_CUT) { this.lanes[i].gap(); return; }
+      const fill = rock > ROCK_FADE ? 1 - (rock - ROCK_FADE) / (ROCK_CUT - ROCK_FADE) : 1;
+      const pn = this.pack.groundNormal(cx, cy, this.nTmp);
+      this.gnTmp[0] = pn[0]; this.gnTmp[1] = pn[2]; this.gnTmp[2] = -pn[1]; // pack -> three.js axes
+      this.lanes[i].add(cx, g, -cy, ax, -ay, bandHalf, depth, tilt, surface, ridge, ridgeSide, gs, fill, this.gnTmp);
     });
+  }
+
+  private readonly maskTmp = [0, 0, 0, 0];
+  private readonly nTmp = [0, 0, 1];
+  private readonly gnTmp = [0, 1, 0];
+  private readonly coverTmp = { rock: 0, scree: 0 };
+  /** rock + scree coverage the terrain shader shows at (x, y) */
+  private rockAt(x: number, y: number, z: number): number {
+    const mask = this.pack.mask;
+    if (!mask) return 0;
+    const m = mask.sampleBilinear(x, y, this.maskTmp);
+    if (m[0] < 0.15 && m[1] < 0.05) return 0;
+    const n = this.pack.groundNormal(x, y, this.nTmp);
+    const c = rockCover(m[0], m[1], x, z, -y, n[2], this.coverTmp);
+    return c.rock + c.scree;
   }
 
   clear(): void { for (const l of [...this.lanes, ...this.bootLanes]) l.clear(); this.lastX = NaN; this.bootX = NaN; }
