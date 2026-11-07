@@ -7,7 +7,8 @@ requests are skipped: a PR titled with its card id is not a second card.
     python tools/card_id.py FEAT     # just the next FEAT id, for scripts
 
 Run it right before creating a card, and again after, since another session may have taken
-the same id in between. On a clash the newer issue gets a new id.
+the same id in between (wait about 20 s: the issue list lags a new issue). On a clash the newer
+issue gets a new id.
 """
 import json
 import re
