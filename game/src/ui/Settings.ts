@@ -28,6 +28,8 @@ export interface Settings {
   valleyFog: boolean;
   /** FEAT-105: how much new snow covers the rock at the start (a storm adds more as it falls) */
   newSnow?: 'none' | 'dusting' | '6in' | 'powder';
+  /** FEAT-077: fresh morning corduroy, mid-season (skied out as the day goes on), or spring snow */
+  snowDay: 'fresh' | 'mid' | 'spring';
   treeDensity: number; // 0.25 .. 1
   pixelRatio: number; // 0.5 .. 2 (capped by the device)
   fov: number; // base chase FOV, 50 .. 100
@@ -70,7 +72,7 @@ export const DEFAULT_KEYS: Record<string, string> = {
 const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab (sprint on foot)', squat: 'Squat (hold)', skate: 'Skate on the flat (hold)', pressNose: 'Nose press (hold)', pressTail: 'Tail press (hold)', lift: 'Ride lift / skip', board: 'Board on / off', trial: 'Go to nearest time trial', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track', look: 'Free look (hold, move mouse)', boost: 'Outrun boost', glance: 'Outrun look back (hold)' };
 
 const DEFAULTS: Settings = {
-  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
+  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', snowDay: 'mid', treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
   fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, roadsOnSnow: false, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
   outrun: { difficulty: 'normal', escape: 'base', gentle: false },
 };
@@ -142,6 +144,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Shadows</label><input type="checkbox" data-k="shadows"></div>
       <div class="row"><label>Cascaded (beta)</label><input type="checkbox" data-k="csmExperimental"></div>
       <div class="row"><label>Weather</label><select data-k="clouds"><option value="off">Bluebird (clear)</option><option value="few">Few clouds</option><option value="scattered">Scattered clouds</option><option value="broken">Broken clouds</option><option value="overcast">Overcast (flat light)</option><option value="flurries">Overcast, light snow</option><option value="storm">Snowstorm</option></select></div>
+      <div class="row"><label>Snow conditions</label><select data-k="snowDay"><option value="fresh">Fresh corduroy</option><option value="mid">Mid-season</option><option value="spring">Spring</option></select></div>
       <div class="row"><label>New snow</label><select data-k="newSnow"><option value="none">None</option><option value="dusting">Dusting</option><option value="6in">6 in</option><option value="powder">Powder day</option></select></div>
       <div class="row"><label>Valley fog</label><input type="checkbox" data-k="valleyFog"></div>
       <div class="row"><label>Trees</label><input type="range" data-k="treeDensity" min="0.25" max="1" step="0.05"></div>
