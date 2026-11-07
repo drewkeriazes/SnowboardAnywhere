@@ -74,7 +74,7 @@ Everything else in the card holds: `musicGain` is one `GainNode` that every musi
 
 ## 6. The eat sequence (cartoon, no blood)
 
-1. Grab: time scale 0.3 for 0.5 s, camera cut to a fixed side angle 6 m off the slope on the downhill side, 2 m up, looking at the pair.
+1. Grab: time scale 0.3 for 0.5 s, camera cut to high in front of the monster (about 5 m out and 6 m up, pushing in slowly), looking down over the rider into its face (FEAT-104; the first build used a side angle).
 2. Lift: the rider held up by the torso, legs and board dangling.
 3. Rip: a "pop", snow and confetti puff. Top half right hand, legs and board left hand.
 4. Jaw: scale the jaw bone tall, snake-style.
@@ -92,6 +92,8 @@ The split with the current rig: at the catch, create two `RiderView`s with the l
 
 Recommendation: MVP with a capsule, then B. The eat sequence needs hand and jaw bones we control; retrofitting those onto a glTF rig costs most of what B costs anyway.
 
+
+Built as option B (FEAT-099), then redesigned in FEAT-104 at Drew's ask: a grey, gangly, upright yeti that runs on two legs with both arms thrown up and flailing, a pot belly, a small head with a heavy brow and close-set eyes, a shaggy crest and a gaping dark maw. The aim is the nostalgic beat of the classic charging yeti; the model is ours, not a copy of the SkiFree sprite.
 ## 8. Build cards
 
 | Card | What | Effort |
