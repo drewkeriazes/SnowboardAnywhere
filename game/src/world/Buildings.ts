@@ -11,6 +11,14 @@ import type { Collider } from '../sim/Collider';
  */
 const SINK = 2.5; // m below the lowest ground point under the footprint
 
+/** BUG-024: named buildings bigger than this (m^2) with no height in OSM get a lodge height */
+const BIG_LODGE_M2 = 1500;
+function footprintArea(pts: number[][]): number {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; }
+  return Math.abs(a) / 2;
+}
+
 export class Buildings {
   readonly group = new THREE.Group();
   private readonly mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.0 });
@@ -59,10 +67,15 @@ export class Buildings {
       if (Number.isNaN(h)) continue;
       zMin = Math.min(zMin, h); zMax = Math.max(zMax, h);
     }
-    if (!Number.isFinite(zMin)) { zMin = zMax = b.zBase; }
+    // BUG-024: built before the tiles load, so usually no samples: the pipeline's lowest and highest
+    // ground. The roof goes above the HIGHEST ground, or a big footprint on a slope is buried uphill.
+    const hi = b.zMax ?? b.zBase;
+    if (!Number.isFinite(zMin)) { zMin = b.zBase; zMax = hi; }
     const base = Math.min(zMin, b.zBase) - SINK;
-    const height = Math.max(3, b.height || 5);
-    const top = Math.max(zMax, b.zBase) + height;
+    let height = Math.max(3, b.height || 5);
+    // older packs: a big named lodge with only the 5.5 m default is 3 to 4 storeys (Eagle's Nest)
+    if (b.name && height <= 5.5 && footprintArea(pts) > BIG_LODGE_M2) height = 12;
+    const top = Math.max(zMax, hi) + height;
     const named = !!b.name;
     const kind = b.kind ?? 'yes';
     // colours: timber lodges on the mountain, pale stucco/stone in the villages
