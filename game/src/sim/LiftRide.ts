@@ -141,8 +141,8 @@ export class LiftRide {
       for (let t = 1; t <= UNLOAD_RUN; t++) if (!free(x + dx * t, y + dy * t, 0.5)) return false;
       return true;
     };
-    // there is no skating, so prefer a spot steep enough to glide away from; the nearest clear
-    // spot on flatter ground is the fallback
+    // prefer a spot steep enough to glide away from; the nearest clear spot on flatter ground is the
+    // fallback, and from there the rider can skate off (X, FEAT-085)
     const minNz = Math.cos(UNLOAD_MIN_SLOPE * (Math.PI / 180));
     let flat: [number, number, number] | null = null;
     for (let r = 0; r <= UNLOAD_SEARCH; r += 2) {
