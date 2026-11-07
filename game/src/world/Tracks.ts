@@ -30,8 +30,10 @@ import { rockCover } from '../terrain/rockCover';
  */
 const MAX = 6000;
 const STEP = 0.5; // m between sections
-/** BUG-019: below this speed (m/s) the track keeps its last direction; the band may grow this many m of half width per m ridden */
-const ACROSS_FREEZE = 1, HALF_GROW = 0.5;
+/** BUG-019: below this speed (m/s) the track keeps its last direction */
+const ACROSS_FREEZE = 1;
+/** BUG-019: the band may grow this many m of half width per m ridden */
+const HALF_GROW_PER_M = 0.5;
 const DEPTH = 0.05; // m, about 2 in on a groomer
 export const FADE = 600; // s until the snow has filled the track back in (bootprints too)
 /** BUG-043: rock coverage above which no groove is laid, and where it starts to fade out */
@@ -242,6 +244,7 @@ export class Tracks {
   private merged = false;
   /** BUG-019: travel direction kept from the last section ridden faster than ACROSS_FREEZE, and the last half width */
   private dirX = NaN;
+  private dirFromHeading = false;
   private dirY = NaN;
   private lastHalf = NaN;
   private laneHalf: number[] = [NaN, NaN];
@@ -335,7 +338,9 @@ export class Tracks {
     // across the hill) and the heading is the board's, 84 deg off the travel, so the across vector
     // swung between sections and twisted the quads into arrows and bow-ties. Keep the last good
     // direction instead; a fresh stroke with no history falls back to the heading.
-    if (sp > ACROSS_FREEZE || moved > 6 || Number.isNaN(this.dirX)) {
+    // a direction guessed from the board heading (standing start) is replaced as soon as there is real travel
+    if (sp > ACROSS_FREEZE || moved > 6 || Number.isNaN(this.dirX) || (this.dirFromHeading && sp > 0.3)) {
+      this.dirFromHeading = sp <= 0.3;
       this.dirX = sp > 0.3 ? r.vx / sp : Math.sin(r.heading); this.dirY = sp > 0.3 ? r.vy / sp : Math.cos(r.heading);
     }
     const fx = this.dirX, fy = this.dirY;
@@ -363,7 +368,7 @@ export class Tracks {
     const ec = edgeCurve(edge);
     const halfRaw = Math.max(MIN_HALF, 0.5 * (L * gs + W * gc * (1 - 0.95 * ec)) + (ski ? 0.05 : 0.15) * skid);
     // BUG-019: ease the width so a stop widens the band over a few sections, not in one long wedge
-    const half = moved > 6 || Number.isNaN(this.lastHalf) ? halfRaw : Math.min(halfRaw, this.lastHalf + HALF_GROW * moved);
+    const half = moved > 6 || Number.isNaN(this.lastHalf) ? halfRaw : Math.min(halfRaw, this.lastHalf + HALF_GROW_PER_M * moved);
     this.lastHalf = half;
     const depth = DEPTH * (1 + 0.6 * powder) * (1 + 0.3 * edge) * (1 - 0.6 * scrape) * (s.rock + s.scree > 0.5 ? 0.3 : 1);
     // the cut sits under the engaged edge, not the middle of the board: slide the section across by
@@ -386,7 +391,7 @@ export class Tracks {
       const want = this.merged ? half + spread : half;
       // the merged band is wider than either groove: grow into it at the same rate (BUG-019)
       const prev = this.laneHalf[i];
-      const bandHalf = moved > 6 || Number.isNaN(prev) ? want : Math.min(want, prev + HALF_GROW * moved);
+      const bandHalf = moved > 6 || Number.isNaN(prev) ? want : Math.min(want, prev + HALF_GROW_PER_M * moved);
       this.laneHalf[i] = bandHalf;
       const cx = r.x + ax * o, cy = r.y + ay * o;
       const g = this.pack.groundHeight(cx, cy);
