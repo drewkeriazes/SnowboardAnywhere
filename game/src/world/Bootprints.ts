@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Plant } from './Gait';
-import { FADE } from './Tracks';
+import { FADE, trackFillRate } from './Tracks';
 
 /**
  * Bootprints (FEAT-067): one dent per foot plant, stamped where the gait put the boot down, as one
@@ -169,7 +169,7 @@ export class Bootprints {
     this.tickAcc += dt;
     if (this.tickAcc < 0.5) return;
     for (let s = 0; s < this.count; s++) {
-      this.age[s] += this.tickAcc;
+      this.age[s] += this.tickAcc * trackFillRate();
       // the oldest prints in the ring also fade so the overwrite is not a pop
       const ringAge = ((this.head - 1 - s + MAX) % MAX) / MAX;
       this.fill.setX(s, Math.max(0, 1 - this.age[s] / FADE) * (1 - ringAge * ringAge));
