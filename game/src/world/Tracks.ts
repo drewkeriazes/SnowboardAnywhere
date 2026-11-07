@@ -304,6 +304,7 @@ export class Tracks {
   setDiscipline(d: 'board' | 'ski'): void {
     if (d === this.discipline && this.lanes.length) return;
     this.discipline = d;
+    this.merged = false;
     for (const l of this.lanes) { this.group.remove(l.mesh); l.dispose(); }
     this.offsets = d === 'ski' ? [-0.12, 0.12] : [0];
     this.lanes = this.offsets.map(() => new Lane(this.mat));
@@ -362,7 +363,9 @@ export class Tracks {
     // floor; draw one band centred between the skis instead, and split back when they separate.
     // Hysteresis (merge at overlap, split once the gap is back to 80 %) stops it flickering.
     const spread = this.offsets.length > 1 ? Math.abs(this.offsets[1] - this.offsets[0]) * 0.5 * gc : 0;
-    if (spread > 0) this.merged = this.merged ? half > spread * 0.8 : half > spread;
+    const wasMerged = this.merged;
+    this.merged = spread > 0 && (this.merged ? half > spread * 0.8 : half > spread);
+    if (this.merged !== wasMerged && this.lanes.length) this.lanes[0].gap(); // lane 0 jumps between the centre and its ski; no skewed joining quad
     this.offsets.forEach((off, i) => {
       if (this.merged && i > 0) { this.lanes[i].gap(); return; } // the first lane carries the one band
       const o = this.merged ? shift : off * gc + shift; // skis turned across the travel direction sweep the same band
