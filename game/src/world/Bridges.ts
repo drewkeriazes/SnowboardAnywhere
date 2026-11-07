@@ -5,10 +5,15 @@ import type { Collider } from '../sim/Collider';
 
 /**
  * Bridges. The terrain is bare-earth lidar, which has no bridges, so a run or road that crosses
- * a gully would drop into it. Ways tagged bridge=* in OSM become decks straight away. The gap
- * detector (short run/road segments whose straight line passes well above the loaded 1 m terrain)
- * built false bridges across open bowls (BUG-022), so it only runs with `?bridgeguess`, for packs
- * built before the pipeline kept the OSM tag.
+ * a gully would drop into it. Ways tagged bridge=* in OSM become decks straight away.
+ * Two detectors find crossings OSM does not tag:
+ * - Dip spans (always on): a ski run whose node sits in a creek bed, with banks 4 m+ higher within
+ *   40 m each side and a steep, gully-shaped sag between them. On Vail this finds exactly Cloud 9 -
+ *   Lower over the creek by Tea Cup and China Spur (BUG-013), and nothing on open slopes.
+ * - Segment chords (`?bridgeguess` only): any run or road segment whose straight line passes 4 m+
+ *   above the terrain. Long, sparse bowl runs hang over concave slopes, so this built railings
+ *   across Imperial Bowl, Poppyfields and Red Square (BUG-022). Kept for packs built before the
+ *   pipeline kept the OSM tag.
  * A deck is registered with the pack (so rider ground follows it), drawn with railings and
  * girders, and its railings are collider walls.
  */
@@ -41,15 +46,16 @@ export class Bridges {
         this.addBridge(a, b, w.hw);
         continue;
       }
-      if (!guess) continue; // untagged ways are not bridges unless the detector is asked for
+      // BUG-022: ski runs keep the narrow creek-bed dip check (Tea Cup, China Spur); the loose
+      // segment-chord detector only runs when asked for
+      if (w.run) this.addDips(w.pts, w.hw);
+      if (!guess) continue;
       for (let i = 0; i + 1 < w.pts.length; i++) {
         const a = w.pts[i], b = w.pts[i + 1];
         const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
         if (l < 6 || l > MAX_SPAN) continue;
         this.pending.push({ a, b, hw: w.hw, cx: (a[0] + b[0]) / 2, cy: (a[1] + b[1]) / 2, steep: 0.06 });
       }
-      // ski runs only: trails and roads really do ford creeks and duck through underpasses
-      if (w.run) this.addDips(w.pts, w.hw);
     }
   }
 

@@ -9,12 +9,14 @@ import { Snow } from './world/Snow';
 import { Controls } from './sim/Controls';
 import { Vegetation, setVegetationBudget, setVegetationDensity } from './world/Vegetation';
 import { Rocks } from './world/Rocks';
+import { LiftLines } from './world/LiftLines';
 import { Lifts } from './world/Lifts';
 import { RunsOverlay } from './world/RunsOverlay';
 import { Environment } from './world/Sky';
 import { RiderView, BODY_LAYER } from './world/RiderView';
 import { GoggleView } from './ui/GoggleView';
 import { Replay, type ReplaySample } from './sim/Replay';
+import { SpeedLines } from './ui/SpeedLines';
 import { ChaseCamera } from './world/ChaseCamera';
 import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
@@ -43,6 +45,9 @@ import { loadSettings, keyName, type Settings } from './ui/Settings';
 import { STAMINA } from './sim/Rider';
 import { availableResorts } from './resorts';
 import { hasCustomStart, resetStart, spawnKey } from './spawn';
+
+/** FEAT-105: the New snow setting as a snow cover amount */
+const NEW_SNOW: Record<string, number> = { none: 0, dusting: 0.25, '6in': 0.6, powder: 1 };
 
 const params = new URLSearchParams(location.search);
 let packSlug = params.get('pack') ?? '';
@@ -114,6 +119,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('rocks', rocks.group);
     const lifts = new Lifts(pack);
     add('lifts', lifts.group);
+    const liftLines = new LiftLines(pack, lifts.all, collider); // FEAT-073
+    liftLines.setEnabled(settings.liftLines);
+    add('lift lines', liftLines.group);
     add('lift markers', lifts.markers);
     const runs = new RunsOverlay(pack);
     add('run lines', runs.group);
@@ -121,7 +129,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('buildings', buildings.group);
     const roads = new Roads(pack, settings.roadsOnSnow);
     add('roads', roads.group);
-    const bridges = new Bridges(pack, collider, params.has('bridgeguess')); // BUG-022: OSM-tagged bridges only by default
+    const bridges = new Bridges(pack, collider, params.has('bridgeguess')); // BUG-022: OSM-tagged bridges and creek-bed dips; ?bridgeguess adds segment chords
     add('bridges', bridges.group);
     const tracks = new Tracks(pack);
     add('tracks', tracks.group);
@@ -180,6 +188,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     riderView.onPlant = (p) => { bootprints.add(p, rider.sink); audio.footstep(rider.surface, p.speed, rider.sink); };
     let boardMsg = '', boardMsgT = 0;
     const liftRide = new LiftRide(pack, lifts, collider);
+    liftRide.gate = (l, x, y) => liftLines.inGate(l, x, y); // FEAT-073: board from inside the maze
     const prefetch = new Prefetch();
     const cam = new ChaseCamera(pack, window.innerWidth / window.innerHeight);
     cam.collider = collider; // BUG-032: keep the chase camera out of trees
@@ -196,6 +205,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     let csmSize = 0;
     if (!params.has('noimpostors')) veg.enableImpostors(renderer, true);
     const goggles = new GoggleView();
+    const speedLines = new SpeedLines(document.body); // FEAT-045
     // ---- FEAT-043: the session recording, the replay viewer (K) and the practice rewind (hold Backspace)
     const replay = new Replay();
     const replayEl = document.createElement('div'); replayEl.id = 'replay';
@@ -253,13 +263,15 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
 
     // ---------------------------------------------------------------- settings application
     let weatherNow: CloudCover = 'scattered';
-    /** FEAT-106: new snow on the boulders, 0..1: a storm fills it in about 3 min, flurries take it to 0.4, clear holds it */
-    let boulderSnow = 0;
+    /** FEAT-105: new snow, 0..1, shared by the terrain rock and the boulder caps (FEAT-106): a storm adds
+     *  1 per 10 min, flurries a fifth of that, it never melts in a session; the New snow setting sets it */
+    let snowCover = 0;
     const applySettings = (s: Settings, what: string): void => {
       applySun(s);
       if (what === 'clouds') weatherOverride = null;
       const weather = weatherOverride ?? s.clouds ?? 'scattered';
       weatherNow = weather;
+      if (what === 'newSnow' || what === 'init' || what === 'reset') snowCover = NEW_SNOW[s.newSnow ?? 'none'] ?? 0; // FEAT-105: pick a look without waiting
       clouds.configure(weather, s.quality);
       const storm = weather === 'storm', overcast = isOvercast(weather);
       env.setBluebird(!storm && !overcast); // deep blue sky behind the clouds too; storm and overcast are grey
@@ -292,6 +304,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       controls.invertSteer = s.invertSteer;
       lifts.markers.visible = s.showMarkers;
       roads.setOnSnow(s.roadsOnSnow);
+      liftLines.setEnabled(s.liftLines);
       riderView.setOutfit(s.outfit);
       riderView.setDiscipline(s.discipline);
       tracks.setDiscipline(s.discipline);
@@ -444,7 +457,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const showPrompt = (html: string) => { if (html !== promptShown) { promptShown = html; prompt.innerHTML = html; prompt.classList.toggle('show', html !== ''); } };
 
     let mouseDx = 0, mouseDy = 0;
-    const onClick = () => { if (!paused && (cam.mode === 'free' || cam.mode === 'fp' || cam.mode === 'eye')) canvas.requestPointerLock(); };
+    const onClick = () => { if (!paused && (cam.mode === 'free' || cam.firstPerson || cam.mode === 'eye')) canvas.requestPointerLock(); };
     const onMove = (e: MouseEvent) => { if (document.pointerLockElement === canvas || (controls.looking && !paused)) { mouseDx += e.movementX; mouseDy += e.movementY; } };
     const onResize = () => { renderer.setSize(window.innerWidth, window.innerHeight); cam.camera.aspect = window.innerWidth / window.innerHeight; cam.camera.updateProjectionMatrix(); env.onCameraChanged(); };
     canvas.addEventListener('click', onClick);
@@ -465,7 +478,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       tracks.dispose();
       trialWorld.dispose();
       if (outrun.active) stopOutrun();
-      outrunUI.destroy(); eat.dispose(); puffs.dispose(); bigprints.dispose();
+      outrunUI.destroy(); speedLines.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
       trialEl.classList.remove('show');
       finishArrow.style.display = 'none';
       audio.onTrack = null;
@@ -492,7 +505,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     /** Main render, then in first person the body again over a cleared depth buffer (near 0.05 m). */
     function render(): void {
       renderer.render(scene, cam.camera);
-      if (cam.mode !== 'fp') return;
+      if (!cam.firstPerson) return;
       for (const l of env.csm?.lights ?? []) l.layers.enable(BODY_LAYER);
       bodyCam.position.copy(cam.camera.position); bodyCam.quaternion.copy(cam.camera.quaternion);
       if (bodyCam.fov !== cam.camera.fov || bodyCam.aspect !== cam.camera.aspect) { bodyCam.fov = cam.camera.fov; bodyCam.aspect = cam.camera.aspect; bodyCam.updateProjectionMatrix(); }
@@ -607,7 +620,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (!frozen && !onLift && !eating) replay.record(dt, rider, input.tuck); // FEAT-043
       // visuals draw the pose interpolated between the last two 120 Hz physics steps; gameplay
       // (trials, lifts, audio) keeps reading the sim pose
-      riderView.setFirstPerson(cam.mode === 'fp');
+      riderView.setFirstPerson(cam.firstPerson);
       rider.applyRenderPose();
       if (!eating) riderView.update(rider, dt, input.tuck, input.grab, onLift && liftRide.airborneRide);
       if (!frozen) tracks.update(rider, dt, onLift && liftRide.airborneRide);
@@ -690,7 +703,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       rider.applyRenderPose();
       if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
       else if (eyeMode) { cam.updateEye(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
-      else if (cam.mode === 'fp') { cam.updateFirstPerson(rider, dt, input.tuck, onLift || controls.looking, mouseDx, mouseDy, riderView.eye(eye)); mouseDx = mouseDy = 0; }
+      else if (cam.firstPerson) { cam.updateFirstPerson(rider, dt, input.tuck, onLift || controls.looking, mouseDx, mouseDy, riderView.eye(eye)); mouseDx = mouseDy = 0; }
       else if (replayOpen && replayCam === 'trackside') {
         // FEAT-043: a fixed camera beside the line, moved on ahead once the rider is past it
         const sp = Math.hypot(rider.vx, rider.vy) || 1, ux = rider.vx / sp, uy = rider.vy / sp;
@@ -707,6 +720,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       chase?.setListener(cam.camera);
       goggles.strength = settings.goggleStrength;
       goggles.update(rider, dt, cam.mode === 'fp', cam.mode === 'fp' && settings.fpVignette, onLift);
+      // FEAT-045 speed feel toggles, and the speed lines (not on a lift, in free fly or the eat)
+      cam.speedFov = settings.speedFov; cam.camShake = settings.camShake; speedLines.enabled = settings.speedLines;
+      speedLines.update(rider.speed, dt, !detached && !onLift && !eat.active && !paused && !rider.onFoot && !frozen);
       rider.restoreSimPose();
       cam.camera.updateMatrixWorld();
       env.updateCSM();
@@ -726,15 +742,17 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       prefetch.update(pack, fx, fy, dt, liftTop);
       veg.update(fx, fy, prefetch.ax, prefetch.ay);
       rocks.update(fx, fy, prefetch.ax, prefetch.ay);
-      if (weatherNow === 'storm') boulderSnow = Math.min(1, boulderSnow + dt / 180);
-      else if (weatherNow === 'flurries' && boulderSnow < 0.4) boulderSnow = Math.min(0.4, boulderSnow + dt / 450);
-      rocks.setSnow(boulderSnow, snow.wind.x, snow.wind.y);
+      if (weatherNow === 'storm') snowCover = Math.min(1, snowCover + dt / 600);
+      else if (weatherNow === 'flurries') snowCover = Math.min(1, snowCover + dt / 3000);
+      terrain.setSnowCover(snowCover, snow.wind.x, snow.wind.y);
+      rocks.setSnow(Math.min(1, snowCover * 3), snow.wind.x, snow.wind.y); // boulder tops fill three times faster than the slopes
       roads.update(fx, fy);
       const carried = onLift && liftRide.airborneRide ? liftRide.lift : null;
       riderChair.update(carried, rider.x, rider.y, rider.z, rider.heading, liftRide.cableY);
       lifts.update(elapsed, carried ? chairPos.set(rider.x, rider.z, -rider.y) : null);
       lifts.maintain(dt, rider.x, rider.y);
       bridges.maintain(dt, rider.x, rider.y);
+      liftLines.maintain(rider.x, rider.y);
       if (settings.timeOfDay === 'now' || timeParam === 'now') { sunClock += dt; if (sunClock > 60) { sunClock = 0; applySun(settings); } }
       lifts.updateMarkers(elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
       map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
