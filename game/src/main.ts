@@ -180,6 +180,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const liftRide = new LiftRide(pack, lifts, collider);
     const prefetch = new Prefetch();
     const cam = new ChaseCamera(pack, window.innerWidth / window.innerHeight);
+    cam.collider = collider; // BUG-032: keep the chase camera out of trees
     const controls = new Controls(canvas);
     const touch = TouchControls.wanted() ? new TouchControls(controls) : null;
     // cascaded shadows: every lit material gets the CSM hook
