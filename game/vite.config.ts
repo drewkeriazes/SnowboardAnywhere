@@ -51,9 +51,15 @@ function saveCompareShots(): Plugin {
             spec.views ??= [];
             let v = spec.views.find((e: { id?: string }) => e.id === view);
             if (!v) { v = { id: view }; spec.views.push(v); }
-            v.eye = { ...body.pose, link: body.link, shot: `eye-${view}.png`, date: new Date().toISOString().slice(0, 10) };
+            const weather = typeof body.weather === 'string' && safe.test(body.weather) ? body.weather : undefined;
+            v.eye = { ...body.pose, ...(weather ? { weather } : {}), link: body.link, shot: `eye-${view}.png`, date: new Date().toISOString().slice(0, 10) };
             fs.writeFileSync(specFile, JSON.stringify(spec, null, 2) + '\n');
-            res.statusCode = 200; res.end(path.relative(path.resolve(__dirname, '..'), path.join(dir, `eye-${view}.png`)).split(path.sep).join('/'));
+            // FEAT-093: catch a clear-sky shot saved over a spot tagged overcast (and the like)
+            const want = v.weather ?? spec.weather;
+            const warning = want && weather && want !== weather ? `Shot taken in ${weather}, but this spot is tagged ${want}; open its link with &weather=${want} and press P again.` : undefined;
+            if (warning) console.warn(`[compare] ${spot}/${view}: ${warning}`);
+            const file = path.relative(path.resolve(__dirname, '..'), path.join(dir, `eye-${view}.png`)).split(path.sep).join('/');
+            res.statusCode = 200; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ file, warning }));
           } catch (e) {
             res.statusCode = 400; res.end(String((e as Error).message ?? e));
           }

@@ -214,6 +214,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     // saved Weather setting for this session without saving it; picking a Weather in the menu clears it
     let weatherOverride: CloudCover | null = parseWeather(params.get('weather'));
     const initialWeather = weatherOverride;
+    /** the weather on screen right now (FEAT-093: saved with P-key shots) */
+    const currentWeather = (): CloudCover => weatherOverride ?? settings.clouds ?? 'scattered';
 
     // ---------------------------------------------------------------- settings application
     const applySettings = (s: Settings, what: string): void => {
@@ -373,8 +375,13 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         showToast('Saved the shot to Downloads');
       };
       if (!spotName) { download(); return; }
-      fetch('/__compare/save', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack: pack.meta.slug, spot: spotName, pose, link: u.toString(), png: dataUrl }) })
-        .then(async (r) => { if (!r.ok) throw new Error(await r.text()); showToast(`Saved ${await r.text()}`); })
+      fetch('/__compare/save', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack: pack.meta.slug, spot: spotName, pose, weather: currentWeather(), link: u.toString(), png: dataUrl }) })
+        .then(async (r) => {
+          if (!r.ok) throw new Error(await r.text());
+          const { file, warning } = await r.json() as { file: string; warning?: string };
+          if (warning) console.warn(warning);
+          showToast(warning ? `Saved ${file}. ${warning}` : `Saved ${file}`);
+        })
         .catch((e) => { console.warn('compare save failed, downloading instead', e); download(); });
     };
     pack.fine?.request(sx - 600, sy - 600, sx + 600, sy + 600);
