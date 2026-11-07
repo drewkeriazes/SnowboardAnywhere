@@ -142,7 +142,7 @@ export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): Rid
   };
   // pelvis and seat (pants), then the jacket from the hem to the collar
   put('core', mats.pants, tube([
-    { y: hip + 0.1, rx: 0.165, rz: 0.115, w: [['Hips', 0.6], ['Spine', 0.4]] },
+    { y: hip + 0.06, rx: 0.16, rz: 0.11, w: [['Hips', 0.85], ['Spine', 0.15]] }, // BUG-038: waist tucked under the jacket, follows the pelvis
     { y: hip - 0.02, rx: 0.175, rz: 0.12, w: [['Hips', 1]] },
     { y: hip - 0.11, rx: 0.14, rz: 0.1, w: [['Hips', 1]] },
   ]));
@@ -154,6 +154,9 @@ export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): Rid
     { y: sp2 - 0.11, rx: 0.175, rz: 0.12, w: [['Spine1', 0.6], ['Spine2', 0.4]] },
     { y: hip + 0.15, rx: 0.17, rz: 0.115, w: [['Spine', 0.7], ['Spine1', 0.3]] },
     { y: hip + 0.04, rx: 0.185, rz: 0.13, w: [['Hips', 0.6], ['Spine', 0.4]] },
+    // BUG-038: the hem hangs past the pants' waist on the pelvis, a little wider than the seat, so the
+    // pants never show between them when the spine bends forward in a tuck
+    { y: hip - 0.05, rx: 0.19, rz: 0.135, w: [['Hips', 1]] },
   ]));
   // neck and head
   const head = wp('Head');
