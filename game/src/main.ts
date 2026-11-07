@@ -216,10 +216,14 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const initialWeather = weatherOverride;
 
     // ---------------------------------------------------------------- settings application
+    let weatherNow: CloudCover = 'scattered';
+    /** FEAT-106: new snow on the boulders, 0..1: a storm fills it in about 3 min, flurries take it to 0.4, clear holds it */
+    let boulderSnow = 0;
     const applySettings = (s: Settings, what: string): void => {
       applySun(s);
       if (what === 'clouds') weatherOverride = null;
       const weather = weatherOverride ?? s.clouds ?? 'scattered';
+      weatherNow = weather;
       clouds.configure(weather, s.quality);
       const storm = weather === 'storm', overcast = isOvercast(weather);
       env.setBluebird(!storm && !overcast); // deep blue sky behind the clouds too; storm and overcast are grey
@@ -612,6 +616,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       prefetch.update(pack, fx, fy, dt, liftTop);
       veg.update(fx, fy, prefetch.ax, prefetch.ay);
       rocks.update(fx, fy, prefetch.ax, prefetch.ay);
+      if (weatherNow === 'storm') boulderSnow = Math.min(1, boulderSnow + dt / 180);
+      else if (weatherNow === 'flurries' && boulderSnow < 0.4) boulderSnow = Math.min(0.4, boulderSnow + dt / 450);
+      rocks.setSnow(boulderSnow, snow.wind.x, snow.wind.y);
       roads.update(fx, fy);
       const carried = onLift && liftRide.airborneRide ? liftRide.lift : null;
       riderChair.update(carried, rider.x, rider.y, rider.z, rider.heading, liftRide.cableY);
