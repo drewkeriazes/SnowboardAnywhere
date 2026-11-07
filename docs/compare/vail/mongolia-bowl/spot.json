@@ -19,7 +19,7 @@
       "x": 3790.0,
       "y": -238.1,
       "h": 57.5,
-      "game": "http://localhost:5173/?pack=vail&x=3790.0&y=-238.1&h=57.5&pitch=14.1&fov=75.0&cam=eye&spot=mongolia-bowl/northeast",
+      "game": "http://localhost:5173/?pack=vail&x=3790.0&y=-238.1&h=57.5&pitch=14.1&fov=75.0&cam=eye&spot=mongolia-bowl/northeast&weather=flurries",
       "heading_offset": -76.0
     },
     {
@@ -31,7 +31,7 @@
       "x": 3790.0,
       "y": -238.1,
       "h": 145.2,
-      "game": "http://localhost:5173/?pack=vail&x=3790.0&y=-238.1&h=145.2&pitch=-9.7&fov=75.0&cam=eye&spot=mongolia-bowl/southeast",
+      "game": "http://localhost:5173/?pack=vail&x=3790.0&y=-238.1&h=145.2&pitch=-9.7&fov=75.0&cam=eye&spot=mongolia-bowl/southeast&weather=flurries",
       "heading_offset": -76.0
     },
     {
@@ -43,7 +43,7 @@
       "x": 3790.0,
       "y": -238.1,
       "h": 215.3,
-      "game": "http://localhost:5173/?pack=vail&x=3790.0&y=-238.1&h=215.3&pitch=-9.4&fov=75.0&cam=eye&spot=mongolia-bowl/southwest",
+      "game": "http://localhost:5173/?pack=vail&x=3790.0&y=-238.1&h=215.3&pitch=-9.4&fov=75.0&cam=eye&spot=mongolia-bowl/southwest&weather=flurries",
       "heading_offset": -76.0
     },
     {
@@ -55,7 +55,7 @@
       "x": 3790.0,
       "y": -238.1,
       "h": 311.0,
-      "game": "http://localhost:5173/?pack=vail&x=3790.0&y=-238.1&h=311.0&pitch=10.5&fov=75.0&cam=eye&spot=mongolia-bowl/northwest",
+      "game": "http://localhost:5173/?pack=vail&x=3790.0&y=-238.1&h=311.0&pitch=10.5&fov=75.0&cam=eye&spot=mongolia-bowl/northwest&weather=flurries",
       "heading_offset": -76.0
     }
   ],
