@@ -31,7 +31,16 @@ import { rockCover } from '../terrain/rockCover';
 const MAX = 6000;
 const STEP = 0.5; // m between sections
 const DEPTH = 0.05; // m, about 2 in on a groomer
-export const FADE = 600; // s until the snow has filled the track back in (bootprints too)
+export const FADE = 600; // s until the snow has filled the track back in in clear weather (bootprints too)
+/**
+ * How many times faster tracks and boot prints fill in while it snows (FEAT-107): clear 1, flurries 2,
+ * storm 5 (a groove is gone in about 2 minutes). Depth goes first and the edges fade last, because the
+ * alpha only drops once fill is under a third, so a filling track softens into a faint dent.
+ */
+export const FILL_RATE = { clear: 1, flurries: 2, storm: 5 } as const;
+let fillRate: number = FILL_RATE.clear;
+export function setTrackFillRate(rate: number): void { fillRate = rate; }
+export const trackFillRate = (): number => fillRate;
 /** BUG-043: rock coverage above which no groove is laid, and where it starts to fade out */
 const ROCK_CUT = 0.5, ROCK_FADE = 0.3;
 // cross-section profile: [offset across in units of the half width (+ fixed metres), height factor of DEPTH, alpha]
@@ -222,7 +231,8 @@ class Lane {
 
   /** Age and re-shape (called a couple of times a second). */
   tick(dt: number): void {
-    for (let s = 0; s < this.count; s++) { this.age[s] += dt; this.shape(s); }
+    const aged = dt * fillRate;
+    for (let s = 0; s < this.count; s++) { this.age[s] += aged; this.shape(s); }
     this.flag();
   }
 
