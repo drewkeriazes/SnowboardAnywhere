@@ -236,6 +236,8 @@ export class Tracks {
   private readonly mat: THREE.MeshLambertMaterial;
   private lanes: Lane[] = [];
   private offsets: number[] = [0];
+  /** BUG-044: the two ski lanes are drawn as one band (overlapping in a stop) */
+  private merged = false;
   private lastX = NaN;
   private lastY = NaN;
   /** edge tilt smoothed over distance, so the line crosses the board in a soft S between turns (FEAT-109) */
@@ -356,8 +358,15 @@ export class Tracks {
     const dn = Math.hypot(r.normal[0], r.normal[1]);
     const ridgeSide = dn > 0.02 ? (ax * r.normal[0] + ay * r.normal[1]) / dn : 0; // + = the right side is downhill
     const surface = (x: number, z: number) => this.pack.groundHeight(x, -z);
+    // BUG-044: once the two ski bands overlap (a hockey stop) their lips poke through each other's
+    // floor; draw one band centred between the skis instead, and split back when they separate.
+    // Hysteresis (merge at overlap, split once the gap is back to 80 %) stops it flickering.
+    const spread = this.offsets.length > 1 ? Math.abs(this.offsets[1] - this.offsets[0]) * 0.5 * gc : 0;
+    if (spread > 0) this.merged = this.merged ? half > spread * 0.8 : half > spread;
     this.offsets.forEach((off, i) => {
-      const o = off * gc + shift; // skis turned across the travel direction sweep the same band
+      if (this.merged && i > 0) { this.lanes[i].gap(); return; } // the first lane carries the one band
+      const o = this.merged ? shift : off * gc + shift; // skis turned across the travel direction sweep the same band
+      const bandHalf = this.merged ? half + spread : half;
       const cx = r.x + ax * o, cy = r.y + ay * o;
       const g = this.pack.groundHeight(cx, cy);
       // BUG-043: no groove in rock the player can see; it fades out over the last bit of snow
@@ -365,7 +374,7 @@ export class Tracks {
       const rock = this.rockAt(cx, cy, g);
       if (rock > ROCK_CUT) { this.lanes[i].gap(); return; }
       const fill = rock > ROCK_FADE ? 1 - (rock - ROCK_FADE) / (ROCK_CUT - ROCK_FADE) : 1;
-      this.lanes[i].add(cx, g, -cy, ax, -ay, half, depth, tilt, surface, ridge, ridgeSide, gs, fill);
+      this.lanes[i].add(cx, g, -cy, ax, -ay, bandHalf, depth, tilt, surface, ridge, ridgeSide, gs, fill);
     });
   }
 
