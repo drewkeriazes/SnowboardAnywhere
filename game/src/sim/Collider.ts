@@ -3,6 +3,8 @@
  * Cells are 8 m; lookups check the 3x3 neighbourhood.
  */
 const CELL = 8;
+/** BUG-045: a rider this close above a wall's or building's top is standing on it, not in it (m) */
+const ON_TOP = 0.05;
 
 export interface Hit {
   x: number;
@@ -92,8 +94,19 @@ export class Collider {
   private footprintAt(x: number, y: number, z: number): Footprint | null {
     const arr = this.footprints.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
     if (!arr) return null;
-    for (const f of arr) if (z <= f.zTop && z + 1.5 >= f.zBase && insidePoly(f.pts, x, y)) return f;
+    for (const f of arr) if (z < f.zTop - ON_TOP && z + 1.5 >= f.zBase && insidePoly(f.pts, x, y)) return f;
     return null;
+  }
+
+  /**
+   * BUG-045: the highest building top under (x, y) that a rider at height z can stand on: no more than
+   * `reach` above z (a step or a climb) and no more than 2 m below (already up there). -Infinity if none.
+   */
+  floorAt(x: number, y: number, z: number, reach: number): number {
+    const arr = this.footprints.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
+    let best = -Infinity;
+    if (arr) for (const f of arr) if (f.zTop <= z + reach && f.zTop >= z - 2 && f.zTop > best && insidePoly(f.pts, x, y)) best = f.zTop;
+    return best;
   }
 
   /**
@@ -113,7 +126,7 @@ export class Collider {
         }
         const walls = this.walls.get(k);
         if (walls) for (const w of walls) {
-          if (z > w[5] || z + 1.5 < w[4]) continue;
+          if (z > w[5] - ON_TOP || z + 1.5 < w[4]) continue;
           const ex = w[2] - w[0], ey = w[3] - w[1];
           const len2 = ex * ex + ey * ey || 1e-6;
           const t = Math.max(0, Math.min(1, ((x - w[0]) * ex + (y - w[1]) * ey) / len2));
@@ -236,7 +249,7 @@ export class Collider {
         const arr = this.walls.get(this.key(cx + i, cy + j));
         if (!arr) continue;
         for (const w of arr) {
-          if (z > w[5] || z + 1.5 < w[4]) continue;
+          if (z > w[5] - ON_TOP || z + 1.5 < w[4]) continue;
           const ex = w[2] - w[0], ey = w[3] - w[1];
           const len2 = ex * ex + ey * ey || 1e-6;
           const t = Math.max(0, Math.min(1, ((x - w[0]) * ex + (y - w[1]) * ey) / len2));

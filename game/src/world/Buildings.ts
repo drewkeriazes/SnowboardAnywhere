@@ -11,6 +11,8 @@ import type { Collider } from '../sim/Collider';
  */
 const SINK = 2.5; // m below the lowest ground point under the footprint
 
+/** BUG-045: a building=roof canopy: post width and the fascia depth under the roof edge (m) */
+const POST = 0.35, CANOPY_FASCIA = 0.6;
 /** BUG-024: named buildings bigger than this (m^2) with no height in OSM get a lodge height */
 const BIG_LODGE_M2 = 1500; // keep in step with BIG_LODGE_M2 in pipeline/build_pack.py (old packs only)
 function footprintArea(pts: number[][]): number {
@@ -87,15 +89,31 @@ export class Buildings {
     for (let i = 0; i < pts.length; i++) { const a = pts[i], c = pts[(i + 1) % pts.length]; area += a[0] * c[1] - c[0] * a[1]; }
     if (area < 0) pts = [...pts].reverse();
     const n = pts.length;
-    if (this.collider) this.collider.addFootprint(pts.map((p) => [p[0], p[1]] as [number, number]), base, top);
-    // walls: one quad per edge with a flat normal
+    // BUG-045: a canopy (building=roof: lift stations, covered decks) is a roof on posts with the
+    // ground left walkable under it, not a solid block; only the posts stop the rider
+    const canopy = kind === 'roof';
+    if (canopy) {
+      for (const p of pts) {
+        if (this.collider) this.collider.add(p[0], p[1], POST / 2 + 0.05, base, top);
+        for (let i = 0; i < 4; i++) {
+          const a0 = (i * Math.PI) / 2 + Math.PI / 4, a1 = a0 + Math.PI / 2, r = POST * 0.71;
+          const x0 = p[0] + Math.cos(a0) * r, y0 = p[1] + Math.sin(a0) * r, x1 = p[0] + Math.cos(a1) * r, y1 = p[1] + Math.sin(a1) * r;
+          const nx = Math.cos(a0 + Math.PI / 4), ny = Math.sin(a0 + Math.PI / 4);
+          const v0 = pos.length / 3;
+          for (const [x, y, z] of [[x0, y0, base], [x1, y1, base], [x1, y1, top], [x0, y0, top]]) { pos.push(x, z, -y); nor.push(nx, 0, -ny); col.push(0.3, 0.3, 0.32); }
+          idx.push(v0, v0 + 1, v0 + 2, v0, v0 + 2, v0 + 3);
+        }
+      }
+    } else if (this.collider) this.collider.addFootprint(pts.map((p) => [p[0], p[1]] as [number, number]), base, top);
+    // walls: one quad per edge with a flat normal (a canopy only has a fascia under its roof edge)
+    const wallBase = canopy ? top - CANOPY_FASCIA : base;
     for (let i = 0; i < n; i++) {
       const a = pts[i], c = pts[(i + 1) % n];
       const ex = c[0] - a[0], ey = c[1] - a[1];
       const len = Math.hypot(ex, ey) || 1;
       const nx = ey / len, ny = -ex / len; // outward for CCW footprint (x east, y north)
       const v0 = pos.length / 3;
-      for (const [x, y, z] of [[a[0], a[1], base], [c[0], c[1], base], [c[0], c[1], top], [a[0], a[1], top]]) {
+      for (const [x, y, z] of [[a[0], a[1], wallBase], [c[0], c[1], wallBase], [c[0], c[1], top], [a[0], a[1], top]]) {
         pos.push(x, z, -y); nor.push(nx, 0, -ny); col.push(wall[0], wall[1], wall[2]);
       }
       idx.push(v0, v0 + 1, v0 + 2, v0, v0 + 2, v0 + 3);
@@ -103,6 +121,12 @@ export class Buildings {
     // roof: fan triangulation via earcut-free approach (ShapeUtils handles concave footprints)
     const shape = pts.map((p) => new THREE.Vector2(p[0], p[1]));
     const tris = THREE.ShapeUtils.triangulateShape(shape, []);
+    if (canopy) {
+      // the canopy's underside, seen from the deck below
+      const v0 = pos.length / 3;
+      for (const p of pts) { pos.push(p[0], top - CANOPY_FASCIA, -p[1]); nor.push(0, -1, 0); col.push(wall[0] * 0.6, wall[1] * 0.6, wall[2] * 0.6); }
+      for (const t of tris) idx.push(v0 + t[0], v0 + t[2], v0 + t[1]);
+    }
     if (named && n <= 8) {
       // pitched roof: ridge along the longest axis, peak 0.35 x width above the eaves
       let cx = 0, cy = 0; for (const p of pts) { cx += p[0] / n; cy += p[1] / n; }

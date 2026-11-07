@@ -43,6 +43,9 @@ const PLOUGH_SPEED = 5;
 export const UNSTRAP_TIME = 0.8, STRAP_TIME = 1.0;
 /** fastest the rider can be going to unstrap (m/s), and to strap in (standing still) */
 const UNSTRAP_SPEED = 1.5, STRAP_SPEED = 0.3;
+/** BUG-045 on foot: ledges up to STEP_UP are stepped onto by walking into them; up to CLIMB_UP a
+ *  jump climbs (mantles) onto them over MANTLE_TIME, probing MANTLE_PROBE ahead; taller stays a wall (m, s) */
+const STEP_UP = 0.45, CLIMB_UP = 1.4, MANTLE_TIME = 0.9, MANTLE_PROBE = 0.7;
 /** on-foot speeds on groomed snow (m/s): walk, sprint, a tired sprint (a run), walking backwards */
 const WALK = 1.4, SPRINT = 3.8, JOG = 2.4, BACK = 0.6;
 /** seconds of sprint, and how much has to come back before sprinting again after running out */
@@ -186,6 +189,9 @@ export class Rider {
   slideVx = 0; slideVy = 0;
   private walkVx = 0; private walkVy = 0;
   private hopHeld = false;
+  /** BUG-045: climbing onto a ledge (mantle): progress 0..1 (0 = not climbing) and its start and end */
+  mantle = 0;
+  private readonly mantleFrom = [0, 0, 0]; private readonly mantleTo = [0, 0, 0];
   /** scrambling up on all fours (too steep to walk, not too steep to climb) */
   crawling = false;
   /** body-scale slope along the way you are walking (degrees, + = uphill) */
@@ -235,7 +241,7 @@ export class Rider {
     this.crashed = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
     this.edgeAngle = 0; this.lateralG = 0; this.landingShock = 0;
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
-    this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false;
+    this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false; this.mantle = 0;
     this.sprinting = false; this.crawling = false; this.slipT = 0; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
     this.rng.seed(seed);
     this.squareBoard();
@@ -359,7 +365,7 @@ export class Rider {
   private step(dt: number, input: Input): void {
     const pack = this.pack;
     const n = pack.groundNormal(this.x, this.y, this.normal, this.z) as [number, number, number];
-    const ground = pack.groundHeight(this.x, this.y, this.z);
+    const ground = this.groundAt(this.x, this.y, this.z);
     this.slopeDeg = Math.acos(Math.min(1, n[2])) * 57.2958;
     if (pack.mask) {
       const m = pack.mask.sample(this.x, this.y, this.maskTmp);
@@ -375,7 +381,7 @@ export class Rider {
       const f = Math.exp(-dt * 2.5);
       this.vx *= f; this.vy *= f;
       this.x += this.vx * dt; this.y += this.vy * dt;
-      this.z = pack.groundHeight(this.x, this.y, this.z);
+      this.z = this.groundAt(this.x, this.y, this.z);
       this.vz = 0;
       this.speed = Math.hypot(this.vx, this.vy);
       this.squareBoard();
@@ -403,7 +409,7 @@ export class Rider {
       this.travelYaw += input.steer * 3.5 * dt; // spin carries the swung board round with it
       this.poseBoard();
       this.airTime += dt;
-      const g2 = pack.groundHeight(this.x, this.y, this.z);
+      const g2 = this.groundAt(this.x, this.y, this.z);
       if (this.z <= g2) {
         this.land(g2, input);
       }
@@ -541,7 +547,7 @@ export class Rider {
     if (!input.jumpHeld) this.jumpCharge = Math.max(0, this.jumpCharge - dt * 3);
 
     // follow the ground; detect leaving it (convex rollovers at speed)
-    const g2 = pack.groundHeight(this.x, this.y, this.z);
+    const g2 = this.groundAt(this.x, this.y, this.z);
     const n2 = pack.groundNormal(this.x, this.y, undefined, this.z) as number[];
     // vertical velocity implied by following the surface
     const vzSurf = -(this.vx * n2[0] + this.vy * n2[1]) / Math.max(0.2, n2[2]);
@@ -633,13 +639,39 @@ export class Rider {
     this.landingShock = Math.max(0, this.landingShock - dt * 3);
     this.squareBoard();
     // hop on the press edge
-    const hop = input.jumpHeld && !this.hopHeld;
+    let hop = input.jumpHeld && !this.hopHeld;
     this.hopHeld = input.jumpHeld;
+    // BUG-045: a mantle in progress: up the wall first, then over the edge, then stand
+    if (this.mantle > 0) {
+      this.mantle = Math.min(1, this.mantle + dt / MANTLE_TIME);
+      const a = this.mantleFrom, b = this.mantleTo, m = this.mantle;
+      const up = Math.min(1, m / 0.6), over = Math.max(0, (m - 0.45) / 0.55);
+      const ease = (t: number) => t * t * (3 - 2 * t);
+      this.x = a[0] + (b[0] - a[0]) * ease(over); this.y = a[1] + (b[1] - a[1]) * ease(over);
+      this.z = a[2] + (b[2] - a[2]) * ease(up);
+      this.vx = this.vy = this.vz = this.walkVx = this.walkVy = this.slideVx = this.slideVy = 0; this.speed = 0;
+      this.onGround = true;
+      if (this.mantle >= 1) this.mantle = 0;
+      return;
+    }
+    // BUG-045: jump into a chest-high ledge (a deck, platform or low roof) to climb onto it
+    if (hop && this.onGround && this.collider) {
+      const hx0 = Math.sin(this.heading), hy0 = Math.cos(this.heading);
+      const px = this.x + hx0 * MANTLE_PROBE, py = this.y + hy0 * MANTLE_PROBE;
+      const top = this.collider.floorAt(px, py, this.z, CLIMB_UP);
+      if (top > this.z + STEP_UP * 0.5) {
+        this.mantleFrom[0] = this.x; this.mantleFrom[1] = this.y; this.mantleFrom[2] = this.z;
+        this.mantleTo[0] = this.x + hx0 * (MANTLE_PROBE + 0.2); this.mantleTo[1] = this.y + hy0 * (MANTLE_PROBE + 0.2); this.mantleTo[2] = top;
+        if (this.collider.floorAt(this.mantleTo[0], this.mantleTo[1], this.z, CLIMB_UP) < top) { this.mantleTo[0] = px; this.mantleTo[1] = py; }
+        this.mantle = 1e-3; hop = false;
+        return;
+      }
+    }
     if (!this.onGround) {
       this.vz -= G * dt;
       this.x += this.vx * dt; this.y += this.vy * dt; this.z += this.vz * dt;
       this.airTime += dt;
-      const g2 = this.pack.groundHeight(this.x, this.y, this.z);
+      const g2 = this.groundAt(this.x, this.y, this.z);
       if (this.z <= g2) { this.z = g2; this.vz = 0; this.onGround = true; this.airTime = 0; this.landingShock = 0.3; }
       this.collide(0.3);
       this.speed = Math.hypot(this.vx, this.vy);
@@ -699,15 +731,23 @@ export class Rider {
     }
     this.vx = this.walkVx + this.slideVx; this.vy = this.walkVy + this.slideVy;
     this.x += this.vx * dt; this.y += this.vy * dt;
-    this.z = this.pack.groundHeight(this.x, this.y, this.z);
+    this.z = this.groundAt(this.x, this.y, this.z);
     void ground;
     this.vz = 0;
     if (hop) { this.vz = 2.6; this.onGround = false; this.airTime = 0; this.z += 0.02; }
-    this.collide(0.3);
+    this.collide(0.3, true);
     this.speed = Math.hypot(this.vx, this.vy);
     this.distance += this.speed * dt;
     const work = this.sprinting || this.crawling ? 1 : (fwd !== 0 && grade > 0.15 ? Math.min(0.7, grade) : 0) + (this.tired ? 0.4 : 0);
     this.exertion += (Math.min(1, work) - this.exertion) * Math.min(1, dt * (work > this.exertion ? 0.8 : 0.25));
+  }
+
+  /** BUG-045: terrain or a bridge deck, or the top of a building the rider is standing on */
+  private groundAt(x: number, y: number, z: number): number {
+    const g = this.pack.groundHeight(x, y, z);
+    if (!this.collider) return g;
+    const f = this.collider.floorAt(x, y, z, 0.05);
+    return f > g ? f : g;
   }
 
   /** On foot and sliding down the snow (a slip): the boots skid instead of stepping. */
@@ -717,10 +757,19 @@ export class Rider {
   get slideSpeed(): number { return Math.hypot(this.slideVx, this.slideVy); }
 
   /** On-foot collisions: push out of trunks, rocks, walls and railings and stop going into them. */
-  private collide(r: number): void {
+  private collide(r: number, walking = false): void {
     if (!this.collider) return;
     const hit = this.collider.resolve(this.x, this.y, this.z, r);
     if (!hit) return;
+    // BUG-045: walking into a low ledge (a curb, a step, a low deck): step up onto it
+    if (walking && hit.kind === 0 && !hit.inside) {
+      const px = hit.x - hit.nx * (r + 0.15), py = hit.y - hit.ny * (r + 0.15);
+      const top = this.collider.floorAt(px, py, this.z, STEP_UP);
+      if (top > this.z && Number.isFinite(top) && (this.walkVx * hit.nx + this.walkVy * hit.ny) < 0) {
+        this.x = px; this.y = py; this.z = top;
+        return;
+      }
+    }
     this.x = hit.x; this.y = hit.y;
     const into = (vx: number, vy: number) => Math.min(0, vx * hit.nx + vy * hit.ny);
     let d = into(this.vx, this.vy); this.vx -= d * hit.nx; this.vy -= d * hit.ny;

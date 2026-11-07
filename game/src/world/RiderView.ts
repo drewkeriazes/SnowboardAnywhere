@@ -572,6 +572,13 @@ export class RiderView {
     const crouch = u > 0.08 && u < 0.78 ? Math.sin(Math.PI * (u - 0.08) / 0.7) : 0;
     t.hipsY -= 0.3 * crouch + 0.6 * r.sink * stand + 0.12 * this.slip; // sitting into a slip
     if (r.squat > 0) { t.hipsY -= 0.45 * r.squat; t.hipsRot = [t.hipsRot[0] + 0.3 * r.squat, t.hipsRot[1], t.hipsRot[2]]; t.torso = [t.torso[0] + 0.35 * r.squat, t.torso[1], t.torso[2]]; } // on foot: hunker down (FEAT-111)
+    // BUG-045 mantle: reach up to the edge, pull the knees up through the middle, then stand
+    if (r.mantle > 0) {
+      const reach = Math.max(0, 1 - r.mantle / 0.5), knee = Math.sin(Math.PI * r.mantle);
+      t.hipsY -= 0.35 * knee; t.torso = [t.torso[0] + 0.5 * knee, t.torso[1], t.torso[2]];
+      t.lShoulder = [t.lShoulder[0] + 2.2 * reach + 0.8 * knee, t.lShoulder[1], t.lShoulder[2] * 0.4];
+      t.rShoulder = [t.rShoulder[0] + 2.2 * reach + 0.8 * knee, t.rShoulder[1], t.rShoulder[2] * 0.4];
+    }
     t.hipsRot = [t.hipsRot[0] + 0.35 * crouch, t.hipsRot[1], t.hipsRot[2]];
     t.torso = [t.torso[0] + 0.5 * crouch - 0.25 * this.slip + 0.4 * Math.max(0, Math.min(0.8, grade)) * stand * Math.min(1, gait.speed), t.torso[1], t.torso[2]];
     t.lShoulder = [t.lShoulder[0] + 0.9 * crouch, t.lShoulder[1], t.lShoulder[2] * (1 - crouch * 0.7)];
