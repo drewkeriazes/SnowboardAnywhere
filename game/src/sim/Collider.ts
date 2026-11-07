@@ -135,6 +135,48 @@ export class Collider {
     return out;
   }
 
+  /**
+   * BUG-032: first obstacle on the segment a -> b (pack metres), as a fraction 0..1 of the way from a;
+   * 1 when the line is clear. Trunks and rocks are padded by `pad` m; building walls count too.
+   * Used by the chase camera to stop behind a tree instead of inside it.
+   */
+  segmentHit(ax: number, ay: number, az: number, bx: number, by: number, bz: number, pad = 0.4): number {
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+    let best = 1;
+    const cx0 = Math.floor((Math.min(ax, bx) - CELL) / CELL), cx1 = Math.floor((Math.max(ax, bx) + CELL) / CELL);
+    const cy0 = Math.floor((Math.min(ay, by) - CELL) / CELL), cy1 = Math.floor((Math.max(ay, by) + CELL) / CELL);
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+      const k = this.key(cx, cy);
+      const cyl = this.cells.get(k);
+      if (cyl && len2 > 1e-6) for (const c of cyl) {
+        // where the line passes closest to the trunk, then step back to where it enters the padded circle
+        const r = c[2] + pad;
+        const t0 = ((c[0] - ax) * dx + (c[1] - ay) * dy) / len2;
+        const px = ax + dx * t0 - c[0], py = ay + dy * t0 - c[1];
+        const miss2 = px * px + py * py;
+        if (miss2 >= r * r) continue;
+        const t = t0 - Math.sqrt((r * r - miss2) / len2);
+        if (t < 0 || t >= best) continue;
+        const z = az + (bz - az) * t;
+        if (z > c[4] || z < c[3]) continue; // passes over the top (a rock) or below the base
+        best = t;
+      }
+      const walls = this.walls.get(k);
+      if (walls) for (const w of walls) {
+        const ex = w[2] - w[0], ey = w[3] - w[1];
+        const den = dx * ey - dy * ex;
+        if (Math.abs(den) < 1e-9) continue;
+        const t = ((w[0] - ax) * ey - (w[1] - ay) * ex) / den;
+        const u = ((w[0] - ax) * dy - (w[1] - ay) * dx) / den;
+        if (t < 0 || t >= best || u < 0 || u > 1) continue;
+        const z = az + (bz - az) * t;
+        if (z > w[5] || z < w[4]) continue;
+        best = t;
+      }
+    }
+    return best;
+  }
+
   clearCell(cellKey: string): void {
     this.cells.delete(cellKey);
   }

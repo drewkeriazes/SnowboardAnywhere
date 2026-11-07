@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import type { Rider } from '../sim/Rider';
 import type { Pack } from '../pack/Pack';
+import type { Collider } from '../sim/Collider';
+
+/** BUG-032: clearance kept from a trunk, and the closest the chase camera gets to the rider's head when pulled in */
+const CAM_PAD = 1.0;
+const CAM_MIN = 1.5;
 
 /** first-person roll (BUG-031): radians of roll per unit edge angle, the cap, and the speed (m/s) at which it is fully applied */
 const FP_ROLL_K = 0.16;
@@ -35,6 +40,21 @@ export class ChaseCamera {
   private readonly fpLook = new THREE.Vector3();
   private readonly fpQ = new THREE.Quaternion();
   private readonly fpM = new THREE.Matrix4();
+
+  /** trunks, rocks and building walls, for keeping the chase camera out of them (BUG-032); set by main */
+  collider: Collider | null = null;
+
+  /** Move `want` (three.js) toward the rider's head until the line to it is clear. True when it moved. */
+  private pullIn(r: Rider, want: THREE.Vector3): boolean {
+    if (!this.collider) return false;
+    const hx = r.x, hy = r.y, hz = r.z + 1.2; // pack metres, the rider's head
+    const t = this.collider.segmentHit(hx, hy, hz, want.x, -want.z, want.y, CAM_PAD);
+    if (t >= 1) return false;
+    const len = Math.hypot(want.x - hx, -want.z - hy, want.y - hz) || 1;
+    const f = Math.max(CAM_MIN / len, t); // t is where the line enters the padded trunk: stop there, never closer than CAM_MIN
+    want.set(hx + (want.x - hx) * f, hz + (want.y - hz) * f, -(hy + (-want.z - hy) * f));
+    return true;
+  }
 
   constructor(pack: Pack, aspect: number) {
     this.pack = pack;
@@ -254,8 +274,11 @@ export class ChaseCamera {
     // keep the camera above the snow
     const ground = this.pack.groundHeight(this.desired.x, -this.desired.z);
     if (this.desired.y < ground + 1.2) this.desired.y = ground + 1.2;
+    // BUG-032: a trunk, rock or wall between the rider and the camera pulls the camera in front of it,
+    // quickly (no lag through the tree); the normal lag eases it back out once the line is clear
+    const blocked = this.pullIn(r, this.desired);
     const orbiting = Math.abs(this.orbitYaw) > 0.02 || Math.abs(this.orbitPitch) > 0.02;
-    const k = 1 - Math.exp(-dt * (orbiting ? 12 : r.onGround ? 5 : 3));
+    const k = 1 - Math.exp(-dt * (blocked ? 20 : orbiting ? 12 : r.onGround ? 5 : 3));
     this.pos.lerp(this.desired, k);
     // while orbiting look at the rider, not ahead of them
     const lookTarget = riderPos.clone().addScaledVector(back, orbiting ? 0 : 4).add(new THREE.Vector3(0, 1.0, 0));
