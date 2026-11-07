@@ -516,8 +516,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (paused) { controls.endFrame(); touch?.pressed.clear(); render(); if (!headless) requestAnimationFrame(frame); return; }
       touch?.setVisible(!map.fullOpen);
       elapsed += dt;
-      if (controls.action('restart')) { if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); rider.reset(sx, sy, sh); cam.snapTo(rider); }
-      if (controls.action('trial') && settings.timeTrials && !outrun.active) {
+      if (!replayOpen && controls.action('restart')) { if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      if (!replayOpen && controls.action('trial') && settings.timeTrials && !outrun.active) {
         const c = trial.nearestStart(rider.x, rider.y);
         if (c) {
           // a few metres above the start gate on the course line, facing down it
@@ -527,7 +527,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
           rider.reset(x, y, Math.atan2(c.dir[0], c.dir[1])); cam.snapTo(rider);
         }
       }
-      // ---- FEAT-043: replay viewer (the sim is frozen and the recording plays on the rider)
+      // ---- FEAT-043: replay viewer (the sim is frozen and the recording plays on the rider). While it is open,
+      // restart / trial / map / piste / fly / board are ignored so the viewer acts like a modal (P is the photo key here)
       if (controls.action('replay') && !outrun.active && !liftRide.riding && !rider.unstrapped && replay.samples.length > 20) { if (replayOpen) closeReplay(); else openReplay(); }
       if (replayOpen) {
         const k = controls.keys;
@@ -576,7 +577,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       }
       const frozen = replayOpen || rewinding;
       if (!replayOpen && (controls.action('camera') || touch?.once('camera'))) cam.cycle();
-      if (controls.action('map') || touch?.once('map')) map.toggle();
+      if (!replayOpen && (controls.action('map') || touch?.once('map'))) map.toggle();
       // the rider stands still while the camera is detached (free fly, eye)
       const detached = cam.mode === 'free' || cam.mode === 'eye';
       const eyeMode = cam.mode === 'eye';
@@ -585,11 +586,11 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       riderView.sprayObject.visible = !eyeMode;
       // lift markers and piste lines are game UI, not in a photo
       lifts.markers.visible = !eyeMode; if (eyeMode) runs.group.visible = false;
-      if (controls.action('piste')) { if (eyeMode) shotPending = true; else runs.toggle(); }
+      if (!replayOpen && controls.action('piste')) { if (eyeMode) shotPending = true; else runs.toggle(); }
       if (controls.action('track')) audio.nextTrack();
-      if (controls.action('fly')) { cam.mode = cam.mode === 'free' ? settings.camera : 'free'; if (cam.mode === 'free') cam.enterFree(); }
+      if (!replayOpen && controls.action('fly')) { cam.mode = cam.mode === 'free' ? settings.camera : 'free'; if (cam.mode === 'free') cam.enterFree(); }
       // board on / off: unstrap when nearly stopped, strap in standing still
-      if ((controls.action('board') || touch?.once('board')) && !detached && !liftRide.riding && !map.fullOpen) {
+      if (!replayOpen && (controls.action('board') || touch?.once('board')) && !detached && !liftRide.riding && !map.fullOpen) {
         const why = rider.toggleBoard();
         if (why === '' && rider.strapState === 'off') trial.cancel('Unstrapped');
         boardMsg = why === 'fast' ? 'slow down to unstrap' : why === 'moving' ? 'stand still to strap in' : why === 'air' ? 'land first' : '';

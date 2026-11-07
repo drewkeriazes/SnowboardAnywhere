@@ -27,7 +27,7 @@ export class Controls {
       if ((e.target as HTMLElement | null)?.tagName === 'INPUT' || (e.target as HTMLElement | null)?.tagName === 'SELECT') return; // typing in a menu
       this.keys.add(e.code);
       this.pressed.add(e.code);
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'AltLeft', 'AltRight'].includes(e.code)) e.preventDefault();
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'AltLeft', 'AltRight', 'Backspace'].includes(e.code)) e.preventDefault();
       // squatting on Ctrl turns game keys into browser shortcuts (Ctrl+S, Ctrl+D...): block the ones a page can block
       if (e.ctrlKey && this.keys.has(this.keymap.squat) && e.code !== this.keymap.squat) e.preventDefault();
     };
