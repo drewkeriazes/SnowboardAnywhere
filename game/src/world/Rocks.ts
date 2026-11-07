@@ -103,6 +103,8 @@ export class Rocks {
   }
 
   private async load(cell: Cell): Promise<void> {
+    const listed = this.pack.meta.instances?.rockCells;
+    if (listed && !listed.includes(`${cell.cx}_${cell.cy}`)) { cell.missing = true; cell.loading = false; return; } // empty cell, no request
     try {
       const resp = await fetch(`${this.pack.baseUrl}/rocks/${cell.cx}_${cell.cy}.bin`);
       if (!resp.ok) { cell.missing = true; return; }
