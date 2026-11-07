@@ -7,6 +7,8 @@ import { Gait, type Plant } from './Gait';
 
 /** FEAT-112: half the board's length (where it pivots) and the most it tips up on a full lean (rad) */
 const BOARD_HALF = 0.72, LEAN_TIP = 18 * Math.PI / 180;
+/** BUG-034: share of a skier's counter-rotation taken by the pelvis (the rest is the chest) */
+const SKI_HIP_TWIST = 0.35;
 
 const d2r = Math.PI / 180;
 const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -382,11 +384,23 @@ export class RiderView {
       if (r.onGround && r.speed > 2) {
         slip = Math.atan2(r.vx, r.vy) - yaw;
         slip = Math.atan2(Math.sin(slip), Math.cos(slip));
-        if (Math.abs(slip) > Math.PI / 2) slip = 0; // backwards: no twist
+        const a = Math.abs(slip);
+        if (this.discipline === 'ski') {
+          // past 90 deg hold the cap, then fade to no twist by 135 deg (really backwards), so an
+          // overshooting hockey stop does not pop the chest back
+          if (a > Math.PI / 2) slip = Math.sign(slip) * (Math.PI / 2) * Math.max(0, 1 - (a - Math.PI / 2) / (Math.PI / 4));
+        } else if (a > Math.PI / 2) slip = 0; // backwards: no twist
       }
-      this.twist += (Math.max(-1.05, Math.min(1.05, -slip * 0.7)) - this.twist) * Math.min(1, dt * 6);
+      // BUG-034: a skier's hockey stop keeps the chest square to the fall line while the skis go 84 deg
+      // across, so skis take the full slip (to 90 deg) and split it between the pelvis and the chest;
+      // the snowboarder keeps 70 % up to 60 deg, all in the chest, on top of the side-on stance
+      const ski = this.discipline === 'ski';
+      const k = ski ? 1 : 0.7, twistCap = ski ? Math.PI / 2 : 1.05;
+      this.twist += (Math.max(-twistCap, Math.min(twistCap, -slip * k)) - this.twist) * Math.min(1, dt * 6);
     } else this.twist *= Math.max(0, 1 - dt * 6);
-    t.torso = [t.torso[0], t.torso[1] + this.twist, t.torso[2]];
+    const hipShare = this.discipline === 'ski' ? SKI_HIP_TWIST : 0;
+    t.hipsRot = [t.hipsRot[0], t.hipsRot[1] + this.twist * hipShare, t.hipsRot[2]];
+    t.torso = [t.torso[0], t.torso[1] + this.twist * (1 - hipShare), t.torso[2]];
     if (this.fp) {
       // first person: arms closer to the sides so the front arm is not held level across the view
       t.lShoulder = [t.lShoulder[0], t.lShoulder[1], t.lShoulder[2] * 0.35];

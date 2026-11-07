@@ -19,7 +19,7 @@
       "x": -1568.4,
       "y": 1608.0,
       "h": 79.4,
-      "game": "http://localhost:5173/?pack=vail&x=-1568.4&y=1608.0&h=79.4&pitch=11.7&fov=75.0&cam=eye&spot=mid-vail-wildwood/east"
+      "game": "http://localhost:5173/?pack=vail&x=-1568.4&y=1608.0&h=79.4&pitch=11.7&fov=75.0&cam=eye&spot=mid-vail-wildwood/east&weather=overcast"
     },
     {
       "id": "south",
@@ -30,7 +30,7 @@
       "x": -1568.4,
       "y": 1608.0,
       "h": 176.8,
-      "game": "http://localhost:5173/?pack=vail&x=-1568.4&y=1608.0&h=176.8&pitch=11.1&fov=75.0&cam=eye&spot=mid-vail-wildwood/south"
+      "game": "http://localhost:5173/?pack=vail&x=-1568.4&y=1608.0&h=176.8&pitch=11.1&fov=75.0&cam=eye&spot=mid-vail-wildwood/south&weather=overcast"
     },
     {
       "id": "southwest",
@@ -41,7 +41,7 @@
       "x": -1568.4,
       "y": 1608.0,
       "h": 230.5,
-      "game": "http://localhost:5173/?pack=vail&x=-1568.4&y=1608.0&h=230.5&pitch=8.9&fov=75.0&cam=eye&spot=mid-vail-wildwood/southwest"
+      "game": "http://localhost:5173/?pack=vail&x=-1568.4&y=1608.0&h=230.5&pitch=8.9&fov=75.0&cam=eye&spot=mid-vail-wildwood/southwest&weather=overcast"
     },
     {
       "id": "north",
@@ -52,7 +52,7 @@
       "x": -1568.4,
       "y": 1608.0,
       "h": 358.2,
-      "game": "http://localhost:5173/?pack=vail&x=-1568.4&y=1608.0&h=358.2&pitch=6.7&fov=90.0&cam=eye&spot=mid-vail-wildwood/north"
+      "game": "http://localhost:5173/?pack=vail&x=-1568.4&y=1608.0&h=358.2&pitch=6.7&fov=90.0&cam=eye&spot=mid-vail-wildwood/north&weather=overcast"
     }
   ],
   "streetview_capture": "Mar 2016, contributor Scott Moss (user photosphere; compass checked against the Mountain Top Express terminal footprint, within about 1 degree)",

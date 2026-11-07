@@ -36,6 +36,15 @@ export class Rocks {
   private readonly n = new THREE.Vector3();
   private readonly c = new THREE.Color();
   private readonly normalTmp = [0, 0, 1];
+  /** FEAT-106: how much new snow is on the boulders (0 = today's caps) and the downwind direction (three.js x, z) */
+  private readonly capUniforms = { uSnowAmt: { value: 0 }, uLee: { value: new THREE.Vector2(1, 0) } };
+
+  /** FEAT-106: grow the boulder caps (amount 0..1) toward the lee of the wind (three.js x, z). */
+  setSnow(amount: number, windX: number, windZ: number): void {
+    this.capUniforms.uSnowAmt.value = Math.max(0, Math.min(1, amount));
+    const l = Math.hypot(windX, windZ);
+    if (l > 1e-6) this.capUniforms.uLee.value.set(windX / l, windZ / l);
+  }
 
   constructor(pack: Pack, collider: Collider | null) {
     this.pack = pack;
@@ -44,7 +53,7 @@ export class Rocks {
     this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1.0, metalness: 0.0, flatShading: true });
     const uniforms = rockUniforms();
     this.mat.onBeforeCompile = (shader) => {
-      Object.assign(shader.uniforms, uniforms);
+      Object.assign(shader.uniforms, uniforms, this.capUniforms);
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
           varying vec3 vRockWP;`)
@@ -59,6 +68,8 @@ export class Rocks {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>
           varying vec3 vRockWP;
+          uniform float uSnowAmt;
+          uniform vec2 uLee;
           ${NOISE_GLSL}
           ${ROCK_GLSL}`)
         .replace('#include <color_fragment>', `#include <color_fragment>
@@ -67,10 +78,14 @@ export class Rocks {
           float rdist = length(cameraPosition - vRockWP);
           vec3 rN; float rR;
           vec3 ralb = rockSurface(vRockWP, rng, rdist, rN, rR);
-          // snow holds on faces flat enough, like the terrain's rock ledges
-          float cap = smoothstep(0.74, 0.9, rN.y + (vnoise(vRockWP * 1.7) - 0.5) * 0.14);
-          diffuseColor.rgb = mix(ralb * diffuseColor.rgb, vec3(0.93, 0.95, 1.0), cap);`)
-        .replace('#include <roughnessmap_fragment>', `float roughnessFactor = mix(rR, 0.55, cap);`)
+          // snow holds on faces flat enough, like the terrain's rock ledges. FEAT-106: while it snows
+          // (uSnowAmt 0..1) the cap creeps down the sides and favours the lee (faces looking downwind);
+          // near-vertical faces stay bare, and a fresh cap is brighter and smoother
+          float lee = dot(rN.xz, uLee) * 0.18 * uSnowAmt;
+          float cap = smoothstep(mix(0.74, 0.5, uSnowAmt), mix(0.9, 0.72, uSnowAmt), rN.y + lee + (vnoise(vRockWP * 1.7) - 0.5) * 0.14);
+          cap *= smoothstep(0.25, 0.4, rN.y);
+          diffuseColor.rgb = mix(ralb * diffuseColor.rgb, mix(vec3(0.93, 0.95, 1.0), vec3(0.97, 0.98, 1.0), uSnowAmt), cap);`)
+        .replace('#include <roughnessmap_fragment>', `float roughnessFactor = mix(rR, mix(0.55, 0.45, uSnowAmt), cap);`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
           normal = normalize((viewMatrix * vec4(normalize(mix(rN, rng, cap * 0.7)), 0.0)).xyz);`);
     };
