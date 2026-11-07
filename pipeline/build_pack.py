@@ -514,12 +514,15 @@ def rasterize_corridor(target, pts, half_width, value=1.0):
             rr, cc = np.ogrid[r0:r1, c0:c1]
             d2 = (rr - r) ** 2 + (cc - c) ** 2
             target[r0:r1, c0:c1] = np.maximum(target[r0:r1, c0:c1], np.where(d2 <= hw * hw, value, 0))
+
+
 def centerlines(run_list):
     """1-pixel-wide centre lines of the given runs on the 2 m grid"""
-    m = np.zeros((H2, W2), np.float32)
+    m = np.zeros((H2, W2), bool)
     for r in run_list:
-        rasterize_corridor(m, [(p[0], p[1]) for p in r["points"]], R2 * 0.5)
-    return m > 0
+        rows, cols = line_cells([(p[0], p[1]) for p in r["points"]])
+        m[rows, cols] = True
+    return m
 
 
 def yield_to_ungroomed(groomed, run_list):
@@ -533,9 +536,13 @@ def yield_to_ungroomed(groomed, run_list):
     d_g = ndimage.distance_transform_edt(~centerlines([r for r in lines if r["groomed"]])).astype(np.float32)
     d_u = ndimage.distance_transform_edt(~centerlines(never)).astype(np.float32)
     before = never_groomed_share(groomed, never)
+    cells_before = int((groomed > 0.5).sum())
     groomed = groomed * (d_g <= d_u)
     del d_g, d_u
     after = never_groomed_share(groomed, never)
+    cells_after = int((groomed > 0.5).sum())
+    log(f"  groomed area {cells_before * R2 * R2 / 1e4:.1f} ha -> {cells_after * R2 * R2 / 1e4:.1f} ha "
+        f"({(cells_before - cells_after) / max(1, cells_before) * 100:.1f}% handed to never-groomed runs)")
     if after:
         log(f"  never-groomed runs: mean groomed share along the line {np.mean(list(before.values()))*100:.1f}% -> {np.mean(list(after.values()))*100:.1f}% ({len(after)} runs)")
         worst = sorted(after.items(), key=lambda kv: -kv[1])[:8]
