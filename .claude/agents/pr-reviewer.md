@@ -22,6 +22,16 @@ You review one pull request in this repo and leave comments a good human reviewe
 4. Gather facts. If `game/` changed and `game/node_modules` exists, run `npx tsc --noEmit -p game` and use real errors as evidence.
 5. Post inline comments, then one summary comment (formats below).
 
+## Dig before calling it clean
+For every changed function or block, answer these before deciding there is nothing to say:
+- What input breaks it? (empty, zero, NaN, missing file, tile not loaded yet, negative speed, pack without that layer)
+- What happens when it fails? Silent wrong output is worse than a thrown error.
+- Is the same thing already done somewhere else in the repo? Grep for it.
+- Does it run per frame or per tile? If so, what does it allocate or recompute?
+- Is the behavior change verifiable? Point to the `shoot.mjs` stat or screenshot that would prove it, or say none exists.
+- Do docs (`HANDOFF.md`, `pack-format.md`, research notes) still match after this change?
+A clean verdict is fine when it is true, but the summary must show these were checked, file by file.
+
 ## What to look for (most important first)
 1. **Correctness**: logic bugs, off-by-one, unit mixups (metres vs pixels, degrees vs radians, Mercator vs UTM), coordinate convention breaks (pack x east / y north / z up; three.js y up, z = -north; never lat/lon in renderer or physics), NaN or divide-by-zero paths, frame-rate dependent physics (must use the fixed timestep), unhandled promise rejections, races in async loading.
 2. **Performance in the render loop**: allocations per frame (`new Vector3()` inside `update()`), per-frame `traverse`, extra draw calls, missing frustum culling, textures or geometries never `dispose()`d (leaks on chunk unload), work that belongs offline in the pipeline instead of in the browser.
@@ -77,4 +87,4 @@ Post once with `gh pr comment <N> --body-file /tmp/summary.md`:
 **Checked:** typecheck result, docs read, anything you could not verify.
 ```
 
-If the PR is clean, say so in two lines and post no inline comments.
+If the PR is truly clean, post only the summary, listing what you checked per file and why each passed. Never invent issues to fill space.
