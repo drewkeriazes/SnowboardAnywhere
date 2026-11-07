@@ -13,6 +13,8 @@ export interface Input {
   squat?: boolean;
   /** hold to skate on the flat with the back foot out (FEAT-085) */
   skate?: boolean;
+  /** FEAT-112: -1 lean back (nose up, ollie) .. +1 lean forward (tail up, nollie) */
+  lean?: number;
 }
 
 export interface SurfaceInfo {
@@ -115,6 +117,10 @@ export function trickName(flip: number, spin: number, rotations: number): string
 /** FEAT-085 skating: mean push (m/s^2) from a standstill, top skating speed (m/s), steepest slope it works on (deg), stroke period (s) */
 const SKATE_ACC = 4.2, SKATE_MAX = 5.5, SKATE_SLOPE = 10, SKATE_PERIOD = 0.6;
 
+/** FEAT-112 lean: ease time (s), grip lost and drag added (per m/s) on a full press, pop multiplier for an
+ * ollie / nollie (|lean| > 0.5 at release), and the pitch rate it leaves (rad/s per unit lean) */
+const LEAN_IN = 0.2, PRESS_GRIP = 0.35, PRESS_DRAG = 0.05, OLLIE_POP = 1.3, OLLIE_PITCH = 1.2;
+
 export class Rider {
   x = 0; y = 0; z = 0; // position, local metres (z up)
   vx = 0; vy = 0; vz = 0;
@@ -133,6 +139,8 @@ export class Rider {
   flip = 0;
   flipRate = 0;
   /** FEAT-085: skating now, the stroke phase (0..1, a push at 0), and a callback on each push for sound */
+  /** FEAT-112: the board's lean, eased: -1 nose up (tail loaded) .. +1 tail up (nose loaded) */
+  lean = 0;
   skating = false;
   skatePhase = 0;
   onSkateStroke: (() => void) | null = null;
@@ -289,6 +297,7 @@ export class Rider {
       this.prev[0] = this.x; this.prev[1] = this.y; this.prev[2] = this.z; this.prev[3] = this.heading; this.prev[4] = this.boardYaw;
       const fb = this.pack.coarseFallbacks;
       this.easeSquat(STEP, !!input.squat);
+      this.lean += ((this.onGround ? input.lean ?? 0 : 0) - this.lean) * Math.min(1, STEP / LEAN_IN); // snaps back level in the air
       this.step(STEP, input);
       this.steps++;
       if (this.pack.coarseFallbacks !== fb) this.onCoarse();
@@ -418,7 +427,7 @@ export class Rider {
     const groomed = this.surface.groomed;
     const rock = this.surface.rock;
     const powder = Math.max(0, 1 - groomed) * (this.surface.canopy > 0.3 ? 1 : 0.6);
-    const gripBase = (1.0 + 0.4 * groomed - 0.5 * rock) * (1 + SQUAT_GRIP * this.squat); // low centre of mass bites a little more
+    const gripBase = (1.0 + 0.4 * groomed - 0.5 * rock) * (1 + SQUAT_GRIP * this.squat) * (1 - PRESS_GRIP * Math.abs(this.lean)); // low centre of mass bites a little more; on a press you can't carve
 
     // brake: swing the board across the direction of travel (a hockey stop). Steer picks the
     // stance (right = toeside, left = heelside); otherwise the edge already engaged, else heelside.
@@ -474,7 +483,7 @@ export class Rider {
 
     // drag: aerodynamic + snow. Tuck lowers aero, powder adds speed-scaled drag, skidding scrubs speed
     const aeroK = input.tuck ? F.aeroTuck : F.aero + (F.aeroTuck - F.aero) * SQUAT_AERO * this.squat; // a squat is part way to a tuck
-    const aero = aeroK * spd * spd * (this.boost ? 0.55 : 1);
+    const aero = aeroK * spd * spd * (this.boost ? 0.55 : 1) + PRESS_DRAG * Math.abs(this.lean) * spd; // FEAT-112: the loaded end digs in
     const snowDrag = 0.015 * G * (1 - 0.5 * groomed) + powder * 0.004 * spd + 0.35 * this.skid * G;
     const dragAcc = aero + snowDrag + brakeAcc;
     if (spd > 0.01) {
@@ -516,9 +525,12 @@ export class Rider {
     if (input.jumpReleased && this.jumpCharge > 0.1) {
       // jumping from a deep squat, or within SQUAT_SPRING_WINDOW of standing up from one: a bigger pop
       const spring = this.squat >= 0.6 || this.squatUp < SQUAT_SPRING_WINDOW ? SQUAT_POP : 1;
-      const pop = (2.5 + 4.5 * this.jumpCharge) * spring;
+      // FEAT-112: popped off a loaded tail (ollie) or nose (nollie): the board's spring
+      const flex = Math.abs(this.lean) > 0.5 ? OLLIE_POP : 1;
+      const pop = (2.5 + 4.5 * this.jumpCharge) * spring * flex;
       this.vx += n[0] * pop; this.vy += n[1] * pop; this.vz = n[2] * pop + Math.max(0, -(this.vx * n[0] + this.vy * n[1]));
       this.onGround = false; this.airTime = 0; this.spin = 0; this.flip = 0; this.flipRate = 0; this.jumpCharge = 0;
+      if (flex > 1) this.flipRate = this.lean * OLLIE_PITCH; // an ollie leaves you rotating back a little, a nollie forward
       this.z = ground + 0.05;
       return;
     }

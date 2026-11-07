@@ -3,13 +3,13 @@ import type { Input } from './Rider';
 /**
  * Keyboard (and basic touch) input. Mapping matches the common browser ski games:
  * Left/Right or A/D steer, Up/W tuck, Down/S brake, hold and release Space to jump,
- * Shift grab (sprint on foot), Left Ctrl squat (hold), X skate (hold). B unstraps or straps in. R resets, C cycles the camera, M toggles
+ * Shift grab (sprint on foot), Left Ctrl squat (hold), X skate (hold), V / Z nose / tail press (hold); Space + W / S nollie / ollie. B unstraps or straps in. R resets, C cycles the camera, M toggles
  * the piste overlay, F free-fly.
  */
 export class Controls {
-  readonly input: Input = { steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false, squat: false, skate: false };
+  readonly input: Input = { steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false, squat: false, skate: false, lean: 0 };
   /** action -> KeyboardEvent.code (remappable); WASD stay as fixed aliases for the movement keys */
-  keymap: Record<string, string> = { left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft', squat: 'ControlLeft', skate: 'KeyX', lift: 'KeyE', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft', board: 'KeyB' };
+  keymap: Record<string, string> = { left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft', squat: 'ControlLeft', skate: 'KeyX', pressNose: 'KeyV', pressTail: 'KeyZ', lift: 'KeyE', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft', board: 'KeyB' };
   invertSteer = false;
   /** FEAT-111: ask before the page closes (Ctrl+W mid-ride); main turns it off while paused */
   guardLeave = true;
@@ -86,6 +86,14 @@ export class Controls {
     this.input.grab = k.has(m.grab) || k.has('ShiftLeft') || k.has('ShiftRight');
     this.input.squat = k.has(m.squat);
     this.input.skate = k.has(m.skate);
+    // FEAT-112: while charging a jump, W/S lean forward (tail up, nollie) / back (nose up, ollie)
+    // instead of tucking or braking; V / Z hold a nose / tail press without jumping
+    let lean = (k.has(m.pressNose) ? 1 : 0) - (k.has(m.pressTail) ? 1 : 0);
+    if (this.input.jumpHeld && (this.input.tuck || this.input.brake)) {
+      lean = (this.input.tuck ? 1 : 0) - (this.input.brake ? 1 : 0);
+      this.input.tuck = false; this.input.brake = false;
+    }
+    this.input.lean = lean;
     this.pressed.clear = this.pressed.clear; // keep tslint quiet
     return this.input;
   }

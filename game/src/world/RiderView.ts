@@ -5,6 +5,9 @@ import { lerpPose, clonePose, defaultMaterials, POSES, SKI_POSES, WALK_POSES, ty
 import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
 import { Gait, type Plant } from './Gait';
 
+/** FEAT-112: half the board's length (where it pivots) and the most it tips up on a full lean (rad) */
+const BOARD_HALF = 0.72, LEAN_TIP = 18 * Math.PI / 180;
+
 const d2r = Math.PI / 180;
 const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
@@ -325,6 +328,15 @@ export class RiderView {
     this.lean.position.set(side * 0.13, 0, 0);
     this.lean.rotation.set(0, 0, -this.leanAngle); // positive lateralG tips +Y toward +X
     this.rig.board.position.set(-side * 0.13, 0, 0);
+    // FEAT-112: the board tips up about its loaded end, up to 18 deg: nose up on a lean back (ollie,
+    // tail press), tail up on a lean forward (nollie, nose press). The feet ride the bindings with it.
+    const L = r.lean ?? 0;
+    if (Math.abs(L) > 0.01 && !seated) {
+      const end = L < 0 ? BOARD_HALF : -BOARD_HALF; // the end that stays down (local -Z is the nose)
+      this.rig.board.rotation.set((L < 0 ? 1 : -1) * Math.abs(L) * LEAN_TIP, 0, 0);
+      this.pivot.set(0, 0, end);
+      this.rig.board.position.add(this.pivot).sub(this.v2.set(0, 0, end).applyQuaternion(this.rig.board.quaternion));
+    } else this.rig.board.rotation.set(0, 0, 0);
 
     // ---- pose blend from rider state
     const t = this.target;
@@ -346,6 +358,8 @@ export class RiderView {
       if (r.jumpCharge > 0) lerpPose(t, t, P.crouch, Math.min(1, r.jumpCharge));
       if (r.squat > 0) lerpPose(t, t, P.squat, r.squat); // FEAT-111: deeper than tuck or charge, wins over both
       // FEAT-085 skating: knees bent, chest over the front foot, bobbing down into each push
+      // FEAT-112: hips over the loaded end, the chest leaning with them
+      if (Math.abs(r.lean) > 0.01) { t.torso = [t.torso[0] + 0.3 * r.lean, t.torso[1], t.torso[2]]; t.hipsY -= 0.06 * Math.abs(r.lean); }
       if (r.skating) { const push = Math.max(0, Math.cos(r.skatePhase * Math.PI * 2)); lerpPose(t, t, P.crouch, 0.35 + 0.25 * push); t.torso = [t.torso[0] + 0.25 * push, t.torso[1], t.torso[2]]; }
       if (r.landingShock > 0) lerpPose(t, t, P.land, Math.min(1, r.landingShock * 1.5));
       // knees bent and hips low in proportion to how hard the edge is biting
