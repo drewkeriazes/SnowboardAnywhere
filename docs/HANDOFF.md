@@ -1,6 +1,6 @@
-# Handoff: state of the project on 2026-11-05 (end of the cloud session)
+# Handoff: state of the project (updated 2026-11-06)
 
-Read this first when picking the project up in Claude Code / VS Code.
+Read this first when picking the project up in Claude Code / VS Code. Current work lives on the board (https://github.com/users/drewkeriazes/projects/2, see `docs/BOARD.md`); this file is the background: where things are, what works, and the dated notes below. The "Next steps" list is the original 2026-11-05 plan, kept for history; steps 1 to 5 are done or have moved to cards.
 
 ## Where things are
 
@@ -15,8 +15,8 @@ Read this first when picking the project up in Claude Code / VS Code.
   - Tiled Terrarium height sets with bilinear sampling and on-demand loading (`src/pack/`).
   - Rider physics: carve / skid edge model, tuck, brake, hold-release jump, air spin, landing penalties, surface types, tree and rock collisions (`src/sim/`).
   - Instanced trees per 1 km cell with near / far geometry, rocks, lifts with towers, catenary cables and moving chairs, piste overlay, sky, sun shadows, chase and free-fly cameras, HUD (`src/world/`).
-  - Headless check: `cd game && node tools/shoot.mjs synth` (Playwright is a devDependency of `game/`; run `npx playwright install chromium` once per machine; the cloud falls back to `/opt/npm-tools`. Add `--headed` for a visible window on the real GPU). Use `?lowgfx` in software-rendered environments; a full-density scene takes ~9 s per frame under SwiftShader, which is what made the earlier run look hung. The first screenshot (snow, forest with trail cuts, rider) rendered correctly.
-- `pipeline/`: downloader proven on Vail; `build_pack.py` written but NOT yet run end to end on the real data (see next steps).
+  - Headless check: `node tools/shoot.mjs synth` (Playwright is a devDependency of `game/`; run `npx playwright install chromium` once per machine; the cloud falls back to `/opt/npm-tools`. Add `--headed` for a visible window on the real GPU). Use `?lowgfx` in software-rendered environments; a full-density scene takes ~9 s per frame under SwiftShader, which is what made the earlier run look hung. The first screenshot (snow, forest with trail cuts, rider) rendered correctly.
+- `pipeline/`: downloader proven on Vail; `build_pack.py` runs end to end on the real Vail data in about 4 minutes on Drew's PC (see "First Vail build" below) and has been rebuilt several times since (for example the AO and rock-mask rebuild for FEAT-047). Breckenridge has fetch and build launchers (`fetch_breckenridge.cmd`, `build_breckenridge.cmd`).
 
 ## Next steps, in order
 

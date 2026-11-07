@@ -7,6 +7,11 @@ export const RESORTS: { slug: string; name: string }[] = [
 
 /** Which resorts have a built pack on this server. */
 export async function availableResorts(base: string): Promise<{ slug: string; name: string }[]> {
+  // packs/index.json (written by the pipeline) lists the built packs, so missing ones are not probed (BUG-036)
+  try {
+    const res = await fetch(`${base}packs/index.json`, { cache: 'no-store' });
+    if (res.ok) { const { packs } = await res.json() as { packs: string[] }; return RESORTS.filter((r) => packs.includes(r.slug)); }
+  } catch { /* older pack folders have no index: probe each resort below */ }
   const ok = await Promise.all(RESORTS.map(async (r) => {
     try { const res = await fetch(`${base}packs/${r.slug}/meta.json`, { method: 'GET', cache: 'no-store' }); return res.ok; } catch { return false; }
   }));
