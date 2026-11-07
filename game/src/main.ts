@@ -19,6 +19,11 @@ import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
 import { Tracks } from './world/Tracks';
 import { Bootprints } from './world/Bootprints';
+import { Outrun } from './sim/Outrun';
+import { Monsters } from './world/Monster';
+import { Puffs } from './world/Puffs';
+import { Eat } from './world/Eat';
+import { OutrunUI } from './ui/OutrunUI';
 import { RiderChair } from './world/RiderChair';
 import { buildCourses } from './sim/Courses';
 import { TimeTrial } from './sim/TimeTrial';
@@ -122,6 +127,21 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('bootprints', bootprints.mesh);
     const riderChair = new RiderChair(lifts.material);
     add('rider chair', riderChair.group);
+    // Outrun (FEAT-097 to FEAT-101): the chase sim, the monsters, their big prints, puffs, the eat sequence, the HUD
+    const outrun = new Outrun(pack, lifts);
+    const puffs = new Puffs();
+    add('puffs', puffs.points);
+    const bigprints = new Bootprints(pack, 3.2);
+    add('monster prints', bigprints.mesh);
+    const monsters = new Monsters(pack, collider, puffs, bigprints);
+    add('monsters', monsters.group);
+    const eat = new Eat(pack, puffs);
+    add('eat sequence', eat.group);
+    const outrunUI = new OutrunUI();
+    let chase = audio.chase();
+    const eatPosing = new Set<number>();
+    const eatLook = new THREE.Vector3();
+    let countLast = -1;
     const chairPos = new THREE.Vector3();
     // time trials (off unless enabled in Settings > Game)
     const courses = buildCourses(pack);
@@ -165,6 +185,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     for (const m of Object.values(veg.mat)) env.registerMaterial(m);
     env.registerMaterial(rocks.material); env.registerMaterial(buildings.material); env.registerMaterial(roads.material); env.registerMaterial(lifts.material);
     for (const m of Object.values(riderView.mats)) env.registerMaterial(m);
+    for (const m of Object.values(monsters.materials)) env.registerMaterial(m);
+    for (const m of eat.materials) env.registerMaterial(m);
     let csmSize = 0;
     if (!params.has('noimpostors')) veg.enableImpostors(renderer, true);
     const goggles = new GoggleView();
@@ -257,7 +279,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     };
     const map = new ResortMap(pack);
     map.spawnPos = [sx, sy];
-    map.onPick = (x, y) => {
+    const pickHandler = (x: number, y: number) => {
       trial.cancel('Moved');
       const n = pack.groundNormal(x, y) as number[];
       const h = Math.hypot(n[0], n[1]) > 0.02 ? Math.atan2(n[0], n[1]) : 0;
@@ -271,6 +293,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       cam.snapTo(rider);
       map.close();
     };
+    map.onPick = pickHandler;
 
     const pause = new PauseMenu(settings, applySettings);
     let paused = false;
@@ -279,10 +302,45 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (p) pause.show(); else pause.hide();
       audio.setDuck(p ? 0.3 : 1);
     };
+    // ---------------------------------------------------------------- Outrun
+    /** Start a run from where the rider is: trials off, no map teleport, no lift skip. */
+    const startOutrun = () => {
+      trial.cancel('Outrun');
+      eat.end(); monsters.clear(); outrunUI.hideCard();
+      riderView.group.visible = true;
+      outrun.start(settings.outrun, rider);
+      pause.setOutrunRunning(true);
+      map.onPick = null; map.baseMarker = outrun.base;
+      chase = audio.chase();
+      countLast = -1;
+      showToast(outrun.baseMissing ? 'Outrun: no base on this pack, so it is endless' : outrun.cfg.escape === 'base' ? 'Outrun: reach the base' : 'Outrun: survive', 3000);
+    };
+    const stopOutrun = () => {
+      outrun.stop(); eat.end(); monsters.clear(); outrunUI.hideCard();
+      pause.setOutrunRunning(false);
+      map.onPick = pickHandler; map.baseMarker = null; map.monsters = [];
+      chase?.stop(); audio.resumeMusic();
+      rider.boost = false; riderView.group.visible = true;
+    };
+    outrunUI.onRetry = () => {
+      eat.end(); monsters.clear(); chase?.stop(); audio.resumeMusic();
+      liftRide.cancel(); rider.reset(sx, sy, sh); cam.snapTo(rider);
+      startOutrun();
+    };
+    outrunUI.onExit = () => stopOutrun();
+    eat.onSound = (k) => {
+      if (!chase) return;
+      if (k === 'roar') chase.roar('angry'); else if (k === 'pop') chase.pop(); else if (k === 'gulp') chase.gulp();
+      else if (k === 'burp') chase.burp(); else if (k === 'spit') chase.spit(); else if (k === 'sting') chase.sting();
+    };
+    monsters.onCrack = () => chase?.crack();
+
     pause.onAction = (a) => {
       if (a === 'resume') setPaused(false);
-      else if (a === 'restart') { setPaused(false); liftRide.cancel(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      else if (a === 'restart') { setPaused(false); if (outrun.active) stopOutrun(); liftRide.cancel(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
       else if (a === 'map') { setPaused(false); map.open(); }
+      else if (a === 'outrunStart') { setPaused(false); startOutrun(); }
+      else if (a === 'outrunStop') { setPaused(false); stopOutrun(); }
       else if (a === 'quit') { setPaused(false); dispose(); resolveQuit(); }
     };
 
@@ -356,6 +414,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       labels.destroy();
       tracks.dispose();
       trialWorld.dispose();
+      if (outrun.active) stopOutrun();
+      outrunUI.destroy(); eat.dispose(); puffs.dispose(); bigprints.dispose();
       trialEl.classList.remove('show');
       finishArrow.style.display = 'none';
       audio.onTrack = null;
@@ -406,8 +466,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (paused) { controls.endFrame(); touch?.pressed.clear(); render(); if (!headless) requestAnimationFrame(frame); return; }
       touch?.setVisible(!map.fullOpen);
       elapsed += dt;
-      if (controls.action('restart')) { liftRide.cancel(); trial.cancel('Restarted'); rider.reset(sx, sy, sh); cam.snapTo(rider); }
-      if (controls.action('trial') && settings.timeTrials) {
+      if (controls.action('restart')) { if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      if (controls.action('trial') && settings.timeTrials && !outrun.active) {
         const c = trial.nearestStart(rider.x, rider.y);
         if (c) {
           // a few metres above the start gate on the course line, facing down it
@@ -423,7 +483,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       const detached = cam.mode === 'free' || cam.mode === 'eye';
       const eyeMode = cam.mode === 'eye';
       document.body.classList.toggle('eye-mode', eyeMode);
-      riderView.group.visible = !eyeMode; riderView.sprayObject.visible = !eyeMode;
+      if (!eat.active) riderView.group.visible = !eyeMode;
+      riderView.sprayObject.visible = !eyeMode;
       // lift markers and piste lines are game UI, not in a photo
       lifts.markers.visible = !eyeMode; if (eyeMode) runs.group.visible = false;
       if (controls.action('piste')) { if (eyeMode) shotPending = true; else runs.toggle(); }
@@ -437,17 +498,54 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         boardMsgT = boardMsg ? 1.5 : 0;
       }
       boardMsgT -= dt;
-      const boardPressed = (controls.action('lift') || !!touch?.once('lift')) && !detached;
-      const onLift = !detached && liftRide.update(rider, dt, boardPressed, input.tuck);
-      if (!detached && !onLift && !map.fullOpen) rider.update(dt, input);
+      // Outrun: no lift skip while it runs (the monster is on the towers behind you), the boost key
+      const boardPressed = (controls.action('lift') || !!touch?.once('lift')) && !detached && !(outrun.running && liftRide.riding);
+      if (controls.action('boost') && outrun.boost()) chase?.boostWhoosh();
+      rider.boost = outrun.boosting;
+      const eating = outrun.phase === 'caught';
+      const onLift = !detached && !eating && liftRide.update(rider, dt, boardPressed, input.tuck);
+      if (!detached && !onLift && !map.fullOpen && !eating) rider.update(dt, input);
       // visuals draw the pose interpolated between the last two 120 Hz physics steps; gameplay
       // (trials, lifts, audio) keeps reading the sim pose
       riderView.setFirstPerson(cam.mode === 'fp');
       rider.applyRenderPose();
-      riderView.update(rider, dt, input.tuck, input.grab, onLift && liftRide.airborneRide);
+      if (!eating) riderView.update(rider, dt, input.tuck, input.grab, onLift && liftRide.airborneRide);
       tracks.update(rider, dt, onLift && liftRide.airborneRide);
-      bootprints.update(dt);
+      bootprints.update(dt); bigprints.update(dt); puffs.update(dt);
       rider.restoreSimPose();
+      // ---- Outrun: sim, events to sound and effects, the eat sequence, the monsters
+      if (outrun.active) {
+        outrun.update(dt, rider, onLift ? liftRide : null);
+        for (const e of outrun.events) {
+          if (e.kind === 'wake') chase?.roar('wake');
+          else if (e.kind === 'spawn') { if (e.m && e.m.id > 1) chase?.roar('spawn'); }
+          else if (e.kind === 'roar') chase?.roar('spawn');
+          else if (e.kind === 'sight') chase?.roar('sight');
+          else if (e.kind === 'closecall') { chase?.roar('angry'); chase?.closeCall(); }
+          else if (e.kind === 'footfall' && e.m) { chase?.footfall(e.m.dist); if (e.m.dist < 30) cam.kick = Math.max(cam.kick, 0.7 * (1 - e.m.dist / 30)); }
+          else if (e.kind === 'second') showToast('Another one.', 2500);
+          else if (e.kind === 'escaped') { chase?.roar('giveup'); chase?.stop(); audio.resumeMusic(); chase?.fanfare(); }
+          else if (e.kind === 'caught' && e.m) {
+            const view = monsters.view(e.m.id);
+            audio.scratchStop(); chase?.stop();
+            if (view) eat.start(e.m, view, rider, riderView, settings.outfit, settings.discipline, outrun.cfg.gentle);
+          }
+        }
+        if (outrun.phase === 'countdown') { const n = Math.ceil(3 - outrun.t); if (n !== countLast) { countLast = n; chase?.countBeep(false); } }
+        else if (outrun.phase === 'headstart' && countLast !== 0) { countLast = 0; chase?.countBeep(true); }
+        eatPosing.clear();
+        if (eat.active) { eat.update(dt); if (outrun.nearest) eatPosing.add(outrun.nearest.id); }
+        monsters.update(outrun, dt, eatPosing);
+        if (eat.done && !outrunUI.cardOpen) outrunUI.showCard(outrun, 'eaten');
+        if (outrun.phase === 'escaped' && outrun.t > 2.5 && !outrunUI.cardOpen) outrunUI.showCard(outrun, 'escaped');
+        map.monsters = outrun.monsters.map((m) => [m.x, m.y]);
+        if (chase) {
+          const n = outrun.nearest;
+          if (n) chase.setMonster(n.x, n.z + 1.5, -n.y);
+          chase.update(dt, outrun.dist, outrun.phase === 'chase', outrun.boosting);
+        }
+      }
+      outrunUI.update(outrun, settings.units === 'metric', keyName(settings.keys.boost));
       if (settings.timeTrials) {
         if (onLift) trial.cancel('On a lift'); else if (rider.unstrapped) trial.cancel('Unstrapped'); else trial.update(rider, dt, input.tuck);
         trialWorld.updateGates(rider.x, rider.y);
@@ -493,7 +591,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
       else if (eyeMode) { cam.updateEye(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
       else if (cam.mode === 'fp') { cam.updateFirstPerson(rider, dt, input.tuck, onLift || controls.looking, mouseDx, mouseDy, riderView.eye(eye)); mouseDx = mouseDy = 0; }
-      else { cam.freeLook(controls.looking, dt, mouseDx, mouseDy); mouseDx = mouseDy = 0; cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); }
+      else { cam.freeLook(controls.looking, dt, mouseDx, mouseDy, outrun.running && controls.keys.has(controls.keymap.glance)); mouseDx = mouseDy = 0; cam.baseFov = settings.fov + (outrun.boosting ? 12 : 0); cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); }
+      // the eat sequence owns the camera: a fixed side angle
+      if (eat.active) { eat.cameraPose(cam.camera.position, eatLook); cam.camera.lookAt(eatLook); if (cam.camera.fov !== 55) { cam.camera.fov = 55; cam.camera.updateProjectionMatrix(); } }
+      chase?.setListener(cam.camera);
       goggles.strength = settings.goggleStrength;
       goggles.update(rider, dt, cam.mode === 'fp', cam.mode === 'fp' && settings.fpVignette, onLift);
       rider.restoreSimPose();
@@ -557,7 +658,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         (rider.onGround || rider.onFoot ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') +
         `<br><span class="dim">${fps.toFixed(0)} fps &middot; ${terrain.stats.chunks} chunks &middot; ${(terrain.stats.triangles / 1000).toFixed(0)}k tris &middot; trees ${veg.stats.instances} &middot; cam ${cam.mode}` +
         ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}</span>`;
-      (window as any).__sim = { rider, riderView, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, eyeAt,
+      (window as any).__sim = { rider, riderView, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, eyeAt, outrun, monsters, startOutrun, stopOutrun,
         /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
         setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); } };
       if (!headless) requestAnimationFrame(frame);

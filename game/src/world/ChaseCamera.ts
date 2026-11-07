@@ -191,8 +191,15 @@ export class ChaseCamera {
 
   /** Chase-camera orbit while free look is held (radians); eases back to centre on release. */
   orbitYaw = 0; orbitPitch = 0;
-  freeLook(held: boolean, dt: number, mouseDx: number, mouseDy: number): void {
-    if (held) {
+  /** Outrun (FEAT-101): footfall kick 0..1 on the chase cameras, decays on its own */
+  kick = 0;
+  /** `glance` (FEAT-101): snap the orbit round to look back over the shoulder while held. */
+  freeLook(held: boolean, dt: number, mouseDx: number, mouseDy: number, glance = false): void {
+    if (glance) {
+      const k = 1 - Math.exp(-dt * 10);
+      const target = this.orbitYaw < 0 ? -Math.PI : Math.PI;
+      this.orbitYaw += (target - this.orbitYaw) * k; this.orbitPitch += (0.25 - this.orbitPitch) * k;
+    } else if (held) {
       this.orbitYaw += mouseDx * 0.004;
       this.orbitPitch = THREE.MathUtils.clamp(this.orbitPitch + mouseDy * 0.003, -0.35, 1.2);
     } else {
@@ -246,6 +253,11 @@ export class ChaseCamera {
     const lookTarget = riderPos.clone().addScaledVector(back, orbiting ? 0 : 4).add(new THREE.Vector3(0, 1.0, 0));
     this.look.lerp(lookTarget, 1 - Math.exp(-dt * 8));
     this.camera.position.copy(this.pos);
+    if (this.kick > 0.001) {
+      const s = this.kick * 0.25;
+      this.camera.position.x += (Math.random() - 0.5) * s; this.camera.position.y += (Math.random() - 0.5) * s; this.camera.position.z += (Math.random() - 0.5) * s;
+      this.kick *= Math.exp(-dt * 9);
+    }
     this.camera.lookAt(this.look);
     const fov = this.baseFov + Math.min(22, r.speed * 0.6) + (tuck ? 4 : 0);
     this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 4);

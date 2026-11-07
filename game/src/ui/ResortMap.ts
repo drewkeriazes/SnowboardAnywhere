@@ -292,6 +292,10 @@ export class ResortMap {
   trialRoute: [number, number, number][] | null = null;
   /** pack x,y of the lift bottom to pulse on the minimap (set each frame by main) */
   liftMarker: [number, number] | null = null;
+  /** Outrun monsters (FEAT-097), pack x,y, drawn on both maps */
+  monsters: [number, number][] = [];
+  /** Outrun base target (FEAT-097) */
+  baseMarker: [number, number] | null = null;
 
   drawMini(x: number, y: number, heading: number, radius = 900): void {
     this.tryShade();
@@ -327,6 +331,20 @@ export class ResortMap {
       const pulse = 5 + 3 * Math.sin(performance.now() / 180);
       ctx.beginPath(); ctx.arc(mx, my, pulse, 0, Math.PI * 2); ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 2.5; ctx.stroke();
       ctx.beginPath(); ctx.arc(mx, my, 2.5, 0, Math.PI * 2); ctx.fillStyle = '#ffd166'; ctx.fill();
+    }
+    if (this.baseMarker) {
+      const [bx, by] = this.toPixel(this.baseMarker[0], this.baseMarker[1]);
+      const mx = (bx - (cx - srcW / 2)) * k, my = (by - (cy - srcW / 2)) * k;
+      ctx.beginPath(); ctx.arc(mx, my, 6, 0, Math.PI * 2); ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2.5; ctx.stroke();
+    }
+    for (const m of this.monsters) {
+      const [bx, by] = this.toPixel(m[0], m[1]);
+      const mx = (bx - (cx - srcW / 2)) * k, my = (by - (cy - srcW / 2)) * k;
+      // off the minimap: pinned to its edge in the monster's direction
+      const d = Math.hypot(mx - S / 2, my - S / 2), lim = S / 2 - 8;
+      const px = d > lim ? S / 2 + (mx - S / 2) * lim / d : mx, py = d > lim ? S / 2 + (my - S / 2) * lim / d : my;
+      const pulse = 6 + 2 * Math.sin(performance.now() / 120);
+      ctx.beginPath(); ctx.arc(px, py, pulse, 0, Math.PI * 2); ctx.fillStyle = 'rgba(124,58,237,.9)'; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
     }
     // rider: triangle pointing along heading (north up)
     ctx.translate(S / 2, S / 2); ctx.rotate(heading);
@@ -380,6 +398,8 @@ export class ResortMap {
       if (this.zoom >= 1.5) { ctx.font = '11px system-ui'; ctx.fillStyle = '#111'; ctx.fillText(cs.best !== null ? `${cs.name} ${cs.best.toFixed(1)}s` : cs.name, sx + 12, sy - 8); }
     }
     if (this.spawnPos) dot(this.spawnPos[0], this.spawnPos[1], '#22c55e', 6);
+    if (this.baseMarker) dot(this.baseMarker[0], this.baseMarker[1], '#4ade80', 9);
+    for (const m of this.monsters) dot(m[0], m[1], '#7c3aed', 8);
     dot(this.riderPos[0], this.riderPos[1], '#ff3b30', 7);
     if (this.hover) {
       dot(this.hover[0], this.hover[1], 'rgba(255,255,255,.5)', 5);

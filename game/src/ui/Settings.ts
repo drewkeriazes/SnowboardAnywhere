@@ -47,6 +47,8 @@ export interface Settings {
   keys: Record<string, string>; // action -> KeyboardEvent.code
   outfit: Outfit;
   discipline: 'board' | 'ski';
+  /** Outrun mode (FEAT-097): the last picked difficulty, escape rule and the Gentle eat */
+  outrun: { difficulty: 'chill' | 'normal' | 'skifree'; escape: 'endless' | 'base'; gentle: boolean };
 }
 export interface Outfit { jacket: string; pants: string; helmet: string; board: string; gloves: string }
 export const OUTFIT_PRESETS: Record<string, Outfit> = {
@@ -60,13 +62,14 @@ export const OUTFIT_PRESETS: Record<string, Outfit> = {
 
 export const DEFAULT_KEYS: Record<string, string> = {
   left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft',
-  lift: 'KeyE', board: 'KeyB', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft',
+  lift: 'KeyE', board: 'KeyB', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft', boost: 'KeyQ', glance: 'KeyG',
 };
-const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab (sprint on foot)', lift: 'Ride lift / skip', board: 'Board on / off', trial: 'Go to nearest time trial', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track', look: 'Free look (hold, move mouse)' };
+const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab (sprint on foot)', lift: 'Ride lift / skip', board: 'Board on / off', trial: 'Go to nearest time trial', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track', look: 'Free look (hold, move mouse)', boost: 'Outrun boost', glance: 'Outrun look back (hold)' };
 
 const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
   fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
+  outrun: { difficulty: 'normal', escape: 'base', gentle: false },
 };
 const KEY = 'settings';
 
@@ -78,16 +81,16 @@ export function loadSettings(): Settings {
       if (raw.playlist === 'Hip-hop') raw.playlist = 'Lofi hip-hop';
       // saves from before the Lofi hip-hop default carry the old Ska-punk default: switch them once
       if (raw.playlistDefault !== 2) { if (raw.playlist === 'Ska-punk') raw.playlist = 'Lofi hip-hop'; raw.playlistDefault = 2; }
-      return { ...DEFAULTS, ...raw, keys: { ...DEFAULT_KEYS, ...(raw.keys ?? {}) }, outfit: { ...DEFAULTS.outfit, ...(raw.outfit ?? {}) } };
+      return { ...DEFAULTS, ...raw, keys: { ...DEFAULT_KEYS, ...(raw.keys ?? {}) }, outfit: { ...DEFAULTS.outfit, ...(raw.outfit ?? {}) }, outrun: { ...DEFAULTS.outrun, ...(raw.outrun ?? {}) } };
     }
     // migrate the older separate keys
-    const s = { ...DEFAULTS, keys: { ...DEFAULT_KEYS }, outfit: { ...DEFAULTS.outfit } };
+    const s = { ...DEFAULTS, keys: { ...DEFAULT_KEYS }, outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } };
     const a = JSON.parse(localStorage.getItem('audio') ?? '{}');
     if (typeof a.sfx === 'number') s.sfx = a.sfx;
     if (typeof a.music === 'number') s.music = a.music;
     if (localStorage.getItem('gfx') === 'low') { s.quality = 'low'; s.shadows = false; s.treeDensity = 0.3; s.pixelRatio = 1; }
     return s;
-  } catch { return { ...DEFAULTS, keys: { ...DEFAULT_KEYS }, outfit: { ...DEFAULTS.outfit } }; }
+  } catch { return { ...DEFAULTS, keys: { ...DEFAULT_KEYS }, outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } }; }
 }
 
 export function saveSettings(s: Settings): void {
@@ -95,7 +98,7 @@ export function saveSettings(s: Settings): void {
 }
 
 export function resetSettings(): Settings {
-  const s = { ...DEFAULTS, keys: { ...DEFAULT_KEYS }, outfit: { ...DEFAULTS.outfit } };
+  const s = { ...DEFAULTS, keys: { ...DEFAULT_KEYS }, outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } };
   saveSettings(s);
   return s;
 }
