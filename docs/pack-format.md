@@ -57,7 +57,9 @@ with open sky everywhere.
 `rocks/<tx>_<ty>.bin`: Float32 records of 6: `x, y, z, size, yaw, type` with type 0 = outcrop,
 1 = boulder, 2 = talus clump.
 
-Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/minY`.
+Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/minY`. `treeCells` and `rockCells` list the cells that have a file (`"cx_cy"`); the client only requests those. Packs built before BUG-036 lack the lists and the client requests every cell in range; add them without a rebuild with `python pipeline/packwriter.py packs/<slug>`.
+
+`packs/index.json` (`{"packs": ["synth", "vail"]}`) lists every pack folder with a `meta.json`. `write_meta` rewrites it after each build; the menu reads it instead of probing each resort's `meta.json`.
 
 ## features.json
 
@@ -86,7 +88,7 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
   "terrain": { "fine": {...}, "mid": {...}, "far": {...} },
   "mask": { "res": 2, "tileSize": 512, "minX", "minY", "tilesX", "tilesY" },
   "ao": { same fields as mask },                           // optional
-  "instances": { "cellSize": 1000, "minX", "minY", "cellsX", "cellsY", "treeCount", "rockCount" },
+  "instances": { "cellSize": 1000, "minX", "minY", "cellsX", "cellsY", "treeCount", "rockCount", "treeCells", "rockCells" },
   "start": { "x", "y", "heading" },                       // default drop-in
   "sun": { "azimuth": 160, "elevation": 32 },             // degrees, default lighting
   "attribution": ["..."]

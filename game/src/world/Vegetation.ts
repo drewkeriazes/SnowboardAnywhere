@@ -207,6 +207,8 @@ export class Vegetation {
 
   private async load(cell: Cell): Promise<void> {
     cell.loading = true;
+    const listed = this.pack.meta.instances?.treeCells;
+    if (listed && !listed.includes(`${cell.cx}_${cell.cy}`)) { cell.missing = true; cell.loading = false; return; } // empty cell, no request
     try {
       const resp = await fetch(`${this.pack.baseUrl}/trees/${cell.cx}_${cell.cy}.bin`);
       if (!resp.ok) { cell.missing = true; return; }
