@@ -10,6 +10,7 @@ const { chromium } = await import('playwright').catch(() => import('/opt/npm-too
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { DIST, PACKS, REPO } from './paths.mjs';
 
 const args = process.argv.slice(2);
 const headed = args.includes('--headed') || process.env.SHOT_HEADED === '1';
@@ -19,9 +20,9 @@ const [vw, vh] = args.includes('--size') ? sizeArg.split('x').map(Number) : [128
 const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--size');
 const pack = positional[0] ?? 'vail';
 const only = positional.slice(1);
-const compareDir = path.resolve('..', 'docs', 'compare', pack);
-const dist = path.resolve('dist');
-const packs = path.resolve('..', 'packs');
+const compareDir = path.join(REPO, 'docs', 'compare', pack);
+const dist = DIST;
+const packs = PACKS;
 
 const spots = fs.readdirSync(compareDir, { withFileTypes: true })
   .filter((d) => d.isDirectory() && (only.length === 0 || only.includes(d.name)) && fs.existsSync(path.join(compareDir, d.name, 'spot.json')))
@@ -82,7 +83,7 @@ for (const { slug, spec } of spots) {
     const url = await page.evaluate(() => window.__shot());
     const out = path.join(compareDir, slug, `eye-${v.id}.png`);
     fs.writeFileSync(out, Buffer.from(url.split(',')[1], 'base64'));
-    console.log(`${slug}/${v.id}`, JSON.stringify(pose), weather ? `weather=${weather}` : '', '->', path.relative(path.resolve('..'), out).split(path.sep).join('/'));
+    console.log(`${slug}/${v.id}`, JSON.stringify(pose), weather ? `weather=${weather}` : '', '->', path.relative(REPO, out).split(path.sep).join('/'));
     n++;
   }
 }
