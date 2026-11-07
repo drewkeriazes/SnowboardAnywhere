@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Rider } from '../sim/Rider';
+import { rockCover } from '../terrain/rockCover';
 
 /**
  * Tracks in the snow as real 3D grooves. Every STEP metres on the snow a cross-section is laid
@@ -31,6 +32,8 @@ const MAX = 6000;
 const STEP = 0.5; // m between sections
 const DEPTH = 0.05; // m, about 2 in on a groomer
 export const FADE = 600; // s until the snow has filled the track back in (bootprints too)
+/** BUG-043: rock coverage above which no groove is laid, and where it starts to fade out */
+const ROCK_CUT = 0.5, ROCK_FADE = 0.3;
 // cross-section profile: [offset across in units of the half width (+ fixed metres), height factor of DEPTH, alpha]
 // x = sx * half + dx
 const PROFILE: { sx: number; dx: number; h: number; a: number }[] = [
@@ -112,12 +115,12 @@ class Lane {
    * Scraping: ridge height (m) of pushed snow, ridgeSide -1..1 (which lip gets it, + = the right
    * side), polish 0..1 (how much the floor is a flat scraped band rather than a cut groove).
    */
-  add(cx: number, cy: number, cz: number, ax: number, az: number, half: number, depth: number, tilt: number, surface: (x: number, z: number) => number, ridge = 0, ridgeSide = 0, polish = 0): void {
+  add(cx: number, cy: number, cz: number, ax: number, az: number, half: number, depth: number, tilt: number, surface: (x: number, z: number) => number, ridge = 0, ridgeSide = 0, polish = 0, fill = 1): void {
     const s = this.head;
     const o = s * SEC, c = this.secC;
     c[o] = cx; c[o + 1] = cy; c[o + 2] = cz; c[o + 3] = ax; c[o + 4] = az; c[o + 5] = half; c[o + 6] = depth; c[o + 7] = tilt;
     c[o + 8] = ridge; c[o + 9] = ridgeSide; c[o + 10] = polish;
-    this.age[s] = 0;
+    this.age[s] = FADE * (1 - fill); // fill < 1 (a rock edge, BUG-043) starts part filled in: shallower and fainter
     // snow heights under each profile vertex (follow the slope across the track)
     const lw = lipWidth(polish);
     for (let k = 0; k < P; k++) {
@@ -357,8 +360,27 @@ export class Tracks {
       const o = off * gc + shift; // skis turned across the travel direction sweep the same band
       const cx = r.x + ax * o, cy = r.y + ay * o;
       const g = this.pack.groundHeight(cx, cy);
-      this.lanes[i].add(cx, g, -cy, ax, -ay, half, depth, tilt, surface, ridge, ridgeSide, gs);
+      // BUG-043: no groove in rock the player can see; it fades out over the last bit of snow
+      // before the rock edge and starts again on the snow below
+      const rock = this.rockAt(cx, cy, g);
+      if (rock > ROCK_CUT) { this.lanes[i].gap(); return; }
+      const fill = rock > ROCK_FADE ? 1 - (rock - ROCK_FADE) / (ROCK_CUT - ROCK_FADE) : 1;
+      this.lanes[i].add(cx, g, -cy, ax, -ay, half, depth, tilt, surface, ridge, ridgeSide, gs, fill);
     });
+  }
+
+  private readonly maskTmp = [0, 0, 0, 0];
+  private readonly nTmp = [0, 0, 1];
+  private readonly coverTmp = { rock: 0, scree: 0 };
+  /** rock + scree coverage the terrain shader shows at (x, y) */
+  private rockAt(x: number, y: number, z: number): number {
+    const mask = this.pack.mask;
+    if (!mask) return 0;
+    const m = mask.sampleBilinear(x, y, this.maskTmp);
+    if (m[0] < 0.15 && m[1] < 0.05) return 0;
+    const n = this.pack.groundNormal(x, y, this.nTmp);
+    const c = rockCover(m[0], m[1], x, z, -y, n[2], this.coverTmp);
+    return c.rock + c.scree;
   }
 
   clear(): void { for (const l of [...this.lanes, ...this.bootLanes]) l.clear(); this.lastX = NaN; this.bootX = NaN; }
