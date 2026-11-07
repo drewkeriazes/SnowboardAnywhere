@@ -159,7 +159,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
     </div>
     <div class="tab hidden" data-t="controls">
       <div class="row"><label>Invert steer</label><input type="checkbox" data-k="invertSteer"></div>
-      <div class="row"><label>Default camera</label><select data-k="camera"><option value="chase">Chase</option><option value="close">Close</option><option value="far">Far</option><option value="cine">Cinematic</option><option value="fp">First person</option><option value="helmet">Helmet cam</option></select></div>
+      <div class="row"><label>Default camera</label><select data-k="camera"><option value="chase">Chase</option><option value="close">Close</option><option value="far">Far (angled)</option><option value="cine">Cinematic</option><option value="fp">First person</option><option value="helmet">Helmet cam</option></select></div>
       <div class="keys"></div>
       <div class="hint">Click a key, then press the new one. Esc cancels.</div>
     </div>
