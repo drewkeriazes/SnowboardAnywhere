@@ -59,7 +59,7 @@ export interface RiderRig {
 
 /** FEAT-118: a bendable strip's rest vertices, and the bindings that ride the bend */
 interface FlexMesh { geo: THREE.BufferGeometry; rest: Float32Array; restN: Float32Array }
-interface BoardFlex { meshes: FlexMesh[]; bindings: { obj: THREE.Object3D; y: number; z: number; ang: number }[]; amount: number; dir: number }
+interface BoardFlex { meshes: FlexMesh[]; bindings: { obj: THREE.Object3D; y: number; z: number; ang: number }[]; amount: number; dir: number; zs: Float32Array; ys: Float32Array }
 
 /** FEAT-118: half the board's length (m), stations walked along it, the back (loaded) foot's place
  *  from the loaded end (t0, 0..1) and the nose (or tail) rise on a full load (m) */
@@ -103,6 +103,18 @@ function flexStrip(w: (z: number) => number, y0: number, y1: number, z0: number,
  * u^3 (2 - u), which has zero height and zero slope at the foot (no kink) and steepens to the tip.
  * The curve is used as a bend angle walked along the board, so its length stays the same.
  */
+/** BUG-047: height of the board's base (board local, m) at local z, on the current bend; 0 when flat or for skis */
+export function deckY(rig: RiderRig, z: number): number {
+  const fx = rig.flex;
+  if (!fx || fx.amount === 0) return 0;
+  const zs = fx.zs, ys = fx.ys;
+  for (let i = 0; i < FLEX_N - 1; i++) {
+    const a = zs[i], b = zs[i + 1];
+    if ((z - a) * (z - b) <= 0 && a !== b) return ys[i] + (ys[i + 1] - ys[i]) * (z - a) / (b - a);
+  }
+  return 0; // past the tips
+}
+
 export function bendBoard(rig: RiderRig, amount: number, dir: number): void {
   const fx = rig.flex;
   if (!fx) return;
@@ -121,6 +133,7 @@ export function bendBoard(rig: RiderRig, amount: number, dir: number): void {
     if (i > 0) { x += ds * Math.cos(th); y += ds * Math.sin(th); }
     _bz[i] = s * (FLEX_HALF - x); _by[i] = y; _ba[i] = th * s; // +angle about X lifts the nose (-z)
   }
+  fx.zs.set(_bz); fx.ys.set(_by);
   // a rest z -> its bent station (linear between stations)
   const at = (z: number): [number, number, number] => {
     const f = Math.max(0, Math.min(FLEX_N - 1, (FLEX_HALF - s * z) / ds)), i = Math.min(FLEX_N - 2, Math.floor(f)), k = f - i;
@@ -346,7 +359,7 @@ export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): Rid
     }
     carriers.push({ obj: deck, rest: deck.matrix.clone() });
     anchors = { l: an[0], r: an[1], lCarrier: 0, rCarrier: 0 };
-    flex = { meshes: flexMeshes, bindings: flexBindings, amount: 0, dir: -1 };
+    flex = { meshes: flexMeshes, bindings: flexBindings, amount: 0, dir: -1, zs: new Float32Array(FLEX_N), ys: new Float32Array(FLEX_N) };
   } else {
     const skiShape = new THREE.Shape();
     const sl = 0.85, sw = 0.05;
