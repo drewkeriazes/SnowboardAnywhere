@@ -183,6 +183,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     // cascaded shadows: every lit material gets the CSM hook
     env.registerMaterial(terrain.material);
     for (const m of Object.values(veg.mat)) env.registerMaterial(m);
+    env.registerMaterial(tracks.material); // BUG-021: tree and ridge shadows fall on the track like on the snow
     env.registerMaterial(rocks.material); env.registerMaterial(buildings.material); env.registerMaterial(roads.material); env.registerMaterial(lifts.material);
     for (const m of Object.values(riderView.mats)) env.registerMaterial(m);
     for (const m of Object.values(monsters.materials)) env.registerMaterial(m);
