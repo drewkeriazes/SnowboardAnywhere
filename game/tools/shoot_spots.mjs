@@ -1,6 +1,7 @@
 // Re-shoot the game side of every real vs game pair (DATA-008) with the eye camera.
 // node tools/shoot_spots.mjs [pack] [spot-slug ...] [--headed | --gpu] [--size 1280x720]
-//   reads ../docs/compare/<pack>/<spot>/spot.json and writes eye-<view>.png next to it.
+//   reads ../docs/compare/<pack>/<spot>/spot.json and writes eye-<view>.jpg next to it (committed, quality 90)
+//   plus the lossless eye-<view>.png (gitignored, for image statistics) (FEAT-095).
 //   Pose per view: the saved `eye` pose (from the P key) if any, else x / y / h from
 //   tools/gmaps2game.py --add, else the spot's game x / y and the Street View heading.
 //   Weather per view: the view's `weather`, else the spot's `weather` (e.g. "overcast" to match an
@@ -81,8 +82,16 @@ for (const { slug, spec } of spots) {
       quiet = busy === 0 ? quiet + 1 : 0;
     }
     const url = await page.evaluate(() => window.__shot());
-    const out = path.join(compareDir, slug, `eye-${v.id}.png`);
-    fs.writeFileSync(out, Buffer.from(url.split(',')[1], 'base64'));
+    fs.writeFileSync(path.join(compareDir, slug, `eye-${v.id}.png`), Buffer.from(url.split(',')[1], 'base64'));
+    // the committed copy: JPEG 90 encoded by the browser from the PNG (FEAT-095)
+    const jpg = await page.evaluate(async (src) => {
+      const img = new Image(); img.src = src; await img.decode();
+      const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      return c.toDataURL('image/jpeg', 0.9);
+    }, url);
+    const out = path.join(compareDir, slug, `eye-${v.id}.jpg`);
+    fs.writeFileSync(out, Buffer.from(jpg.split(',')[1], 'base64'));
     console.log(`${slug}/${v.id}`, JSON.stringify(pose), weather ? `weather=${weather}` : '', '->', path.relative(REPO, out).split(path.sep).join('/'));
     n++;
   }

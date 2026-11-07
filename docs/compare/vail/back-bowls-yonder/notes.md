@@ -1,6 +1,6 @@
 # Back Bowls, on Yonder near Sun Up Express (Lift 9)
 
-Real: Street View, Feb 2014, contributor Krishna Vinod (links in spot.json; `real-*.png` local only). Overcast day. Game: `eye-<view>.png`, eye camera at (590, 72), 1919x910 to match the Street View window, 2026-11-06.
+Real: Street View, Feb 2014, contributor Krishna Vinod (links in spot.json; `real-*.png` local only). Overcast day. Game: `eye-<view>.jpg`, eye camera at (590, 72), 1919x910 to match the Street View window, 2026-11-06.
 
 **This panorama's compass is about 88 degrees off.** Street View's "north" view looks west in reality. Found by lining up the valley, the far peaks, the ridge and the Sun Up lift tower; every view agrees once `--offset -88` is applied. The view ids here are the true directions. The `south-lift` view had no URL in the screenshot; its heading was matched on the lift tower.
 

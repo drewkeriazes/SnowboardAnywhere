@@ -369,7 +369,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       pack.mask?.request(x - 600, y - 600, x + 600, y + 600);
     };
     /** Save the canvas: into docs/compare through the dev server when ?spot= is set, else a browser download. */
-    const saveShot = (dataUrl: string) => {
+    const saveShot = (dataUrl: string, jpgUrl: string) => {
       const p = cam.eyePose();
       const pose = { x: +p.x.toFixed(1), y: +p.y.toFixed(1), h: +p.h.toFixed(1), pitch: +p.pitch.toFixed(1), fov: +p.fov.toFixed(1), eye: +p.eye.toFixed(2) };
       const u = new URL(location.href);
@@ -382,7 +382,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         showToast('Saved the shot to Downloads');
       };
       if (!spotName) { download(); return; }
-      fetch('/__compare/save', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack: pack.meta.slug, spot: spotName, pose, weather: currentWeather(), link: u.toString(), png: dataUrl }) })
+      fetch('/__compare/save', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack: pack.meta.slug, spot: spotName, pose, weather: currentWeather(), link: u.toString(), png: dataUrl, jpg: jpgUrl }) })
         .then(async (r) => {
           if (!r.ok) throw new Error(await r.text());
           const { file, warning } = await r.json() as { file: string; warning?: string };
@@ -664,7 +664,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       labels.update(cam.camera, settings.units === 'metric');
       render();
       // the drawing buffer is only readable in the same task as the render
-      if (shotPending) { shotPending = false; saveShot(canvas.toDataURL('image/png')); }
+      if (shotPending) { shotPending = false; saveShot(canvas.toDataURL('image/png'), canvas.toDataURL('image/jpeg', 0.9)); }
       controls.endFrame();
 
       fpsAcc += dt; fpsN++;

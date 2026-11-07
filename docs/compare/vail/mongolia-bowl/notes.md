@@ -1,6 +1,6 @@
 # Mongolia Bowl, open slope above Two Elk Connector
 
-Real: Street View, Feb 2014, contributor Krishna Vinod (links in spot.json). Snowing, low cloud. The real screenshots were shared in chat and are not saved locally; reopen the links in spot.json. Game: `eye-<view>.png`, eye camera at (3790, -238), 1919x910, 2026-11-06.
+Real: Street View, Feb 2014, contributor Krishna Vinod (links in spot.json). Snowing, low cloud. The real screenshots were shared in chat and are not saved locally; reopen the links in spot.json. Game: `eye-<view>.jpg`, eye camera at (3790, -238), 1919x910, 2026-11-06.
 
 **Compass about 76 degrees off**, the same as this contributor's In the Wuides panorama from the same month (Yonder was -88). Found from the fall line: downhill is about 270 by the panorama's compass and about 195 grid in the DEM. All four views line up with the correction; view ids are true directions.
 
