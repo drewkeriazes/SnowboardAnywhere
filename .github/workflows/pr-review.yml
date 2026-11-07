@@ -8,6 +8,8 @@
 #      CLAUDE_CODE_OAUTH_TOKEN (Settings > Secrets and variables > Actions).
 #      (Using an API key instead? Swap that line for anthropic_api_key.)
 #
+# Skip: PRs with the `review loop` label get no automatic review (FEAT-117).
+#
 # Manual review: Actions tab > Claude PR review > Run workflow, enter the PR number.
 # Or from a terminal: gh workflow run pr-review.yml -f pr_number=123
 
@@ -32,7 +34,11 @@ concurrency:
 
 jobs:
   review:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    # FEAT-117: no automatic review on PRs labeled `review loop`; a manual run still reviews
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.draft == false &&
+       !contains(github.event.pull_request.labels.*.name, 'review loop'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
