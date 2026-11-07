@@ -15,7 +15,7 @@ import type { Rider } from '../sim/Rider';
  * the floor is below the terrain surface, the vertex shader pulls the depth value a few cm toward
  * the camera so the terrain does not hide it, while real objects in front still occlude it.
  * Clean narrow groove when carving, wide shallow smear when skidding, deeper in powder.
- * Skis cut two narrow grooves. On edge the trench morphs with the carve (FEAT-097): a light turn
+ * Skis cut two narrow grooves. On edge the trench morphs with the carve (FEAT-109): a light turn
  * is a wedge, deep under the engaged edge and rising to the surface on the base side; a committed
  * carve collapses it to a knife cut about 1 cm wide under the edge itself, a sharp wall on the
  * inside of the turn, a smooth slant where the base pressed the snow on the outside, and a small
@@ -155,7 +155,7 @@ class Lane {
     const fill = Math.max(0, 1 - this.age[s] / FADE) * (1 - ringAge * ringAge); // 1 fresh .. 0 filled in
     const depth = this.secC[o + 6] * fill;
     const ridge = this.secC[o + 8] * fill;
-    // ec 0..1: how far the trench has collapsed into the knife cut of a committed carve (FEAT-097)
+    // ec 0..1: how far the trench has collapsed into the knife cut of a committed carve (FEAT-109)
     const ec = edgeCurve(Math.abs(tilt));
     const xs: number[] = [], ys: number[] = [];
     for (let k = 0; k < P; k++) {
@@ -235,7 +235,7 @@ export class Tracks {
   private offsets: number[] = [0];
   private lastX = NaN;
   private lastY = NaN;
-  /** edge tilt smoothed over distance, so the line crosses the board in a soft S between turns (FEAT-097) */
+  /** edge tilt smoothed over distance, so the line crosses the board in a soft S between turns (FEAT-109) */
   private tiltS = 0;
   private tickAcc = 0;
   discipline: 'board' | 'ski' = 'board';
@@ -250,7 +250,7 @@ export class Tracks {
     // the floor is below the terrain surface: bias the depth a few cm toward the camera so the
     // terrain does not cover it, but nearer geometry (rider, trees, ridges) still does
     this.mat.onBeforeCompile = (shader) => {
-      // minimum on-screen width (FEAT-097): a 1 cm carve line is thinner than a pixel at range, so
+      // minimum on-screen width (FEAT-109): a 1 cm carve line is thinner than a pixel at range, so
       // each vertex is held at least 1.5 mm per metre of distance off the centre line; the line
       // widens a little with distance and stays a stable thin line instead of flickering
       shader.vertexShader = 'attribute vec4 aSpread;\n' + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
@@ -340,7 +340,7 @@ export class Tracks {
     this.tiltS = moved > 6 ? raw : this.tiltS + (raw - this.tiltS) * (1 - Math.exp(-moved / 1.2));
     const tilt = this.tiltS;
     const edge = Math.abs(tilt);
-    // a committed carve collapses the trench to a knife cut about 1 cm wide (FEAT-097)
+    // a committed carve collapses the trench to a knife cut about 1 cm wide (FEAT-109)
     const ec = edgeCurve(edge);
     const half = Math.max(MIN_HALF, 0.5 * (L * gs + W * gc * (1 - 0.95 * ec)) + (ski ? 0.05 : 0.15) * skid);
     const depth = DEPTH * (1 + 0.6 * powder) * (1 + 0.3 * edge) * (1 - 0.6 * scrape) * (s.rock + s.scree > 0.5 ? 0.3 : 1);

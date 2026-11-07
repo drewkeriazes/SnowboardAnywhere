@@ -1,4 +1,4 @@
-// Carve track render check (FEAT-097): tucks to speed, links hard carves left and right, and saves
+// Carve track render check (FEAT-109): tucks to speed, links hard carves left and right, and saves
 // shots of the knife-cut line close up, overhead, and looking back up the run from a distance;
 // prints the edge amount and the track half width laid down at each turn.
 // node tools/carveshot.mjs [pack] [outDir] [--headed] [--ski]   (run after `npx vite build`)
