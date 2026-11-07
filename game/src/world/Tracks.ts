@@ -35,7 +35,16 @@ const ACROSS_FREEZE = 1;
 /** BUG-019: the band may grow this many m of half width per m ridden */
 const HALF_GROW_PER_M = 0.5;
 const DEPTH = 0.05; // m, about 2 in on a groomer
-export const FADE = 600; // s until the snow has filled the track back in (bootprints too)
+export const FADE = 600; // s until the snow has filled the track back in in clear weather (bootprints too)
+/**
+ * How many times faster tracks and boot prints fill in while it snows (FEAT-107): clear 1, flurries 2,
+ * storm 5 (a groove is gone in about 2 minutes). Depth goes first and the edges fade last, because the
+ * alpha only drops once fill is under a third, so a filling track softens into a faint dent.
+ */
+export const FILL_RATE = { clear: 1, flurries: 2, storm: 5 } as const;
+let fillRate: number = FILL_RATE.clear;
+export function setTrackFillRate(rate: number): void { fillRate = rate; }
+export const trackFillRate = (): number => fillRate;
 /** BUG-043: rock coverage above which no groove is laid, and where it starts to fade out */
 const ROCK_CUT = 0.5, ROCK_FADE = 0.3;
 // cross-section profile: [offset across in units of the half width (+ fixed metres), height factor of DEPTH, alpha]
@@ -226,7 +235,8 @@ class Lane {
 
   /** Age and re-shape (called a couple of times a second). */
   tick(dt: number): void {
-    for (let s = 0; s < this.count; s++) { this.age[s] += dt; this.shape(s); }
+    const aged = dt * fillRate;
+    for (let s = 0; s < this.count; s++) { this.age[s] += aged; this.shape(s); }
     this.flag();
   }
 
@@ -314,6 +324,7 @@ export class Tracks {
   setDiscipline(d: 'board' | 'ski'): void {
     if (d === this.discipline && this.lanes.length) return;
     this.discipline = d;
+    this.merged = false;
     for (const l of this.lanes) { this.group.remove(l.mesh); l.dispose(); }
     this.offsets = d === 'ski' ? [-0.12, 0.12] : [0];
     this.lanes = this.offsets.map(() => new Lane(this.mat));
@@ -384,7 +395,9 @@ export class Tracks {
     // floor; draw one band centred between the skis instead, and split back when they separate.
     // Hysteresis (merge at overlap, split once the gap is back to 80 %) stops it flickering.
     const spread = this.offsets.length > 1 ? Math.abs(this.offsets[1] - this.offsets[0]) * 0.5 * gc : 0;
-    if (spread > 0) this.merged = this.merged ? half > spread * 0.8 : half > spread;
+    const wasMerged = this.merged;
+    this.merged = spread > 0 && (this.merged ? half > spread * 0.8 : half > spread);
+    if (this.merged !== wasMerged && this.lanes.length) this.lanes[0].gap(); // lane 0 jumps between the centre and its ski; no skewed joining quad
     this.offsets.forEach((off, i) => {
       if (this.merged && i > 0) { this.lanes[i].gap(); return; } // the first lane carries the one band
       const o = this.merged ? shift : off * gc + shift; // skis turned across the travel direction sweep the same band
