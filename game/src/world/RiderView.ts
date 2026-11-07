@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Rider } from '../sim/Rider';
 import type { Pack } from '../pack/Pack';
 import { lerpPose, clonePose, defaultMaterials, POSES, SKI_POSES, WALK_POSES, type Pose, type RiderMaterials } from './RiderModel';
-import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, bendBoard, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
+import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, bendBoard, deckY, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
 import { Gait, type Plant } from './Gait';
 
 /** FEAT-112: half the skis' length (where they pivot) and the most they tip up on a full lean (rad) */
@@ -10,6 +10,9 @@ const BOARD_HALF = 0.72, LEAN_TIP = 18 * Math.PI / 180;
 /** FEAT-118: board flex spring: natural frequency (rad/s, about 0.3 s a cycle) and damping ratio
  *  (0.45 overshoots about 20 %, so a full load snaps past flat to about -0.15 on the pop) */
 const FLEX_W = 21, FLEX_ZETA = 0.45;
+/** BUG-047: the hip joint stays this far above the deck under it (the glutes hang 0.1 to 0.15 m below
+ *  the joint), and on a full load the hips move this far toward the loaded end (m) */
+const HIP_CLEAR = 0.2, HIP_SHIFT = 0.12;
 /** BUG-034: share of a skier's counter-rotation taken by the pelvis (the rest is the chest) */
 const SKI_HIP_TWIST = 0.35;
 
@@ -242,9 +245,9 @@ export class RiderView {
   }
 
   /** FK from the blended pose: pelvis, spine, head and arms. Leg angles only stand when seated. */
-  private applyFK(p: Pose, xOff: number): void {
+  private applyFK(p: Pose, xOff: number, zOff = 0): void {
     const B = this.rig.bones;
-    B.Hips.position.set(xOff, p.hipsY, 0);
+    B.Hips.position.set(xOff, p.hipsY, zOff);
     // pitch convention in the tables: positive = bend toward the face; +X rotation tips +Y toward
     // +Z (the back), so pitches are negated. The waist bend spreads over three spine bones.
     B.Hips.rotation.set(-p.hipsRot[0], p.hipsRot[1], p.hipsRot[2]);
@@ -378,7 +381,8 @@ export class RiderView {
       if (r.squat > 0) lerpPose(t, t, P.squat, r.squat); // FEAT-111: deeper than tuck or charge, wins over both
       // FEAT-085 skating: knees bent, chest over the front foot, bobbing down into each push
       // FEAT-112: hips over the loaded end, the chest leaning with them
-      if (Math.abs(r.lean) > 0.01) { t.torso = [t.torso[0] + 0.3 * r.lean, t.torso[1], t.torso[2]]; t.hipsY -= 0.06 * Math.abs(r.lean); }
+      // BUG-047: no extra drop when already squatting or charged (that put the seat through the deck)
+      if (Math.abs(r.lean) > 0.01) { t.torso = [t.torso[0] + 0.3 * r.lean, t.torso[1], t.torso[2]]; t.hipsY -= 0.06 * Math.abs(r.lean) * (1 - Math.min(1, Math.max(r.squat, r.jumpCharge))); }
       if (r.skating) { const push = Math.max(0, Math.cos(r.skatePhase * Math.PI * 2)); lerpPose(t, t, P.crouch, 0.35 + 0.25 * push); t.torso = [t.torso[0] + 0.25 * push, t.torso[1], t.torso[2]]; }
       if (r.landingShock > 0) lerpPose(t, t, P.land, Math.min(1, r.landingShock * 1.5));
       // knees bent and hips low in proportion to how hard the edge is biting
@@ -429,7 +433,14 @@ export class RiderView {
     const p = this.pose;
     const hy = p.hipsY, tx = p.torso[0];
     p.hipsY += Math.sin(now * 2.1) * 0.004; p.torso[0] += Math.sin(now * 1.3) * 0.015;
-    this.applyFK(p, -side * 0.13);
+    // BUG-047: the hips sit over the loaded end and never below the deck under them
+    let hipZ = 0;
+    if (this.discipline === 'board' && !seated) {
+      hipZ = -this.flexDir * HIP_SHIFT * Math.max(0, Math.min(1, this.flex));
+      const floor = deckY(this.rig, hipZ) + 0.022 + HIP_CLEAR;
+      if (p.hipsY < floor) p.hipsY = floor;
+    }
+    this.applyFK(p, -side * 0.13, hipZ);
     p.hipsY = hy; p.torso[0] = tx;
 
     // ---- legs: boots pinned to the bindings, or on a chair the board hangs from the feet
