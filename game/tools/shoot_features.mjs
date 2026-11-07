@@ -5,10 +5,11 @@ const { chromium } = pw;
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { DIST } from './paths.mjs';
 
 const pack = process.argv[2] ?? 'synth';
 const outDir = process.argv[3] ?? 'shots-features';
-const dist = path.resolve('dist');
+const dist = DIST;
 fs.mkdirSync(outDir, { recursive: true });
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.bin': 'application/octet-stream', '.css': 'text/css' };
 const server = http.createServer((req, res) => {

@@ -10,6 +10,6 @@ Real: Street View, Feb 2014 (links in spot.json; not stored here). Game: `game-e
 - **Sky:** high cirrus streaks in the real photo; ours is clear. A "thin high cloud" weather option. -> FEAT-069 note
 
 ## Eye camera shots (DATA-008, 2026-11-06)
-`eye-east.png` and `eye-south.png`: 1.7 m above the converted Street View position (2866, -2968), headings corrected to grid north, Street View pitch and FOV. Re-shoot with `node tools/shoot_spots.mjs vail blue-sky-hornsilver --gpu`.
+`eye-east.png` and `eye-south.png`: 1.7 m above the converted Street View position (2866, -2968), headings corrected to grid north, Street View pitch and FOV. Re-shoot with `cd game && node tools/shoot_spots.mjs vail blue-sky-hornsilver --gpu`.
 - **Same finding, clearer:** looking east the game is an open snowfield rising to a line of small cones and the lift; the real spot is a glade with forest close on all sides. -> BUG-023
 - **Black pyramids up close:** the large solid black cones at the right edge (east) and the left (south) are krummholz instances (4.5 m tall; the nearest is 16 m from the camera), each a single flat-shaded cone. -> FEAT-070

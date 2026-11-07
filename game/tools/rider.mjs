@@ -5,13 +5,14 @@ const { chromium } = await import('playwright').catch(() => import('/opt/npm-too
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { DIST, PACKS } from './paths.mjs';
 
 const args = process.argv.slice(2);
 const headed = args.includes('--headed') || process.env.SHOT_HEADED === '1';
 const positional = args.filter((a) => !a.startsWith('--'));
 const pack = positional[0] ?? 'synth';
 const outDir = positional[1] ?? 'shots-rider';
-const dist = path.resolve('dist'), packs = path.resolve('..', 'packs');
+const dist = DIST, packs = PACKS;
 fs.mkdirSync(outDir, { recursive: true });
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.webp': 'image/webp', '.bin': 'application/octet-stream', '.css': 'text/css' };
 const server = http.createServer((req, res) => {

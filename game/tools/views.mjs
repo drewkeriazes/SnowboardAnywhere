@@ -8,6 +8,7 @@ const { chromium } = await import('playwright').catch(() => import('/opt/npm-too
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { DIST, PACKS } from './paths.mjs';
 
 const args = process.argv.slice(2);
 const headed = args.includes('--headed') || process.env.SHOT_HEADED === '1';
@@ -15,8 +16,8 @@ const gpu = args.includes('--gpu'); // headless on the real GPU (Windows: ANGLE 
 const [pack = 'vail', outDir = 'shots-views', viewsFile] = args.filter((a) => !a.startsWith('--'));
 if (!viewsFile) { console.error('usage: node tools/views.mjs <pack> <outDir> <views.json> [--headed]'); process.exit(1); }
 const views = JSON.parse(fs.readFileSync(viewsFile, 'utf8'));
-const dist = path.resolve('dist');
-const packs = path.resolve('..', 'packs');
+const dist = DIST;
+const packs = PACKS;
 fs.mkdirSync(outDir, { recursive: true });
 
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.bin': 'application/octet-stream', '.css': 'text/css' };

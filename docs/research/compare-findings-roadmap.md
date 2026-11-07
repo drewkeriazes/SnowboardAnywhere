@@ -83,7 +83,7 @@ The pairs become a regression test. Proposed `tools/compare_metrics.py` (Python,
 - Output `docs/compare/vail/metrics.md`: one row per spot, pass / fail against targets, and the delta from the previous run.
 - Optional, on Drew's PC where `real-*.png` exist: image statistics per view (share of dark forest pixels below the horizon, sky brightness) for real and game, so tree cover and tone have a number, not only a judgement.
 
-Run after each pack rebuild together with `node tools/shoot_spots.mjs vail --gpu --size 1919x910`, and commit the new shots and metrics with the change.
+Run after each pack rebuild together with `cd game && node tools/shoot_spots.mjs vail --gpu --size 1919x910`, and commit the new shots and metrics with the change.
 
 ## 6. Open questions
 
