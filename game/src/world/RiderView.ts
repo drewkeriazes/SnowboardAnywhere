@@ -143,6 +143,7 @@ export class RiderView {
 
   constructor() {
     this.mats = defaultMaterials();
+    this.group.name = 'rider'; this.lean.name = 'rider lean';
     this.group.add(this.lean);
     this.rig = this.mount('board');
 
@@ -154,6 +155,7 @@ export class RiderView {
     geo.setAttribute('position', new THREE.BufferAttribute(this.sprayPos, 3));
     this.spray = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.28, map: sprayTexture(), transparent: true, opacity: 0.75, depthWrite: false, alphaTest: 0.05 }));
     this.spray.frustumCulled = false;
+    this.spray.name = 'snow spray';
   }
 
   get sprayObject(): THREE.Points {
