@@ -7,6 +7,7 @@ const { chromium } = await import('playwright').catch(() => import('/opt/npm-too
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { DIST, PACKS } from './paths.mjs';
 
 const args = process.argv.slice(2);
 const headed = args.includes('--headed');
@@ -14,8 +15,8 @@ const positional = args.filter((a) => !a.startsWith('--'));
 const pack = positional[0] ?? 'synth';
 const seconds = Number(positional[1] ?? 25);
 const LATE_M = 150;
-const dist = path.resolve('dist');
-const packs = path.resolve('..', 'packs');
+const dist = DIST;
+const packs = PACKS;
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.webp': 'image/webp', '.bin': 'application/octet-stream', '.css': 'text/css' };
 const server = http.createServer((req, res) => {
   const u = decodeURIComponent(req.url.split('?')[0]);

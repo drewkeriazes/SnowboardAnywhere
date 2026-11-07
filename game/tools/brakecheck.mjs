@@ -4,12 +4,13 @@
 // node tools/brakecheck.mjs        (exit code 1 if a check fails)
 import { build } from 'esbuild';
 import path from 'node:path';
+import { GAME } from './paths.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 
 const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'brakecheck-')), 'rider.mjs');
-await build({ entryPoints: [path.resolve('src/sim/Rider.ts')], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error' });
+await build({ entryPoints: [path.join(GAME, 'src', 'sim', 'Rider.ts')], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error' });
 const { Rider } = await import(pathToFileURL(out).href);
 
 const D = Math.PI / 180;

@@ -78,9 +78,37 @@ def write_instances(out_dir: str, kind: str, recs: np.ndarray, cell: float, min_
         recs[s:e].astype("<f4").tofile(os.path.join(d, f"{tx}_{ty}.bin"))
     return int(len(recs))
 
+def index_cells(out_dir: str, meta: dict) -> None:
+    """List the tree and rock cells that have a file, so the client never asks for empty ones (BUG-036)."""
+    inst = meta.get("instances")
+    if not inst:
+        return
+    for kind, field in (("trees", "treeCells"), ("rocks", "rockCells")):
+        d = os.path.join(out_dir, kind)
+        names = sorted(f[:-4] for f in os.listdir(d) if f.endswith(".bin")) if os.path.isdir(d) else []
+        inst[field] = names  # "cx_cy", matching the file names
+
+def index_packs(packs_dir: str) -> None:
+    """packs/index.json: slugs of every pack with a meta.json, so the menu does not probe missing resorts (BUG-036)."""
+    slugs = sorted(n for n in os.listdir(packs_dir) if os.path.isfile(os.path.join(packs_dir, n, "meta.json")))
+    with open(os.path.join(packs_dir, "index.json"), "w") as f:
+        json.dump({"packs": slugs}, f, indent=1)
+
 def write_meta(out_dir: str, meta: dict):
+    index_cells(out_dir, meta)
     with open(os.path.join(out_dir, "meta.json"), "w") as f:
         json.dump(meta, f, indent=1)
+    index_packs(os.path.dirname(os.path.abspath(out_dir)))
+
+if __name__ == "__main__":
+    # Re-index an existing pack without rebuilding it: python pipeline/packwriter.py packs/vail
+    import sys
+    for pack_dir in sys.argv[1:]:
+        with open(os.path.join(pack_dir, "meta.json")) as f:
+            m = json.load(f)
+        write_meta(pack_dir, m)
+        inst = m.get("instances") or {}
+        print(f"{pack_dir}: {len(inst.get('treeCells', []))} tree cells, {len(inst.get('rockCells', []))} rock cells; packs/index.json updated")
 
 def write_features(out_dir: str, features: dict):
     with open(os.path.join(out_dir, "features.json"), "w") as f:

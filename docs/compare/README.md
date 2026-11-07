@@ -80,3 +80,5 @@ Still to find (aim for 20 per resort, spread across bowls, glades, groomers, rid
 ## Licensing
 
 Street View images are Google's and cannot be shipped or published (see DATA-005, #18), and this repo is public. `real*.png` is gitignored; `spot.json` stores the Street View URL so anyone can reopen the real view. Game screenshots are ours and are committed.
+
+The tools find `dist/`, `packs/` and `docs/compare/` from their own location, so `node game/tools/shoot_spots.mjs vail --gpu` from the repo root works too (BUG-039). `npx vite build` still has to run inside `game/`.

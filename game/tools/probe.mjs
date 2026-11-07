@@ -1,7 +1,8 @@
 // Minimal probe: load, step small batches, report timing of each step. Finds hangs.
 const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
-const dist = path.resolve('dist'); const packs = path.resolve('..', 'packs');
+import { DIST, GAME, PACKS } from './paths.mjs';
+const dist = DIST; const packs = PACKS;
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.bin': 'application/octet-stream' };
 const server = http.createServer((req, res) => { const u = decodeURIComponent(req.url.split('?')[0]); const p = u.startsWith('/packs/') ? path.join(packs, u.slice(7)) : path.join(dist, u); if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); res.end(); return; } res.writeHead(200, { 'content-type': types[path.extname(p)] ?? 'application/octet-stream' }); fs.createReadStream(p).pipe(res); });
 await new Promise((r) => server.listen(0, r));
@@ -27,6 +28,6 @@ for (let i = 0; i < 6; i++) {
   log('ride', i, 'wall', Date.now() - t0, JSON.stringify(r));
 }
 const dataUrl = await page.evaluate(() => window.__shot());
-fs.writeFileSync('shots/probe.png', Buffer.from(dataUrl.split(',')[1], 'base64'));
+fs.mkdirSync(path.join(GAME, 'shots'), { recursive: true }); fs.writeFileSync(path.join(GAME, 'shots', 'probe.png'), Buffer.from(dataUrl.split(',')[1], 'base64'));
 log('shot written');
 await browser.close(); server.close();

@@ -26,6 +26,9 @@ export interface InstancesMeta {
   cellsY: number;
   treeCount?: number;
   rockCount?: number;
+  /** cells that have a file, as "cx_cy"; absent in packs built before BUG-036 (then every cell is requested) */
+  treeCells?: string[];
+  rockCells?: string[];
 }
 
 export interface PackMeta {
@@ -42,7 +45,7 @@ export interface PackMeta {
   /** baked sky visibility (greyscale PNG tiles, same layout as the mask), FEAT-047 */
   ao?: MaskMeta;
   instances?: InstancesMeta;
-  start: { x: number; y: number; heading: number };
+  start: { x: number; y: number; heading: number; run?: string };
   sun: { azimuth: number; elevation: number };
   attribution: string[];
 }
