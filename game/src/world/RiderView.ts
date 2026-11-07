@@ -4,11 +4,14 @@ import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
 import { Ragdoll, RAGDOLL_RECOVER } from './Ragdoll';
 import { lerpPose, clonePose, defaultMaterials, POSES, SKI_POSES, WALK_POSES, type Pose, type RiderMaterials } from './RiderModel';
-import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, BONES as BONE_LIST, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
+import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, bendBoard, BONES as BONE_LIST, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
 import { Gait, type Plant } from './Gait';
 
-/** FEAT-112: half the board's length (where it pivots) and the most it tips up on a full lean (rad) */
+/** FEAT-112: half the skis' length (where they pivot) and the most they tip up on a full lean (rad) */
 const BOARD_HALF = 0.72, LEAN_TIP = 18 * Math.PI / 180;
+/** FEAT-118: board flex spring: natural frequency (rad/s, about 0.3 s a cycle) and damping ratio
+ *  (0.45 overshoots about 20 %, so a full load snaps past flat to about -0.15 on the pop) */
+const FLEX_W = 21, FLEX_ZETA = 0.45;
 /** BUG-034: share of a skier's counter-rotation taken by the pelvis (the rest is the chest) */
 const SKI_HIP_TWIST = 0.35;
 
@@ -89,6 +92,8 @@ export class RiderView {
   private poses: Record<string, Pose> = POSES;
   discipline: 'board' | 'ski' = 'board';
   private leanAngle = 0;
+  /** FEAT-118: board bend (0 flat .. 1 full load), its rate, and which end is loaded (-1 tail, +1 nose) */
+  private flex = 0; private flexV = 0; private flexDir = -1;
   private twist = 0;
   private wasSeated = false;
   /** worst ankle-to-binding distance after the last solve (m); 0 means the boots are on the bindings */
@@ -196,6 +201,7 @@ export class RiderView {
     this.rig = this.mount(d);
     this.poses = d === 'ski' ? SKI_POSES : POSES;
     Object.assign(this.pose, clonePose(this.poses.neutral));
+    this.flex = 0; this.flexV = 0;
     this.wasSeated = false;
     this.footActive = false; this.gaitLive = false;
     this.setFirstPerson(this.fp);
@@ -298,6 +304,7 @@ export class RiderView {
     // on foot, or stepping on or off the board
     const u = seated ? 0 : r.footU;
     if (u > 0 && this.pack && this.gait) {
+      if (this.flex !== 0) { this.flex = 0; this.flexV = 0; bendBoard(this.rig, 0, this.flexDir); } // FEAT-118: flat when carried
       this.updateFoot(r, dt, u);
       this.updateSpray(r, dt, this.tmpF, this.tmpR, false);
       return;
@@ -341,7 +348,17 @@ export class RiderView {
     // FEAT-112: the board tips up about its loaded end, up to 18 deg: nose up on a lean back (ollie,
     // tail press), tail up on a lean forward (nollie, nose press). The feet ride the bindings with it.
     const L = r.lean ?? 0;
-    if (Math.abs(L) > 0.01 && !seated) {
+    if (this.discipline === 'board') {
+      // FEAT-118: the snowboard bends instead: tail flat, arched from the back foot, nose up.
+      // The load grows with the lean and the jump charge and lets go in the air (the pop).
+      this.rig.board.rotation.set(0, 0, 0);
+      const target = seated || !r.onGround ? 0 : Math.abs(L) * (0.6 + 0.4 * Math.min(1, r.jumpCharge));
+      if (Math.abs(L) > 0.01) this.flexDir = Math.sign(L);
+      const h = Math.min(dt, 0.05);
+      this.flexV += (FLEX_W * FLEX_W * (target - this.flex) - 2 * FLEX_ZETA * FLEX_W * this.flexV) * h;
+      this.flex += this.flexV * h;
+      bendBoard(this.rig, this.flex, this.flexDir);
+    } else if (Math.abs(L) > 0.01 && !seated) {
       const end = L < 0 ? BOARD_HALF : -BOARD_HALF; // the end that stays down (local -Z is the nose)
       this.rig.board.rotation.set((L < 0 ? 1 : -1) * Math.abs(L) * LEAN_TIP, 0, 0);
       this.pivot.set(0, 0, end);
