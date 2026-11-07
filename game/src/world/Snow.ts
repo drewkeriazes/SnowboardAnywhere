@@ -68,6 +68,9 @@ export class Snow {
   /** How many flakes to draw (quality). */
   setCount(n: number): void { this.geo.setDrawRange(0, Math.min(n, this.geo.getAttribute('seed').count)); }
 
+  /** the current gusting wind the flakes drift with (three.js x, z; m/s) */
+  get wind(): THREE.Vector2 { return this.mat.uniforms.uWind.value as THREE.Vector2; }
+
   update(dt: number, camera: THREE.PerspectiveCamera, viewportHeight: number, brightness: number): void {
     if (!this.points.visible) return;
     this.time += dt;
