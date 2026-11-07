@@ -5,9 +5,10 @@ import type { Collider } from '../sim/Collider';
 
 /**
  * Bridges. The terrain is bare-earth lidar, which has no bridges, so a run or road that crosses
- * a gully would drop into it. Ways tagged bridge=* in OSM become decks straight away; for packs
- * built before the pipeline kept that tag, short run/road segments whose straight line passes
- * well above the loaded 1 m terrain are detected as bridges once the fine tiles arrive.
+ * a gully would drop into it. Ways tagged bridge=* in OSM become decks straight away. The gap
+ * detector (short run/road segments whose straight line passes well above the loaded 1 m terrain)
+ * built false bridges across open bowls (BUG-022), so it only runs with `?bridgeguess`, for packs
+ * built before the pipeline kept the OSM tag.
  * A deck is registered with the pack (so rider ground follows it), drawn with railings and
  * girders, and its railings are collider walls.
  */
@@ -29,7 +30,7 @@ export class Bridges {
   private readonly woodMat = new THREE.MeshStandardMaterial({ color: 0x5a4636, roughness: 0.8 });
   private readonly steelMat = new THREE.MeshStandardMaterial({ color: 0x3d4248, roughness: 0.6, metalness: 0.3 });
 
-  constructor(private readonly pack: Pack, private readonly collider: Collider | null) {
+  constructor(private readonly pack: Pack, private readonly collider: Collider | null, guess = false) {
     const ways: { pts: [number, number, number][]; hw: number; bridge: boolean; run: boolean }[] = [];
     for (const r of pack.features.runs) if (!r.area && r.points.length >= 2) ways.push({ pts: r.points, hw: 3, bridge: !!r.bridge, run: true });
     for (const r of pack.features.roads) if (r.points.length >= 2) ways.push({ pts: r.points, hw: Math.max(2.5, r.width / 2 + 0.5), bridge: !!r.bridge, run: false });
@@ -40,6 +41,7 @@ export class Bridges {
         this.addBridge(a, b, w.hw);
         continue;
       }
+      if (!guess) continue; // untagged ways are not bridges unless the detector is asked for
       for (let i = 0; i + 1 < w.pts.length; i++) {
         const a = w.pts[i], b = w.pts[i + 1];
         const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
