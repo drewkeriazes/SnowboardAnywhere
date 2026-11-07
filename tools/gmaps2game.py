@@ -13,7 +13,7 @@ a link that opens the eye camera there:
 - pitch: Street View tilt 90 is level, so pitch = tilt - 90 (negative looks down).
 - fov: the URL's `y` value, used as the vertical FOV.
 - `--spot back-bowls-campbells/east` adds `&spot=...` so the game's P key saves
-  docs/compare/<pack>/back-bowls-campbells/eye-east.png and records the pose.
+  docs/compare/<pack>/back-bowls-campbells/eye-east.jpg and records the pose.
 - `--add` also writes the view into docs/compare/<pack>/<spot>/spot.json (creates it if new).
 - `--offset DEG` corrects a panorama whose compass is wrong (common on contributor photospheres;
   Google's own imagery is calibrated). Find it by lining up a far landmark, then pass the same

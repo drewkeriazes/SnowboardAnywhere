@@ -1,6 +1,6 @@
 # China Bowl, Poppyfields / Dragon's Teeth
 
-Real: Street View, Mar 2014, contributor Josh Jett, listed as "Vail Ski Resort" (links in spot.json; `real-*.png` local only). Clear spring sky. Game: `eye-<view>.png`, eye camera at (1583, -30), 1919x910, 2026-11-06. This is the panorama behind the FEAT-069 rock findings.
+Real: Street View, Mar 2014, contributor Josh Jett, listed as "Vail Ski Resort" (links in spot.json; `real-*.png` local only). Clear spring sky. Game: `eye-<view>.jpg`, eye camera at (1583, -30), 1919x910, 2026-11-06. This is the panorama behind the FEAT-069 rock findings.
 
 **This panorama's compass is about 105 degrees off**, the biggest error so far; the pin position is right. Found from the far peaks: by the panorama's compass the snowy range spans 314 to 349 degrees, but from here the high peaks (Holy Cross and the Sawatch) lie at about 210 to 245 degrees. Confirmed in all four views. View ids are true directions. The earlier FEAT-069 "matched" framing at (2561, -537) was for a different photo; that spot does not match these views.
 

@@ -1,2 +1,5 @@
 # Street View / Google imagery is reference only and must not be committed (public repo).
 real*.png
+
+# Eye shots: the committed copy is eye-<view>.jpg (FEAT-095); the lossless PNG next to it stays local
+eye-*.png

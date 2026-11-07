@@ -1,6 +1,6 @@
 # Born Free, at the Cub's Way junction
 
-Real: Google Street View trekker, Mar 2012 (Google's own imagery, so position and compass are calibrated; links in spot.json, `real-*.png` local only). Sunny spring snow. Game: `eye-<view>.png`, eye camera at (-3256, 2724), 1919x910, 2026-11-06. This is 480 m down the run from the game's start position.
+Real: Google Street View trekker, Mar 2012 (Google's own imagery, so position and compass are calibrated; links in spot.json, `real-*.png` local only). Sunny spring snow. Game: `eye-<view>.jpg`, eye camera at (-3256, 2724), 1919x910, 2026-11-06. This is 480 m down the run from the game's start position.
 
 ## What matches
 - **Terrain:** the run's fall line north, the valley view opening ahead (north, north-west), and the open slope rising to the ridge in the south-east.
