@@ -10,6 +10,8 @@ export interface Input {
   jumpHeld: boolean;
   jumpReleased: boolean;
   grab: boolean;
+  /** Left Ctrl held: deep squat (FEAT-111) */
+  squat?: boolean;
 }
 
 export interface SurfaceInfo {
@@ -89,6 +91,26 @@ const FEEL: Record<Discipline, { steerSlow: number; steerTuck: number; steerSpee
  * sin(gamma), on top of the slope's own pull, so more edge than slope slows you. `heading` stays
  * the steering axis; `boardYaw` is the board as drawn and as it marks the snow.
  */
+/** FEAT-111 deep squat: ease time (s), extra grip, share of the tuck's drag cut, jump bonus and its window after letting go (s) */
+const SQUAT_IN = 0.25;
+const SQUAT_GRIP = 0.08;
+const SQUAT_AERO = 0.3;
+const SQUAT_POP = 1.15;
+const SQUAT_SPRING_WINDOW = 0.25;
+/** FEAT-110 flips: full-input pitch rate (1.1 rotations a second), how fast it builds and decays (1/s),
+ * and the landing windows (rad): within FLIP_CLEAN of upright is clean, up to FLIP_CRASH a wobble, past it a crash */
+const FLIP_RATE = 1.1 * Math.PI * 2;
+const FLIP_EASE = 6, FLIP_DECAY = 4;
+const FLIP_CLEAN = 35 * Math.PI / 180, FLIP_CRASH = 60 * Math.PI / 180;
+const COUNT = ['', '', 'Double ', 'Triple ', 'Quad '];
+/** "Backflip", "Double front flip", "Rodeo 540" (a backflip with a spin), "Front flip 360" */
+export function trickName(flip: number, spin: number, rotations: number): string {
+  const n = COUNT[Math.min(rotations, 4)] ?? `${rotations}x `;
+  const turns = Math.round(Math.abs(spin) / Math.PI) * 180;
+  if (turns >= 360) return flip < 0 ? `${n}Rodeo ${turns}` : `${n}Front flip ${turns}`;
+  return `${n}${flip > 0 ? 'front flip' : 'backflip'}`.replace(/^./, (c) => c.toUpperCase());
+}
+
 export class Rider {
   x = 0; y = 0; z = 0; // position, local metres (z up)
   vx = 0; vy = 0; vz = 0;
@@ -96,9 +118,18 @@ export class Rider {
   onGround = true;
   airTime = 0;
   jumpCharge = 0;
+  /** 0..1 how far into the deep squat (FEAT-111), eased over about 0.25 s */
+  squat = 0;
+  /** s since the squat was let go from deep; a jump right then pops higher */
+  private squatUp = 9;
   speed = 0;
   edgeAngle = 0; // visual, -1..1
   spin = 0; // extra yaw while airborne
+  /** FEAT-110: pitch rotation in the air (rad, + = front flip, nose down) and its rate */
+  flip = 0;
+  flipRate = 0;
+  /** FEAT-110: called on landing a flip ("Backflip", "Double front flip", "Rodeo 540"), clean or sketchy */
+  onTrick: ((name: string) => void) | null = null;
   crashed = 0; // seconds remaining in a crash
   surface: SurfaceInfo = { rock: 0, scree: 0, groomed: 0, canopy: 0 };
   normal: [number, number, number] = [0, 0, 1];
@@ -250,6 +281,7 @@ export class Rider {
     while (this.accum >= STEP) {
       this.prev[0] = this.x; this.prev[1] = this.y; this.prev[2] = this.z; this.prev[3] = this.heading; this.prev[4] = this.boardYaw;
       const fb = this.pack.coarseFallbacks;
+      this.easeSquat(STEP, !!input.squat);
       this.step(STEP, input);
       this.steps++;
       if (this.pack.coarseFallbacks !== fb) this.onCoarse();
@@ -258,6 +290,14 @@ export class Rider {
     }
     this.end[0] = this.x; this.end[1] = this.y; this.end[2] = this.z; this.end[3] = this.heading;
     this.alpha = this.accum / STEP;
+  }
+
+  /** FEAT-111: blend into or out of the squat, and time how long ago a deep squat was released */
+  private easeSquat(dt: number, held: boolean): void {
+    const was = this.squat;
+    this.squat = held ? Math.min(1, was + dt / SQUAT_IN) : Math.max(0, was - dt / SQUAT_IN);
+    if (!held && was >= 0.6 && this.squatUp > 1) this.squatUp = 0; // let go from deep: the spring window opens
+    else this.squatUp += dt;
   }
 
   private snapPose(): void {
@@ -335,6 +375,12 @@ export class Rider {
       // air control: spin with steer, slight drift
       this.spin += input.steer * 3.5 * dt;
       this.heading += input.steer * 3.5 * dt;
+      // FEAT-110: Up/W pitches forward (front flip), Down/S back (backflip); the rate builds while
+      // held and carries on a little after letting go, like real momentum
+      const want = (input.tuck ? 1 : 0) - (input.brake ? 1 : 0);
+      if (want !== 0) this.flipRate += (want * FLIP_RATE - this.flipRate) * Math.min(1, dt * FLIP_EASE);
+      else this.flipRate *= Math.exp(-dt * FLIP_DECAY);
+      this.flip += this.flipRate * dt;
       this.x += this.vx * dt; this.y += this.vy * dt; this.z += this.vz * dt;
       this.travelYaw += input.steer * 3.5 * dt; // spin carries the swung board round with it
       this.poseBoard();
@@ -367,7 +413,7 @@ export class Rider {
     const groomed = this.surface.groomed;
     const rock = this.surface.rock;
     const powder = Math.max(0, 1 - groomed) * (this.surface.canopy > 0.3 ? 1 : 0.6);
-    const gripBase = 1.0 + 0.4 * groomed - 0.5 * rock;
+    const gripBase = (1.0 + 0.4 * groomed - 0.5 * rock) * (1 + SQUAT_GRIP * this.squat); // low centre of mass bites a little more
 
     // brake: swing the board across the direction of travel (a hockey stop). Steer picks the
     // stance (right = toeside, left = heelside); otherwise the edge already engaged, else heelside.
@@ -422,7 +468,8 @@ export class Rider {
     this.lateralG += ((latAcc / G) - this.lateralG) * Math.min(1, dt * 12);
 
     // drag: aerodynamic + snow. Tuck lowers aero, powder adds speed-scaled drag, skidding scrubs speed
-    const aero = (input.tuck ? F.aeroTuck : F.aero) * spd * spd * (this.boost ? 0.55 : 1);
+    const aeroK = input.tuck ? F.aeroTuck : F.aero + (F.aeroTuck - F.aero) * SQUAT_AERO * this.squat; // a squat is part way to a tuck
+    const aero = aeroK * spd * spd * (this.boost ? 0.55 : 1);
     const snowDrag = 0.015 * G * (1 - 0.5 * groomed) + powder * 0.004 * spd + 0.35 * this.skid * G;
     const dragAcc = aero + snowDrag + brakeAcc;
     if (spd > 0.01) {
@@ -451,9 +498,11 @@ export class Rider {
     // jump: hold to charge, release to pop (impulse along the normal plus the slope direction)
     if (input.jumpHeld) this.jumpCharge = Math.min(1, this.jumpCharge + dt * 1.6);
     if (input.jumpReleased && this.jumpCharge > 0.1) {
-      const pop = 2.5 + 4.5 * this.jumpCharge;
+      // jumping from a deep squat, or within SQUAT_SPRING_WINDOW of standing up from one: a bigger pop
+      const spring = this.squat >= 0.6 || this.squatUp < SQUAT_SPRING_WINDOW ? SQUAT_POP : 1;
+      const pop = (2.5 + 4.5 * this.jumpCharge) * spring;
       this.vx += n[0] * pop; this.vy += n[1] * pop; this.vz = n[2] * pop + Math.max(0, -(this.vx * n[0] + this.vy * n[1]));
-      this.onGround = false; this.airTime = 0; this.spin = 0; this.jumpCharge = 0;
+      this.onGround = false; this.airTime = 0; this.spin = 0; this.flip = 0; this.flipRate = 0; this.jumpCharge = 0;
       this.z = ground + 0.05;
       return;
     }
@@ -467,7 +516,7 @@ export class Rider {
     const ballistic = this.vz - G * dt;
     if (ballistic > vzSurf + 1.5 && spd > 6) {
       // the ground drops away faster than we fall: airborne
-      this.onGround = false; this.airTime = 0; this.spin = 0;
+      this.onGround = false; this.airTime = 0; this.spin = 0; this.flip = 0; this.flipRate = 0;
       this.z = Math.max(this.z, g2 + 0.02);
       this.vz = vzSurf; // start with the surface's vertical speed
     } else {
@@ -496,7 +545,7 @@ export class Rider {
             const launch = Math.min(0.9, 0.25 + 0.9 * headOn) * Math.min(1, h / 1.5);
             this.vz = Math.max(this.vz, spdNow * launch * 0.5 + 1.5);
             this.vx *= 1 - 0.12 * headOn; this.vy *= 1 - 0.12 * headOn;
-            this.onGround = false; this.airTime = 0; this.spin = 0;
+            this.onGround = false; this.airTime = 0; this.spin = 0; this.flip = 0; this.flipRate = 0;
             this.z = Math.max(this.z, hit.top - 0.3);
             this.landingShock = 0.3;
           } else if (headOn < 0.5) {
@@ -575,6 +624,7 @@ export class Rider {
     if (this.sprinting) this.stamina = Math.max(0, this.stamina - dt);
     else this.stamina = Math.min(STAMINA, this.stamina + dt * (fwd === 0 ? 0.8 : 0.45));
     let base = fwd > 0 ? (wantSprint ? (this.tired ? JOG : SPRINT) : WALK) : fwd < 0 ? -BACK : 0;
+    base *= 1 - 0.6 * this.squat; // hunkered down (FEAT-111): a slow duck walk
     // grade along the way you are walking, at body scale: rise per metre over BODY_L (+ = uphill)
     const pack = this.pack, dir = base < 0 ? -1 : 1, hl = BODY_L / 2;
     const rise = pack.groundHeight(this.x + hx * hl * dir, this.y + hy * hl * dir) - pack.groundHeight(this.x - hx * hl * dir, this.y - hy * hl * dir);
@@ -673,13 +723,20 @@ export class Rider {
     const spd = Math.hypot(this.vx, this.vy);
     const align = spd > 0.5 ? Math.abs((this.vx * hx + this.vy * hy) / spd) : 1;
     const spinOff = Math.abs(((this.spin % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2) - Math.PI); // distance from facing forward/backward
-    const clean = align > 0.6 || spinOff < 0.6;
-    const penalty = (clean ? 0.08 : 0.5) + impact * (clean ? 0.012 : 0.03);
+    // FEAT-110: how far the flip is from a whole number of rotations (the board back under you)
+    const flipOff = Math.abs(((this.flip % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+    const flipped = Math.round(Math.abs(this.flip) / (Math.PI * 2));
+    const sketchy = flipOff > FLIP_CLEAN && flipOff <= FLIP_CRASH;
+    const clean = (align > 0.6 || spinOff < 0.6) && flipOff <= FLIP_CLEAN;
+    const penalty = (clean ? 0.08 : sketchy ? 0.3 : 0.5) + impact * (clean ? 0.012 : 0.03);
     this.vx *= Math.max(0, 1 - penalty); this.vy *= Math.max(0, 1 - penalty);
     this.landingShock = Math.min(1, impact / 12);
-    if (impact > 16 || (!clean && impact > 8 && !input.grab)) this.crashed = 1.3;
+    if (impact > 16 || (!clean && !sketchy && impact > 8 && !input.grab)) this.crashed = 1.3;
+    if (flipOff > FLIP_CRASH) this.crashed = 1.3; // landed on the head or the back
+    else if (sketchy) this.landingShock = Math.max(this.landingShock, 0.6); // a wobble
+    if (flipped > 0 && this.crashed <= 0) this.onTrick?.(trickName(this.flip, this.spin, flipped));
     if (!clean) this.heading = Math.atan2(this.vx, this.vy); // the board snaps to the direction of travel
-    this.spin = 0;
+    this.spin = 0; this.flip = 0; this.flipRate = 0;
     this.airTime = 0;
   }
 }
