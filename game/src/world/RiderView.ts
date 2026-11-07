@@ -482,9 +482,9 @@ export class RiderView {
       // FEAT-046: ease from the last ragdoll pose into the animated one
       this.recoverT = Math.max(0, this.recoverT - dt);
       const k = 1 - this.recoverT / RAGDOLL_RECOVER, e = k * k * (3 - 2 * k);
-      BONE_LIST.forEach((b, i) => { const bone = this.rig.bones[b]; bone.quaternion.copy(this.recoverQ[i].slerp(bone.quaternion, e)); });
+      // recoverQ / recoverHips stay fixed at the crash-end pose; only the animated target moves
+      BONE_LIST.forEach((b, i) => { const bone = this.rig.bones[b]; bone.quaternion.copy(this.q.copy(this.recoverQ[i]).slerp(bone.quaternion, e)); });
       this.rig.bones.Hips.position.lerpVectors(this.recoverHips, this.rig.bones.Hips.position, e);
-      this.recoverHips.copy(this.rig.bones.Hips.position);
       this.rig.body.updateMatrixWorld(true);
     }
     this.updateSpray(r, dt, f, right, true);

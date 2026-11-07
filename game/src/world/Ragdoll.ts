@@ -8,6 +8,8 @@ import { BONES, setWorldQuat, type BoneName, type RiderRig } from './RiderRig';
  * (19), held together by the bone lengths and a few braces that keep the torso and pelvis rigid.
  * Seeded from the posed skeleton and the rider's velocity, with a random tumble. Particles collide
  * with the snow (Pack.groundHeight, with friction) and with trunks, rocks and walls (Collider).
+ * Only the pelvis, chest, head and feet test against the Collider (cheap, and enough to stop the
+ * body), so hands and knees can still pass through a trunk the pelvis stops at.
  * Every frame the bones are turned to point along their particles, so the skinned body follows.
  * All in three.js world space (x east, y up, z = -north).
  */
@@ -18,6 +20,11 @@ const GROUND_KEEP = 0.93;
 const TETHER = 2.5;
 /** blend from the last ragdoll pose back to the animated pose (s) */
 export const RAGDOLL_RECOVER = 0.4;
+/**
+ * Collider.resolve tests a 1.5 m tall body span starting at the z it is given (m); passing the
+ * particle height minus half of that centres the span on the particle.
+ */
+const COLLIDE_HALF_SPAN = 0.75;
 
 const N = BONES.length + 1; // + head top
 const HEAD_TOP = BONES.length;
@@ -142,7 +149,7 @@ export class Ragdoll {
         if (o[i].y < q.y - 0.02) o[i].y = q.y - 0.02; // a little bounce, no more
       }
       if (this.collider && (i === IDX('Hips') || i === IDX('Head') || i === IDX('Spine2') || i === IDX('LeftFoot') || i === IDX('RightFoot'))) {
-        const hit = this.collider.resolve(q.x, -q.z, q.y - 0.75, r);
+        const hit = this.collider.resolve(q.x, -q.z, q.y - COLLIDE_HALF_SPAN, r);
         if (hit) { q.x = hit.x; q.z = -hit.y; o[i].x = q.x; o[i].z = q.z; }
       }
     }
