@@ -10,11 +10,16 @@ import type { RoadFeature } from '../pack/types';
  * fine tiles arrive, so they sit on the 1 m surface rather than the pipeline's z.
  * On the mountain (within SNOW_R of a run) every road is a snow-covered catwalk in winter, so
  * it is drawn as packed snow; asphalt colours are only used in town. Normals follow the terrain.
+ * BUG-042: in winter those ribbons read as painted lines on the snow, so by default nothing is drawn
+ * on the mountain; the "Roads and trails on snow" setting brings the catwalks back. Summer-only
+ * trails (SUMMER) are never drawn on the mountain. Town roads always draw.
  */
 const SNOW_R = 40; // m from a run line where a road counts as a catwalk
 const SNOW: [number, number, number] = [0.9, 0.92, 0.96];
 const CELL = 20;
 const LIFT = 0.25; // m above the ground
+/** summer-only ways: buried or meaningless on a ski slope, never drawn on the mountain (BUG-042) */
+const SUMMER = new Set(['path', 'footway', 'cycleway', 'steps', 'bridleway', 'track']);
 const KINDS: Record<string, { width: number; color: [number, number, number]; minor: boolean }> = {
   motorway: { width: 22, color: [0.22, 0.22, 0.24], minor: false },
   motorway_link: { width: 9, color: [0.22, 0.22, 0.24], minor: false },
@@ -44,8 +49,12 @@ export class Roads {
   /** cells of the run network (with a SNOW_R halo) */
   private readonly onMountain = new Set<string>();
 
-  constructor(pack: Pack) {
+  /** draw catwalks and roads on the mountain too (setting, default off) */
+  private onSnow: boolean;
+
+  constructor(pack: Pack, onSnow = false) {
     this.pack = pack;
+    this.onSnow = onSnow;
     const r = Math.ceil(SNOW_R / CELL);
     for (const run of pack.features.runs) {
       const pts = run.points;
@@ -70,8 +79,15 @@ export class Roads {
     }
   }
 
+  /** Settings toggle: roads and trails on snow (BUG-042). */
+  setOnSnow(v: boolean): void {
+    if (v === this.onSnow) return;
+    this.onSnow = v;
+    this.scheduleRebuild(0);
+  }
+
   private rebuildTimer: number | null = null;
-  private scheduleRebuild(): void {
+  private scheduleRebuild(delay = 1500): void {
     if (this.rebuildTimer !== null) return;
     this.rebuildTimer = window.setTimeout(() => {
       this.rebuildTimer = null;
@@ -80,7 +96,7 @@ export class Roads {
         mesh.geometry.dispose();
         mesh.geometry = fresh.geometry;
       }
-    }, 1500);
+    }, delay);
   }
 
   /** Hide the minor network beyond a distance (called per frame with the camera position). */
@@ -133,10 +149,13 @@ export class Roads {
     // slight colour variation per road so long highways are not one flat tone
     const v = 0.9 + 0.2 * ((Math.abs(Math.sin(pts[0][0] * 0.013 + pts[0][1] * 0.007)) * 10) % 1);
     const n3 = [0, 0, 1];
+    const summer = SUMMER.has(r.kind);
+    let keptPrev = false;
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
       const snow = this.onMountain.has(`${Math.floor(p[0] / CELL)},${Math.floor(p[1] / CELL)}`);
       const c = snow ? SNOW : spec.color, cv = snow ? 1 : v;
+      const kept = !snow || (this.onSnow && !summer); // on the mountain: only with the setting, never summer trails
       const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
       let dx = b[0] - a[0], dy = b[1] - a[1];
       const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
@@ -149,7 +168,9 @@ export class Roads {
         nor.push(n3[0], n3[2], -n3[1]);
         col.push(c[0] * cv, c[1] * cv, c[2] * cv);
       }
-      if (i > 0) {
+      const both = kept && keptPrev;
+      keptPrev = kept;
+      if (i > 0 && both) {
         const q = base + (i - 1) * 2, n = base + i * 2;
         // skip the quad across a long jump (disconnected pieces in the same way)
         if (Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]) > 200) continue;

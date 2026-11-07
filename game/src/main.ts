@@ -117,7 +117,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('run lines', runs.group);
     const buildings = new Buildings(pack, collider);
     add('buildings', buildings.group);
-    const roads = new Roads(pack);
+    const roads = new Roads(pack, settings.roadsOnSnow);
     add('roads', roads.group);
     const bridges = new Bridges(pack, collider, params.has('bridgeguess')); // BUG-022: OSM-tagged bridges only by default
     add('bridges', bridges.group);
@@ -249,6 +249,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       controls.keymap = { ...s.keys };
       controls.invertSteer = s.invertSteer;
       lifts.markers.visible = s.showMarkers;
+      roads.setOnSnow(s.roadsOnSnow);
       riderView.setOutfit(s.outfit);
       riderView.setDiscipline(s.discipline);
       tracks.setDiscipline(s.discipline);
