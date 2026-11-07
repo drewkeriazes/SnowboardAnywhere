@@ -62,6 +62,8 @@ export class ChaseCamera {
   /** free look while riding a lift (radians, relative to the heading) */
   lookYaw = 0; lookPitch = 0;
   private fpRoll = 0;
+  /** FEAT-124: look behind held (first person turns the head round; the chase cams orbit in freeLook) */
+  glance = false;
   private fpBob = 0;
   private fpDip = 0;
   private readonly fpFwd = new THREE.Vector3();
@@ -224,6 +226,9 @@ export class ChaseCamera {
     if (onLift) {
       this.lookYaw = THREE.MathUtils.clamp(this.lookYaw + mouseDx * 0.003, -2.1, 2.1);
       this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - mouseDy * 0.003, -1.0, 1.0);
+    } else if (this.glance) {
+      // FEAT-124: look back over the shoulder
+      this.lookYaw += (Math.PI * 0.95 - this.lookYaw) * Math.min(1, dt * 10); this.lookPitch *= Math.exp(-dt * 6);
     } else {
       this.lookYaw *= Math.exp(-dt * 6); this.lookPitch *= Math.exp(-dt * 6);
     }

@@ -41,7 +41,7 @@ import { PauseMenu } from './ui/PauseMenu';
 import { Labels } from './ui/Labels';
 import { TouchControls } from './ui/TouchControls';
 import { sunPosition, guessUtcOffset } from './world/Sun';
-import { loadSettings, keyName, type Settings } from './ui/Settings';
+import { loadSettings, keyName, keysOf, saveSettings, type Settings } from './ui/Settings';
 import { STAMINA } from './sim/Rider';
 import { availableResorts } from './resorts';
 import { hasCustomStart, resetStart, spawnKey } from './spawn';
@@ -187,6 +187,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     rider.onSkateStroke = () => audio.footstep(rider.surface, rider.speed, 0); // FEAT-085: a crunch per push
     riderView.onPlant = (p) => { bootprints.add(p, rider.sink); audio.footstep(rider.surface, p.speed, rider.sink); };
     let boardMsg = '', boardMsgT = 0;
+    let boardMsgNote = '', boardNoteT = 25; // FEAT-124: one-time note for players with their own keys
     const liftRide = new LiftRide(pack, lifts, collider);
     liftRide.gate = (l, x, y) => liftLines.inGate(l, x, y); // FEAT-073: board from inside the maze
     const prefetch = new Prefetch();
@@ -448,12 +449,22 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     let toastTimer = 0;
     const showToast = (text: string, ms = 4000) => { toast.textContent = text; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => toast.classList.remove('show'), ms); };
     rider.onTrick = (name) => showToast(name, 1800); // FEAT-110: flips
-    if (params.get('cam') === 'eye' && !headless) showToast('Eye camera: click, then mouse to look · WASD move · Q/E height · [ ] zoom · P save shot · F free fly', 10000);
+    if (params.get('cam') === 'eye' && !headless) showToast('Eye camera: click, then mouse to look · WASD move · Q/E height · [ ] zoom · P save shot · ` free fly', 10000);
     audio.onTrack = (name) => showToast(`\u266B ${name}`);
     // the menu may already have started a song before onTrack was set (BUG-033): announce it now
     if (audio.nowPlaying && !headless && params.get('cam') !== 'eye') showToast(`\u266B ${audio.nowPlaying}`);
     const prompt = document.getElementById('prompt')!;
     let promptShown = '';
+    // FEAT-124: restart hold and its ring, and the contextual key hints in the corner
+    const RESTART_HOLD = 0.6;
+    let restartHold = 0, restartDone = false;
+    const restartRing = document.createElement('div');
+    restartRing.style.cssText = 'position:fixed;left:50%;top:50%;width:46px;height:46px;margin:-23px;border-radius:50%;display:none;pointer-events:none;z-index:7;-webkit-mask:radial-gradient(circle,transparent 15px,#000 16px);mask:radial-gradient(circle,transparent 15px,#000 16px)';
+    document.body.appendChild(restartRing);
+    const helpEl = document.getElementById('help');
+    let helpShown = '', helpT = 0;
+    const k = (a: string) => `<kbd>${keysOf(settings, a)}</kbd>`;
+    if (settings.keysNote) { boardMsgNote = 'New default key layout available: Settings > Controls > Reset keys'; settings.keysNote = false; saveSettings(settings); }
     const showPrompt = (html: string) => { if (html !== promptShown) { promptShown = html; prompt.innerHTML = html; prompt.classList.toggle('show', html !== ''); } };
 
     let mouseDx = 0, mouseDy = 0;
@@ -529,7 +540,14 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (paused) { controls.endFrame(); touch?.pressed.clear(); render(); if (!headless) requestAnimationFrame(frame); return; }
       touch?.setVisible(!map.fullOpen);
       elapsed += dt;
-      if (!replayOpen && controls.action('restart')) { if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      // FEAT-124: restart needs a 0.6 s hold (a fill ring), so a stray tap next to E or W doesn't reset the run
+      if (!replayOpen && controls.held('restart') && !paused) {
+        restartHold += dt;
+        if (restartHold >= RESTART_HOLD && !restartDone) { restartDone = true; if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      } else { restartHold = 0; restartDone = false; }
+      controls.action('restart'); // the press itself does nothing
+      restartRing.style.display = restartHold > 0.05 && !restartDone ? 'block' : 'none';
+      if (restartHold > 0.05) restartRing.style.background = `conic-gradient(#ffd166 ${Math.min(1, restartHold / RESTART_HOLD) * 360}deg, rgba(255,255,255,.18) 0)`;
       if (!replayOpen && controls.action('trial') && settings.timeTrials && !outrun.active) {
         const c = trial.nearestStart(rider.x, rider.y);
         if (c) {
@@ -575,7 +593,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       }
       // ---- FEAT-043: rewind (hold): scrub back along the recording, let go to carry on from the
       // last moment on the snow before there (not mid-air, not crashed)
-      const rewindHeld = !replayOpen && controls.keys.has(controls.keymap.rewind) && !outrun.active && !liftRide.riding && replay.samples.length > 1 && rider.strapState === 'none';
+      const rewindHeld = !replayOpen && controls.held('rewind') && !outrun.active && !liftRide.riding && replay.samples.length > 1 && rider.strapState === 'none';
       if (rewindHeld) {
         rewinding = true;
         rewindT = Math.min(rewindT + dt * 2, replay.t - replay.start);
@@ -602,8 +620,11 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (!replayOpen && controls.action('piste')) { if (eyeMode) shotPending = true; else runs.toggle(); }
       if (controls.action('track')) audio.nextTrack();
       if (!replayOpen && controls.action('fly')) { cam.mode = cam.mode === 'free' ? settings.camera : 'free'; if (cam.mode === 'free') cam.enterFree(); }
-      // board on / off: unstrap when nearly stopped, strap in standing still
-      if (!replayOpen && (controls.action('board') || touch?.once('board')) && !detached && !liftRide.riding && !map.fullOpen) {
+      // board on / off: unstrap when nearly stopped, strap in standing still. FEAT-124: E (interact)
+      // straps in or out when there is no lift near; the separate strap key is optional
+      const interact = controls.action('lift') || !!touch?.once('lift');
+      const strapAsk = controls.action('board') || !!touch?.once('board') || (interact && !liftRide.riding && !liftRide.nearby);
+      if (!replayOpen && strapAsk && !detached && !liftRide.riding && !map.fullOpen) {
         const why = rider.toggleBoard();
         if (why === '' && rider.strapState === 'off') trial.cancel('Unstrapped');
         boardMsg = why === 'fast' ? 'slow down to unstrap' : why === 'moving' ? 'stand still to strap in' : why === 'air' ? 'land first' : '';
@@ -611,8 +632,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       }
       boardMsgT -= dt;
       // Outrun: no lift skip while it runs (the monster is on the towers behind you), the boost key
-      const boardPressed = (controls.action('lift') || !!touch?.once('lift')) && !detached && !(outrun.running && liftRide.riding);
-      if (controls.action('boost') && outrun.boost()) chase?.boostWhoosh();
+      const boardPressed = interact && !detached && !(outrun.running && liftRide.riding);
+      if (controls.action('boost') && outrun.active && outrun.boost()) chase?.boostWhoosh(); // FEAT-124: F, Outrun only
       rider.boost = outrun.boosting;
       const eating = outrun.phase === 'caught';
       const onLift = !detached && !eating && !frozen && liftRide.update(rider, dt, boardPressed, input.tuck);
@@ -658,7 +679,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
           chase.update(dt, outrun.dist, outrun.phase === 'chase', outrun.boosting);
         }
       }
-      outrunUI.update(outrun, settings.units === 'metric', keyName(settings.keys.boost));
+      outrunUI.update(outrun, settings.units === 'metric', keysOf(settings, 'boost'));
       if (settings.timeTrials) {
         if (onLift) trial.cancel('On a lift'); else if (rider.unstrapped) trial.cancel('Unstrapped'); else if (!frozen) trial.update(rider, dt, input.tuck);
         trialWorld.updateGates(rider.x, rider.y);
@@ -714,7 +735,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         cam.camera.position.copy(trackPos); cam.camera.lookAt(rider.x, rider.z + 1, -rider.y);
         cam.camera.fov = Math.max(15, settings.fov - 25 + photoFov); cam.camera.updateProjectionMatrix();
       }
-      else { cam.freeLook(controls.looking, dt, mouseDx, mouseDy, outrun.running && controls.keys.has(controls.keymap.glance)); mouseDx = mouseDy = 0; cam.baseFov = settings.fov + (outrun.boosting ? 12 : 0) + (replayOpen ? photoFov : 0); cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); }
+      else { cam.freeLook(controls.looking, dt, mouseDx, mouseDy, controls.glancing); mouseDx = mouseDy = 0; cam.baseFov = settings.fov + (outrun.boosting ? 12 : 0) + (replayOpen ? photoFov : 0); cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); } // FEAT-124: look behind (G) in every mode
       // the eat sequence owns the camera: high in front of the monster, looking down at it (FEAT-104)
       if (eat.active) { eat.cameraPose(cam.camera.position, eatLook); cam.camera.lookAt(eatLook); if (cam.camera.fov !== 60) { cam.camera.fov = 60; cam.camera.updateProjectionMatrix(); } }
       chase?.setListener(cam.camera);
@@ -767,13 +788,32 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         else showPrompt(`<div class="name">${name}</div><div class="row">ride to the lift <span class="dim">${dist}</span> then <kbd>E</kbd></div>`);
       } else if (!map.fullOpen && !detached) {
         // board on / off
-        const bk = `<kbd>${keyName(settings.keys.board)}</kbd>`;
+        const bk = `<kbd>${keyName(settings.keys.lift?.[0] ?? '')}</kbd>`; // FEAT-124: E straps in and out
         if (boardMsgT > 0) showPrompt(`<div class="row">${boardMsg}</div>`);
         else if (rider.strapState !== 'none') showPrompt('');
-        else if (rider.onFoot) showPrompt(`<div class="row">${bk} strap in${rider.speed > 0.3 ? ' <span class="dim">(stand still)</span>' : ''} &nbsp; <kbd>${keyName(settings.keys.grab)}</kbd> sprint</div>`);
+        else if (rider.onFoot) showPrompt(`<div class="row">${bk} strap in${rider.speed > 0.3 ? ' <span class="dim">(stand still)</span>' : ''} &nbsp; <kbd>${keyName(settings.keys.grab?.[0] ?? '')}</kbd> sprint</div>`);
         else if (rider.canUnstrap) showPrompt(`<div class="row">${bk} unstrap</div>`);
         else showPrompt('');
       } else showPrompt('');
+      // FEAT-124: only the keys that matter right now (the full list is in Settings > Controls)
+      helpT -= dt;
+      if (boardMsgNote && (boardNoteT -= dt) <= 0) boardMsgNote = '';
+      // FEAT-124: the gamepad's right stick looks around like the mouse
+      if (controls.padLookX || controls.padLookY) { mouseDx += controls.padLookX * 14; mouseDy += controls.padLookY * 10; }
+      cam.glance = controls.glancing;
+      if (helpEl && helpT <= 0) {
+        helpT = 0.25;
+        let h: string;
+        if (controls.padActive) h = 'Gamepad: left stick steer and lean &middot; A jump &middot; X squat / grab &middot; RT / LT tuck / brake &middot; Y interact &middot; R3 look behind';
+        else if (liftRide.riding) h = `${k('lift')} skip &middot; ${k('tuck')} hold for 5x &middot; ${k('glance')} look behind &middot; ${k('look')} look around`;
+        else if (outrun.running) h = `${k('boost')} boost &middot; ${k('glance')} look behind &middot; ${k('jump')} jump`;
+        else if (rider.onFoot) h = `WASD walk &middot; ${k('grab')} sprint &middot; ${k('jump')} jump / climb &middot; ${k('lift')} strap in &middot; ${k('glance')} look behind`;
+        else if (!rider.onGround) h = `${k('left')} ${k('right')} spin &middot; ${k('tuck')} front flip &middot; ${k('brake')} backflip &middot; ${k('grab')} grab`;
+        else if (liftRide.nearby) h = `${k('lift')} ride the lift &middot; ${k('brake')} brake`;
+        else h = `${k('left')} ${k('right')} steer &middot; ${k('tuck')} tuck &middot; ${k('brake')} brake &middot; hold ${k('jump')} jump (+ W / S nollie / ollie) &middot; ${k('grab')} squat &middot; ${k('pressNose')} ${k('pressTail')} press &middot; ${k('skate')} skate<br>${k('lift')} interact &middot; hold ${k('glance')} look behind &middot; ${k('camera')} camera &middot; ${k('map')} map &middot; hold ${k('restart')} restart &middot; Esc pause`;
+        if (boardMsgNote) h = `<b>${boardMsgNote}</b><br>` + h;
+        if (h !== helpShown) { helpShown = h; helpEl.innerHTML = h; }
+      }
       env.update(fx, detached ? cp.y : rider.z, -fy);
       if (pack.fine && terrain.stats.builds === 0) pack.fine.evictBeyond(fx, fy, 3000, liftTop);
       map.riderPos = [rider.x, rider.y, rider.z];
