@@ -69,9 +69,9 @@ export const OUTFIT_PRESETS: Record<string, Outfit> = {
 
 export const DEFAULT_KEYS: Record<string, string> = {
   left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft', squat: 'ControlLeft', skate: 'KeyX', pressNose: 'KeyV', pressTail: 'KeyZ',
-  lift: 'KeyE', board: 'KeyB', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft', boost: 'KeyQ', glance: 'KeyG',
+  lift: 'KeyE', board: 'KeyB', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft', boost: 'KeyQ', glance: 'KeyG', replay: 'KeyK', rewind: 'Backspace',
 };
-const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab (sprint on foot)', squat: 'Squat (hold)', skate: 'Skate on the flat (hold)', pressNose: 'Nose press (hold)', pressTail: 'Tail press (hold)', lift: 'Ride lift / skip', board: 'Board on / off', trial: 'Go to nearest time trial', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track', look: 'Free look (hold, move mouse)', boost: 'Outrun boost', glance: 'Outrun look back (hold)' };
+const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab (sprint on foot)', squat: 'Squat (hold)', skate: 'Skate on the flat (hold)', pressNose: 'Nose press (hold)', pressTail: 'Tail press (hold)', lift: 'Ride lift / skip', board: 'Board on / off', trial: 'Go to nearest time trial', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track', look: 'Free look (hold, move mouse)', boost: 'Outrun boost', glance: 'Outrun look back (hold)', replay: 'Replay viewer', rewind: 'Rewind (hold)' };
 
 const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
