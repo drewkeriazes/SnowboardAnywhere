@@ -6,7 +6,7 @@ import { PLAYLISTS, SHUFFLE_ALL } from '../audio/Audio';
  */
 export type Quality = 'high' | 'medium' | 'low';
 export type Units = 'imperial' | 'metric';
-export type CamMode = 'chase' | 'close' | 'far' | 'fp';
+export type CamMode = 'chase' | 'close' | 'far' | 'cine' | 'fp' | 'helmet';
 
 export interface Settings {
   v: number;
@@ -26,9 +26,13 @@ export interface Settings {
   clouds: 'off' | 'few' | 'scattered' | 'broken' | 'overcast' | 'flurries' | 'storm';
   /** low morning fog lying in the valleys, burning off as the sun climbs */
   valleyFog: boolean;
+  /** FEAT-105: how much new snow covers the rock at the start (a storm adds more as it falls) */
+  newSnow?: 'none' | 'dusting' | '6in' | 'powder';
   treeDensity: number; // 0.25 .. 1
   pixelRatio: number; // 0.5 .. 2 (capped by the device)
   fov: number; // base chase FOV, 50 .. 100
+  /** FEAT-045 speed feel, each can be turned off: FOV widening with speed, camera rumble and landing shake, speed lines */
+  speedFov: boolean; camShake: boolean; speedLines: boolean;
   invertSteer: boolean;
   camera: CamMode;
   /** first-person goggle frame and lens tint (was the plain vignette) */
@@ -38,6 +42,8 @@ export interface Settings {
   showMarkers: boolean;
   showLabels: boolean; // peak and town names
   roadsOnSnow: boolean; // BUG-042: catwalks and roads drawn on the mountain (off: plain snow)
+  /** FEAT-073: lift-line mazes at the chairlift bases, and boarding only from inside them */
+  liftLines: boolean;
   /** time trials: start/finish gates on real runs, timer, ghost of your best run (off by default) */
   timeTrials: boolean;
   /** 'pack' = the pack's fixed sun, 'now' = real clock at the resort, or a fixed hour 6..20 */
@@ -63,13 +69,13 @@ export const OUTFIT_PRESETS: Record<string, Outfit> = {
 
 export const DEFAULT_KEYS: Record<string, string> = {
   left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft', squat: 'ControlLeft', skate: 'KeyX', pressNose: 'KeyV', pressTail: 'KeyZ',
-  lift: 'KeyE', board: 'KeyB', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft', boost: 'KeyQ', glance: 'KeyG',
+  lift: 'KeyE', board: 'KeyB', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft', boost: 'KeyQ', glance: 'KeyG', replay: 'KeyK', rewind: 'Backspace',
 };
-const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab (sprint on foot)', squat: 'Squat (hold)', skate: 'Skate on the flat (hold)', pressNose: 'Nose press (hold)', pressTail: 'Tail press (hold)', lift: 'Ride lift / skip', board: 'Board on / off', trial: 'Go to nearest time trial', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track', look: 'Free look (hold, move mouse)', boost: 'Outrun boost', glance: 'Outrun look back (hold)' };
+const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab (sprint on foot)', squat: 'Squat (hold)', skate: 'Skate on the flat (hold)', pressNose: 'Nose press (hold)', pressTail: 'Tail press (hold)', lift: 'Ride lift / skip', board: 'Board on / off', trial: 'Go to nearest time trial', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track', look: 'Free look (hold, move mouse)', boost: 'Outrun boost', glance: 'Outrun look back (hold)', replay: 'Replay viewer', rewind: 'Rewind (hold)' };
 
 const DEFAULTS: Settings = {
-  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-  fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, roadsOnSnow: false, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
+  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
+  fov: 68, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
   outrun: { difficulty: 'normal', escape: 'base', gentle: false },
 };
 const KEY = 'settings';
@@ -140,16 +146,20 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Shadows</label><input type="checkbox" data-k="shadows"></div>
       <div class="row"><label>Cascaded (beta)</label><input type="checkbox" data-k="csmExperimental"></div>
       <div class="row"><label>Weather</label><select data-k="clouds"><option value="off">Bluebird (clear)</option><option value="few">Few clouds</option><option value="scattered">Scattered clouds</option><option value="broken">Broken clouds</option><option value="overcast">Overcast (flat light)</option><option value="flurries">Overcast, light snow</option><option value="storm">Snowstorm</option></select></div>
+      <div class="row"><label>New snow</label><select data-k="newSnow"><option value="none">None</option><option value="dusting">Dusting</option><option value="6in">6 in</option><option value="powder">Powder day</option></select></div>
       <div class="row"><label>Valley fog</label><input type="checkbox" data-k="valleyFog"></div>
       <div class="row"><label>Trees</label><input type="range" data-k="treeDensity" min="0.25" max="1" step="0.05"></div>
       <div class="row"><label>Resolution</label><input type="range" data-k="pixelRatio" min="0.5" max="2" step="0.25"></div>
       <div class="row"><label>Field of view</label><input type="range" data-k="fov" min="50" max="100" step="1"><span class="val" data-v="fov"></span></div>
+      <div class="row"><label>Widen view with speed</label><input type="checkbox" data-k="speedFov"></div>
+      <div class="row"><label>Camera shake</label><input type="checkbox" data-k="camShake"></div>
+      <div class="row"><label>Speed lines</label><input type="checkbox" data-k="speedLines"></div>
       <div class="row"><label>FP goggles</label><input type="checkbox" data-k="fpVignette"></div>
       <div class="row"><label>Goggle frame</label><input type="range" data-k="goggleStrength" min="0" max="1" step="0.05"></div>
     </div>
     <div class="tab hidden" data-t="controls">
       <div class="row"><label>Invert steer</label><input type="checkbox" data-k="invertSteer"></div>
-      <div class="row"><label>Default camera</label><select data-k="camera"><option value="chase">Chase</option><option value="close">Close</option><option value="far">Far</option><option value="fp">First person</option></select></div>
+      <div class="row"><label>Default camera</label><select data-k="camera"><option value="chase">Chase</option><option value="close">Close</option><option value="far">Far</option><option value="cine">Cinematic</option><option value="fp">First person</option><option value="helmet">Helmet cam</option></select></div>
       <div class="keys"></div>
       <div class="hint">Click a key, then press the new one. Esc cancels.</div>
     </div>
@@ -163,6 +173,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Lift markers</label><input type="checkbox" data-k="showMarkers"></div>
       <div class="row"><label>Peak names</label><input type="checkbox" data-k="showLabels"></div>
       <div class="row"><label>Roads and trails on snow</label><input type="checkbox" data-k="roadsOnSnow"></div>
+      <div class="row"><label>Lift-line mazes</label><input type="checkbox" data-k="liftLines"></div>
       <div class="row"><label>Time trials</label><input type="checkbox" data-k="timeTrials"></div>
       <div class="row"><label>Time of day</label><select data-k="timeOfDay"><option value="pack">Resort default</option><option value="now">Now (real time)</option><option value="7">7 am</option><option value="9">9 am</option><option value="11">11 am</option><option value="13">1 pm</option><option value="15">3 pm</option><option value="16.5">4:30 pm</option><option value="17.5">5:30 pm</option></select></div>
       <div class="row"><label>Month</label><select data-k="month"><option value="12">December</option><option value="1">January</option><option value="2">February</option><option value="3">March</option><option value="4">April</option><option value="7">July</option></select></div>

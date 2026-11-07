@@ -12,3 +12,4 @@
 - No em dashes in prose.
 - Commit messages: plain, no `Co-Authored-By` or session-link trailers. Commits are authored as Drew.
 - Parallel sessions: one git worktree and branch per card (`issue-<number>-<slug>`), land through a PR, never commit in another session's checkout or push to `main` directly. Details in `docs/BOARD.md` > Parallel sessions.
+- PR review comments: the Claude reviewer bot comments on every PR. When Drew replies "yes" on one (or posts "yes" / "yes 1" as a PR comment for items in the summary), `.github/workflows/pr-feedback.yml` applies and pushes it on its own. For thumbs-ups, use the `pr-feedback` skill: apply the liked ones in one commit and one push, then reply on each comment.

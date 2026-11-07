@@ -12,7 +12,7 @@ const FP_ROLL_K = 0.16;
 const FP_ROLL_MAX = 10 * Math.PI / 180;
 const FP_ROLL_FULL_SPEED = 8;
 
-export type CameraMode = 'chase' | 'close' | 'far' | 'fp' | 'free' | 'eye';
+export type CameraMode = 'chase' | 'close' | 'far' | 'cine' | 'fp' | 'helmet' | 'free' | 'eye';
 
 /** Third-person chase camera with lag, speed-dependent FOV and terrain avoidance. */
 export class ChaseCamera {
@@ -70,7 +70,7 @@ export class ChaseCamera {
   }
 
   cycle(): void {
-    const order: CameraMode[] = ['chase', 'close', 'far', 'fp', 'free'];
+    const order: CameraMode[] = ['chase', 'close', 'far', 'cine', 'fp', 'helmet', 'free'];
     this.mode = order[(order.indexOf(this.mode) + 1) % order.length];
     if (this.mode === 'free') this.enterFree();
   }
@@ -145,6 +145,33 @@ export class ChaseCamera {
   /** hard-landing shake, 0..1, decays */
   private shake = 0;
   private lastShock = 0;
+  /** FEAT-045 toggles (Graphics settings): FOV widening with speed, and terrain and landing shake */
+  speedFov = true; camShake = true;
+  /** FEAT-045: phase of the terrain rumble (s) */
+  private rumbleT = 0;
+  /** first person or the helmet cam (both ride on the posed head) */
+  get firstPerson(): boolean { return this.mode === 'fp' || this.mode === 'helmet'; }
+
+  /**
+   * FEAT-045: camera rumble from the snow under the board: none on corduroy, more off-piste, most on
+   * rock and scree, growing with speed; plus the landing shake. Smooth (sums of sines), not per-frame
+   * noise. Returns a small offset (m) in camera space x, y and a roll (rad).
+   */
+  private rumble(r: Rider, dt: number, scale: number): [number, number, number] {
+    if (r.landingShock > this.lastShock + 0.2 && r.landingShock > 0.4) this.shake = Math.min(1, r.landingShock);
+    this.lastShock = r.landingShock;
+    this.shake *= Math.exp(-dt * 7);
+    if (!this.camShake) return [0, 0, 0];
+    const s = r.surface, spd = Math.hypot(r.vx, r.vy);
+    const rough = r.onGround && !r.onFoot ? (1 - 0.8 * s.groomed) * (1 + 1.5 * Math.min(1, s.rock + s.scree)) * Math.min(1, spd / 25) : 0;
+    this.rumbleT += dt * (6 + spd * 0.6);
+    const t = this.rumbleT, a = rough * 0.03 * scale, sk = this.shake * this.shake * 0.12 * scale;
+    return [
+      a * (Math.sin(t * 1.7) + 0.5 * Math.sin(t * 4.3)) + sk * Math.sin(t * 23),
+      a * (Math.sin(t * 2.3 + 1) + 0.5 * Math.sin(t * 5.1)) + sk * Math.sin(t * 29 + 2),
+      a * 0.4 * Math.sin(t * 1.3 + 2) + sk * 0.3 * Math.sin(t * 17),
+    ];
+  }
 
   /**
    * First person: the eye sits at the posed rider's head (`eye`, from RiderView) a little in front
@@ -185,13 +212,16 @@ export class ChaseCamera {
       const h = 1.6 - this.fpDip * 0.5 + bob + (onLift ? 0.2 : 0);
       this.fpPos.set(r.x, r.z, -r.y).addScaledVector(n, h).addScaledVector(this.fpLook, 0.15);
     }
-    // hard landing: a short shake (a darken pulse is drawn by the goggle overlay)
-    if (r.landingShock > this.lastShock + 0.2 && r.landingShock > 0.4) this.shake = Math.min(1, r.landingShock);
-    this.lastShock = r.landingShock;
-    this.shake *= Math.exp(-dt * 7);
-    const sk = this.shake * this.shake;
-    const jx = (Math.random() - 0.5) * 0.06 * sk, jy = (Math.random() - 0.5) * 0.08 * sk;
-    this.fpPos.y += (Math.random() - 0.5) * 0.08 * sk;
+    // FEAT-045 helmet cam: a GoPro on top of the helmet, a little back, wide and level
+    const helmet = this.mode === 'helmet';
+    if (helmet) this.fpPos.addScaledVector(n, 0.2).addScaledVector(this.fpLook, -0.2);
+    // hard landing and terrain rumble (a darken pulse on landing is drawn by the goggle overlay).
+    // First person gets the surface rumble too, on top of the slower stride bob above: rx sways the
+    // eye sideways (along the view's right, -look.z, look.x), ry lifts it, rr rolls it.
+    const [rx, ry, rr] = this.rumble(r, dt, helmet ? 1.4 : 1);
+    const jx = rr, jy = ry * 0.6;
+    this.fpPos.x -= this.fpLook.z * rx; this.fpPos.z += this.fpLook.x * rx;
+    this.fpPos.y += ry;
     // roll into carves (BUG-031): a body lean, not the horizon tipping over. Grows with speed and
     // stays within FP_ROLL_MAX however hard the edge, so a carving traverse tilts at most ~10 deg.
     const rollT = r.onGround && !onLift
@@ -211,7 +241,8 @@ export class ChaseCamera {
     // keep the eye out of the snow
     const ground = this.pack.groundHeight(this.fpPos.x, -this.fpPos.z);
     if (this.camera.position.y < ground + 0.6) this.camera.position.y = ground + 0.6;
-    const fov = this.baseFov + 30 + Math.min(14, r.speed * 0.4) + (tuck ? 3 : 0) - r.landingShock * 6;
+    // the helmet cam is a fixed wide lens (a GoPro does not zoom); first person opens with speed
+    const fov = helmet ? this.baseFov + 40 : this.baseFov + 30 + (this.speedFov ? Math.min(14, r.speed * 0.4) + (tuck ? 3 : 0) : 0) - r.landingShock * 6;
     this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 5);
     this.camera.updateProjectionMatrix();
     void this.fpM;
@@ -237,7 +268,7 @@ export class ChaseCamera {
   }
 
   update(r: Rider, dt: number, tuck: boolean, onLift = false): void {
-    if (this.mode === 'free' || this.mode === 'fp' || this.mode === 'eye') return;
+    if (this.mode === 'free' || this.firstPerson || this.mode === 'eye') return;
     if (onLift) {
       // chair: sit behind and a little above the seat, look up the line. No slope clamp, the
       // seat is already well above the snow.
@@ -259,8 +290,9 @@ export class ChaseCamera {
       this.camera.updateProjectionMatrix();
       return;
     }
-    const dist = this.mode === 'close' ? 4.5 : this.mode === 'far' ? 12 : 7.5;
-    const height = this.mode === 'close' ? 1.8 : this.mode === 'far' ? 4.5 : 2.8;
+    const cine = this.mode === 'cine';
+    const dist = this.mode === 'close' ? 4.5 : this.mode === 'far' ? 12 : cine ? 11 : 7.5;
+    const height = this.mode === 'close' ? 1.8 : this.mode === 'far' ? 4.5 : cine ? 1.3 : 2.8;
     // follow the velocity direction when moving, the heading when slow
     const spd = Math.hypot(r.vx, r.vy);
     // on foot it stays behind where you face (walking backwards or slipping must not swing it round)
@@ -271,6 +303,8 @@ export class ChaseCamera {
     const back = this.fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -this.orbitYaw);
     const cp = Math.cos(this.orbitPitch), sp = Math.sin(this.orbitPitch);
     this.desired.copy(riderPos).addScaledVector(back, -dist * cp).add(new THREE.Vector3(0, height - (tuck ? 0.6 : 0) + dist * sp, 0));
+    // FEAT-045 cinematic: low, off to one side and trailing on a long lens, slow to follow
+    if (cine) this.desired.add(new THREE.Vector3(-back.z, 0, back.x).multiplyScalar(5));
     // keep the camera above the snow
     const ground = this.pack.groundHeight(this.desired.x, -this.desired.z);
     if (this.desired.y < ground + 1.2) this.desired.y = ground + 1.2;
@@ -278,10 +312,10 @@ export class ChaseCamera {
     // quickly (no lag through the tree); the normal lag eases it back out once the line is clear
     const blocked = this.pullIn(r, this.desired);
     const orbiting = Math.abs(this.orbitYaw) > 0.02 || Math.abs(this.orbitPitch) > 0.02;
-    const k = 1 - Math.exp(-dt * (blocked ? 20 : orbiting ? 12 : r.onGround ? 5 : 3));
+    const k = 1 - Math.exp(-dt * (blocked ? 20 : orbiting ? 12 : cine ? 1.6 : r.onGround ? 5 : 3));
     this.pos.lerp(this.desired, k);
     // while orbiting look at the rider, not ahead of them
-    const lookTarget = riderPos.clone().addScaledVector(back, orbiting ? 0 : 4).add(new THREE.Vector3(0, 1.0, 0));
+    const lookTarget = riderPos.clone().addScaledVector(back, orbiting || cine ? 0 : 4).add(new THREE.Vector3(0, 1.0, 0));
     this.look.lerp(lookTarget, 1 - Math.exp(-dt * 8));
     this.camera.position.copy(this.pos);
     if (this.kick > 0.001) {
@@ -290,7 +324,11 @@ export class ChaseCamera {
       this.kick *= Math.exp(-dt * 9);
     }
     this.camera.lookAt(this.look);
-    const fov = this.baseFov + Math.min(22, r.speed * 0.6) + (tuck ? 4 : 0);
+    // FEAT-045: rumble from the snow and landings, in the camera's own frame
+    const [rx, ry, rr] = this.rumble(r, dt, cine ? 0.5 : 1);
+    this.camera.translateX(rx); this.camera.translateY(ry); this.camera.rotateZ(rr * 0.5);
+    // FOV opens with speed (about +15 deg at 25 m/s, 56 mph), and a little more in a tuck
+    const fov = (cine ? this.baseFov - 22 : this.baseFov) + (this.speedFov ? Math.min(22, r.speed * 0.6) + (tuck ? 4 : 0) : 0);
     this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 4);
     this.camera.updateProjectionMatrix();
   }

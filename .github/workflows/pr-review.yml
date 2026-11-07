@@ -133,3 +133,13 @@ jobs:
             Only post GitHub comments; do not put the review in a chat message.
           claude_args: |
             --allowedTools "Read,Write,Grep,Glob,WebFetch,WebSearch,mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(npx tsc:*),Bash(gh api repos/${{ github.repository }}/pulls:*)"
+
+      # BUG-050: keep Claude's full log (tool calls, permission denials) for 7 days
+      # so a review that skipped its inline comments can be diagnosed.
+      - if: always() && (steps.round.outputs.mode == 'full' || steps.round.outputs.mode == 'blocking-only')
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-log
+          path: ${{ runner.temp }}/claude-execution-output.json
+          retention-days: 7
+          if-no-files-found: ignore
