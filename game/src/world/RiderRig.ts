@@ -121,7 +121,7 @@ function rigid(g: THREE.BufferGeometry, bone: BoneName, at: [number, number, num
 const d2r = Math.PI / 180;
 
 export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): RiderRig {
-  const body = new THREE.Group();
+  const body = new THREE.Group(); body.name = 'rider body';
   const bones = {} as Record<BoneName, THREE.Bone>;
   for (const n of BONES) {
     const b = new THREE.Bone(); b.name = n; b.position.set(...OFFSET[n]); bones[n] = b;
@@ -207,6 +207,7 @@ export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): Rid
   for (const b of buckets.values()) {
     const g = mergeGeometries(b.geos, false)!;
     const m = new THREE.SkinnedMesh(g, b.mat);
+    m.name = `body ${b.part} ${Object.entries(mats).find(([, v]) => v === b.mat)?.[0] ?? 'mesh'}`; // e.g. 'body limbs gloves'
     m.castShadow = true; m.frustumCulled = false;
     body.add(m);
     m.bind(skel);
@@ -214,31 +215,31 @@ export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): Rid
   }
 
   // ---- board or skis (rigid), with ankle anchors on the bindings
-  const mesh = (g: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh => { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); o.castShadow = true; return o; };
-  const board = new THREE.Group();
+  const mesh = (g: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0, name = ''): THREE.Mesh => { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); o.castShadow = true; o.name = name; return o; };
+  const board = new THREE.Group(); board.name = discipline === 'board' ? 'snowboard' : 'skis';
   const carriers: RiderRig['carriers'] = [];
   let anchors: RiderRig['anchors'];
   if (discipline === 'board') {
-    const deck = new THREE.Group(); board.add(deck);
+    const deck = new THREE.Group(); deck.name = 'deck'; board.add(deck);
     const shape = new THREE.Shape();
     const L = 0.78, Wd = 0.13;
     shape.moveTo(-Wd, -L + 0.12); shape.quadraticCurveTo(-Wd, -L, 0, -L); shape.quadraticCurveTo(Wd, -L, Wd, -L + 0.12); shape.lineTo(Wd * 0.92, L - 0.12);
     shape.quadraticCurveTo(Wd, L, 0, L); shape.quadraticCurveTo(-Wd, L, -Wd * 0.92, L - 0.12); shape.lineTo(-Wd, -L + 0.12);
     const bg = new THREE.ExtrudeGeometry(shape, { depth: 0.022, bevelEnabled: false });
     bg.rotateX(-Math.PI / 2);
-    const sb = mesh(bg, mats.board); sb.receiveShadow = true; deck.add(sb);
-    deck.add(mesh(new THREE.BoxGeometry(0.06, 0.004, 1.3), mats.jacket, 0, 0.024, 0)); // topsheet stripe
+    const sb = mesh(bg, mats.board, 0, 0, 0, 'board base'); sb.receiveShadow = true; deck.add(sb);
+    deck.add(mesh(new THREE.BoxGeometry(0.06, 0.004, 1.3), mats.jacket, 0, 0.024, 0, 'topsheet stripe'));
     // bindings across the board, highback on the heel edge (-X); duck stance front +15, back -6.
     // Front (nose, -Z) is the left foot in a regular stance.
     const an: THREE.Object3D[] = [];
-    for (const [z, ang] of [[-0.28, 15], [0.3, -6]] as const) {
-      const b = new THREE.Group(); b.position.set(0, 0.025, z); b.rotation.y = ang * d2r;
-      b.add(mesh(new THREE.BoxGeometry(0.3, 0.02, 0.2), mats.boots)); // baseplate, top at 0.035
-      b.add(mesh(new THREE.BoxGeometry(0.03, 0.26, 0.2), mats.boots, -0.13, 0.13, 0)); // highback
-      b.add(mesh(new THREE.BoxGeometry(0.2, 0.04, 0.03), mats.boots, 0.02, 0.1, -0.07)); // straps
-      b.add(mesh(new THREE.BoxGeometry(0.2, 0.04, 0.03), mats.boots, 0.02, 0.1, 0.07));
+    for (const [z, ang, which] of [[-0.28, 15, 'front'], [0.3, -6, 'back']] as const) {
+      const b = new THREE.Group(); b.name = `binding ${which}`; b.position.set(0, 0.025, z); b.rotation.y = ang * d2r;
+      b.add(mesh(new THREE.BoxGeometry(0.3, 0.02, 0.2), mats.boots, 0, 0, 0, 'baseplate')); // top at 0.035
+      b.add(mesh(new THREE.BoxGeometry(0.03, 0.26, 0.2), mats.boots, -0.13, 0.13, 0, 'highback'));
+      b.add(mesh(new THREE.BoxGeometry(0.2, 0.04, 0.03), mats.boots, 0.02, 0.1, -0.07, 'toe strap'));
+      b.add(mesh(new THREE.BoxGeometry(0.2, 0.04, 0.03), mats.boots, 0.02, 0.1, 0.07, 'ankle strap'));
       // ankle above the baseplate; the boot's toe (-Z in the bind pose) turned to the toe edge (+X)
-      const a = new THREE.Object3D(); a.position.set(-0.04, 0.01 + ANKLE_H, 0); a.rotation.y = -Math.PI / 2; b.add(a);
+      const a = new THREE.Object3D(); a.name = `ankle anchor ${which}`; a.position.set(-0.04, 0.01 + ANKLE_H, 0); a.rotation.y = -Math.PI / 2; b.add(a);
       deck.add(b); an.push(a);
     }
     carriers.push({ obj: deck, rest: deck.matrix.clone() });
@@ -251,10 +252,11 @@ export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): Rid
     sg.rotateX(-Math.PI / 2);
     const an: THREE.Object3D[] = [];
     for (const x of [-0.12, 0.12]) {
-      const ski = new THREE.Group(); ski.position.set(x, 0, 0); board.add(ski);
-      const sm = mesh(sg, mats.board); sm.receiveShadow = true; ski.add(sm);
-      ski.add(mesh(new THREE.BoxGeometry(0.09, 0.05, 0.32), mats.boots, 0, 0.03, 0.05)); // binding, top at 0.055
-      const a = new THREE.Object3D(); a.position.set(0, 0.055 + ANKLE_H, 0.11); ski.add(a);
+      const side = x < 0 ? 'left' : 'right';
+      const ski = new THREE.Group(); ski.name = `ski ${side}`; ski.position.set(x, 0, 0); board.add(ski);
+      const sm = mesh(sg, mats.board, 0, 0, 0, `ski base ${side}`); sm.receiveShadow = true; ski.add(sm);
+      ski.add(mesh(new THREE.BoxGeometry(0.09, 0.05, 0.32), mats.boots, 0, 0.03, 0.05, `binding ${side}`)); // top at 0.055
+      const a = new THREE.Object3D(); a.name = `ankle anchor ${side}`; a.position.set(0, 0.055 + ANKLE_H, 0.11); ski.add(a);
       ski.updateMatrix();
       carriers.push({ obj: ski, rest: ski.matrix.clone() });
       an.push(a);
@@ -264,14 +266,14 @@ export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): Rid
 
   let lPole: THREE.Group | undefined, rPole: THREE.Group | undefined;
   if (discipline === 'ski') {
-    const pole = (hand: THREE.Bone): THREE.Group => {
-      const grip = new THREE.Group(); grip.position.set(0, -0.06, 0); hand.add(grip);
-      grip.add(mesh(new THREE.CylinderGeometry(0.008, 0.008, 1.15, 5), mats.helmet, 0, -0.55, 0));
-      const basket = mesh(new THREE.TorusGeometry(0.05, 0.008, 5, 10), mats.boots, 0, -1.03, 0);
+    const pole = (hand: THREE.Bone, side: string): THREE.Group => {
+      const grip = new THREE.Group(); grip.name = `pole ${side}`; grip.position.set(0, -0.06, 0); hand.add(grip);
+      grip.add(mesh(new THREE.CylinderGeometry(0.008, 0.008, 1.15, 5), mats.helmet, 0, -0.55, 0, `pole shaft ${side}`));
+      const basket = mesh(new THREE.TorusGeometry(0.05, 0.008, 5, 10), mats.boots, 0, -1.03, 0, `pole basket ${side}`);
       basket.rotation.x = Math.PI / 2; grip.add(basket);
       return grip;
     };
-    lPole = pole(bones.LeftHand); rPole = pole(bones.RightHand);
+    lPole = pole(bones.LeftHand, 'left'); rPole = pole(bones.RightHand, 'right');
   }
   return { body, bones, board, carriers, anchors, headParts, coreParts, lPole, rPole, discipline };
 }
