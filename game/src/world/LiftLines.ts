@@ -24,6 +24,8 @@ export class LiftLines {
   readonly group = new THREE.Group();
   private readonly mazes: Maze[] = [];
   private readonly mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 });
+  /** rope colliders, so turning the setting off removes the walls along with the mesh */
+  private readonly walls: Float32Array[] = [];
   enabled = true;
 
   constructor(private readonly pack: Pack, lifts: readonly LiftRuntime[], private readonly collider: Collider | null) {
@@ -73,6 +75,7 @@ export class LiftLines {
   setEnabled(on: boolean): void {
     this.enabled = on;
     this.group.visible = on;
+    if (this.collider) for (const w of this.walls) this.collider.setWallActive(w, on);
   }
 
   private build(m: Maze): void {
@@ -110,7 +113,7 @@ export class LiftLines {
         const mx = (px + x) / 2, my = (py + y) / 2, mz = (pz + z) / 2 - 0.12;
         const q1 = [px + (mx - px) * 0.5, py + (my - py) * 0.5, (pz + mz) / 2 - 0.04], q2 = [mx + (x - mx) * 0.5, my + (y - my) * 0.5, (mz + z) / 2 - 0.04];
         for (const [s, e] of [[[px, py, pz], q1], [q1, q2], [q2, [x, y, z]]]) beam(s, e, wide ? 0.04 : 0.025, wide ? 0.08 : 0.025, c);
-        if (this.collider) this.collider.addWall(px, py, x, y, Math.min(pz, z) - ROPE_H - 0.3, Math.max(pz, z) + 0.2);
+        if (this.collider) this.walls.push(this.collider.addWall(px, py, x, y, Math.min(pz, z) - ROPE_H - 0.3, Math.max(pz, z) + 0.2));
         px = x; py = y; pz = z;
       }
     };

@@ -59,14 +59,14 @@ export class Collider {
     arr.push(new Float32Array([x, y, radius, zBase, zTop, kind]));
   }
 
-  private readonly walls = new Map<string, Float32Array[]>(); // packed [x1, y1, x2, y2, zBase, zTop, ledge]
+  private readonly walls = new Map<string, Float32Array[]>(); // packed [x1, y1, x2, y2, zBase, zTop, ledge, realTop]
 
   /**
    * Add a vertical wall segment (a building edge or a railing). Registered in every cell its bbox
    * touches. `ledge` marks a building footprint's edge, whose top can be stepped or climbed onto.
    */
-  addWall(x1: number, y1: number, x2: number, y2: number, zBase: number, zTop: number, ledge = false): void {
-    const w = new Float32Array([x1, y1, x2, y2, zBase, zTop, ledge ? 1 : 0]);
+  addWall(x1: number, y1: number, x2: number, y2: number, zBase: number, zTop: number, ledge = false): Float32Array {
+    const w = new Float32Array([x1, y1, x2, y2, zBase, zTop, ledge ? 1 : 0, zTop]);
     const cx0 = Math.floor(Math.min(x1, x2) / CELL), cx1 = Math.floor(Math.max(x1, x2) / CELL);
     const cy0 = Math.floor(Math.min(y1, y2) / CELL), cy1 = Math.floor(Math.max(y1, y2) / CELL);
     for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
@@ -75,6 +75,15 @@ export class Collider {
       if (!arr) { arr = []; this.walls.set(k, arr); }
       arr.push(w);
     }
+    return w;
+  }
+
+  /**
+   * Switch a wall returned by `addWall` off or back on (FEAT-073: the lift-line setting). An off
+   * wall's top drops below any rider, so every lookup skips it; slot 7 keeps the real top.
+   */
+  setWallActive(w: Float32Array, on: boolean): void {
+    w[5] = on ? w[7] : -Infinity;
   }
 
   /**
