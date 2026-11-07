@@ -10,7 +10,8 @@ The kanban lives in GitHub Projects: https://github.com/users/drewkeriazes/proje
 - Columns: **Backlog** (idea) -> **Ready** (specced, data available) -> **In Progress** -> **Done**.
 - Labels: `type: feature | bug | data`, `milestone`. `status: ready` / `status: backlog` mirror the column for issue-list filtering.
 - `type: data` cards are pipeline or raw-data work that runs on Drew's PC; they are Done only when the pack is rebuilt.
-- Ids never get reused. Next ids: FEAT-098, BUG-042, DATA-018.
+- Ids never get reused. There is no stored "next id": take the highest existing id of that type from the issue titles (open and closed) and add one, for example
+  `gh api "repos/drewkeriazes/SnowboardAnywhere/issues?state=all&per_page=100&page=1" -q '.[].title' | grep -o '^FEAT-[0-9]*' | sort -t- -k2 -n | tail -1` (repeat for page 2, 3 and for BUG / DATA). Do not commit a counter to this file; every bump conflicted with open PRs.
 
 ## What Claude does with a card
 
