@@ -345,6 +345,8 @@ export class RiderView {
       if (tuck) lerpPose(t, t, P.tuck, 0.85);
       if (r.jumpCharge > 0) lerpPose(t, t, P.crouch, Math.min(1, r.jumpCharge));
       if (r.squat > 0) lerpPose(t, t, P.squat, r.squat); // FEAT-111: deeper than tuck or charge, wins over both
+      // FEAT-085 skating: knees bent, chest over the front foot, bobbing down into each push
+      if (r.skating) { const push = Math.max(0, Math.cos(r.skatePhase * Math.PI * 2)); lerpPose(t, t, P.crouch, 0.35 + 0.25 * push); t.torso = [t.torso[0] + 0.25 * push, t.torso[1], t.torso[2]]; }
       if (r.landingShock > 0) lerpPose(t, t, P.land, Math.min(1, r.landingShock * 1.5));
       // knees bent and hips low in proportion to how hard the edge is biting
       const bite = b * Math.min(1, r.brakeAcc / 8);

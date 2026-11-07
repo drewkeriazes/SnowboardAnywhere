@@ -11,6 +11,8 @@ export interface Input {
   grab: boolean;
   /** Left Ctrl held: deep squat (FEAT-111) */
   squat?: boolean;
+  /** hold to skate on the flat with the back foot out (FEAT-085) */
+  skate?: boolean;
 }
 
 export interface SurfaceInfo {
@@ -110,6 +112,9 @@ export function trickName(flip: number, spin: number, rotations: number): string
   return `${n}${flip > 0 ? 'front flip' : 'backflip'}`.replace(/^./, (c) => c.toUpperCase());
 }
 
+/** FEAT-085 skating: mean push (m/s^2) from a standstill, top skating speed (m/s), steepest slope it works on (deg), stroke period (s) */
+const SKATE_ACC = 4.2, SKATE_MAX = 5.5, SKATE_SLOPE = 10, SKATE_PERIOD = 0.6;
+
 export class Rider {
   x = 0; y = 0; z = 0; // position, local metres (z up)
   vx = 0; vy = 0; vz = 0;
@@ -127,6 +132,10 @@ export class Rider {
   /** FEAT-110: pitch rotation in the air (rad, + = front flip, nose down) and its rate */
   flip = 0;
   flipRate = 0;
+  /** FEAT-085: skating now, the stroke phase (0..1, a push at 0), and a callback on each push for sound */
+  skating = false;
+  skatePhase = 0;
+  onSkateStroke: (() => void) | null = null;
   /** FEAT-110: called on landing a flip ("Backflip", "Double front flip", "Rodeo 540"), clean or sketchy */
   onTrick: ((name: string) => void) | null = null;
   crashed = 0; // seconds remaining in a crash
@@ -476,6 +485,17 @@ export class Rider {
     if (input.tuck && spd < 3 && this.slopeDeg < 8) {
       ax += hx * 2.0; ay += hy * 2.0;
     }
+    // FEAT-085: skate with the back foot out: a push stroke every SKATE_PERIOD s along the board's
+    // heading, strongest from a standstill and gone by SKATE_MAX; works on the flat and slight uphills
+    this.skating = !!input.skate && spd < SKATE_MAX && this.slopeDeg < SKATE_SLOPE && this.crashed <= 0;
+    if (this.skating) {
+      const before = this.skatePhase;
+      this.skatePhase = (this.skatePhase + dt / SKATE_PERIOD) % 1;
+      if (this.skatePhase < before) this.onSkateStroke?.();
+      const stroke = Math.max(0, Math.cos(this.skatePhase * Math.PI * 2)); // the push, then the glide
+      const a = SKATE_ACC * 2.2 * stroke * stroke * (1 - spd / SKATE_MAX);
+      ax += hx * a; ay += hy * a;
+    } else this.skatePhase = 0;
     // standing on the uphill edge: nearly stopped with the board across the fall line (within
     // about 50 degrees of it) the edge holds, so the rider stands still instead of creeping down.
     // Turning the board toward the fall line or tucking lets it run again.
