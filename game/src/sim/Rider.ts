@@ -9,6 +9,8 @@ export interface Input {
   jumpHeld: boolean;
   jumpReleased: boolean;
   grab: boolean;
+  /** Left Ctrl held: deep squat (FEAT-111) */
+  squat?: boolean;
 }
 
 export interface SurfaceInfo {
@@ -88,6 +90,13 @@ const FEEL: Record<Discipline, { steerSlow: number; steerTuck: number; steerSpee
  * sin(gamma), on top of the slope's own pull, so more edge than slope slows you. `heading` stays
  * the steering axis; `boardYaw` is the board as drawn and as it marks the snow.
  */
+/** FEAT-111 deep squat: ease time (s), extra grip, share of the tuck's drag cut, jump bonus and its window after letting go (s) */
+const SQUAT_IN = 0.25;
+const SQUAT_GRIP = 0.08;
+const SQUAT_AERO = 0.3;
+const SQUAT_POP = 1.15;
+const SQUAT_SPRING_WINDOW = 0.25;
+
 export class Rider {
   x = 0; y = 0; z = 0; // position, local metres (z up)
   vx = 0; vy = 0; vz = 0;
@@ -95,6 +104,10 @@ export class Rider {
   onGround = true;
   airTime = 0;
   jumpCharge = 0;
+  /** 0..1 how far into the deep squat (FEAT-111), eased over about 0.25 s */
+  squat = 0;
+  /** s since the squat was let go from deep; a jump right then pops higher */
+  private squatUp = 9;
   speed = 0;
   edgeAngle = 0; // visual, -1..1
   spin = 0; // extra yaw while airborne
@@ -248,6 +261,7 @@ export class Rider {
     while (this.accum >= STEP) {
       this.prev[0] = this.x; this.prev[1] = this.y; this.prev[2] = this.z; this.prev[3] = this.heading; this.prev[4] = this.boardYaw;
       const fb = this.pack.coarseFallbacks;
+      this.easeSquat(STEP, !!input.squat);
       this.step(STEP, input);
       this.steps++;
       if (this.pack.coarseFallbacks !== fb) this.onCoarse();
@@ -256,6 +270,14 @@ export class Rider {
     }
     this.end[0] = this.x; this.end[1] = this.y; this.end[2] = this.z; this.end[3] = this.heading;
     this.alpha = this.accum / STEP;
+  }
+
+  /** FEAT-111: blend into or out of the squat, and time how long ago a deep squat was released */
+  private easeSquat(dt: number, held: boolean): void {
+    const was = this.squat;
+    this.squat = held ? Math.min(1, was + dt / SQUAT_IN) : Math.max(0, was - dt / SQUAT_IN);
+    if (!held && was >= 0.6 && this.squatUp > 1) this.squatUp = 0; // let go from deep: the spring window opens
+    else this.squatUp += dt;
   }
 
   private snapPose(): void {
@@ -363,7 +385,7 @@ export class Rider {
     const groomed = this.surface.groomed;
     const rock = this.surface.rock;
     const powder = Math.max(0, 1 - groomed) * (this.surface.canopy > 0.3 ? 1 : 0.6);
-    const gripBase = 1.0 + 0.4 * groomed - 0.5 * rock;
+    const gripBase = (1.0 + 0.4 * groomed - 0.5 * rock) * (1 + SQUAT_GRIP * this.squat); // low centre of mass bites a little more
 
     // brake: swing the board across the direction of travel (a hockey stop). Steer picks the
     // stance (right = toeside, left = heelside); otherwise the edge already engaged, else heelside.
@@ -418,7 +440,8 @@ export class Rider {
     this.lateralG += ((latAcc / G) - this.lateralG) * Math.min(1, dt * 12);
 
     // drag: aerodynamic + snow. Tuck lowers aero, powder adds speed-scaled drag, skidding scrubs speed
-    const aero = (input.tuck ? F.aeroTuck : F.aero) * spd * spd * (this.boost ? 0.55 : 1);
+    const aeroK = input.tuck ? F.aeroTuck : F.aero + (F.aeroTuck - F.aero) * SQUAT_AERO * this.squat; // a squat is part way to a tuck
+    const aero = aeroK * spd * spd * (this.boost ? 0.55 : 1);
     const snowDrag = 0.015 * G * (1 - 0.5 * groomed) + powder * 0.004 * spd + 0.35 * this.skid * G;
     const dragAcc = aero + snowDrag + brakeAcc;
     if (spd > 0.01) {
@@ -447,7 +470,9 @@ export class Rider {
     // jump: hold to charge, release to pop (impulse along the normal plus the slope direction)
     if (input.jumpHeld) this.jumpCharge = Math.min(1, this.jumpCharge + dt * 1.6);
     if (input.jumpReleased && this.jumpCharge > 0.1) {
-      const pop = 2.5 + 4.5 * this.jumpCharge;
+      // squat then stand fast (release Ctrl as you jump): a bigger pop
+      const spring = this.squat >= 0.6 || this.squatUp < SQUAT_SPRING_WINDOW ? SQUAT_POP : 1;
+      const pop = (2.5 + 4.5 * this.jumpCharge) * spring;
       this.vx += n[0] * pop; this.vy += n[1] * pop; this.vz = n[2] * pop + Math.max(0, -(this.vx * n[0] + this.vy * n[1]));
       this.onGround = false; this.airTime = 0; this.spin = 0; this.jumpCharge = 0;
       this.z = ground + 0.05;
@@ -571,6 +596,7 @@ export class Rider {
     if (this.sprinting) this.stamina = Math.max(0, this.stamina - dt);
     else this.stamina = Math.min(STAMINA, this.stamina + dt * (fwd === 0 ? 0.8 : 0.45));
     let base = fwd > 0 ? (wantSprint ? (this.tired ? JOG : SPRINT) : WALK) : fwd < 0 ? -BACK : 0;
+    base *= 1 - 0.6 * this.squat; // hunkered down (FEAT-111): a slow duck walk
     // grade along the way you are walking, at body scale: rise per metre over BODY_L (+ = uphill)
     const pack = this.pack, dir = base < 0 ? -1 : 1, hl = BODY_L / 2;
     const rise = pack.groundHeight(this.x + hx * hl * dir, this.y + hy * hl * dir) - pack.groundHeight(this.x - hx * hl * dir, this.y - hy * hl * dir);
