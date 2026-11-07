@@ -11,3 +11,4 @@
 - Do not assert Bonvo internals from memory; the verified capture is in the plan doc.
 - No em dashes in prose.
 - Commit messages: plain, no `Co-Authored-By` or session-link trailers. Commits are authored as Drew.
+- Parallel sessions: one git worktree and branch per card (`issue-<number>-<slug>`), land through a PR, never commit in another session's checkout or push to `main` directly. Details in `docs/BOARD.md` > Parallel sessions.
