@@ -1,6 +1,7 @@
 import type { Pack } from '../pack/Pack';
 import type { Collider } from './Collider';
 import { Rng } from './Rng';
+import { rockCover } from '../terrain/rockCover';
 
 export interface Input {
   steer: number; // -1 left .. +1 right
@@ -164,6 +165,7 @@ export class Rider {
   private readonly collider: Collider | null;
   private accum = 0;
   private readonly maskTmp = [0, 0, 0, 0];
+  private readonly coverTmp = { rock: 0, scree: 0 };
   // render interpolation: pose before the last step, pose after it (to spot external moves), and
   // the sim pose stashed while the interpolated one is applied
   private readonly prev = [0, 0, 0, 0, 0];
@@ -303,7 +305,9 @@ export class Rider {
     this.slopeDeg = Math.acos(Math.min(1, n[2])) * 57.2958;
     if (pack.mask) {
       const m = pack.mask.sample(this.x, this.y, this.maskTmp);
-      this.surface.rock = m[0]; this.surface.scree = m[1]; this.surface.groomed = m[2]; this.surface.canopy = m[3];
+      // BUG-043: rock and scree as the terrain shader draws them (crisp patches), not the soft mask
+      const cov = rockCover(m[0], m[1], this.x, this.z, -this.y, n[2], this.coverTmp);
+      this.surface.rock = cov.rock; this.surface.scree = cov.scree; this.surface.groomed = m[2]; this.surface.canopy = m[3];
     }
     if (this.strapState !== 'none') { this.strapStep(dt, ground); return; }
     if (this.onFoot) { this.walkStep(dt, input, n, ground); return; }
