@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import type { Rider } from '../sim/Rider';
 import type { Pack } from '../pack/Pack';
+import type { Collider } from '../sim/Collider';
+import { Ragdoll, RAGDOLL_RECOVER } from './Ragdoll';
 import { lerpPose, clonePose, defaultMaterials, POSES, SKI_POSES, WALK_POSES, type Pose, type RiderMaterials } from './RiderModel';
-import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, bendBoard, deckY, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
+import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, bendBoard, deckY, BONES as BONE_LIST, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
 import { Gait, type Plant } from './Gait';
 
 /** FEAT-112: half the skis' length (where they pivot) and the most they tip up on a full lean (rad) */
@@ -122,6 +124,11 @@ export class RiderView {
   private readonly v4 = new THREE.Vector3();
   // ---- on foot (FEAT-067)
   private pack: Pack | null = null;
+  /** FEAT-046: crash tumble, and the blend back to the animated pose after it (s left) */
+  private ragdoll: Ragdoll | null = null;
+  private recoverT = 0;
+  private readonly recoverQ = BONE_LIST.map(() => new THREE.Quaternion());
+  private readonly recoverHips = new THREE.Vector3();
   private gait: Gait | null = null;
   /** foot mode was drawn last frame (the board is off the bindings or the gear is carried) */
   private footActive = false;
@@ -147,8 +154,9 @@ export class RiderView {
   private readonly up = new THREE.Vector3(0, 1, 0);
 
   /** Terrain for foot placement (on foot). */
-  setPack(pack: Pack): void {
+  setPack(pack: Pack, collider: Collider | null = null): void {
     this.pack = pack;
+    this.ragdoll = new Ragdoll(pack, collider);
     this.gait = new Gait((x, y) => pack.groundHeight(x, y));
     this.gait.onPlant = (p) => this.onPlant?.(p);
   }
@@ -360,6 +368,25 @@ export class RiderView {
       this.rig.board.position.add(this.pivot).sub(this.v2.set(0, 0, end).applyQuaternion(this.rig.board.quaternion));
     } else this.rig.board.rotation.set(0, 0, 0);
 
+    // ---- FEAT-046: a crash is a ragdoll tumble; the body is pulled toward the sim's slide so it
+    // gets up where the rider is, then blends back to the animated pose over RAGDOLL_RECOVER
+    if (this.ragdoll && r.crashed > 0 && !seated) {
+      if (!this.ragdoll.active) { this.group.updateMatrixWorld(true); this.ragdoll.start(this.rig, this.v1.set(r.vx, r.vz, -r.vy)); }
+      this.group.updateMatrixWorld(true);
+      this.ragdoll.step(dt, this.v2.set(r.x, r.z, -r.y));
+      this.ragdoll.apply(this.rig);
+      hangCarriersFromFeet(this.rig); // the board stays strapped to the feet
+      this.wasSeated = true; // so the carriers go back on the next normal frame
+      this.updateSpray(r, dt, f, right, false);
+      return;
+    }
+    if (this.ragdoll?.active) {
+      this.ragdoll.stop();
+      BONE_LIST.forEach((b, i) => this.recoverQ[i].copy(this.rig.bones[b].quaternion));
+      this.recoverHips.copy(this.rig.bones.Hips.position);
+      this.recoverT = RAGDOLL_RECOVER;
+    }
+
     // ---- pose blend from rider state
     const t = this.target;
     const P = this.poses;
@@ -462,6 +489,15 @@ export class RiderView {
       this.footGap = pinFeet(rig, lp, rp);
     }
     if (this.discipline === 'ski') this.skiHands(r, tuck, free);
+    if (this.recoverT > 0) {
+      // FEAT-046: ease from the last ragdoll pose into the animated one
+      this.recoverT = Math.max(0, this.recoverT - dt);
+      const k = 1 - this.recoverT / RAGDOLL_RECOVER, e = k * k * (3 - 2 * k);
+      // recoverQ / recoverHips stay fixed at the crash-end pose; only the animated target moves
+      BONE_LIST.forEach((b, i) => { const bone = this.rig.bones[b]; bone.quaternion.copy(this.q.copy(this.recoverQ[i]).slerp(bone.quaternion, e)); });
+      this.rig.bones.Hips.position.lerpVectors(this.recoverHips, this.rig.bones.Hips.position, e);
+      this.rig.body.updateMatrixWorld(true);
+    }
     this.updateSpray(r, dt, f, right, true);
   }
 
