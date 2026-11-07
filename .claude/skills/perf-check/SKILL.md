@@ -7,6 +7,9 @@ description: Profile the running game in a real browser with the Chrome DevTools
 
 Requires the Chrome DevTools MCP (`claude mcp add chrome-devtools --scope user npx chrome-devtools-mcp@latest`) and the dev server running (`cd game && npm run dev`).
 
+## Three.js DevTools MCP (scene tree, draw calls, textures)
+The repo's `.mcp.json` defines `threejs-devtools` (threejs-devtools-mcp 0.5.0) with `DEV_PORT=5173` and `BRIDGE_PORT=9222`, so it proxies `http://localhost:9222` to the Vite dev server without calling `set_dev_port`. Claude Code asks once to approve project MCP servers; say yes. If you also added it at user scope (`claude mcp add threejs-devtools-mcp ...`), remove that copy (`claude mcp remove threejs-devtools-mcp --scope user`) so the two do not fight over port 9222. Start `npm run dev` first; `bridge_status` should report port 5173. If 9222 is taken by something else the bridge picks another free port, so close stray bridge tabs or old servers first.
+
 ## Procedure
 1. `navigate_page` to `http://localhost:5173/?pack=vail` (or `synth`). Wait for the HUD to show a non-zero fps (`take_snapshot` and read `#hud`).
 2. `performance_start_trace` with reload off. Hold ArrowUp for 10 s via `press_key` (the rider tucks and accelerates, which streams new chunks, trees and tiles), then `performance_stop_trace`.
