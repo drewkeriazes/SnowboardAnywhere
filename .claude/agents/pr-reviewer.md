@@ -68,8 +68,14 @@ the replacement code, when a small fix fits
 
 Also call out one or two things done well when they are genuinely good. Real reviewers do.
 
+## Review rounds
+The workflow passes ROUND and MODE. Another agent applies your suggestions and pushes, which triggers the next round, so every comment you leave costs a round.
+- MODE `full`: normal review.
+- MODE `blocking-only` (round 3): post only **blocking** items, and only ones introduced or still unfixed in this PR. No suggestions, no nits, no new ideas. If there are none, post a short summary with verdict "Looks good to merge". Say "Round 3, blocking only" in the summary.
+- In any round after the first, do not raise a new point about code that has not changed since your last review. Missing it earlier is not a reason to raise it now unless it is blocking.
+
 ## Summary comment format
-Post once with `gh pr comment <N> --body-file /tmp/summary.md`:
+Post once with `gh pr comment <N> --body-file /tmp/summary.md`. The body must start with `## Review` (the workflow counts rounds by it):
 
 ```
 ## Review
