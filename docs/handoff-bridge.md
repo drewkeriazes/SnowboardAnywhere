@@ -1,6 +1,8 @@
 # Handoff: BUG-013 bridges not showing (China Bridge near Orient Express)
 
-Issue: https://github.com/drewkeriazes/SnowboardAnywhere/issues/64 (reopened). Commit with the first attempt: b3f14f4.
+**Resolved.** BUG-013 (#64) was closed on 2026-11-06 after both bridges (China Bridge Access Road and Cloud 9 - Lower by Tea Cup) were confirmed in the game. Kept as a record of how bridge detection works; nothing below is open. Later bridge bugs (for example BUG-022, #105, bridges where there are none) have their own cards.
+
+Issue: https://github.com/drewkeriazes/SnowboardAnywhere/issues/64. Commit with the first attempt: b3f14f4.
 
 ## The ask
 
@@ -24,7 +26,7 @@ The terrain is bare-earth lidar, which strips bridges. `build_pack.py` also drop
 - A node test (Pack plus Bridges, real fine tiles 12_8 and 13_8 injected) detects exactly 1 deck: (1291, -1655) to (1260, -1694). That is OSM way 1543256508, "China Bridge Access Road". `groundHeight(1276, -1674)` = 2975.5, terrain = 2968.9. The Bridges group has 3 meshes. So the detection and the deck work outside the browser.
 - Segment sags near the spot: China Bridge Access Road 1543256508 max sag 6.7 m (bridge); Cloud 9 - Middle 2.1 m; Two Elk 1.5 m (not bridges).
 
-## Open questions (start here)
+## Open questions at the time (all answered, see Second pass)
 
 1. **Does the deck exist in the browser?** Run the dev server, go to `?pack=vail&x=1320&y=-1668`, wait for tiles, then in DevTools run `__sim.pack.decks`. If it is empty, `maintain` is not running or `pack.fine.sample` returns NaN (log inside `Bridges.maintain`). If it has a deck, the mesh is not visible: check `scene` children, material, and position (three.js x east, y up, z = -north).
 2. **Is it the right gully?** On the 1 m DEM the deep Two Elk Creek channel runs from about (1235, -1590) down to (1190, -1700). It sits 12 to 20 m below its banks around y -1600 to -1640. The OSM bridge segment crosses a shallower part further south-east, only about 7 to 9 m deep. Compare with Drew's Street View and Google Maps screenshots. The bridge he means may be a different OSM way, or the OSM line may be offset from the real crossing.
