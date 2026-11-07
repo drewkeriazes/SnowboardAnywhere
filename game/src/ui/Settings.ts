@@ -39,6 +39,8 @@ export interface Settings {
   fpVignette: boolean;
   /** goggle frame strength 0..1 */
   goggleStrength: number;
+  /** BUG-051: first-person and helmet cam shake, 0 (smooth) to 1 */
+  fpShake: number;
   showMarkers: boolean;
   showLabels: boolean; // peak and town names
   roadsOnSnow: boolean; // BUG-042: catwalks and roads drawn on the mountain (off: plain snow)
@@ -75,7 +77,7 @@ const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer r
 
 const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-  fov: 68, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
+  fov: 68, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, fpShake: 0.3, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
   outrun: { difficulty: 'normal', escape: 'base', gentle: false },
 };
 const KEY = 'settings';
@@ -155,6 +157,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Camera shake</label><input type="checkbox" data-k="camShake"></div>
       <div class="row"><label>Speed lines</label><input type="checkbox" data-k="speedLines"></div>
       <div class="row"><label>FP goggles</label><input type="checkbox" data-k="fpVignette"></div>
+      <div class="row"><label>First person shake</label><input type="range" data-k="fpShake" min="0" max="1" step="0.05"></div>
       <div class="row"><label>Goggle frame</label><input type="range" data-k="goggleStrength" min="0" max="1" step="0.05"></div>
     </div>
     <div class="tab hidden" data-t="controls">
