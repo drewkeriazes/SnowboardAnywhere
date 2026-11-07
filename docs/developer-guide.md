@@ -43,6 +43,7 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 - `probe.mjs` step timing probe for hangs.
 - `brakecheck.mjs` brake physics on exact planes, no browser: hockey-stop time and distance against the snow-cutting targets, board swing, release, standing across the hill, ski snowplough. Exits 1 on a failed check.
 - `brakeshot.mjs [pack] [outDir] [--headed] [--ski]` hockey-stop render check: tucks to speed, holds brake, saves shots of the swing, spray and scraped track.
+- `carveshot.mjs [pack] [outDir] [--headed] [--ski]` carve track render check (FEAT-097): tucks to speed, links hard carves, saves the knife-cut line close up, overhead and from 40 m down the run, and prints the edge amount per shot.
 - `shoot_spots.mjs [pack] [spot ...] [--gpu | --headed]` re-shoots the game side of the real vs game photo pairs in `docs/compare/<pack>/` with the eye camera, as `eye-<view>.png` (DATA-008; see [compare/README.md](compare/README.md)).
 - `fetch-music.ps1 -Source <folder> -Playlist <name>` converts downloaded tracks into a playlist (needs ffmpeg).
 

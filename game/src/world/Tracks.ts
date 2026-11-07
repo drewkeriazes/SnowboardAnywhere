@@ -15,7 +15,13 @@ import type { Rider } from '../sim/Rider';
  * the floor is below the terrain surface, the vertex shader pulls the depth value a few cm toward
  * the camera so the terrain does not hide it, while real objects in front still occlude it.
  * Clean narrow groove when carving, wide shallow smear when skidding, deeper in powder.
- * Skis cut two narrow grooves. The width is the board's footprint across the travel direction,
+ * Skis cut two narrow grooves. On edge the trench morphs with the carve (FEAT-097): a light turn
+ * is a wedge, deep under the engaged edge and rising to the surface on the base side; a committed
+ * carve collapses it to a knife cut about 1 cm wide under the edge itself, a sharp wall on the
+ * inside of the turn, a smooth slant where the base pressed the snow on the outside, and a small
+ * spray lip there only. Skis leave two such lines. The vertex shader holds every section open to a
+ * minimum width that grows with distance, so a thin line stays a stable line instead of flickering.
+ * The width is the board's footprint across the travel direction,
  * L |sin(gamma)| + W |cos(gamma)| for slip angle gamma (FEAT-065), so a hockey stop scrapes a band
  * about a board length wide: a shallow, polished floor with a ridge of pushed snow on the downhill
  * side that grows as the rider slows. Ring buffer of MAX sections per lane (about 3 km); old track
@@ -42,14 +48,32 @@ const P = PROFILE.length;
 const SEC = 11;
 /** the berm and lip spread wider when scraping, so the ridge is a mound rather than a spike */
 const lipWidth = (polish: number) => 1 + 2.5 * polish;
-/** across-track offset of profile vertex k (the floor edges keep their fixed inset) */
-const profileOff = (k: number, half: number, lw: number) => PROFILE[k].sx * half + PROFILE[k].dx * (Math.abs(PROFILE[k].dx) > 0.03 ? lw : 1);
+/**
+ * 0..1 how far the groove has collapsed from a trench into the knife cut of a committed carve:
+ * smoothstep over the edge amount, so a light turn is still a wedge and only a hard carve is a line.
+ */
+export const edgeCurve = (edge: number) => { const t = Math.min(1, Math.max(0, (edge - 0.15) / 0.65)); return t * t * (3 - 2 * t); };
+/** the base side of a knife cut: the board's base presses a slant from the floor up to the surface over this many metres across */
+const SLANT = 0.06;
+/** the smallest half width of a section (a knife cut is about 1 cm wide) */
+export const MIN_HALF = 0.005;
+/** how the profile morphs on one side: + toward the sharp engaged wall, - toward the base slant, scaled by the carve amount */
+const sideMorph = (side: number, tilt: number) => side * Math.sign(tilt) * edgeCurve(Math.abs(tilt));
+/** across-track offset of profile vertex k: the floor inset shrinks with the width, the base side slides out along the slant */
+const profileOff = (k: number, half: number, lw: number, tilt: number) => {
+  const pr = PROFILE[k];
+  if (pr.h < 0) return pr.sx * Math.max(0, half - Math.min(0.025, 0.45 * half));
+  const dis = Math.max(0, -sideMorph(pr.sx, tilt));
+  return pr.sx * (half + dis * SLANT) + pr.dx * (Math.abs(pr.dx) > 0.03 ? lw : 1);
+};
 
 class Lane {
   readonly mesh: THREE.Mesh;
   private readonly pos: Float32Array;
   private readonly nor: Float32Array;
   private readonly col: Float32Array;
+  /** per vertex: unit outward across vector (three.js x, y, z) and the vertex's across offset, for the minimum on-screen width */
+  private readonly spr: Float32Array;
   private readonly idx: Uint32Array;
   // per section: the data needed to re-shape it as it fills in
   private readonly secC: Float32Array; // centre x, y, z(surface) in three.js coords, across x, across z, half width, depth, tilt, ridge (m), ridge side, polish
@@ -63,6 +87,7 @@ class Lane {
     this.pos = new Float32Array(MAX * P * 3);
     this.nor = new Float32Array(MAX * P * 3);
     this.col = new Float32Array(MAX * P * 4);
+    this.spr = new Float32Array(MAX * P * 4);
     this.idx = new Uint32Array(MAX * (P - 1) * 6);
     this.secC = new Float32Array(MAX * SEC);
     this.age = new Float32Array(MAX).fill(1e9);
@@ -70,6 +95,7 @@ class Lane {
     this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('normal', new THREE.BufferAttribute(this.nor, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 4).setUsage(THREE.DynamicDrawUsage));
+    this.geo.setAttribute('aSpread', new THREE.BufferAttribute(this.spr, 4).setUsage(THREE.DynamicDrawUsage));
     this.geo.setIndex(new THREE.BufferAttribute(this.idx, 1).setUsage(THREE.DynamicDrawUsage));
     this.mesh = new THREE.Mesh(this.geo, material);
     this.mesh.name = 'board tracks';
@@ -95,7 +121,7 @@ class Lane {
     // snow heights under each profile vertex (follow the slope across the track)
     const lw = lipWidth(polish);
     for (let k = 0; k < P; k++) {
-      const off = profileOff(k, half, lw);
+      const off = profileOff(k, half, lw, tilt);
       this.ground[s * P + k] = surface(cx + ax * off, cz + az * off);
     }
     this.shape(s);
@@ -129,36 +155,57 @@ class Lane {
     const fill = Math.max(0, 1 - this.age[s] / FADE) * (1 - ringAge * ringAge); // 1 fresh .. 0 filled in
     const depth = this.secC[o + 6] * fill;
     const ridge = this.secC[o + 8] * fill;
+    // ec 0..1: how far the trench has collapsed into the knife cut of a committed carve (FEAT-097)
+    const ec = edgeCurve(Math.abs(tilt));
     const xs: number[] = [], ys: number[] = [];
     for (let k = 0; k < P; k++) {
       const pr = PROFILE[k];
-      const off = profileOff(k, half, lw);
+      const off = profileOff(k, half, lw, tilt);
       const side = pr.sx; // -1 left, +1 right
+      const e = side * tilt; // + this side is the engaged edge (inside of the turn), - the base side
+      const m = sideMorph(side, tilt), eng = Math.max(0, m), dis = Math.max(0, -m);
       let h = pr.h;
-      if (h < 0) h = -(1 + 0.85 * tilt * side);                 // floor: deep at the engaged edge, shelf at the other
-      else if (pr.h > 0.2) h = pr.h * (1 - 0.6 * tilt * side);  // lip: bigger on the outside of the turn
+      // floor: a wedge, deep at the engaged edge and rising toward the surface at the other, that
+      // turns into a deep narrow slot as the carve commits
+      if (h < 0) h = e > 0 ? -(1 + 0.85 * e * (1 - 0.5 * ec)) : -(1 + 0.85 * e * (1 - ec));
+      // wall top: sharp and low on the engaged side, at the surface at the end of the base slant
+      else if (pr.h > 0.1 && pr.h < 0.2) h = pr.h * (1 - dis) * (1 - 0.7 * eng);
+      // lip: bigger on the outside of the turn; a knife cut keeps only a small spray lip there
+      else if (pr.h > 0.2) h = pr.h * (1 - 0.6 * e) * (1 - 0.8 * eng) * (1 - 0.6 * dis);
       // pushed snow: a ridge on the downhill lip (a little on the other), half height at the wall top
       const rs = 0.25 + 0.75 * Math.max(0, side * ridgeSide);
       const rh = pr.h > 0.2 ? ridge * rs : pr.h > 0.1 ? 0.5 * ridge * rs : 0;
       xs.push(off); ys.push(this.ground[s * P + k] + h * depth + rh);
       const v = (s * P + k) * 3;
       this.pos[v] = cx + ax * off; this.pos[v + 1] = ys[k]; this.pos[v + 2] = cz + az * off;
+      const q = (s * P + k) * 4;
+      this.spr[q] = ax * side; this.spr[q + 1] = 0; this.spr[q + 2] = az * side; this.spr[q + 3] = Math.abs(off);
     }
-    // normals from the profile slope across the track (smoothed between neighbours)
+    // normals from the profile slope across the track (smoothed between neighbours); the wall
+    // vertices of a carve take the wall's own slope so a 1 cm wall still catches the light
     for (let k = 0; k < P; k++) {
       const k0 = Math.max(0, k - 1), k1 = Math.min(P - 1, k + 1);
-      const dx = xs[k1] - xs[k0], dy = ys[k1] - ys[k0];
+      let dx = xs[k1] - xs[k0], dy = ys[k1] - ys[k0];
+      if (ec > 0 && k >= 2 && k <= 5) {
+        const w0 = k < 4 ? 2 : 4, w1 = w0 + 1; // the wall segment this vertex belongs to
+        const wx = xs[w1] - xs[w0], wy = ys[w1] - ys[w0];
+        const cl = Math.hypot(dx, dy) || 1, wl = Math.hypot(wx, wy) || 1;
+        dx = dx / cl * (1 - ec) + wx / wl * ec; dy = dy / cl * (1 - ec) + wy / wl * ec;
+      }
       const len = Math.hypot(dx, dy) || 1;
       // across-track 2D normal (-dy, dx) mapped back to world: across vector * nx + up * ny
       const nx = -dy / len, ny = dx / len;
       const v = (s * P + k) * 3;
       this.nor[v] = ax * nx; this.nor[v + 1] = ny; this.nor[v + 2] = az * nx;
     }
-    // colour: pressed floor slightly brighter and smoother, walls pick up their shading from the normals
+    // colour: pressed floor slightly brighter and smoother, walls pick up their shading from the
+    // normals; the slot of a knife cut sits in its own shadow, so it darkens into a thin line that
+    // still reads at a distance where the walls are thinner than a pixel
     for (let k = 0; k < P; k++) {
       const c = (s * P + k) * 4;
       const floor = PROFILE[k].h < 0;
-      const tone = floor ? 0.97 + 0.025 * polish : 0.93; // scraped floor polished a touch brighter
+      let tone = floor ? 0.97 + 0.025 * polish : 0.93; // scraped floor polished a touch brighter
+      if (k >= 2 && k <= 5) tone *= 1 - 0.22 * ec;
       this.col[c] = tone * 0.95; this.col[c + 1] = tone * 0.97; this.col[c + 2] = tone; this.col[c + 3] = PROFILE[k].a * Math.min(1, fill * 3);
     }
   }
@@ -167,6 +214,7 @@ class Lane {
     (this.geo.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('normal') as THREE.BufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
+    (this.geo.getAttribute('aSpread') as THREE.BufferAttribute).needsUpdate = true;
   }
 
   /** Age and re-shape (called a couple of times a second). */
@@ -187,6 +235,8 @@ export class Tracks {
   private offsets: number[] = [0];
   private lastX = NaN;
   private lastY = NaN;
+  /** edge tilt smoothed over distance, so the line crosses the board in a soft S between turns (FEAT-097) */
+  private tiltS = 0;
   private tickAcc = 0;
   discipline: 'board' | 'ski' = 'board';
   /** on foot: one skid groove per boot when slipping down the snow (FEAT-068) */
@@ -200,6 +250,14 @@ export class Tracks {
     // the floor is below the terrain surface: bias the depth a few cm toward the camera so the
     // terrain does not cover it, but nearer geometry (rider, trees, ridges) still does
     this.mat.onBeforeCompile = (shader) => {
+      // minimum on-screen width (FEAT-097): a 1 cm carve line is thinner than a pixel at range, so
+      // each vertex is held at least 1.5 mm per metre of distance off the centre line; the line
+      // widens a little with distance and stays a stable thin line instead of flickering
+      shader.vertexShader = 'attribute vec4 aSpread;\n' + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+        {
+          float camDist = length((modelViewMatrix * vec4(position, 1.0)).xyz);
+          transformed += aSpread.xyz * max(0.0, 0.0015 * camDist - aSpread.w);
+        }`);
       shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
         {
           vec3 toCam = normalize(-mvPosition.xyz);
@@ -257,7 +315,8 @@ export class Tracks {
     if (!Number.isNaN(this.lastX) && Math.hypot(r.x - this.lastX, r.y - this.lastY) < STEP) return;
     // a jump in position (teleport, map drop, restart, time-trial start) starts a new track
     // instead of joining the old spot to the new one with a long straight groove
-    if (Number.isNaN(this.lastX) || Math.hypot(r.x - this.lastX, r.y - this.lastY) > 6) for (const l of this.lanes) l.gap();
+    const moved = Number.isNaN(this.lastX) ? Infinity : Math.hypot(r.x - this.lastX, r.y - this.lastY);
+    if (moved > 6) for (const l of this.lanes) l.gap();
     this.lastX = r.x; this.lastY = r.y;
     const sp = Math.hypot(r.vx, r.vy);
     const fx = sp > 0.3 ? r.vx / sp : Math.sin(r.heading), fy = sp > 0.3 ? r.vy / sp : Math.cos(r.heading);
@@ -274,10 +333,20 @@ export class Tracks {
     // edge angle from the physics (same inclination the rider model leans by): flat base going
     // straight presses the full board width; on edge the board cuts a narrow, deeper, tilted trench
     const phi = Math.atan(r.lateralG * 0.8);                 // + = turning toward the right-hand side
-    const edge = Math.min(1, Math.abs(phi) / 0.6) * (1 - scrape);
-    const tilt = Math.sign(phi) * edge;
-    const half = 0.5 * (L * gs + W * gc * (1 - 0.7 * edge)) + (ski ? 0.05 : 0.15) * skid;
-    const depth = DEPTH * (1 + 0.6 * powder) * (1 + 0.6 * edge) * (1 - 0.6 * scrape) * (s.rock + s.scree > 0.5 ? 0.3 : 1);
+    // lateral G flips edge to edge in a couple of sections; real snow shows the crossover as the
+    // board rolls flat and over, so smooth the tilt over two or three metres of travel: the
+    // line slides across through the wedge and the flat imprint instead of stepping sideways
+    const raw = Math.sign(phi) * Math.min(1, Math.abs(phi) / 0.6) * (1 - scrape);
+    this.tiltS = moved > 6 ? raw : this.tiltS + (raw - this.tiltS) * (1 - Math.exp(-moved / 1.2));
+    const tilt = this.tiltS;
+    const edge = Math.abs(tilt);
+    // a committed carve collapses the trench to a knife cut about 1 cm wide (FEAT-097)
+    const ec = edgeCurve(edge);
+    const half = Math.max(MIN_HALF, 0.5 * (L * gs + W * gc * (1 - 0.95 * ec)) + (ski ? 0.05 : 0.15) * skid);
+    const depth = DEPTH * (1 + 0.6 * powder) * (1 + 0.3 * edge) * (1 - 0.6 * scrape) * (s.rock + s.scree > 0.5 ? 0.3 : 1);
+    // the cut sits under the engaged edge, not the middle of the board: slide the section across by
+    // up to half the width as the board goes on edge, so the line crosses the board between turns
+    const shift = 0.5 * W * gc * ec * Math.sign(tilt);
     // braking pushes snow ahead of the cutting edge: a ridge on the downhill side of the band,
     // highest where the stop ends (it builds as the rider slows), more of it in soft snow
     const ridge = 0.07 * r.scrape * (0.4 + 0.6 * Math.max(0, 1 - sp / 12)) * (0.6 + 0.6 * powder);
@@ -285,7 +354,7 @@ export class Tracks {
     const ridgeSide = dn > 0.02 ? (ax * r.normal[0] + ay * r.normal[1]) / dn : 0; // + = the right side is downhill
     const surface = (x: number, z: number) => this.pack.groundHeight(x, -z);
     this.offsets.forEach((off, i) => {
-      const o = off * gc; // skis turned across the travel direction sweep the same band
+      const o = off * gc + shift; // skis turned across the travel direction sweep the same band
       const cx = r.x + ax * o, cy = r.y + ay * o;
       const g = this.pack.groundHeight(cx, cy);
       this.lanes[i].add(cx, g, -cy, ax, -ay, half, depth, tilt, surface, ridge, ridgeSide, gs);
