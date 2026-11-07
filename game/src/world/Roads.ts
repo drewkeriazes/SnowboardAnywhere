@@ -15,6 +15,8 @@ import type { RoadFeature } from '../pack/types';
  * trails (SUMMER) are never drawn on the mountain. Town roads always draw.
  */
 const SNOW_R = 40; // m from a run line where a road counts as a catwalk
+/** BUG-026: anything this far above the lowest run point is on the mountain too (a cat track can be far from any run line) */
+const SNOW_ABOVE_BASE = 60;
 const SNOW: [number, number, number] = [0.9, 0.92, 0.96];
 const CELL = 20;
 const LIFT = 0.25; // m above the ground
@@ -48,6 +50,8 @@ export class Roads {
 
   /** cells of the run network (with a SNOW_R halo) */
   private readonly onMountain = new Set<string>();
+  /** BUG-026: elevation above which every road is a snow-covered cat track; Infinity when there are no runs */
+  private snowLine = Infinity;
 
   /** draw catwalks and roads on the mountain too (setting, default off) */
   private onSnow: boolean;
@@ -58,6 +62,7 @@ export class Roads {
     const r = Math.ceil(SNOW_R / CELL);
     for (const run of pack.features.runs) {
       const pts = run.points;
+      for (const p of pts) if (p.length > 2 && p[2] + SNOW_ABOVE_BASE < this.snowLine) this.snowLine = p[2] + SNOW_ABOVE_BASE;
       for (let i = 0; i < pts.length; i++) {
         const a = pts[i], b = pts[Math.min(pts.length - 1, i + 1)];
         const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / CELL));
@@ -153,7 +158,8 @@ export class Roads {
     let keptPrev = false;
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
-      const snow = this.onMountain.has(`${Math.floor(p[0] / CELL)},${Math.floor(p[1] / CELL)}`);
+      // on the mountain: near a run (BUG-014), or well above the base area (BUG-026: Belle's Camp's cat track)
+      const snow = this.onMountain.has(`${Math.floor(p[0] / CELL)},${Math.floor(p[1] / CELL)}`) || (p.length > 2 && p[2] > this.snowLine);
       const c = snow ? SNOW : spec.color, cv = snow ? 1 : v;
       const kept = !snow || (this.onSnow && !summer); // on the mountain: only with the setting, never summer trails
       const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
