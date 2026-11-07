@@ -16,8 +16,17 @@ The kanban lives in GitHub Projects: https://github.com/users/drewkeriazes/proje
 ## What Claude does with a card
 
 1. New ask from Drew -> create the issue with the next id and the right labels, put it in Ready (or Backlog if it needs data first).
-2. "Build X" -> move the card to In Progress, build, commit with the id in the message, comment the commit hash on the issue, close it (closing moves it to Done).
+2. "Build X" -> branch `issue-<number>-<slug>` from `main`, build, commit with the id in the message, open a PR with `Fixes #<number>` and notes on what changed and how it was checked. Drew reviews and merges; merging closes the issue (Done). The PR's link moves the card to In Progress. Do not push to `main` directly.
 3. Found a bug while building -> new BUG card, not a silent fix.
+
+## Parallel sessions (FEAT-089)
+
+Several sessions run at once, so each one keeps its hands off the others' files:
+- **One worktree per card**, never the shared checkout: `git worktree add ../wt<number> -b issue-<number>-<slug> origin/main`. Build, typecheck and commit there; remove it with `git worktree remove ../wt<number>` once the PR is open. `node_modules` can be a symlink to the main checkout's (`ln -s` / `mklink /D`), but delete the link before `git add -A`.
+- **No stash round-trips.** To set work aside, commit it on the card's branch (a WIP commit is fine; the PR is squashed or reviewed as a whole).
+- **Land through a PR**, rebased on `origin/main` if it falls behind. Never force-push someone else's branch.
+- **Two cards that change the same lines**: base the second PR on the first card's branch instead of `main` and say so at the top of the PR ("stacked on #N, merge that first"). GitHub retargets it to `main` when the first merges. Until then the second card is not linked (links need a PR to `main`), so comment the PR on its issue.
+- **Card ids**: `python tools/card_id.py` before and after creating a card (see above).
 
 New issues reach the board only through the project's **Auto-add to project** workflow (project menu > Workflows, filter `is:issue,pr is:open`, repo drewkeriazes/SnowboardAnywhere); without it, add them with **+ Add item** and `#<number>`. Closed cards carry no `status:` label.
 
