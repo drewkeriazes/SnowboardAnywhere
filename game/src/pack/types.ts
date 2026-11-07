@@ -42,7 +42,7 @@ export interface PackMeta {
   /** baked sky visibility (greyscale PNG tiles, same layout as the mask), FEAT-047 */
   ao?: MaskMeta;
   instances?: InstancesMeta;
-  start: { x: number; y: number; heading: number };
+  start: { x: number; y: number; heading: number; run?: string };
   sun: { azimuth: number; elevation: number };
   attribution: string[];
 }

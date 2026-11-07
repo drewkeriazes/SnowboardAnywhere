@@ -2,12 +2,14 @@ import type { GameAudio } from '../audio/Audio';
 import { playlistSelect, renderPanel, saveSettings, type Settings } from './Settings';
 
 export interface MenuChoice { action: 'ride' | 'map' }
+/** What the menu says about where Free ride starts (BUG-037). */
+export interface MenuStart { resortLabel: string; custom: boolean; onReset: () => void }
 
 /**
  * Start screen: resort name, Free ride (continue from the last spawn), Drop in from the map,
  * and the shared settings panel. The first click also unlocks audio. Resolves once per show.
  */
-export function showMainMenu(resortName: string, audio: GameAudio, settings: Settings, onChange: (s: Settings, what: string) => void, resorts: { slug: string; name: string }[] = [], current = ''): Promise<MenuChoice> {
+export function showMainMenu(resortName: string, audio: GameAudio, settings: Settings, onChange: (s: Settings, what: string) => void, resorts: { slug: string; name: string }[] = [], current = '', start?: MenuStart): Promise<MenuChoice> {
   return new Promise((resolve) => {
     const wrap = document.createElement('div');
     wrap.id = 'menu';
@@ -19,6 +21,7 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
         <div class="row seg"><button data-d="board" class="${settings.discipline === 'board' ? 'on' : ''}">Snowboard</button><button data-d="ski" class="${settings.discipline === 'ski' ? 'on' : ''}">Skis</button></div>
         <div class="row resort music">${'<label>Music</label>' + playlistSelect()}</div>
         <button data-a="ride" class="primary">Free ride</button>
+        ${start ? `<div class="start"><span class="where"></span><button class="ghost" data-reset="1">Reset to resort start</button></div>` : ''}
         <button data-a="map">Drop in from the map</button>
         <button data-a="settings">Settings</button>
         <div class="settings hidden"></div>
@@ -32,6 +35,13 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
       for (const k of ['x', 'y', 'h']) u.searchParams.delete(k);
       location.href = u.toString();
     });
+    if (start) {
+      const where = wrap.querySelector('.start .where') as HTMLElement;
+      const reset = wrap.querySelector<HTMLButtonElement>('button[data-reset]')!;
+      const show = (custom: boolean) => { where.textContent = custom ? 'Starts at your map drop-in' : start.resortLabel; reset.style.display = custom ? '' : 'none'; };
+      show(start.custom);
+      reset.addEventListener('click', () => { start.onReset(); show(false); });
+    }
     const panel = wrap.querySelector('.settings') as HTMLElement;
     // playlist picker on the menu itself, kept in step with the one under Settings > Audio
     const pick = wrap.querySelector('.music select') as HTMLSelectElement;

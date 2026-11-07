@@ -35,6 +35,7 @@ import { sunPosition, guessUtcOffset } from './world/Sun';
 import { loadSettings, keyName, type Settings } from './ui/Settings';
 import { STAMINA } from './sim/Rider';
 import { availableResorts } from './resorts';
+import { hasCustomStart, resetStart, spawnKey } from './spawn';
 
 const params = new URLSearchParams(location.search);
 let packSlug = params.get('pack') ?? '';
@@ -72,7 +73,8 @@ async function main(): Promise<void> {
   for (;;) {
     let openMapAtStart = false;
     if (!headless && !skipMenu) {
-      const choice = await showMainMenu(pack.meta.name, audio, settings, () => undefined, resorts, packSlug);
+      const startInfo = { resortLabel: pack.meta.start.run ? `Starts on ${pack.meta.start.run}` : 'Starts at the resort start', custom: hasCustomStart(packSlug), onReset: () => resetStart(packSlug) };
+      const choice = await showMainMenu(pack.meta.name, audio, settings, () => undefined, resorts, packSlug, startInfo);
       openMapAtStart = choice.action === 'map';
     }
     status.textContent = `Loading ${packSlug}...`;
@@ -239,12 +241,13 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
 
     // ---------------------------------------------------------------- spawn point
     const start = pack.meta.start;
-    const saveKey = `spawn:${pack.meta.slug}`;
+    const saveKey = spawnKey(pack.meta.slug);
     let saved: { x: number; y: number; h: number } | null = null;
     try { saved = JSON.parse(localStorage.getItem(saveKey) ?? 'null'); } catch { saved = null; }
-    let sx = params.has('x') ? Number(params.get('x')) : saved?.x ?? start.x;
-    let sy = params.has('y') ? Number(params.get('y')) : saved?.y ?? start.y;
-    let sh = params.has('h') ? Number(params.get('h')) * Math.PI / 180 : saved?.h ?? start.heading;
+    const at = new URLSearchParams(location.search); // re-read: the menu's "Reset to resort start" may have removed x/y/h
+    let sx = at.has('x') ? Number(at.get('x')) : saved?.x ?? start.x;
+    let sy = at.has('y') ? Number(at.get('y')) : saved?.y ?? start.y;
+    let sh = at.has('h') ? Number(at.get('h')) * Math.PI / 180 : saved?.h ?? start.heading;
     const setSpawn = (x: number, y: number, h: number) => {
       sx = x; sy = y; sh = h;
       try { localStorage.setItem(saveKey, JSON.stringify({ x, y, h })); } catch { /* private mode */ }
