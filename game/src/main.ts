@@ -9,11 +9,14 @@ import { Snow } from './world/Snow';
 import { Controls } from './sim/Controls';
 import { Vegetation, setVegetationBudget, setVegetationDensity } from './world/Vegetation';
 import { Rocks } from './world/Rocks';
+import { LiftLines } from './world/LiftLines';
 import { Lifts } from './world/Lifts';
 import { RunsOverlay } from './world/RunsOverlay';
 import { Environment } from './world/Sky';
 import { RiderView, BODY_LAYER } from './world/RiderView';
 import { GoggleView } from './ui/GoggleView';
+import { Replay, type ReplaySample } from './sim/Replay';
+import { SpeedLines } from './ui/SpeedLines';
 import { ChaseCamera } from './world/ChaseCamera';
 import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
@@ -118,6 +121,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('rocks', rocks.group);
     const lifts = new Lifts(pack);
     add('lifts', lifts.group);
+    const liftLines = new LiftLines(pack, lifts.all, collider); // FEAT-073
+    liftLines.setEnabled(settings.liftLines);
+    add('lift lines', liftLines.group);
     add('lift markers', lifts.markers);
     const runs = new RunsOverlay(pack);
     add('run lines', runs.group);
@@ -125,7 +131,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('buildings', buildings.group);
     const roads = new Roads(pack, settings.roadsOnSnow);
     add('roads', roads.group);
-    const bridges = new Bridges(pack, collider, params.has('bridgeguess')); // BUG-022: OSM-tagged bridges only by default
+    const bridges = new Bridges(pack, collider, params.has('bridgeguess')); // BUG-022: OSM-tagged bridges and creek-bed dips; ?bridgeguess adds segment chords
     add('bridges', bridges.group);
     const tracks = new Tracks(pack);
     add('tracks', tracks.group);
@@ -179,11 +185,12 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
 
     const rider = new Rider(pack, collider);
     // on foot (FEAT-067): every foot plant of the skeleton leaves a print and a footstep
-    riderView.setPack(pack);
+    riderView.setPack(pack, collider); // FEAT-046: the crash ragdoll hits trunks, rocks and walls
     rider.onSkateStroke = () => audio.footstep(rider.surface, rider.speed, 0); // FEAT-085: a crunch per push
     riderView.onPlant = (p) => { bootprints.add(p, rider.sink); audio.footstep(rider.surface, p.speed, rider.sink); };
     let boardMsg = '', boardMsgT = 0;
     const liftRide = new LiftRide(pack, lifts, collider);
+    liftRide.gate = (l, x, y) => liftLines.inGate(l, x, y); // FEAT-073: board from inside the maze
     const prefetch = new Prefetch();
     const cam = new ChaseCamera(pack, window.innerWidth / window.innerHeight);
     cam.collider = collider; // BUG-032: keep the chase camera out of trees
@@ -200,6 +207,35 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     let csmSize = 0;
     if (!params.has('noimpostors')) veg.enableImpostors(renderer, true);
     const goggles = new GoggleView();
+    const speedLines = new SpeedLines(document.body); // FEAT-045
+    // ---- FEAT-043: the session recording, the replay viewer (K) and the practice rewind (hold Backspace)
+    const replay = new Replay();
+    const replayEl = document.createElement('div'); replayEl.id = 'replay';
+    replayEl.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(720px,92vw);color:#fff;background:rgba(20,24,34,.8);border-radius:12px;padding:8px 14px;font:13px system-ui,sans-serif;display:none;pointer-events:none;z-index:6';
+    document.body.appendChild(replayEl);
+    const REPLAY_SPEEDS = [0.25, 0.5, 1, 2];
+    let replayOpen = false, replayT = 0, replayPlay = true, replaySpeed = 1, replayClean = false, photoFov = 0, replayHour = 12;
+    let replayCam: 'follow' | 'trackside' | 'free' = 'follow';
+    const trackPos = new THREE.Vector3(); let trackSet = false;
+    let rewinding = false, rewindT = 0;
+    const openReplay = () => {
+      replayOpen = true; replayT = Math.max(replay.start, replay.end - 30); replayPlay = true; replaySpeed = 1; replayCam = 'follow'; trackSet = false; photoFov = 0;
+      replayHour = typeof settings.timeOfDay === 'number' ? settings.timeOfDay : 12;
+      trial.cancel('Replay');
+    };
+    const closeReplay = () => {
+      replayOpen = false; replayClean = false; replayEl.style.display = 'none';
+      if (cam.mode === 'free') cam.mode = settings.camera;
+      applySun(settings);
+    };
+    /** back on the snow at a recorded moment; the recording carries on from there */
+    const rewindTo = (s: ReplaySample) => {
+      rider.x = s.x; rider.y = s.y; rider.z = pack.groundHeight(s.x, s.y, s.z); rider.vx = s.vx; rider.vy = s.vy; rider.vz = 0;
+      rider.heading = s.hd; rider.boardYaw = s.h; rider.onGround = true; rider.onFoot = !!s.on; rider.crashed = 0;
+      rider.flip = 0; rider.flipRate = 0; rider.spin = 0; rider.airTime = 0; rider.jumpCharge = 0; rider.landingShock = 0;
+      replay.truncate(s.t); trial.cancel('Rewound');
+    };
+    const fmtT = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
     // first person redraws the body with a close near plane so knees, gloves and the board are not clipped
     const bodyCam = new THREE.PerspectiveCamera(70, 1, 0.05, 30);
     bodyCam.layers.set(BODY_LAYER);
@@ -237,7 +273,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (what === 'clouds') weatherOverride = null;
       const weather = weatherOverride ?? s.clouds ?? 'scattered';
       weatherNow = weather;
-      if (what === 'newSnow' || what === 'init') snowCover = NEW_SNOW[s.newSnow ?? 'none']; // FEAT-105: pick a look without waiting
+      if (what === 'newSnow' || what === 'init' || what === 'reset') snowCover = NEW_SNOW[s.newSnow ?? 'none'] ?? 0; // FEAT-105: pick a look without waiting
       clouds.configure(weather, s.quality);
       const storm = weather === 'storm', overcast = isOvercast(weather);
       env.setBluebird(!storm && !overcast); // deep blue sky behind the clouds too; storm and overcast are grey
@@ -270,6 +306,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       controls.invertSteer = s.invertSteer;
       lifts.markers.visible = s.showMarkers;
       roads.setOnSnow(s.roadsOnSnow);
+      liftLines.setEnabled(s.liftLines);
       riderView.setOutfit(s.outfit);
       riderView.setDiscipline(s.discipline);
       tracks.setDiscipline(s.discipline);
@@ -422,7 +459,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const showPrompt = (html: string) => { if (html !== promptShown) { promptShown = html; prompt.innerHTML = html; prompt.classList.toggle('show', html !== ''); } };
 
     let mouseDx = 0, mouseDy = 0;
-    const onClick = () => { if (!paused && (cam.mode === 'free' || cam.mode === 'fp' || cam.mode === 'eye')) canvas.requestPointerLock(); };
+    const onClick = () => { if (!paused && (cam.mode === 'free' || cam.firstPerson || cam.mode === 'eye')) canvas.requestPointerLock(); };
     const onMove = (e: MouseEvent) => { if (document.pointerLockElement === canvas || (controls.looking && !paused)) { mouseDx += e.movementX; mouseDy += e.movementY; } };
     const onResize = () => { renderer.setSize(window.innerWidth, window.innerHeight); cam.camera.aspect = window.innerWidth / window.innerHeight; cam.camera.updateProjectionMatrix(); env.onCameraChanged(); };
     canvas.addEventListener('click', onClick);
@@ -443,7 +480,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       tracks.dispose();
       trialWorld.dispose();
       if (outrun.active) stopOutrun();
-      outrunUI.destroy(); eat.dispose(); puffs.dispose(); bigprints.dispose();
+      outrunUI.destroy(); speedLines.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
       trialEl.classList.remove('show');
       finishArrow.style.display = 'none';
       audio.onTrack = null;
@@ -470,7 +507,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     /** Main render, then in first person the body again over a cleared depth buffer (near 0.05 m). */
     function render(): void {
       renderer.render(scene, cam.camera);
-      if (cam.mode !== 'fp') return;
+      if (!cam.firstPerson) return;
       for (const l of env.csm?.lights ?? []) l.layers.enable(BODY_LAYER);
       bodyCam.position.copy(cam.camera.position); bodyCam.quaternion.copy(cam.camera.quaternion);
       if (bodyCam.fov !== cam.camera.fov || bodyCam.aspect !== cam.camera.aspect) { bodyCam.fov = cam.camera.fov; bodyCam.aspect = cam.camera.aspect; bodyCam.updateProjectionMatrix(); }
@@ -490,12 +527,12 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       last = now;
       const input = controls.update();
       // pause has priority; Esc closes the map first if it is open
-      if (controls.once('Escape') || touch?.once('pause')) { if (map.fullOpen) map.close(); else setPaused(!paused); }
+      if (controls.once('Escape') || touch?.once('pause')) { if (replayOpen) closeReplay(); else if (map.fullOpen) map.close(); else setPaused(!paused); }
       if (paused) { controls.endFrame(); touch?.pressed.clear(); render(); if (!headless) requestAnimationFrame(frame); return; }
       touch?.setVisible(!map.fullOpen);
       elapsed += dt;
-      if (controls.action('restart')) { if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); rider.reset(sx, sy, sh); cam.snapTo(rider); }
-      if (controls.action('trial') && settings.timeTrials && !outrun.active) {
+      if (!replayOpen && controls.action('restart')) { if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      if (!replayOpen && controls.action('trial') && settings.timeTrials && !outrun.active) {
         const c = trial.nearestStart(rider.x, rider.y);
         if (c) {
           // a few metres above the start gate on the course line, facing down it
@@ -505,21 +542,70 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
           rider.reset(x, y, Math.atan2(c.dir[0], c.dir[1])); cam.snapTo(rider);
         }
       }
-      if (controls.action('camera') || touch?.once('camera')) cam.cycle();
-      if (controls.action('map') || touch?.once('map')) map.toggle();
+      // ---- FEAT-043: replay viewer (the sim is frozen and the recording plays on the rider). While it is open,
+      // restart / trial / map / piste / fly / board are ignored so the viewer acts like a modal (P is the photo key here)
+      if (controls.action('replay') && !outrun.active && !liftRide.riding && !rider.unstrapped && replay.samples.length > 20) { if (replayOpen) closeReplay(); else openReplay(); }
+      if (replayOpen) {
+        const k = controls.keys;
+        if (controls.once('Space')) { if (replayT >= replay.end - 0.01) replayT = replay.start; replayPlay = !replayPlay; }
+        const si = REPLAY_SPEEDS.indexOf(replaySpeed);
+        if (controls.once('ArrowUp')) replaySpeed = REPLAY_SPEEDS[Math.min(REPLAY_SPEEDS.length - 1, si + 1)];
+        if (controls.once('ArrowDown')) replaySpeed = REPLAY_SPEEDS[Math.max(0, si - 1)];
+        const scrub = (k.has('ArrowRight') ? 1 : 0) - (k.has('ArrowLeft') ? 1 : 0);
+        if (scrub) replayT += scrub * 5 * dt; else if (replayPlay) replayT += dt * replaySpeed;
+        if (replayT >= replay.end) { replayT = replay.end; replayPlay = false; }
+        if (replayT < replay.start) replayT = replay.start;
+        if (controls.once('KeyC')) {
+          replayCam = replayCam === 'follow' ? 'trackside' : replayCam === 'trackside' ? 'free' : 'follow'; trackSet = false;
+          if (replayCam === 'free') cam.enterFree(); else cam.mode = settings.camera;
+        }
+        if (controls.once('KeyH')) replayClean = !replayClean;
+        if (controls.once('KeyP')) shotPending = true;
+        if (controls.once('Minus')) photoFov = Math.max(-35, photoFov - 5);
+        if (controls.once('Equal')) photoFov = Math.min(35, photoFov + 5);
+        if (controls.once('Comma') || controls.once('Period')) {
+          replayHour = Math.max(6, Math.min(20, replayHour + (controls.keys.has('Period') ? 0.5 : -0.5)));
+          applySun({ ...settings, timeOfDay: replayHour });
+        }
+        const s = replay.at(replayT);
+        if (s) replay.overlay(rider, s, pack);
+        const span = Math.max(0.01, replay.end - replay.start);
+        replayEl.style.display = replayClean ? 'none' : 'block';
+        replayEl.innerHTML = `<div style="display:flex;justify-content:space-between"><b>REPLAY ${replayPlay ? '&#9654;' : '&#10074;&#10074;'} ${replaySpeed}x</b><span>${fmtT(replayT - replay.start)} / ${fmtT(span)}</span></div>` +
+          `<div style="height:6px;background:rgba(255,255,255,.2);border-radius:3px;margin:6px 0"><div style="height:6px;width:${((replayT - replay.start) / span * 100).toFixed(1)}%;background:#facc15;border-radius:3px"></div></div>` +
+          `<div style="opacity:.75">Space play &middot; &larr; &rarr; scrub &middot; &uarr; &darr; speed &middot; C camera (${replayCam}) &middot; - = FOV &middot; , . time of day ${replayHour.toFixed(1)}h &middot; H hide &middot; P photo &middot; K / Esc close</div>`;
+      }
+      // ---- FEAT-043: rewind (hold): scrub back along the recording, let go to carry on from the
+      // last moment on the snow before there (not mid-air, not crashed)
+      const rewindHeld = !replayOpen && controls.keys.has(controls.keymap.rewind) && !outrun.active && !liftRide.riding && replay.samples.length > 1 && rider.strapState === 'none';
+      if (rewindHeld) {
+        rewinding = true;
+        rewindT = Math.min(rewindT + dt * 2, replay.t - replay.start);
+        const s = replay.at(replay.t - rewindT);
+        if (s) replay.overlay(rider, s, pack);
+      } else if (rewinding) {
+        rewinding = false;
+        const g = replay.goodGround(replay.t - rewindT);
+        replay.restore(rider);
+        if (g) rewindTo(g);
+        rewindT = 0;
+      }
+      const frozen = replayOpen || rewinding;
+      if (!replayOpen && (controls.action('camera') || touch?.once('camera'))) cam.cycle();
+      if (!replayOpen && (controls.action('map') || touch?.once('map'))) map.toggle();
       // the rider stands still while the camera is detached (free fly, eye)
       const detached = cam.mode === 'free' || cam.mode === 'eye';
       const eyeMode = cam.mode === 'eye';
-      document.body.classList.toggle('eye-mode', eyeMode);
+      document.body.classList.toggle('eye-mode', eyeMode || (replayOpen && replayClean));
       if (!eat.active) riderView.group.visible = !eyeMode;
       riderView.sprayObject.visible = !eyeMode;
       // lift markers and piste lines are game UI, not in a photo
       lifts.markers.visible = !eyeMode; if (eyeMode) runs.group.visible = false;
-      if (controls.action('piste')) { if (eyeMode) shotPending = true; else runs.toggle(); }
+      if (!replayOpen && controls.action('piste')) { if (eyeMode) shotPending = true; else runs.toggle(); }
       if (controls.action('track')) audio.nextTrack();
-      if (controls.action('fly')) { cam.mode = cam.mode === 'free' ? settings.camera : 'free'; if (cam.mode === 'free') cam.enterFree(); }
+      if (!replayOpen && controls.action('fly')) { cam.mode = cam.mode === 'free' ? settings.camera : 'free'; if (cam.mode === 'free') cam.enterFree(); }
       // board on / off: unstrap when nearly stopped, strap in standing still
-      if ((controls.action('board') || touch?.once('board')) && !detached && !liftRide.riding && !map.fullOpen) {
+      if (!replayOpen && (controls.action('board') || touch?.once('board')) && !detached && !liftRide.riding && !map.fullOpen) {
         const why = rider.toggleBoard();
         if (why === '' && rider.strapState === 'off') trial.cancel('Unstrapped');
         boardMsg = why === 'fast' ? 'slow down to unstrap' : why === 'moving' ? 'stand still to strap in' : why === 'air' ? 'land first' : '';
@@ -531,14 +617,15 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (controls.action('boost') && outrun.boost()) chase?.boostWhoosh();
       rider.boost = outrun.boosting;
       const eating = outrun.phase === 'caught';
-      const onLift = !detached && !eating && liftRide.update(rider, dt, boardPressed, input.tuck);
-      if (!detached && !onLift && !map.fullOpen && !eating) rider.update(dt, input);
+      const onLift = !detached && !eating && !frozen && liftRide.update(rider, dt, boardPressed, input.tuck);
+      if (!detached && !onLift && !map.fullOpen && !eating && !frozen) rider.update(dt, input);
+      if (!frozen && !onLift && !eating) replay.record(dt, rider, input.tuck); // FEAT-043
       // visuals draw the pose interpolated between the last two 120 Hz physics steps; gameplay
       // (trials, lifts, audio) keeps reading the sim pose
-      riderView.setFirstPerson(cam.mode === 'fp');
+      riderView.setFirstPerson(cam.firstPerson);
       rider.applyRenderPose();
       if (!eating) riderView.update(rider, dt, input.tuck, input.grab, onLift && liftRide.airborneRide);
-      tracks.update(rider, dt, onLift && liftRide.airborneRide);
+      if (!frozen) tracks.update(rider, dt, onLift && liftRide.airborneRide);
       bootprints.update(dt); bigprints.update(dt); puffs.update(dt);
       rider.restoreSimPose();
       // ---- Outrun: sim, events to sound and effects, the eat sequence, the monsters
@@ -575,7 +662,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       }
       outrunUI.update(outrun, settings.units === 'metric', keyName(settings.keys.boost));
       if (settings.timeTrials) {
-        if (onLift) trial.cancel('On a lift'); else if (rider.unstrapped) trial.cancel('Unstrapped'); else trial.update(rider, dt, input.tuck);
+        if (onLift) trial.cancel('On a lift'); else if (rider.unstrapped) trial.cancel('Unstrapped'); else if (!frozen) trial.update(rider, dt, input.tuck);
         trialWorld.updateGates(rider.x, rider.y);
         trialWorld.updateGhost(trial.ghostAt(trial.time), dt);
         const active = trial.state !== 'idle' ? trial.course : null;
@@ -618,13 +705,26 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       rider.applyRenderPose();
       if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
       else if (eyeMode) { cam.updateEye(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
-      else if (cam.mode === 'fp') { cam.updateFirstPerson(rider, dt, input.tuck, onLift || controls.looking, mouseDx, mouseDy, riderView.eye(eye)); mouseDx = mouseDy = 0; }
-      else { cam.freeLook(controls.looking, dt, mouseDx, mouseDy, outrun.running && controls.keys.has(controls.keymap.glance)); mouseDx = mouseDy = 0; cam.baseFov = settings.fov + (outrun.boosting ? 12 : 0); cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); }
+      else if (cam.firstPerson) { cam.updateFirstPerson(rider, dt, input.tuck, onLift || controls.looking, mouseDx, mouseDy, riderView.eye(eye)); mouseDx = mouseDy = 0; }
+      else if (replayOpen && replayCam === 'trackside') {
+        // FEAT-043: a fixed camera beside the line, moved on ahead once the rider is past it
+        const sp = Math.hypot(rider.vx, rider.vy) || 1, ux = rider.vx / sp, uy = rider.vy / sp;
+        if (!trackSet || Math.hypot(trackPos.x - rider.x, -trackPos.z - rider.y) > 45) {
+          const tx = rider.x + ux * 25 - uy * 10, ty = rider.y + uy * 25 + ux * 10;
+          trackPos.set(tx, pack.groundHeight(tx, ty) + 1.6, -ty); trackSet = true;
+        }
+        cam.camera.position.copy(trackPos); cam.camera.lookAt(rider.x, rider.z + 1, -rider.y);
+        cam.camera.fov = Math.max(15, settings.fov - 25 + photoFov); cam.camera.updateProjectionMatrix();
+      }
+      else { cam.freeLook(controls.looking, dt, mouseDx, mouseDy, outrun.running && controls.keys.has(controls.keymap.glance)); mouseDx = mouseDy = 0; cam.baseFov = settings.fov + (outrun.boosting ? 12 : 0) + (replayOpen ? photoFov : 0); cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); }
       // the eat sequence owns the camera: high in front of the monster, looking down at it (FEAT-104)
       if (eat.active) { eat.cameraPose(cam.camera.position, eatLook); cam.camera.lookAt(eatLook); if (cam.camera.fov !== 60) { cam.camera.fov = 60; cam.camera.updateProjectionMatrix(); } }
       chase?.setListener(cam.camera);
       goggles.strength = settings.goggleStrength;
       goggles.update(rider, dt, cam.mode === 'fp', cam.mode === 'fp' && settings.fpVignette, onLift);
+      // FEAT-045 speed feel toggles, and the speed lines (not on a lift, in free fly or the eat)
+      cam.speedFov = settings.speedFov; cam.camShake = settings.camShake; speedLines.enabled = settings.speedLines;
+      speedLines.update(rider.speed, dt, !detached && !onLift && !eat.active && !paused && !rider.onFoot && !frozen);
       rider.restoreSimPose();
       cam.camera.updateMatrixWorld();
       env.updateCSM();
@@ -662,6 +762,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       lifts.update(elapsed, carried ? chairPos.set(rider.x, rider.z, -rider.y) : null);
       lifts.maintain(dt, rider.x, rider.y);
       bridges.maintain(dt, rider.x, rider.y);
+      liftLines.maintain(rider.x, rider.y);
       if (settings.timeOfDay === 'now' || timeParam === 'now') { sunClock += dt; if (sunClock > 60) { sunClock = 0; applySun(settings); } }
       lifts.updateMarkers(elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
       map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
@@ -693,6 +794,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       // the drawing buffer is only readable in the same task as the render
       if (shotPending) { shotPending = false; saveShot(canvas.toDataURL('image/png'), canvas.toDataURL('image/jpeg', 0.9)); }
       controls.endFrame();
+      replay.restore(rider); // FEAT-043: the sim state back under the replayed pose
 
       fpsAcc += dt; fpsN++;
       if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }

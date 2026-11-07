@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import type { Rider } from '../sim/Rider';
 import type { Pack } from '../pack/Pack';
+import type { Collider } from '../sim/Collider';
+import { Ragdoll, RAGDOLL_RECOVER } from './Ragdoll';
 import { lerpPose, clonePose, defaultMaterials, POSES, SKI_POSES, WALK_POSES, type Pose, type RiderMaterials } from './RiderModel';
-import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, bendBoard, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
+import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, bendBoard, deckY, BONES as BONE_LIST, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
 import { Gait, type Plant } from './Gait';
 
 /** FEAT-112: half the skis' length (where they pivot) and the most they tip up on a full lean (rad) */
@@ -10,6 +12,9 @@ const BOARD_HALF = 0.72, LEAN_TIP = 18 * Math.PI / 180;
 /** FEAT-118: board flex spring: natural frequency (rad/s, about 0.3 s a cycle) and damping ratio
  *  (0.45 overshoots about 20 %, so a full load snaps past flat to about -0.15 on the pop) */
 const FLEX_W = 21, FLEX_ZETA = 0.45;
+/** BUG-047: the hip joint stays this far above the deck under it (the glutes hang 0.1 to 0.15 m below
+ *  the joint), and on a full load the hips move this far toward the loaded end (m) */
+const HIP_CLEAR = 0.2, HIP_SHIFT = 0.12;
 /** BUG-034: share of a skier's counter-rotation taken by the pelvis (the rest is the chest) */
 const SKI_HIP_TWIST = 0.35;
 
@@ -119,6 +124,11 @@ export class RiderView {
   private readonly v4 = new THREE.Vector3();
   // ---- on foot (FEAT-067)
   private pack: Pack | null = null;
+  /** FEAT-046: crash tumble, and the blend back to the animated pose after it (s left) */
+  private ragdoll: Ragdoll | null = null;
+  private recoverT = 0;
+  private readonly recoverQ = BONE_LIST.map(() => new THREE.Quaternion());
+  private readonly recoverHips = new THREE.Vector3();
   private gait: Gait | null = null;
   /** foot mode was drawn last frame (the board is off the bindings or the gear is carried) */
   private footActive = false;
@@ -144,8 +154,9 @@ export class RiderView {
   private readonly up = new THREE.Vector3(0, 1, 0);
 
   /** Terrain for foot placement (on foot). */
-  setPack(pack: Pack): void {
+  setPack(pack: Pack, collider: Collider | null = null): void {
     this.pack = pack;
+    this.ragdoll = new Ragdoll(pack, collider);
     this.gait = new Gait((x, y) => pack.groundHeight(x, y));
     this.gait.onPlant = (p) => this.onPlant?.(p);
   }
@@ -242,9 +253,9 @@ export class RiderView {
   }
 
   /** FK from the blended pose: pelvis, spine, head and arms. Leg angles only stand when seated. */
-  private applyFK(p: Pose, xOff: number): void {
+  private applyFK(p: Pose, xOff: number, zOff = 0): void {
     const B = this.rig.bones;
-    B.Hips.position.set(xOff, p.hipsY, 0);
+    B.Hips.position.set(xOff, p.hipsY, zOff);
     // pitch convention in the tables: positive = bend toward the face; +X rotation tips +Y toward
     // +Z (the back), so pitches are negated. The waist bend spreads over three spine bones.
     B.Hips.rotation.set(-p.hipsRot[0], p.hipsRot[1], p.hipsRot[2]);
@@ -357,6 +368,25 @@ export class RiderView {
       this.rig.board.position.add(this.pivot).sub(this.v2.set(0, 0, end).applyQuaternion(this.rig.board.quaternion));
     } else this.rig.board.rotation.set(0, 0, 0);
 
+    // ---- FEAT-046: a crash is a ragdoll tumble; the body is pulled toward the sim's slide so it
+    // gets up where the rider is, then blends back to the animated pose over RAGDOLL_RECOVER
+    if (this.ragdoll && r.crashed > 0 && !seated) {
+      if (!this.ragdoll.active) { this.group.updateMatrixWorld(true); this.ragdoll.start(this.rig, this.v1.set(r.vx, r.vz, -r.vy)); }
+      this.group.updateMatrixWorld(true);
+      this.ragdoll.step(dt, this.v2.set(r.x, r.z, -r.y));
+      this.ragdoll.apply(this.rig);
+      hangCarriersFromFeet(this.rig); // the board stays strapped to the feet
+      this.wasSeated = true; // so the carriers go back on the next normal frame
+      this.updateSpray(r, dt, f, right, false);
+      return;
+    }
+    if (this.ragdoll?.active) {
+      this.ragdoll.stop();
+      BONE_LIST.forEach((b, i) => this.recoverQ[i].copy(this.rig.bones[b].quaternion));
+      this.recoverHips.copy(this.rig.bones.Hips.position);
+      this.recoverT = RAGDOLL_RECOVER;
+    }
+
     // ---- pose blend from rider state
     const t = this.target;
     const P = this.poses;
@@ -378,7 +408,8 @@ export class RiderView {
       if (r.squat > 0) lerpPose(t, t, P.squat, r.squat); // FEAT-111: deeper than tuck or charge, wins over both
       // FEAT-085 skating: knees bent, chest over the front foot, bobbing down into each push
       // FEAT-112: hips over the loaded end, the chest leaning with them
-      if (Math.abs(r.lean) > 0.01) { t.torso = [t.torso[0] + 0.3 * r.lean, t.torso[1], t.torso[2]]; t.hipsY -= 0.06 * Math.abs(r.lean); }
+      // BUG-047: no extra drop when already squatting or charged (that put the seat through the deck)
+      if (Math.abs(r.lean) > 0.01) { t.torso = [t.torso[0] + 0.3 * r.lean, t.torso[1], t.torso[2]]; t.hipsY -= 0.06 * Math.abs(r.lean) * (1 - Math.min(1, Math.max(r.squat, r.jumpCharge))); }
       if (r.skating) { const push = Math.max(0, Math.cos(r.skatePhase * Math.PI * 2)); lerpPose(t, t, P.crouch, 0.35 + 0.25 * push); t.torso = [t.torso[0] + 0.25 * push, t.torso[1], t.torso[2]]; }
       if (r.landingShock > 0) lerpPose(t, t, P.land, Math.min(1, r.landingShock * 1.5));
       // knees bent and hips low in proportion to how hard the edge is biting
@@ -429,7 +460,14 @@ export class RiderView {
     const p = this.pose;
     const hy = p.hipsY, tx = p.torso[0];
     p.hipsY += Math.sin(now * 2.1) * 0.004; p.torso[0] += Math.sin(now * 1.3) * 0.015;
-    this.applyFK(p, -side * 0.13);
+    // BUG-047: the hips sit over the loaded end and never below the deck under them
+    let hipZ = 0;
+    if (this.discipline === 'board' && !seated) {
+      hipZ = -this.flexDir * HIP_SHIFT * Math.max(0, Math.min(1, this.flex));
+      const floor = deckY(this.rig, hipZ) + 0.022 + HIP_CLEAR;
+      if (p.hipsY < floor) p.hipsY = floor;
+    }
+    this.applyFK(p, -side * 0.13, hipZ);
     p.hipsY = hy; p.torso[0] = tx;
 
     // ---- legs: boots pinned to the bindings, or on a chair the board hangs from the feet
@@ -451,6 +489,15 @@ export class RiderView {
       this.footGap = pinFeet(rig, lp, rp);
     }
     if (this.discipline === 'ski') this.skiHands(r, tuck, free);
+    if (this.recoverT > 0) {
+      // FEAT-046: ease from the last ragdoll pose into the animated one
+      this.recoverT = Math.max(0, this.recoverT - dt);
+      const k = 1 - this.recoverT / RAGDOLL_RECOVER, e = k * k * (3 - 2 * k);
+      // recoverQ / recoverHips stay fixed at the crash-end pose; only the animated target moves
+      BONE_LIST.forEach((b, i) => { const bone = this.rig.bones[b]; bone.quaternion.copy(this.q.copy(this.recoverQ[i]).slerp(bone.quaternion, e)); });
+      this.rig.bones.Hips.position.lerpVectors(this.recoverHips, this.rig.bones.Hips.position, e);
+      this.rig.body.updateMatrixWorld(true);
+    }
     this.updateSpray(r, dt, f, right, true);
   }
 
@@ -589,6 +636,13 @@ export class RiderView {
     const crouch = u > 0.08 && u < 0.78 ? Math.sin(Math.PI * (u - 0.08) / 0.7) : 0;
     t.hipsY -= 0.3 * crouch + 0.6 * r.sink * stand + 0.12 * this.slip; // sitting into a slip
     if (r.squat > 0) { t.hipsY -= 0.45 * r.squat; t.hipsRot = [t.hipsRot[0] + 0.3 * r.squat, t.hipsRot[1], t.hipsRot[2]]; t.torso = [t.torso[0] + 0.35 * r.squat, t.torso[1], t.torso[2]]; } // on foot: hunker down (FEAT-111)
+    // BUG-045 mantle: reach up to the edge, pull the knees up through the middle, then stand
+    if (r.mantle > 0) {
+      const reach = Math.max(0, 1 - r.mantle / 0.5), knee = Math.sin(Math.PI * r.mantle);
+      t.hipsY -= 0.35 * knee; t.torso = [t.torso[0] + 0.5 * knee, t.torso[1], t.torso[2]];
+      t.lShoulder = [t.lShoulder[0] + 2.2 * reach + 0.8 * knee, t.lShoulder[1], t.lShoulder[2] * 0.4];
+      t.rShoulder = [t.rShoulder[0] + 2.2 * reach + 0.8 * knee, t.rShoulder[1], t.rShoulder[2] * 0.4];
+    }
     t.hipsRot = [t.hipsRot[0] + 0.35 * crouch, t.hipsRot[1], t.hipsRot[2]];
     t.torso = [t.torso[0] + 0.5 * crouch - 0.25 * this.slip + 0.4 * Math.max(0, Math.min(0.8, grade)) * stand * Math.min(1, gait.speed), t.torso[1], t.torso[2]];
     t.lShoulder = [t.lShoulder[0] + 0.9 * crouch, t.lShoulder[1], t.lShoulder[2] * (1 - crouch * 0.7)];

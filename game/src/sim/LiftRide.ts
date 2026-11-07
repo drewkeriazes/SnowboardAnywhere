@@ -41,6 +41,8 @@ export class LiftRide {
   constructor(private readonly pack: Pack, private readonly lifts: Lifts, private readonly collider: Collider | null = null) {}
 
   get riding(): boolean { return this.lift !== null; }
+  /** FEAT-073: where boarding is allowed near a lift's loading point (null: anywhere in range) */
+  gate: ((l: LiftRuntime, x: number, y: number) => boolean) | null = null;
 
   /** Call every frame before the physics step. Returns true when the rider is on a lift (physics skipped). */
   /** true while fast-forwarding (for the prompt) */
@@ -50,7 +52,8 @@ export class LiftRide {
     if (!this.lift) {
       this.nearby = this.lifts.nearestBoardable(rider.x, rider.y, PROMPT_RANGE);
       this.nearbyDist = this.nearby ? Math.hypot(this.nearby.bottom[0] - rider.x, this.nearby.bottom[1] - rider.y) : Infinity;
-      const inZone = this.nearbyDist < BOARD_RANGE;
+      // FEAT-073: with a lift-line maze built, only inside the corral or at the loading line
+      const inZone = this.nearbyDist < BOARD_RANGE && (!this.gate || !this.nearby || this.gate(this.nearby, rider.x, rider.y));
       this.blocker = !inZone ? '' : !rider.onGround ? 'air' : rider.speed > BOARD_SPEED ? 'fast' : '';
       this.canBoard = inZone && this.blocker === '';
       // loading maze: coast to a stop inside the zone
