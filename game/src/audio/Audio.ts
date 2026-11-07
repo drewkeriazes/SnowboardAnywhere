@@ -35,6 +35,9 @@ type QueueItem = { list: string } & ({ track: TrackInfo } | { style: JukeStyle; 
  */
 interface Layer { gain: GainNode; filter: BiquadFilterNode }
 
+/** FEAT-103: reference rider weight (kg, about 180 lb) for the rock scrape level; a rider-weight setting can scale it later */
+const RIDER_KG = 82;
+
 export class GameAudio {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
@@ -49,6 +52,10 @@ export class GameAudio {
   private breathT = 0;
   private wasStrap: 'none' | 'off' | 'on' = 'none';
   private crackleT = 0;
+  /** FEAT-103 rock: edge grind (gritty band through a waveshaper), base drag (low, rough), and the
+   *  sample-and-hold skip that makes the grind stutter, plus the tick timer */
+  private rockGrind!: Layer; private rockDrag!: Layer;
+  private skipT = 0; private skipV = 1; private tickT = 0;
   private music: HTMLAudioElement | null = null;
   /** file tracks per playlist name, from playlist.json */
   private lists = new Map<string, TrackInfo[]>();
@@ -110,6 +117,19 @@ export class GameAudio {
     this.flowPow = layer('lowpass', 400, 0.5);
     this.flowHard = layer('highpass', 3500, 0.7);
     this.flowCrust = layer('bandpass', 1200, 2.5);
+    {
+      // FEAT-103: the edge grind gets a soft-clip waveshaper for grit
+      const src = ctx.createBufferSource(); src.buffer = this.noiseBuf; src.loop = true;
+      const filter = ctx.createBiquadFilter(); filter.type = 'bandpass'; filter.frequency.value = 3000; filter.Q.value = 1.4;
+      const shaper = ctx.createWaveShaper();
+      const curve = new Float32Array(1024);
+      for (let i = 0; i < curve.length; i++) { const x = (i / (curve.length - 1)) * 2 - 1; curve[i] = Math.tanh(4 * x) * 0.8; }
+      shaper.curve = curve;
+      const gain = ctx.createGain(); gain.gain.value = 0;
+      src.connect(filter).connect(shaper).connect(gain).connect(this.sfx); src.start();
+      this.rockGrind = { gain, filter };
+    }
+    this.rockDrag = layer('lowpass', 900, 0.9);
     this.carveToe = layer('bandpass', 3000, 1.6);
     this.carveHeel = layer('bandpass', 1900, 1.6);
     this.skidL = layer('bandpass', 5200, 1.2);
@@ -338,6 +358,38 @@ export class GameAudio {
     this.burst('lowpass', 500, 0.07, 0.12 * g); // the boot heel itself
   }
 
+  /**
+   * FEAT-103: board on exposed rock or scree. Edge grind (metallic, 1.8 to 5 kHz with speed, louder on
+   * edge), base drag (300 Hz to 1.5 kHz, louder flat), both stuttered by a random skip at 8 to 30 Hz;
+   * ticks and pebble clacks at 5 to 40 a second. Scree is looser: more ticks, less ring. Load (edge
+   * pressure and landings) for an 82 kg rider deepens and raises it. Fades in over 30 ms, out over 120 ms.
+   */
+  private rockScrape(r: Rider, onSnow: boolean, dt: number): void {
+    const s = r.surface, spd = r.speed;
+    const rock = onSnow ? s.rock : 0, scree = onSnow ? s.scree : 0;
+    const v = Math.min(1, spd / 20), edge = Math.min(1, Math.abs(r.edgeAngle));
+    const load = (RIDER_KG / 82) * (1 + 0.5 * Math.min(1.5, Math.abs(r.lateralG)) + r.landingShock);
+    this.skipT -= dt;
+    if (this.skipT <= 0) { this.skipT = 1 / (8 + 22 * v) * (0.6 + 0.8 * Math.random()); this.skipV = 0.35 + 0.65 * Math.random(); }
+    const ease = (g: GainNode, target: number) => { const k = Math.min(1, dt / (target > g.gain.value ? 0.03 : 0.12)); g.gain.value += (target - g.gain.value) * k; };
+    const metal = rock + 0.25 * scree; // scree rings far less
+    ease(this.rockGrind.gain, Math.min(0.45, metal * v * (0.25 + 0.75 * edge) * load * 0.5 * this.skipV));
+    this.rockGrind.filter.frequency.value = 1800 + 3200 * v * (0.7 + 0.3 * edge);
+    ease(this.rockDrag.gain, Math.min(0.4, (rock + 0.7 * scree) * v * (1 - 0.7 * edge) * load * 0.45 * (0.6 + 0.4 * this.skipV)));
+    this.rockDrag.filter.frequency.value = 300 + 1200 * v;
+    // ticks and pebbles
+    const hit = rock + 1.6 * scree;
+    if (hit > 0.15 && spd > 1) {
+      this.tickT -= dt;
+      if (this.tickT <= 0) {
+        this.tickT = (1 / (5 + 35 * v)) * (0.4 + 1.2 * Math.random()) / Math.min(1.5, hit);
+        const looseness = scree / Math.max(1e-3, rock + scree);
+        this.burst('highpass', 2500 + 3500 * Math.random() * (1 - 0.4 * looseness), 0.01 + 0.02 * Math.random(), 0.12 * Math.min(1, hit) * (0.5 + 0.5 * v));
+        if (Math.random() < 0.35 * (1 - looseness)) this.tone(2200 + 2400 * Math.random(), 0.012, 0.03 * v, 'square'); // a steel click
+      }
+    } else this.tickT = 0;
+  }
+
   /** Binding ratchets: a quick run of clicks (strapping in) or a couple of releases (unstrapping). */
   private bindings(on: boolean): void {
     const clicks = on ? [0.45, 0.52, 0.59, 0.66, 0.8, 0.87, 0.94] : [0.12, 0.3];
@@ -353,18 +405,20 @@ export class GameAudio {
     const onSnow = r.onGround && !riding && spd > 0.3 && !r.unstrapped; // board on snow
     const s = r.surface;
     const hard = Math.min(1, s.rock + s.scree);
+    // FEAT-103: on rock there is no snow under the board, so the snow layers duck
+    const snowLeft = 1 - Math.min(1, s.rock + 0.6 * s.scree);
     const groomed = s.groomed * (1 - hard);
     const powder = Math.max(0, 1 - groomed - hard) * (s.canopy > 0.3 ? 1 : 0.7);
     const crust = Math.max(0, 1 - groomed - hard) * Math.min(1, Math.max(0, (r.slopeDeg - 25) / 15)) * (s.canopy < 0.3 ? 1 : 0.3);
     const v = Math.min(1, spd / 25);
     // flow layers
-    lerp(this.flowGroom.gain, onSnow ? 0.05 + 0.3 * v * groomed : 0);
+    lerp(this.flowGroom.gain, onSnow ? (0.05 + 0.3 * v * groomed) * snowLeft : 0);
     this.flowGroom.filter.frequency.value = 1800 + 60 * spd;
-    lerp(this.flowPow.gain, onSnow ? 0.05 + 0.35 * v * powder : 0);
+    lerp(this.flowPow.gain, onSnow ? (0.05 + 0.35 * v * powder) * snowLeft : 0);
     this.flowPow.filter.frequency.value = 250 + 20 * spd;
-    lerp(this.rumble.gain, onSnow ? 0.08 * v * powder : 0);
+    lerp(this.rumble.gain, onSnow ? 0.08 * v * powder * snowLeft : 0);
     this.rumble.osc.frequency.value = 38 + spd * 0.6;
-    lerp(this.flowHard.gain, onSnow ? 0.04 + 0.3 * v * hard : 0);
+    lerp(this.flowHard.gain, onSnow ? (0.04 + 0.3 * v * hard) * (0.4 + 0.6 * snowLeft) : 0);
     this.flowHard.filter.frequency.value = 3000 + 120 * spd;
     // crust: crackle by gating the layer with random pops
     this.crackleT -= dt;
@@ -381,6 +435,7 @@ export class GameAudio {
     const scrub = Math.max(r.skid, r.scrape);
     lerp(this.skidL.gain, onSnow ? Math.min(0.5, scrub * 0.5 * (0.6 + 0.4 * v) * (1 + hard)) : 0);
     this.skidL.filter.frequency.value = 4500 + 2000 * scrub;
+    this.rockScrape(r, onSnow, dt);
     // wind
     const windV = riding ? 0.25 : 1;
     lerp(this.windLo.gain, Math.min(0.5, Math.max(0, spd - 6) * 0.018 * (tuck ? 1.4 : 1)) * windV);
