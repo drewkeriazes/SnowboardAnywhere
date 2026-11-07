@@ -199,6 +199,26 @@ export class RiderView {
     for (const m of [...this.rig.headParts, ...this.rig.coreParts]) m.visible = !fp;
   }
 
+  /** World position of a bone (three.js frame) after the last update. */
+  boneWorld(name: 'Hips' | 'Spine' | 'Spine1' | 'Spine2' | 'Head', out: THREE.Vector3): THREE.Vector3 {
+    this.group.updateMatrixWorld(true);
+    return this.rig.bones[name].getWorldPosition(out);
+  }
+
+  /**
+   * Outrun eat sequence (FEAT-100): show only the top half (the legs collapse into the hips and
+   * the board hides), only the legs (the torso, arms and head collapse into the hips), or all of
+   * it again. No mesh cutting: the bones at the seam are scaled to nothing.
+   */
+  splitPart(part: 'top' | 'legs' | 'whole'): void {
+    const B = this.rig.bones, tiny = 0.001;
+    const legs = part === 'top' ? tiny : 1, torso = part === 'legs' ? tiny : 1;
+    B.LeftUpLeg.scale.setScalar(legs); B.RightUpLeg.scale.setScalar(legs);
+    B.Spine.scale.setScalar(torso);
+    this.rig.board.visible = part !== 'top';
+    for (const m of [...this.rig.headParts, ...this.rig.coreParts]) m.visible = part !== 'legs' && !this.fp;
+  }
+
   /** World position of the eyes (three.js frame), from the posed head, for the first-person camera. */
   eye(out: THREE.Vector3): THREE.Vector3 {
     this.group.updateMatrixWorld(true);

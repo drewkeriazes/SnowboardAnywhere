@@ -18,7 +18,7 @@ import { FADE } from './Tracks';
  */
 const MAX = 4000;
 /** half length and half width of the sole (m) */
-const HL = 0.16, HW = 0.065;
+const SOLE_HL = 0.16, SOLE_HW = 0.065;
 /** geometry heights are in units of this depth (m); the shader scales them to each print's depth */
 const NOMINAL = 0.05;
 /** rings around the sole outline: scale of the outline, height (units of NOMINAL, - = down), alpha */
@@ -30,7 +30,7 @@ const RINGS: [number, number, number][] = [
 ];
 const SEG = 20;
 
-function printGeometry(): THREE.BufferGeometry {
+function printGeometry(HL: number, HW: number): THREE.BufferGeometry {
   const pos: number[] = [], col: number[] = [], toe: number[] = [], idx: number[] = [];
   // centre vertex
   pos.push(0, -NOMINAL, 0); col.push(0.68, 0.76, 0.91, 1); toe.push(0);
@@ -95,9 +95,11 @@ export class Bootprints {
   private readonly one = new THREE.Vector3(1, 1, 1);
   private readonly up = new THREE.Vector3(0, 1, 0);
 
-  constructor(pack: Pack) {
+  /** `scale` (FEAT-101): bigger soles for the monster's prints (3 is about a metre long). */
+  constructor(pack: Pack, scale = 1) {
     this.pack = pack;
-    const g = printGeometry();
+    const HL = SOLE_HL * scale;
+    const g = printGeometry(HL, SOLE_HW * scale);
     this.depth = new THREE.InstancedBufferAttribute(new Float32Array(MAX), 1).setUsage(THREE.DynamicDrawUsage);
     this.fill = new THREE.InstancedBufferAttribute(new Float32Array(MAX), 1).setUsage(THREE.DynamicDrawUsage);
     this.kick = new THREE.InstancedBufferAttribute(new Float32Array(MAX), 1).setUsage(THREE.DynamicDrawUsage);

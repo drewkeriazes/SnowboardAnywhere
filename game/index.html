@@ -78,6 +78,37 @@
     #finish-arrow .arrow { width: 0; height: 0; margin: 0 auto 2px; border-left: 14px solid transparent; border-right: 14px solid transparent; border-bottom: 26px solid #facc15; filter: drop-shadow(0 1px 3px rgba(0,0,0,.6)); }
     #goggles, #lens { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
     #goggles { opacity: 0; transition: opacity .3s; }
+    /* Outrun (FEAT-097): HUD at the top, the vignette under the HUD, the end card over everything */
+    #outrun { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); min-width: 220px; text-align: center; color: #fff; background: rgba(20,24,34,.78); border: 2px solid #7c3aed; border-radius: 12px; padding: 8px 18px; display: none; pointer-events: none; font-family: system-ui, sans-serif; }
+    #outrun.show { display: block; }
+    #outrun .name { font-size: 15px; font-weight: 600; }
+    #outrun .big { font: 700 30px ui-monospace, monospace; }
+    #outrun .dim { opacity: .7; font-size: 13px; }
+    #outrun .stats { font-size: 13px; margin-top: 2px; }
+    #outrun .bar { height: 7px; margin: 5px 0 2px; background: rgba(255,255,255,.2); border-radius: 4px; overflow: hidden; }
+    #outrun .bar div { height: 100%; background: #a78bfa; transition: width .1s linear; }
+    #outrun .bar div.red { background: #ef4444; }
+    #outrun .adr { height: 4px; margin: 4px 0 2px; background: rgba(255,255,255,.15); border-radius: 2px; overflow: hidden; }
+    #outrun .adr div { height: 100%; background: #fbbf24; }
+    #outrun .boost { color: #fbbf24; font-weight: 700; font-size: 13px; letter-spacing: .1em; }
+    #outrun .ready { font-size: 12px; color: #fde68a; }
+    #outrun kbd { display: inline-block; padding: 1px 6px; margin: 0 3px; border-radius: 5px; background: #fbbf24; color: #1a1a1a; font: 600 12px system-ui, sans-serif; }
+    #outrun-vignette { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s; background: radial-gradient(ellipse at center, rgba(255,255,255,0) 45%, rgba(220,235,255,.55) 80%, rgba(255,255,255,.9) 100%); }
+    #outrun-vignette.red { background: radial-gradient(ellipse at center, rgba(255,0,0,0) 40%, rgba(180,0,20,.35) 75%, rgba(120,0,10,.8) 100%); }
+    #outrun-card { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(8,12,24,.72); z-index: 21; color: #fff; }
+    #outrun-card .panel { width: 340px; padding: 28px 32px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); border-radius: 16px; backdrop-filter: blur(6px); text-align: center; }
+    #outrun-card .title { font: 800 44px system-ui, sans-serif; letter-spacing: .08em; }
+    #outrun-card .title.eaten { color: #f87171; } #outrun-card .title.escaped { color: #4ade80; }
+    #outrun-card .sub { opacity: .75; margin-bottom: 14px; }
+    #outrun-card .row { display: flex; justify-content: space-between; font-size: 15px; margin: 4px 0; }
+    #outrun-card .row.total { border-top: 1px solid rgba(255,255,255,.2); margin-top: 8px; padding-top: 8px; font-size: 18px; }
+    #outrun-card .new { color: #fbbf24; }
+    #outrun-card button { display: block; width: 100%; margin: 8px 0; padding: 12px; font-size: 16px; border: 1px solid rgba(255,255,255,.3); border-radius: 10px; background: rgba(255,255,255,.1); color: #fff; cursor: pointer; }
+    #outrun-card button.primary { background: #7c3aed; border-color: #7c3aed; margin-top: 16px; }
+    #outrun-card button.ghost { background: transparent; opacity: .8; }
+    .settings.outrun .hint { margin-bottom: 8px; }
+    .settings.outrun button { margin-top: 10px; }
+    .settings .hidden { display: none; }
     #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, #0b1020 0%, #1e3a5f 100%); z-index: 20; color: #fff; }
     #menu h1 { margin: 4px 0 20px; font-size: 36px; }
     #menu .start { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -2px 0 6px; font-size: 13px; opacity: .85; }
@@ -90,7 +121,7 @@
     #prompt .dim { opacity: .7; font-size: 13px; margin-left: 6px; }
     #prompt kbd { display: inline-block; min-width: 22px; padding: 2px 7px; margin: 0 4px; border-radius: 6px; background: #ffd166; color: #1a1a1a; font: 600 14px system-ui, sans-serif; box-shadow: 0 2px 0 #b8922e; }
     /* ?cam=eye (DATA-008): only the 3D view, so screenshots match a photo */
-    body.eye-mode #hud, body.eye-mode #prompt, body.eye-mode #trial, body.eye-mode #finish-arrow, body.eye-mode #help, body.eye-mode #minimap, body.eye-mode #labels, body.eye-mode #goggles, body.eye-mode #lens { display: none !important; }
+    body.eye-mode #hud, body.eye-mode #prompt, body.eye-mode #trial, body.eye-mode #finish-arrow, body.eye-mode #help, body.eye-mode #minimap, body.eye-mode #labels, body.eye-mode #goggles, body.eye-mode #lens, body.eye-mode #outrun, body.eye-mode #outrun-vignette { display: none !important; }
     #help { position: fixed; right: 16px; top: 16px; color: #fff; font-size: 12px; opacity: .8; text-align: right; text-shadow: 0 1px 3px rgba(0,0,0,.6); pointer-events: none; }
   </style>
 </head>
@@ -102,7 +133,7 @@
   <div id="toast"></div>
   <div id="trial"></div>
   <div id="finish-arrow"><div class="arrow"></div><div class="d"></div></div>
-  <div id="help">&larr; &rarr; steer &middot; &uarr; tuck &middot; &darr; brake &middot; hold/release Space to jump &middot; Shift grab<br>E ride lift / skip to top &middot; M map (click to drop in) &middot; P piste lines &middot; N next track &middot; T time trial (when on)<br>R restart &middot; C camera &middot; F free fly &middot; Esc pause / settings</div>
+  <div id="help">&larr; &rarr; steer &middot; &uarr; tuck &middot; &darr; brake &middot; hold/release Space to jump &middot; Shift grab<br>E ride lift / skip to top &middot; M map (click to drop in) &middot; P piste lines &middot; N next track &middot; T time trial (when on)<br>R restart &middot; C camera &middot; F free fly &middot; Esc pause / settings / Outrun (Q boost, hold G to look back)</div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

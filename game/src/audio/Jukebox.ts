@@ -8,14 +8,17 @@
  *  - house: melodic house, 120..124 BPM, four on the floor, wide pads, plucked 16th arpeggio
  *  - metal: 150..185 BPM, palm-muted chug riffs, double kick in the chorus, distorted lead
  *  - hiphop: boom-bap, 85..95 BPM, swung drums, jazzy electric-piano 7th chords, vinyl crackle
+ *  - chase: Outrun war drums (FEAT-098), drums only, endless: toms, a taiko boom and a crash every
+ *    four bars; started directly by the chase audio, not through a playlist
  */
-export type JukeStyle = 'ska' | 'house' | 'metal' | 'hiphop';
+export type JukeStyle = 'ska' | 'house' | 'metal' | 'hiphop' | 'chase';
 
 const TRACK_NAMES: Record<JukeStyle, string[]> = {
   ska: ['Skank Run', 'Back Bowl Blitz', 'First Chair', 'Corduroy Kings', 'Lift Line Riot', 'Goggle Tan', 'Last Run Down', 'Powder Day Panic', 'Mongolia Bowl', 'Gondola Go'],
   house: ['Alpenglow', 'Blue Hour', 'Cloud Nine', 'Snowfall Theory', 'Treeline', 'Morning Corduroy', 'Cirrus', 'Quiet Bowl', 'Lantern Lift', 'Long Traverse'],
   metal: ['Avalanche Control', 'Cornice Drop', 'Double Black', 'Iron Chair', 'Whiteout', 'Couloir', 'Rock Band Steeps', 'Frostbite', 'No Fall Zone', 'Bulletproof'],
   hiphop: ['Lift Line Cipher', 'Fresh Tracks', 'Apres Loop', 'Chairlift Notes', 'Village Corner', 'Warm Gloves', 'Cold Coffee', 'Slow Gondola', 'Gate Six', 'Night Groom'],
+  chase: ['War Drums'],
 };
 
 type Section = 'intro' | 'verse' | 'chorus' | 'bridge' | 'build' | 'drop' | 'break' | 'outro' | 'end';
@@ -56,6 +59,7 @@ const PROGRESSIONS: Record<JukeStyle, Chord[][]> = {
     [[0, 'm7'], [8, 'M7'], [5, 'm7'], [7, '7']], // i VI iv V
     [[5, 'M7'], [4, 'm7'], [2, 'm7'], [0, 'M7']], // IV iii ii I
   ],
+  chase: [[[0, 'm']]],
 };
 
 const PLANS: Record<JukeStyle, [Section, number][]> = {
@@ -63,6 +67,7 @@ const PLANS: Record<JukeStyle, [Section, number][]> = {
   house: [['intro', 8], ['build', 8], ['drop', 16], ['break', 8], ['drop', 16], ['outro', 8]],
   metal: [['intro', 4], ['verse', 8], ['chorus', 8], ['verse', 8], ['chorus', 8], ['bridge', 8], ['chorus', 8]],
   hiphop: [['intro', 4], ['verse', 16], ['chorus', 8], ['verse', 16], ['chorus', 8], ['outro', 4]],
+  chase: [['drop', 1e9]],
 };
 
 type Drum = 'kick' | 'snare' | 'hat' | 'hatOpen' | 'crash' | 'clap';
@@ -119,13 +124,14 @@ export class Jukebox {
     this.stop();
     this.style = style;
     this.seed = Math.abs(Math.floor(seed));
-    const r = this.rnd = mulberry(this.seed * 7919 + 13 + ['ska', 'house', 'metal', 'hiphop'].indexOf(style) * 104729);
+    const r = this.rnd = mulberry(this.seed * 7919 + 13 + ['ska', 'house', 'metal', 'hiphop', 'chase'].indexOf(style) * 104729);
     const progs = PROGRESSIONS[style];
     this.prog = progs[Math.floor(r() * progs.length)];
     let scale: number[];
     if (style === 'ska') { this.bpm = 158 + Math.floor(r() * 26); this.root = 48 + Math.floor(r() * 10); scale = [0, 2, 4, 7, 9, 12, 14, 16]; }
     else if (style === 'house') { this.bpm = 120 + Math.floor(r() * 5); this.root = 45 + Math.floor(r() * 8); scale = [0, 3, 5, 7, 10, 12, 15, 17]; }
     else if (style === 'metal') { this.bpm = 150 + Math.floor(r() * 36); this.root = 38 + Math.floor(r() * 4); scale = [0, 3, 5, 7, 10, 12, 15, 17]; }
+    else if (style === 'chase') { this.bpm = 148 + Math.floor(r() * 8); this.root = 40; scale = [0, 3, 5, 7, 10, 12]; }
     else { this.bpm = 85 + Math.floor(r() * 11); this.root = 48 + Math.floor(r() * 8); scale = [0, 3, 5, 7, 10, 12, 15, 17]; }
     // lead: 32 notes on the pentatonic, random walk
     let i = 3; this.lead = [];
@@ -178,6 +184,7 @@ export class Jukebox {
       if (this.style === 'ska') this.ska(t, beatDur, section, barIn, inBar, chord);
       else if (this.style === 'house') this.house(t, beatDur, section, barIn, inBar, chord);
       else if (this.style === 'metal') this.metal(t, beatDur, section, barIn, inBar, chord);
+      else if (this.style === 'chase') this.chase(t, beatDur, barIn, inBar);
       else this.hiphop(t, beatDur, section, barIn, inBar, chord);
       this.nextBeat++;
       this.nextTime += beatDur;
@@ -301,6 +308,29 @@ export class Jukebox {
     if (inBar === 2) this.sub(t + swing, this.root - 12 + chord[0] + 7, bd * 0.5);
     // the hook gets a muted horn line
     if (section === 'chorus' && (inBar === 0 || inBar === 2)) this.horn(t + (inBar === 2 ? swing : 0), this.root + 12 + this.nextLead(), bd * 0.8);
+  }
+
+  /** war drums: a taiko boom on 1 and 3, toms in 16ths with accents, a snare crack on 4, a crash every four bars */
+  private chase(t: number, bd: number, barIn: number, inBar: number): void {
+    if (inBar === 0 || inBar === 2) this.kick(t, 'boom');
+    if (inBar === 3) this.hit(t + bd / 2, 'snare');
+    for (let s = 0; s < 4; s++) {
+      const accent = s === 0 || (inBar === 1 && s === 2) || (inBar === 3 && s === 1);
+      if (accent || this.rnd() < 0.5) this.tom(t + s * bd / 4, accent ? 95 : 130, accent ? 0.55 : 0.28);
+    }
+    if (inBar === 0 && barIn % 4 === 0) this.hit(t, 'crash');
+    if (inBar === 3 && barIn % 8 === 7) for (let s = 0; s < 8; s++) this.tom(t + s * bd / 8, 80 + s * 12, 0.4);
+  }
+  private tom(t: number, f0: number, gain: number): void {
+    const ctx = this.ctx;
+    const o = ctx.createOscillator(); o.type = 'triangle';
+    o.frequency.setValueAtTime(f0 * 1.6, t); o.frequency.exponentialRampToValueAtTime(f0, t + 0.08);
+    const g = ctx.createGain(); g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o.connect(g).connect(this.out); o.start(t); o.stop(t + 0.25);
+    const src = ctx.createBufferSource(); src.buffer = this.noise; src.loop = true; src.loopStart = Math.random() * 0.5;
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 900;
+    const ng = ctx.createGain(); ng.gain.setValueAtTime(gain * 0.5, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    src.connect(f).connect(ng).connect(this.out); src.start(t, Math.random() * 0.5); src.stop(t + 0.07);
   }
 
   // ---------------------------------------------------------------- instruments

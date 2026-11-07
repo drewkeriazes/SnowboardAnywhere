@@ -124,6 +124,17 @@ export class Collider {
     return false;
   }
 
+  /** Cylinders (trunks, rocks) within r of (x, y): packed [x, y, radius, zBase, zTop, kind]. r up to CELL. */
+  near(x: number, y: number, r: number, out: Float32Array[] = []): Float32Array[] {
+    out.length = 0;
+    const cx = Math.floor(x / CELL), cy = Math.floor(y / CELL);
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      const cyl = this.cells.get(this.key(cx + i, cy + j));
+      if (cyl) for (const c of cyl) if (Math.hypot(x - c[0], y - c[1]) < c[2] + r) out.push(c);
+    }
+    return out;
+  }
+
   clearCell(cellKey: string): void {
     this.cells.delete(cellKey);
   }
