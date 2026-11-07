@@ -47,6 +47,11 @@ const CARRY = {
     /** scrambling: flatter (nose forward) and higher, so the tail stays off the slope */
     crawlQ: carryBasis(new THREE.Vector3(0, 0.35, -1), new THREE.Vector3(1, 0, 0)) as THREE.Quaternion | null,
     crawlLift: 0.3,
+    /** FEAT-082 sprinting: the board up on the right shoulder, on its edge, nose forward and up, the
+     *  middle balanced just behind the shoulder; the right hand reaches forward to the lower edge */
+    shoulderQ: carryBasis(new THREE.Vector3(0, 0.45, -1), new THREE.Vector3(1, 0.3, 0)),
+    shoulderPos: new THREE.Vector3(0.2, 0.1, 0.12),
+    shoulderGrip: new THREE.Vector3(0.135, 0, -0.42),
   },
   ski: {
     // tips forward and down; the ski width runs vertical (edge on the shoulder), the bases face sideways
@@ -112,6 +117,7 @@ export class RiderView {
   private readonly tmpR = new THREE.Vector3();
   private readonly rot = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
+  private readonly q2 = new THREE.Quaternion();
   /** FEAT-110: the board orientation before the flip is applied, and the flip itself */
   private readonly baseQ = new THREE.Quaternion();
   private readonly airFlipQ = new THREE.Quaternion();
@@ -136,6 +142,8 @@ export class RiderView {
   private prevStep = [0, 0];
   /** 0..1 blend into the all-fours scramble (FEAT-068) */
   private crawl = 0;
+  /** FEAT-082: board carried on the shoulder (0 at the side .. 1 on the shoulder), eased in while sprinting */
+  private shoulder = 0;
   /** 0..1 blend into a slip: sitting back as the boots skid */
   private slip = 0;
   /** each foot plant on the snow (step-offs and the walk cycle): bootprints and footsteps */
@@ -629,6 +637,7 @@ export class RiderView {
     const sprint = smooth(1.6, 3.4, gait.speed);
     Object.assign(t, clonePose(this.poses.neutral));
     this.crawl += ((r.crawling ? 1 : 0) - this.crawl) * Math.min(1, dt * 5);
+    this.shoulder += ((r.sprinting && !r.crawling && !ski ? 1 : 0) - this.shoulder) * Math.min(1, dt * 4);
     this.slip += ((r.slipping ? 1 : 0) - this.slip) * Math.min(1, dt * 8);
     const walk = lerpPose(clonePose(WALK_POSES.walk), WALK_POSES.walk, WALK_POSES.sprint, sprint);
     if (this.crawl > 0.001) lerpPose(walk, walk, WALK_POSES.crawl, this.crawl);
@@ -706,6 +715,11 @@ export class RiderView {
       sway.premultiply(this.q.setFromAxisAngle(this.up, 0.06 * Math.sin(ph) * a));
       this.cp.copy(carry.pos);
       this.cp.y += carry.crawlLift * this.crawl;
+      if (!ski && this.shoulder > 0.001) {
+        // FEAT-082: up onto the shoulder while sprinting (a smaller stride sway up there)
+        sway.slerp(this.q.copy(CARRY.board.shoulderQ).premultiply(this.q2.setFromAxisAngle(this.up, 0.03 * Math.sin(ph) * a)), this.shoulder);
+        this.cp.lerp(CARRY.board.shoulderPos, this.shoulder);
+      }
       if (ski) this.cp.sub(this.v1.copy(CARRY.ski.balance).applyQuaternion(sway));
       this.m1.compose(this.cp, sway, this.v2.set(1, 1, 1)).premultiply(this.m2);
       this.m2.copy(this.lean.matrixWorld).invert().multiply(this.m1);
@@ -727,7 +741,7 @@ export class RiderView {
     // ---- hands: take hold of the gear (from the snow at 0.55, carried after that)
     const hold = smooth(0.55, 0.75, u);
     if (carry.lGrip) this.handTo('Left', rig.board.localToWorld(this.cp.copy(carry.lGrip)), hold);
-    this.handTo('Right', rig.board.localToWorld(this.cp.copy(carry.rGrip)), hold);
+    this.handTo('Right', rig.board.localToWorld(ski ? this.cp.copy(carry.rGrip) : this.cp.copy(carry.rGrip).lerp(CARRY.board.shoulderGrip, this.shoulder)), hold);
     // scrambling: the free (left) hand goes to the snow ahead, lifting in step with the feet
     if (this.crawl > 0.02) {
       const hx = Math.sin(r.heading), hy = Math.cos(r.heading), lx = -Math.cos(r.heading), ly = Math.sin(r.heading);
