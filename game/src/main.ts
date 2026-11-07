@@ -15,6 +15,7 @@ import { RunsOverlay } from './world/RunsOverlay';
 import { Environment } from './world/Sky';
 import { RiderView, BODY_LAYER } from './world/RiderView';
 import { GoggleView } from './ui/GoggleView';
+import { SpeedLines } from './ui/SpeedLines';
 import { ChaseCamera } from './world/ChaseCamera';
 import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
@@ -203,6 +204,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     let csmSize = 0;
     if (!params.has('noimpostors')) veg.enableImpostors(renderer, true);
     const goggles = new GoggleView();
+    const speedLines = new SpeedLines(document.body); // FEAT-045
     // first person redraws the body with a close near plane so knees, gloves and the board are not clipped
     const bodyCam = new THREE.PerspectiveCamera(70, 1, 0.05, 30);
     bodyCam.layers.set(BODY_LAYER);
@@ -426,7 +428,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const showPrompt = (html: string) => { if (html !== promptShown) { promptShown = html; prompt.innerHTML = html; prompt.classList.toggle('show', html !== ''); } };
 
     let mouseDx = 0, mouseDy = 0;
-    const onClick = () => { if (!paused && (cam.mode === 'free' || cam.mode === 'fp' || cam.mode === 'eye')) canvas.requestPointerLock(); };
+    const onClick = () => { if (!paused && (cam.mode === 'free' || cam.firstPerson || cam.mode === 'eye')) canvas.requestPointerLock(); };
     const onMove = (e: MouseEvent) => { if (document.pointerLockElement === canvas || (controls.looking && !paused)) { mouseDx += e.movementX; mouseDy += e.movementY; } };
     const onResize = () => { renderer.setSize(window.innerWidth, window.innerHeight); cam.camera.aspect = window.innerWidth / window.innerHeight; cam.camera.updateProjectionMatrix(); env.onCameraChanged(); };
     canvas.addEventListener('click', onClick);
@@ -447,7 +449,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       tracks.dispose();
       trialWorld.dispose();
       if (outrun.active) stopOutrun();
-      outrunUI.destroy(); eat.dispose(); puffs.dispose(); bigprints.dispose();
+      outrunUI.destroy(); speedLines.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
       trialEl.classList.remove('show');
       finishArrow.style.display = 'none';
       audio.onTrack = null;
@@ -474,7 +476,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     /** Main render, then in first person the body again over a cleared depth buffer (near 0.05 m). */
     function render(): void {
       renderer.render(scene, cam.camera);
-      if (cam.mode !== 'fp') return;
+      if (!cam.firstPerson) return;
       for (const l of env.csm?.lights ?? []) l.layers.enable(BODY_LAYER);
       bodyCam.position.copy(cam.camera.position); bodyCam.quaternion.copy(cam.camera.quaternion);
       if (bodyCam.fov !== cam.camera.fov || bodyCam.aspect !== cam.camera.aspect) { bodyCam.fov = cam.camera.fov; bodyCam.aspect = cam.camera.aspect; bodyCam.updateProjectionMatrix(); }
@@ -539,7 +541,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (!detached && !onLift && !map.fullOpen && !eating) rider.update(dt, input);
       // visuals draw the pose interpolated between the last two 120 Hz physics steps; gameplay
       // (trials, lifts, audio) keeps reading the sim pose
-      riderView.setFirstPerson(cam.mode === 'fp');
+      riderView.setFirstPerson(cam.firstPerson);
       rider.applyRenderPose();
       if (!eating) riderView.update(rider, dt, input.tuck, input.grab, onLift && liftRide.airborneRide);
       tracks.update(rider, dt, onLift && liftRide.airborneRide);
@@ -622,13 +624,16 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       rider.applyRenderPose();
       if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
       else if (eyeMode) { cam.updateEye(dt, controls.keys, mouseDx, mouseDy); mouseDx = mouseDy = 0; }
-      else if (cam.mode === 'fp') { cam.updateFirstPerson(rider, dt, input.tuck, onLift || controls.looking, mouseDx, mouseDy, riderView.eye(eye)); mouseDx = mouseDy = 0; }
+      else if (cam.firstPerson) { cam.updateFirstPerson(rider, dt, input.tuck, onLift || controls.looking, mouseDx, mouseDy, riderView.eye(eye)); mouseDx = mouseDy = 0; }
       else { cam.freeLook(controls.looking, dt, mouseDx, mouseDy, outrun.running && controls.keys.has(controls.keymap.glance)); mouseDx = mouseDy = 0; cam.baseFov = settings.fov + (outrun.boosting ? 12 : 0); cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); }
       // the eat sequence owns the camera: high in front of the monster, looking down at it (FEAT-104)
       if (eat.active) { eat.cameraPose(cam.camera.position, eatLook); cam.camera.lookAt(eatLook); if (cam.camera.fov !== 60) { cam.camera.fov = 60; cam.camera.updateProjectionMatrix(); } }
       chase?.setListener(cam.camera);
       goggles.strength = settings.goggleStrength;
       goggles.update(rider, dt, cam.mode === 'fp', cam.mode === 'fp' && settings.fpVignette, onLift);
+      // FEAT-045 speed feel toggles, and the speed lines (not on a lift, in free fly or the eat)
+      cam.speedFov = settings.speedFov; cam.camShake = settings.camShake; speedLines.enabled = settings.speedLines;
+      speedLines.update(rider.speed, dt, !detached && !onLift && !eat.active && !paused && !rider.onFoot);
       rider.restoreSimPose();
       cam.camera.updateMatrixWorld();
       env.updateCSM();

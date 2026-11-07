@@ -6,7 +6,7 @@ import { PLAYLISTS, SHUFFLE_ALL } from '../audio/Audio';
  */
 export type Quality = 'high' | 'medium' | 'low';
 export type Units = 'imperial' | 'metric';
-export type CamMode = 'chase' | 'close' | 'far' | 'fp';
+export type CamMode = 'chase' | 'close' | 'far' | 'cine' | 'fp' | 'helmet';
 
 export interface Settings {
   v: number;
@@ -31,6 +31,8 @@ export interface Settings {
   treeDensity: number; // 0.25 .. 1
   pixelRatio: number; // 0.5 .. 2 (capped by the device)
   fov: number; // base chase FOV, 50 .. 100
+  /** FEAT-045 speed feel, each can be turned off: FOV widening with speed, camera rumble and landing shake, speed lines */
+  speedFov: boolean; camShake: boolean; speedLines: boolean;
   invertSteer: boolean;
   camera: CamMode;
   /** first-person goggle frame and lens tint (was the plain vignette) */
@@ -73,7 +75,7 @@ const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer r
 
 const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-  fov: 68, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
+  fov: 68, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
   outrun: { difficulty: 'normal', escape: 'base', gentle: false },
 };
 const KEY = 'settings';
@@ -149,12 +151,15 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Trees</label><input type="range" data-k="treeDensity" min="0.25" max="1" step="0.05"></div>
       <div class="row"><label>Resolution</label><input type="range" data-k="pixelRatio" min="0.5" max="2" step="0.25"></div>
       <div class="row"><label>Field of view</label><input type="range" data-k="fov" min="50" max="100" step="1"><span class="val" data-v="fov"></span></div>
+      <div class="row"><label>Widen view with speed</label><input type="checkbox" data-k="speedFov"></div>
+      <div class="row"><label>Camera shake</label><input type="checkbox" data-k="camShake"></div>
+      <div class="row"><label>Speed lines</label><input type="checkbox" data-k="speedLines"></div>
       <div class="row"><label>FP goggles</label><input type="checkbox" data-k="fpVignette"></div>
       <div class="row"><label>Goggle frame</label><input type="range" data-k="goggleStrength" min="0" max="1" step="0.05"></div>
     </div>
     <div class="tab hidden" data-t="controls">
       <div class="row"><label>Invert steer</label><input type="checkbox" data-k="invertSteer"></div>
-      <div class="row"><label>Default camera</label><select data-k="camera"><option value="chase">Chase</option><option value="close">Close</option><option value="far">Far</option><option value="fp">First person</option></select></div>
+      <div class="row"><label>Default camera</label><select data-k="camera"><option value="chase">Chase</option><option value="close">Close</option><option value="far">Far</option><option value="cine">Cinematic</option><option value="fp">First person</option><option value="helmet">Helmet cam</option></select></div>
       <div class="keys"></div>
       <div class="hint">Click a key, then press the new one. Esc cancels.</div>
     </div>
