@@ -56,6 +56,10 @@ Packs need a rebuild from 20526bf or later: `ao/` tiles (baked sky visibility, `
 
 `build_pack.py` no longer turns every tree above 3,350 m into a 4.5 m krummholz. A tree is krummholz only when its lidar canopy height is 1 to 4 m and it is above 3,450 m or in a LANDFIRE alpine class; no lidar height is capped. Vail rebuilt on Drew's PC: krummholz 1,497 of 1.25 M trees (0.1%, was 14.4%), median height above 3,350 m 13.5 m (was 4.5). Above 3,350 m, 97% of trees are in LANDFIRE's subalpine spruce-fir forest class, so Vail has almost no real treeline. The previous pack is kept at `packs/vail_pre025`.
 
+## 2026-11-07: Outrun mode (FEAT-097 to FEAT-101)
+
+Built on one branch from the research doc (`docs/research/outrun-mode.md`): `game/src/sim/Outrun.ts` (the chase sim), `world/Monster.ts` (the procedural yeti rig and gallop), `world/Eat.ts` (the eat sequence), `audio/ChaseAudio.ts` (spatial sound and music stages, the jukebox `chase` style), `ui/OutrunUI.ts` (HUD and card), the Outrun panel in the pause menu. Checked headless on Vail with `game/tools/outruncheck.mjs` (countdown, head start, spawn 150 to 250 m back, chase, lift ride, catch, eat, card). Not yet tuned by hand on the real GPU: the Normal speed law (`PRESETS` in Outrun.ts) and the eat timing are the first things to play with. Known gaps: no tree sway (a puff and a crack instead), the monster's fur is a jittered flat-shaded silhouette with tufts, and the base rule picks the lowest lift-base building cluster nearest the start.
+
 ## Session lanes (2026-11-05 14:50 ET, synced by the cloud session)
 
 Two sessions are active. To avoid overlapping edits:

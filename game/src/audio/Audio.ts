@@ -1,5 +1,6 @@
 import type { Rider, SurfaceInfo } from '../sim/Rider';
 import { Jukebox, type JukeStyle } from './Jukebox';
+import { ChaseAudio } from './ChaseAudio';
 
 /** playlist.json entry: a bare filename or a credited track */
 export interface TrackInfo { file: string; title: string; artist?: string; license?: string; url?: string; playlist?: string }
@@ -56,6 +57,11 @@ export class GameAudio {
   private seed = Math.floor(Math.random() * 1000);
   private jukebox: Jukebox | null = null;
   private musicGain!: GainNode;
+  /** low-pass on the whole music bus (Outrun muffles the music as the monster closes in) */
+  private musicFilter!: BiquadFilterNode;
+  /** Outrun music stage gain 0..1, on top of the volume and the pause duck */
+  private tension = 1;
+  private chaseAudio: ChaseAudio | null = null;
   /** 'files' plays playlist.json (falls back to builtin when there is none), 'builtin' is the procedural jukebox */
   source: MusicSource = 'files';
   /** a playlist name or SHUFFLE_ALL */
@@ -83,7 +89,9 @@ export class GameAudio {
     this.master = ctx.createGain(); this.master.connect(ctx.destination);
     this.sfx = ctx.createGain(); this.sfx.connect(this.master);
     this.sfx.gain.value = this.sfxVolume;
-    this.musicGain = ctx.createGain(); this.musicGain.gain.value = this.musicVolume * this.duck; this.musicGain.connect(this.master);
+    this.musicGain = ctx.createGain(); this.musicGain.gain.value = this.musicVolume * this.duck;
+    this.musicFilter = ctx.createBiquadFilter(); this.musicFilter.type = 'lowpass'; this.musicFilter.frequency.value = 20000; this.musicFilter.Q.value = 0.5;
+    this.musicGain.connect(this.musicFilter).connect(this.master);
     this.jukebox = new Jukebox(ctx, this.musicGain);
     this.jukebox.onEnded = () => this.advance();
     // 2 s of white noise, looped by every noise source
@@ -210,15 +218,49 @@ export class GameAudio {
   setVolumes(sfx: number, music: number): void {
     this.sfxVolume = sfx; this.musicVolume = music;
     if (this.sfx) this.sfx.gain.value = sfx * (this.duck < 1 ? 0 : 1);
-    if (this.music) this.music.volume = music * this.duck;
-    if (this.musicGain) this.musicGain.gain.value = music * this.duck;
+    this.applyMusicGain();
   }
   /** Pause ducking: 1 = normal, 0.3 = paused. Effects are silenced while paused. */
   setDuck(d: number): void {
     this.duck = d;
     if (this.sfx) this.sfx.gain.value = d < 1 ? 0 : this.sfxVolume;
-    if (this.music) this.music.volume = this.musicVolume * d;
-    if (this.musicGain) this.musicGain.gain.value = this.musicVolume * d;
+    this.applyMusicGain();
+  }
+  private applyMusicGain(): void {
+    const g = this.musicVolume * this.duck * this.tension;
+    if (this.music) this.music.volume = Math.max(0, Math.min(1, g));
+    if (this.musicGain) this.musicGain.gain.value = g;
+  }
+  /** Outrun (FEAT-098): music stage, a gain 0..1 and a low-pass cutoff (Hz) on the music bus. */
+  setMusicStage(gain: number, lowpass: number): void {
+    this.tension = gain;
+    if (this.musicFilter && this.ctx) this.musicFilter.frequency.setTargetAtTime(lowpass, this.ctx.currentTime, 0.15);
+    this.applyMusicGain();
+  }
+  /** Caught: a record-scratch stop (the file track winds down, the jukebox stops dead). */
+  scratchStop(): void {
+    const m = this.music;
+    if (m && !m.paused) {
+      const t0 = performance.now();
+      const step = () => { const u = Math.min(1, (performance.now() - t0) / 400); m.playbackRate = Math.max(0.1, 1 - u); if (u < 1) requestAnimationFrame(step); else { m.pause(); m.playbackRate = 1; } };
+      step();
+    }
+    this.jukebox?.stop();
+  }
+  /** After an Outrun run: the music back to normal and playing. */
+  resumeMusic(): void {
+    this.setMusicStage(1, 20000);
+    if (this.music) this.music.playbackRate = 1;
+    const it = this.queue[this.qi];
+    if (this.source === 'off' || !this.ctx) return;
+    if (it && 'track' in it && this.music) { if (this.music.paused) void this.music.play().catch(() => undefined); }
+    else if (!this.jukebox?.playing) this.startMusic();
+  }
+  /** The Outrun chase sounds (FEAT-098), built on the first call once the context exists. */
+  chase(): ChaseAudio | null {
+    if (!this.ctx) return null;
+    if (!this.chaseAudio) this.chaseAudio = new ChaseAudio(this.ctx, this.sfx, this.master, this.noiseBuf, (g, lp) => this.setMusicStage(g, lp));
+    return this.chaseAudio;
   }
   stopMusic(): void { this.music?.pause(); this.jukebox?.stop(); }
 

@@ -150,6 +150,8 @@ export class Rider {
   landingShock = 0;
   /** last collision this step: 'ramp' | 'graze' | 'wall' | '' (for sound and effects; cleared each frame) */
   lastHit = '';
+  /** Outrun boost (FEAT-101): less drag for a few seconds */
+  boost = false;
   distance = 0;
   maxSpeed = 0;
   discipline: Discipline = 'board';
@@ -416,7 +418,7 @@ export class Rider {
     this.lateralG += ((latAcc / G) - this.lateralG) * Math.min(1, dt * 12);
 
     // drag: aerodynamic + snow. Tuck lowers aero, powder adds speed-scaled drag, skidding scrubs speed
-    const aero = (input.tuck ? F.aeroTuck : F.aero) * spd * spd;
+    const aero = (input.tuck ? F.aeroTuck : F.aero) * spd * spd * (this.boost ? 0.55 : 1);
     const snowDrag = 0.015 * G * (1 - 0.5 * groomed) + powder * 0.004 * spd + 0.35 * this.skid * G;
     const dragAcc = aero + snowDrag + brakeAcc;
     if (spd > 0.01) {
