@@ -350,7 +350,12 @@ export class RiderView {
       if (r.onGround && r.speed > 2) {
         slip = Math.atan2(r.vx, r.vy) - yaw;
         slip = Math.atan2(Math.sin(slip), Math.cos(slip));
-        if (Math.abs(slip) > Math.PI / 2) slip = 0; // backwards: no twist
+        const a = Math.abs(slip);
+        if (this.discipline === 'ski') {
+          // past 90 deg hold the cap, then fade to no twist by 135 deg (really backwards), so an
+          // overshooting hockey stop does not pop the chest back
+          if (a > Math.PI / 2) slip = Math.sign(slip) * (Math.PI / 2) * Math.max(0, 1 - (a - Math.PI / 2) / (Math.PI / 4));
+        } else if (a > Math.PI / 2) slip = 0; // backwards: no twist
       }
       // BUG-034: a skier's hockey stop keeps the chest square to the fall line while the skis go 84 deg
       // across, so skis take the full slip (to 90 deg) and split it between the pelvis and the chest;
