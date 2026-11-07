@@ -14,6 +14,8 @@ On each bot comment on GitHub:
 - a reply = do what the reply says (it wins over a reaction)
 - nothing = ask him in chat
 
+Replies are also handled automatically on GitHub by `.github/workflows/pr-feedback.yml`: it posts "Picked up", fixes, pushes and posts "Done". A thread with a `[pr-feedback]` reply was already handled by either path, so skip it here.
+
 ## Steps
 1. Find the PR. Drew gives a number, or use the PR for the current branch: `gh pr view --json number,headRefName`.
 2. Check out the PR branch (its `issue-<n>-<slug>` worktree if one exists) and pull it.
