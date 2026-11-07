@@ -316,7 +316,9 @@ export class Tracks {
       const cx = r.x + rx * side * 0.11, cy = r.y + ry * side * 0.11;
       const g = this.pack.groundHeight(cx, cy);
       if (Number.isNaN(g)) continue;
-      this.bootLanes[i].add(cx, g, -cy, ax, -ay, 0.07, depth, 0, surface, 0.01, 0, 0.4);
+      const pn = this.pack.groundNormal(cx, cy, this.nTmp); // BUG-021: lit like the slope, not flat ground
+      this.gnTmp[0] = pn[0]; this.gnTmp[1] = pn[2]; this.gnTmp[2] = -pn[1];
+      this.bootLanes[i].add(cx, g, -cy, ax, -ay, 0.07, depth, 0, surface, 0.01, 0, 0.4, 1, this.gnTmp);
     }
   }
 
