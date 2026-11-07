@@ -355,8 +355,13 @@ export class RiderView {
       // FEAT-118: the snowboard bends instead: tail flat, arched from the back foot, nose up.
       // The load grows with the lean and the jump charge and lets go in the air (the pop).
       this.rig.board.rotation.set(0, 0, 0);
-      const target = seated || !r.onGround ? 0 : Math.abs(L) * (0.6 + 0.4 * Math.min(1, r.jumpCharge));
-      if (Math.abs(L) > 0.01) this.flexDir = Math.sign(L);
+      let target = seated || !r.onGround ? 0 : Math.abs(L) * (0.6 + 0.4 * Math.min(1, r.jumpCharge));
+      // BUG-048: a lean to the other end first lets the board come back to flat, and only then bends it
+      // the other way (switching while still bent swapped nose-up for tail-up in one frame)
+      if (Math.abs(L) > 0.01 && Math.sign(L) !== this.flexDir) {
+        if (Math.abs(this.flex) < 0.05) this.flexDir = Math.sign(L);
+        else target = 0;
+      }
       const h = Math.min(dt, 0.05);
       this.flexV += (FLEX_W * FLEX_W * (target - this.flex) - 2 * FLEX_ZETA * FLEX_W * this.flexV) * h;
       this.flex += this.flexV * h;
