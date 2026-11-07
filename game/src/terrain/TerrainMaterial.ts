@@ -67,6 +67,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     uWrap: { value: 0.45 },
     uGlint: { value: 1.0 },
     uFlat: { value: 0.0 },
+    uSnowCover: { value: 0.0 },
+    uSnowLee: { value: new THREE.Vector2(1, 0) },
     /** baked AO strength (1 = as baked; debug A/B with 0) */
     uAO: { value: 1.0 },
     ...rockUniforms(),
@@ -104,6 +106,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         uniform float uTime;
         uniform vec3 uSnow, uSnowShade, uGroomed, uShadeTint, uSSS;
         uniform float uWrap, uGlint, uFlat, uAO;
+        uniform float uSnowCover;
+        uniform vec2 uSnowLee;
         // set in main() before lighting, read by the snow terms in RE_Direct_Physical
         float gSnowW;
         vec3 gGlintN;
@@ -163,15 +167,25 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float edge = 0.025 + 0.1 * smoothstep(150.0, 3000.0, dist);
         vec3 rockN; float rockR;
         vec3 rockAlb = rockSurface(wp, ngW, dist, rockN, rockR);
-        float rockCov = smoothstep(0.5 - edge, 0.5 + edge, wRockV + (bn - 0.5) * 0.6);
-        // ledges and benches hold snow: the rock's own detail normal decides, so snow lines its ledges
-        float ledge = smoothstep(0.8, 0.93, rockN.y + (vnoise(wp * 0.6) - 0.5) * 0.12);
+        // FEAT-105: new snow (uSnowCover 0..1) buries the rock from its edges in: the threshold shifts,
+        // so the same noise makes a ragged shrinking edge. Faces steeper than about 55 deg shed it and
+        // stay dark; faces looking downwind (uSnowLee) load up more
+        float holds = smoothstep(0.5, 0.64, ngW.y);
+        float snowShift = uSnowCover * 0.3 * holds * (1.0 + 0.5 * dot(ngW.xz, uSnowLee));
+        float rockCov0 = smoothstep(0.5 - edge, 0.5 + edge, wRockV + (bn - 0.5) * 0.6);
+        float rockCov = smoothstep(0.5 - edge, 0.5 + edge, wRockV + (bn - 0.5) * 0.6 - snowShift);
+        // ledges and benches hold snow: the rock's own detail normal decides, so snow lines its ledges;
+        // with new snow the cracks and benches fill first (a lower threshold)
+        float ledge = smoothstep(mix(0.8, 0.72, uSnowCover), mix(0.93, 0.85, uSnowCover), rockN.y + (vnoise(wp * 0.6) - 0.5) * 0.12);
         rockCov *= 1.0 - 0.9 * ledge;
+        // newly buried rock is fresh snow: brighter, less grain
+        float fresh = clamp(rockCov0 - rockCov, 0.0, 1.0);
+        snow = mix(snow, vec3(0.97, 0.98, 1.0), 0.7 * fresh);
         vec3 screeN; float screeR;
         vec3 screeAlb = screeSurface(wp, ngW, dist, screeN, screeR);
         float bn2 = vnoise(wp * 0.17 + 11.0) * 0.6 + mix(0.5, vnoise(wp * 0.8 + 5.0), fineOct) * 0.4;
         // winter buries most talus: only part of a full-weight field shows
-        float screeCov = smoothstep(0.5 - edge, 0.5 + edge, wScreeV * 0.65 + (bn2 - 0.5) * 0.7) * (1.0 - rockCov);
+        float screeCov = smoothstep(0.5 - edge, 0.5 + edge, wScreeV * 0.65 + (bn2 - 0.5) * 0.7 - snowShift) * (1.0 - rockCov);
         float wSnow = 1.0 - rockCov - screeCov;
         vec3 base = snow * wSnow + rockAlb * rockCov + screeAlb * screeCov;
         base = mix(base, groomed, wGroom * wSnow);

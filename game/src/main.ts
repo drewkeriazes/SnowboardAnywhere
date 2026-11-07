@@ -43,6 +43,9 @@ import { STAMINA } from './sim/Rider';
 import { availableResorts } from './resorts';
 import { hasCustomStart, resetStart, spawnKey } from './spawn';
 
+/** FEAT-105: the New snow setting as a snow cover amount */
+const NEW_SNOW: Record<string, number> = { none: 0, dusting: 0.25, '6in': 0.6, powder: 1 };
+
 const params = new URLSearchParams(location.search);
 let packSlug = params.get('pack') ?? '';
 const headless = params.has('headless');
@@ -224,13 +227,15 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
 
     // ---------------------------------------------------------------- settings application
     let weatherNow: CloudCover = 'scattered';
-    /** FEAT-106: new snow on the boulders, 0..1: a storm fills it in about 3 min, flurries take it to 0.4, clear holds it */
-    let boulderSnow = 0;
+    /** FEAT-105: new snow, 0..1, shared by the terrain rock and the boulder caps (FEAT-106): a storm adds
+     *  1 per 10 min, flurries a fifth of that, it never melts in a session; the New snow setting sets it */
+    let snowCover = 0;
     const applySettings = (s: Settings, what: string): void => {
       applySun(s);
       if (what === 'clouds') weatherOverride = null;
       const weather = weatherOverride ?? s.clouds ?? 'scattered';
       weatherNow = weather;
+      if (what === 'newSnow' || what === 'init' || what === 'reset') snowCover = NEW_SNOW[s.newSnow ?? 'none'] ?? 0; // FEAT-105: pick a look without waiting
       clouds.configure(weather, s.quality);
       const storm = weather === 'storm', overcast = isOvercast(weather);
       env.setBluebird(!storm && !overcast); // deep blue sky behind the clouds too; storm and overcast are grey
@@ -637,9 +642,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       prefetch.update(pack, fx, fy, dt, liftTop);
       veg.update(fx, fy, prefetch.ax, prefetch.ay);
       rocks.update(fx, fy, prefetch.ax, prefetch.ay);
-      if (weatherNow === 'storm') boulderSnow = Math.min(1, boulderSnow + dt / 180);
-      else if (weatherNow === 'flurries' && boulderSnow < 0.4) boulderSnow = Math.min(0.4, boulderSnow + dt / 450);
-      rocks.setSnow(boulderSnow, snow.wind.x, snow.wind.y);
+      if (weatherNow === 'storm') snowCover = Math.min(1, snowCover + dt / 600);
+      else if (weatherNow === 'flurries') snowCover = Math.min(1, snowCover + dt / 3000);
+      terrain.setSnowCover(snowCover, snow.wind.x, snow.wind.y);
+      rocks.setSnow(Math.min(1, snowCover * 3), snow.wind.x, snow.wind.y); // boulder tops fill three times faster than the slopes
       roads.update(fx, fy);
       const carried = onLift && liftRide.airborneRide ? liftRide.lift : null;
       riderChair.update(carried, rider.x, rider.y, rider.z, rider.heading, liftRide.cableY);
