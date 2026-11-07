@@ -2,6 +2,11 @@ import * as THREE from 'three';
 import type { Rider } from '../sim/Rider';
 import type { Pack } from '../pack/Pack';
 
+/** first-person roll (BUG-031): radians of roll per unit edge angle, the cap, and the speed (m/s) at which it is fully applied */
+const FP_ROLL_K = 0.16;
+const FP_ROLL_MAX = 10 * Math.PI / 180;
+const FP_ROLL_FULL_SPEED = 8;
+
 export type CameraMode = 'chase' | 'close' | 'far' | 'fp' | 'free' | 'eye';
 
 /** Third-person chase camera with lag, speed-dependent FOV and terrain avoidance. */
@@ -167,8 +172,11 @@ export class ChaseCamera {
     const sk = this.shake * this.shake;
     const jx = (Math.random() - 0.5) * 0.06 * sk, jy = (Math.random() - 0.5) * 0.08 * sk;
     this.fpPos.y += (Math.random() - 0.5) * 0.08 * sk;
-    // roll into carves
-    const rollT = r.onGround && !onLift ? -r.edgeAngle * 0.22 : 0;
+    // roll into carves (BUG-031): a body lean, not the horizon tipping over. Grows with speed and
+    // stays within FP_ROLL_MAX however hard the edge, so a carving traverse tilts at most ~10 deg.
+    const rollT = r.onGround && !onLift
+      ? THREE.MathUtils.clamp(-r.edgeAngle * FP_ROLL_K * Math.min(1, spd / FP_ROLL_FULL_SPEED), -FP_ROLL_MAX, FP_ROLL_MAX)
+      : 0;
     this.fpRoll += (rollT - this.fpRoll) * Math.min(1, dt * 6);
     // pitch: look slightly down the slope, more when tucking
     const slopePitch = r.onGround ? Math.atan2(-(r.vx * r.normal[0] + r.vy * r.normal[1]), Math.max(0.3, spd)) * 0.25 : 0; // negative = looking downhill (a quarter of the slope)
