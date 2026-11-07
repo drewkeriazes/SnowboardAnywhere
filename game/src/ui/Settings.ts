@@ -31,6 +31,8 @@ export interface Settings {
   treeDensity: number; // 0.25 .. 1
   pixelRatio: number; // 0.5 .. 2 (capped by the device)
   fov: number; // base chase FOV, 50 .. 100
+  /** FEAT-062: adaptive quality on, and the frame rate it holds (0 = uncapped, auto aims for 60) */
+  autoQuality: boolean; targetFps: number;
   /** FEAT-045 speed feel, each can be turned off: FOV widening with speed, camera rumble and landing shake, speed lines */
   speedFov: boolean; camShake: boolean; speedLines: boolean;
   invertSteer: boolean;
@@ -75,7 +77,7 @@ const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer r
 
 const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-  fov: 68, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
+  fov: 68, autoQuality: true, targetFps: 60, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
   outrun: { difficulty: 'normal', escape: 'base', gentle: false },
 };
 const KEY = 'settings';
@@ -150,6 +152,8 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Valley fog</label><input type="checkbox" data-k="valleyFog"></div>
       <div class="row"><label>Trees</label><input type="range" data-k="treeDensity" min="0.25" max="1" step="0.05"></div>
       <div class="row"><label>Resolution</label><input type="range" data-k="pixelRatio" min="0.5" max="2" step="0.25"></div>
+      <div class="row"><label>Auto quality</label><input type="checkbox" data-k="autoQuality"></div>
+      <div class="row"><label>Target FPS</label><select data-k="targetFps"><option value="30">30</option><option value="60">60</option><option value="0">Uncapped</option></select></div>
       <div class="row"><label>Field of view</label><input type="range" data-k="fov" min="50" max="100" step="1"><span class="val" data-v="fov"></span></div>
       <div class="row"><label>Widen view with speed</label><input type="checkbox" data-k="speedFov"></div>
       <div class="row"><label>Camera shake</label><input type="checkbox" data-k="camShake"></div>
@@ -211,7 +215,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       let v: unknown;
       if (el instanceof HTMLInputElement && el.type === 'checkbox') v = el.checked;
       else if (el instanceof HTMLInputElement && el.type === 'range') v = Number(el.value);
-      else v = el.value;
+      else v = k === 'targetFps' ? Number(el.value) : el.value;
       if (k === 'quality') applyQuality(s, v as Quality);
       else if (k === 'timeOfDay') s.timeOfDay = v === 'pack' || v === 'now' ? v : Number(v);
       else if (k === 'month') s.month = Number(v);
