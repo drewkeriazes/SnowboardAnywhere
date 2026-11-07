@@ -235,7 +235,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (what === 'clouds') weatherOverride = null;
       const weather = weatherOverride ?? s.clouds ?? 'scattered';
       weatherNow = weather;
-      if (what === 'newSnow' || what === 'init') snowCover = NEW_SNOW[s.newSnow ?? 'none']; // FEAT-105: pick a look without waiting
+      if (what === 'newSnow' || what === 'init' || what === 'reset') snowCover = NEW_SNOW[s.newSnow ?? 'none'] ?? 0; // FEAT-105: pick a look without waiting
       clouds.configure(weather, s.quality);
       const storm = weather === 'storm', overcast = isOvercast(weather);
       env.setBluebird(!storm && !overcast); // deep blue sky behind the clouds too; storm and overcast are grey
