@@ -8,7 +8,7 @@ import type { Puffs } from './Puffs';
 
 /**
  * The eat sequence (FEAT-100), cartoon and bloodless:
- *   grab (slow motion, camera cut to a fixed side angle) -> lift the rider by the torso ->
+ *   grab (slow motion, camera cut to high in front, looking down) -> lift the rider by the torso ->
  *   rip in half with a pop and a snow-and-confetti puff -> unhinge the jaw -> bite one, bite two ->
  *   spit the board out (it lands upright) -> burp -> fade to the EATEN card.
  * Gentle swallows the rider whole in one bite and skips the rip.
@@ -169,7 +169,7 @@ export class Eat {
       this.board.visible = true; this.boardFlying = true;
       this.board.position.copy(mouth);
       this.board.quaternion.copy(mv.group.quaternion);
-      this.boardV.copy(front).multiplyScalar(5).add(this.v3.set(0, 4.5, 0)).addScaledVector(this.sideDir, 1.5);
+      this.boardV.copy(front).multiplyScalar(1.5).add(this.v3.set(0, 5, 0)).addScaledVector(this.sideDir, 4);
     });
     if (step === 'burp' && u > 0.15) this.once('burp', () => {
       this.onSound?.('burp');
@@ -193,13 +193,19 @@ export class Eat {
     return true;
   }
 
-  /** Fixed side camera: off the lower side of the slope, looking at the monster's chest. */
+  /**
+   * FEAT-104: high and in front of the monster, facing it and looking down over the rider's
+   * head into its face, so the whole meal reads: the grab, the rip, the jaw, both bites. A slow
+   * push in over the sequence; never closer than 2.5 m above the snow under the camera.
+   */
   cameraPose(pos: THREE.Vector3, look: THREE.Vector3): void {
     const m = this.state!;
-    const cx = m.x + this.sideDir.x * 7.5, cy = m.y - this.sideDir.z * 7.5;
+    const push = Math.min(1, this.t / 4);
+    const back = 5.2 - 0.9 * push, up = 6.4 - 0.8 * push;
+    const cx = m.x + Math.sin(this.heading) * back, cy = m.y + Math.cos(this.heading) * back;
     const g = this.pack.groundHeight(cx, cy);
-    this.camPos.set(cx, Math.max(m.z + 2.2, (Number.isNaN(g) ? m.z : g) + 1.6), -cy);
-    this.camLook.set(m.x, m.z + 2.0, -m.y);
+    this.camPos.set(cx, Math.max(m.z + up, (Number.isNaN(g) ? m.z : g) + 2.5), -cy);
+    this.camLook.set(m.x + Math.sin(this.heading) * 0.6, m.z + 2.4, -(m.y + Math.cos(this.heading) * 0.6));
     pos.copy(this.camPos); look.copy(this.camLook);
   }
 
