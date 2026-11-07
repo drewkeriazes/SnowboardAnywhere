@@ -9,6 +9,7 @@ import { Snow } from './world/Snow';
 import { Controls } from './sim/Controls';
 import { Vegetation, setVegetationBudget, setVegetationDensity } from './world/Vegetation';
 import { Rocks } from './world/Rocks';
+import { LiftLines } from './world/LiftLines';
 import { Lifts } from './world/Lifts';
 import { RunsOverlay } from './world/RunsOverlay';
 import { Environment } from './world/Sky';
@@ -116,6 +117,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('rocks', rocks.group);
     const lifts = new Lifts(pack);
     add('lifts', lifts.group);
+    const liftLines = new LiftLines(pack, lifts.all, collider); // FEAT-073
+    liftLines.setEnabled(settings.liftLines);
+    add('lift lines', liftLines.group);
     add('lift markers', lifts.markers);
     const runs = new RunsOverlay(pack);
     add('run lines', runs.group);
@@ -182,6 +186,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     riderView.onPlant = (p) => { bootprints.add(p, rider.sink); audio.footstep(rider.surface, p.speed, rider.sink); };
     let boardMsg = '', boardMsgT = 0;
     const liftRide = new LiftRide(pack, lifts, collider);
+    liftRide.gate = (l, x, y) => liftLines.inGate(l, x, y); // FEAT-073: board from inside the maze
     const prefetch = new Prefetch();
     const cam = new ChaseCamera(pack, window.innerWidth / window.innerHeight);
     cam.collider = collider; // BUG-032: keep the chase camera out of trees
@@ -268,6 +273,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       controls.invertSteer = s.invertSteer;
       lifts.markers.visible = s.showMarkers;
       roads.setOnSnow(s.roadsOnSnow);
+      liftLines.setEnabled(s.liftLines);
       riderView.setOutfit(s.outfit);
       riderView.setDiscipline(s.discipline);
       tracks.setDiscipline(s.discipline);
@@ -652,6 +658,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       lifts.update(elapsed, carried ? chairPos.set(rider.x, rider.z, -rider.y) : null);
       lifts.maintain(dt, rider.x, rider.y);
       bridges.maintain(dt, rider.x, rider.y);
+      liftLines.maintain(rider.x, rider.y);
       if (settings.timeOfDay === 'now' || timeParam === 'now') { sunClock += dt; if (sunClock > 60) { sunClock = 0; applySun(settings); } }
       lifts.updateMarkers(elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
       map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
