@@ -174,7 +174,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
 
     const rider = new Rider(pack, collider);
     // on foot (FEAT-067): every foot plant of the skeleton leaves a print and a footstep
-    riderView.setPack(pack);
+    riderView.setPack(pack, collider); // FEAT-046: the crash ragdoll hits trunks, rocks and walls
     rider.onSkateStroke = () => audio.footstep(rider.surface, rider.speed, 0); // FEAT-085: a crunch per push
     riderView.onPlant = (p) => { bootprints.add(p, rider.sink); audio.footstep(rider.surface, p.speed, rider.sink); };
     let boardMsg = '', boardMsgT = 0;
