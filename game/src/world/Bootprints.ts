@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Plant } from './Gait';
-import { FADE } from './Tracks';
+import { FADE, trackFillRate } from './Tracks';
 
 /**
  * Bootprints (FEAT-067): one dent per foot plant, stamped where the gait put the boot down, as one
@@ -17,6 +17,13 @@ import { FADE } from './Tracks';
  * with age, ticked a couple of times a second.
  */
 const MAX = 4000;
+/**
+ * BUG-020: tamped snow gets no new edge. A plant less than MIN_STEP (m, times the print scale) from that
+ * foot's last print, or with its centre within OVERLAP (m, times scale) of a live print, does not add a
+ * print: it presses the existing dent a little deeper (up to DEEPEN_CAP times its depth) instead.
+ */
+const MIN_STEP = 0.25, OVERLAP = 0.14, DEEPEN = 1.15, DEEPEN_CAP = 1.6;
+const GRID = 0.5; // m, spatial hash cell for the overlap lookup
 /** half length and half width of the sole (m) */
 const SOLE_HL = 0.16, SOLE_HW = 0.065;
 /** geometry heights are in units of this depth (m); the shader scales them to each print's depth */
@@ -84,6 +91,16 @@ export class Bootprints {
   private readonly kick: THREE.InstancedBufferAttribute;
   private readonly smear: THREE.InstancedBufferAttribute;
   private readonly age = new Float32Array(MAX).fill(1e9);
+  /** BUG-020: where each print is (pack x, y), its first depth, which cell it is filed under, and each foot's last print */
+  private readonly px = new Float32Array(MAX);
+  private readonly py = new Float32Array(MAX);
+  private readonly depth0 = new Float32Array(MAX);
+  private readonly cellOf: (string | null)[] = new Array(MAX).fill(null);
+  private readonly grid = new Map<string, Set<number>>();
+  private readonly lastOf: number[] = [-1, -1];
+  private readonly scale: number;
+  /** plants that pressed into an existing print instead of adding one (for checks) */
+  reused = 0;
   private head = 0;
   private count = 0;
   private tickAcc = 0;
@@ -98,6 +115,7 @@ export class Bootprints {
   /** `scale` (FEAT-101): bigger soles for the monster's prints (3 is about a metre long). */
   constructor(pack: Pack, scale = 1) {
     this.pack = pack;
+    this.scale = scale;
     const HL = SOLE_HL * scale;
     const g = printGeometry(HL, SOLE_HW * scale);
     this.depth = new THREE.InstancedBufferAttribute(new Float32Array(MAX), 1).setUsage(THREE.DynamicDrawUsage);
@@ -138,9 +156,16 @@ export class Bootprints {
 
   /** Stamp one print at a foot plant. `depth` (m) from how far the boot sank. */
   add(p: Plant, depth: number): void {
+    // BUG-020: a foot that has hardly moved, or lands in an existing print, presses that print instead
+    const last = this.lastOf[p.side];
+    if (last >= 0 && this.live(last) && Math.hypot(p.x - this.px[last], p.y - this.py[last]) < MIN_STEP * this.scale) { this.press(last); return; }
+    const hit = this.overlapping(p.x, p.y);
+    if (hit >= 0) { this.press(hit); this.lastOf[p.side] = hit; return; }
     const s = this.head;
     const z = this.pack.groundHeight(p.x, p.y);
     if (Number.isNaN(z)) return;
+    this.file(s, p.x, p.y);
+    this.lastOf[p.side] = s;
     const nn = this.pack.groundNormal(p.x, p.y) as number[];
     this.n.set(nn[0], nn[2], -nn[1]).normalize();
     // yaw (heading convention) about up, then tilted onto the snow
@@ -149,6 +174,7 @@ export class Bootprints {
     this.m.compose(this.p.set(p.x, z, -p.y), this.q, this.one);
     this.mesh.setMatrixAt(s, this.m);
     this.depth.setX(s, depth);
+    this.depth0[s] = depth;
     this.kick.setX(s, p.kick);
     // smear (pack x/y) into the print's local x/z: rotate by -yaw. Local -Z is the toe direction
     // (pack heading), local +X the boot's right.
@@ -164,12 +190,47 @@ export class Bootprints {
     this.depth.needsUpdate = this.kick.needsUpdate = this.smear.needsUpdate = this.fill.needsUpdate = true;
   }
 
+  /** a print that is still a visible dent (not filled back in or overwritten) */
+  private live(s: number): boolean { return this.cellOf[s] !== null && this.fill.getX(s) > 0.3; }
+
+  /** the live print whose centre is within OVERLAP of (x, y), or -1 */
+  private overlapping(x: number, y: number): number {
+    const r = OVERLAP * this.scale, cx = Math.floor(x / GRID), cy = Math.floor(y / GRID);
+    let best = -1, bd = r;
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      const set = this.grid.get(`${cx + i},${cy + j}`);
+      if (set) for (const s of set) {
+        const d = Math.hypot(x - this.px[s], y - this.py[s]);
+        if (d < bd && this.live(s)) { bd = d; best = s; }
+      }
+    }
+    return best;
+  }
+
+  /** press an existing print a little deeper (capped) and freshen it, instead of adding an edge */
+  private press(s: number): void {
+    this.reused++;
+    this.depth.setX(s, Math.min(this.depth0[s] * DEEPEN_CAP, this.depth.getX(s) * DEEPEN));
+    this.age[s] = 0; this.fill.setX(s, 1);
+    this.depth.needsUpdate = this.fill.needsUpdate = true;
+  }
+
+  /** file slot s under its grid cell, taking it out of the cell of the print it overwrites */
+  private file(s: number, x: number, y: number): void {
+    const old = this.cellOf[s];
+    if (old !== null) this.grid.get(old)?.delete(s);
+    const key = `${Math.floor(x / GRID)},${Math.floor(y / GRID)}`;
+    let set = this.grid.get(key);
+    if (!set) { set = new Set(); this.grid.set(key, set); }
+    set.add(s); this.cellOf[s] = key; this.px[s] = x; this.py[s] = y;
+  }
+
   /** Per frame: age the prints and let the snow fill them back in. */
   update(dt: number): void {
     this.tickAcc += dt;
     if (this.tickAcc < 0.5) return;
     for (let s = 0; s < this.count; s++) {
-      this.age[s] += this.tickAcc;
+      this.age[s] += this.tickAcc * trackFillRate();
       // the oldest prints in the ring also fade so the overwrite is not a pop
       const ringAge = ((this.head - 1 - s + MAX) % MAX) / MAX;
       this.fill.setX(s, Math.max(0, 1 - this.age[s] / FADE) * (1 - ringAge * ringAge));
@@ -179,6 +240,6 @@ export class Bootprints {
   }
 
   get stats(): { prints: number } { return { prints: this.count }; }
-  clear(): void { this.count = 0; this.head = 0; this.mesh.count = 0; }
+  clear(): void { this.count = 0; this.head = 0; this.mesh.count = 0; this.grid.clear(); this.cellOf.fill(null); this.lastOf[0] = this.lastOf[1] = -1; }
   dispose(): void { this.mesh.geometry.dispose(); this.mat.dispose(); }
 }

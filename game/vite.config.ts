@@ -45,15 +45,25 @@ function saveCompareShots(): Plugin {
             const dir = path.join(compareDir, body.pack, spot);
             fs.mkdirSync(dir, { recursive: true });
             const png = String(body.png).replace(/^data:image\/png;base64,/, '');
-            fs.writeFileSync(path.join(dir, `eye-${view}.png`), Buffer.from(png, 'base64'));
+            fs.writeFileSync(path.join(dir, `eye-${view}.png`), Buffer.from(png, 'base64')); // lossless, gitignored
+            // FEAT-095: the committed copy is JPEG 90 (encoded in the browser)
+            const jpg = typeof body.jpg === 'string' ? body.jpg.replace(/^data:image\/jpeg;base64,/, '') : null;
+            if (jpg) fs.writeFileSync(path.join(dir, `eye-${view}.jpg`), Buffer.from(jpg, 'base64'));
+            const shot = jpg ? `eye-${view}.jpg` : `eye-${view}.png`;
             const specFile = path.join(dir, 'spot.json');
             const spec = fs.existsSync(specFile) ? JSON.parse(fs.readFileSync(specFile, 'utf8')) : { name: spot, views: [] };
             spec.views ??= [];
             let v = spec.views.find((e: { id?: string }) => e.id === view);
             if (!v) { v = { id: view }; spec.views.push(v); }
-            v.eye = { ...body.pose, link: body.link, shot: `eye-${view}.png`, date: new Date().toISOString().slice(0, 10) };
+            const weather = typeof body.weather === 'string' && safe.test(body.weather) ? body.weather : undefined;
+            v.eye = { ...body.pose, ...(weather ? { weather } : {}), link: body.link, shot, date: new Date().toISOString().slice(0, 10) };
             fs.writeFileSync(specFile, JSON.stringify(spec, null, 2) + '\n');
-            res.statusCode = 200; res.end(path.relative(path.resolve(__dirname, '..'), path.join(dir, `eye-${view}.png`)).split(path.sep).join('/'));
+            // FEAT-093: catch a clear-sky shot saved over a spot tagged overcast (and the like)
+            const want = v.weather ?? spec.weather;
+            const warning = want && weather && want !== weather ? `Shot taken in ${weather}, but this spot is tagged ${want}; open its link with &weather=${want} and press P again.` : undefined;
+            if (warning) console.warn(`[compare] ${spot}/${view}: ${warning}`);
+            const file = path.relative(path.resolve(__dirname, '..'), path.join(dir, shot)).split(path.sep).join('/');
+            res.statusCode = 200; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ file, warning }));
           } catch (e) {
             res.statusCode = 400; res.end(String((e as Error).message ?? e));
           }

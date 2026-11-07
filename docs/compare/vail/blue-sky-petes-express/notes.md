@@ -1,6 +1,6 @@
 # Blue Sky Basin, near Pete's Express (Big Rock Park)
 
-Real: Google Street View trekker, Mar 2012 (calibrated; links in spot.json). The real screenshots were shared in chat and are not saved locally. Sunny spring snow. Game: `eye-<view>.png`, eye camera at (1749, -2532), 1919x910, 2026-11-06. 11 m from Big Rock Park - West.
+Real: Google Street View trekker, Mar 2012 (calibrated; links in spot.json). The real screenshots were shared in chat and are not saved locally. Sunny spring snow. Game: `eye-<view>.jpg`, eye camera at (1749, -2532), 1919x910, 2026-11-06. 11 m from Big Rock Park - West.
 
 ## What matches
 - **Terrain:** the run dropping into the gully between forested slopes (south-east), and the slope rising to the north with the distant snowy hill.

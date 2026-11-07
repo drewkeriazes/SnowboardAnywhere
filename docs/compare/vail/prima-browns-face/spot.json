@@ -19,7 +19,7 @@
       "x": -652.0,
       "y": 1809.0,
       "h": 34.6,
-      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=34.6&pitch=-20.3&fov=62.6&cam=eye&spot=prima-browns-face/northeast",
+      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=34.6&pitch=-20.3&fov=62.6&cam=eye&spot=prima-browns-face/northeast&weather=flurries",
       "position_override": true
     },
     {
@@ -31,7 +31,7 @@
       "x": -652.0,
       "y": 1809.0,
       "h": 105.0,
-      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=105.0&pitch=-9.5&fov=62.6&cam=eye&spot=prima-browns-face/east",
+      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=105.0&pitch=-9.5&fov=62.6&cam=eye&spot=prima-browns-face/east&weather=flurries",
       "position_override": true
     },
     {
@@ -43,7 +43,7 @@
       "x": -652.0,
       "y": 1809.0,
       "h": 164.0,
-      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=164.0&pitch=12.2&fov=62.6&cam=eye&spot=prima-browns-face/south",
+      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=164.0&pitch=12.2&fov=62.6&cam=eye&spot=prima-browns-face/south&weather=flurries",
       "position_override": true
     },
     {
@@ -55,7 +55,7 @@
       "x": -652.0,
       "y": 1809.0,
       "h": 214.9,
-      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=214.9&pitch=24.0&fov=62.6&cam=eye&spot=prima-browns-face/southwest",
+      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=214.9&pitch=24.0&fov=62.6&cam=eye&spot=prima-browns-face/southwest&weather=flurries",
       "position_override": true
     },
     {
@@ -67,7 +67,7 @@
       "x": -652.0,
       "y": 1809.0,
       "h": 325.7,
-      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=325.7&pitch=-4.8&fov=62.6&cam=eye&spot=prima-browns-face/northwest",
+      "game": "http://localhost:5173/?pack=vail&x=-652.0&y=1809.0&h=325.7&pitch=-4.8&fov=62.6&cam=eye&spot=prima-browns-face/northwest&weather=flurries",
       "position_override": true
     }
   ],

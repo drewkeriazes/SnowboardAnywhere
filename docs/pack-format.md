@@ -69,7 +69,7 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
                  "cable": [[x,y,z],...], "capacity" }],
   "runs":      [{ "name", "difficulty": "easy|intermediate|advanced|expert|freeride",
                  "groomed": bool, "gladed": bool, "points": [[x,y,z],...], "osmId" }],
-  "buildings": [{ "name", "points": [[x,y],...], "zBase", "height", "kind" }],
+  "buildings": [{ "name", "points": [[x,y],...], "zBase", "zMax", "height", "kind" }],  // zMax: highest ground under the footprint, absent in packs before BUG-024
   "roads":     [{ "name", "kind", "points": [[x,y,z],...], "width" }],
   "water":     [{ "name", "points": [[x,y],...], "z" }],
   "peaks":     [{ "name", "x", "y", "z" }],

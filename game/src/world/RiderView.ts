@@ -2,8 +2,16 @@ import * as THREE from 'three';
 import type { Rider } from '../sim/Rider';
 import type { Pack } from '../pack/Pack';
 import { lerpPose, clonePose, defaultMaterials, POSES, SKI_POSES, WALK_POSES, type Pose, type RiderMaterials } from './RiderModel';
-import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
+import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, bendBoard, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
 import { Gait, type Plant } from './Gait';
+
+/** FEAT-112: half the skis' length (where they pivot) and the most they tip up on a full lean (rad) */
+const BOARD_HALF = 0.72, LEAN_TIP = 18 * Math.PI / 180;
+/** FEAT-118: board flex spring: natural frequency (rad/s, about 0.3 s a cycle) and damping ratio
+ *  (0.45 overshoots about 20 %, so a full load snaps past flat to about -0.15 on the pop) */
+const FLEX_W = 21, FLEX_ZETA = 0.45;
+/** BUG-034: share of a skier's counter-rotation taken by the pelvis (the rest is the chest) */
+const SKI_HIP_TWIST = 0.35;
 
 const d2r = Math.PI / 180;
 const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -82,6 +90,8 @@ export class RiderView {
   private poses: Record<string, Pose> = POSES;
   discipline: 'board' | 'ski' = 'board';
   private leanAngle = 0;
+  /** FEAT-118: board bend (0 flat .. 1 full load), its rate, and which end is loaded (-1 tail, +1 nose) */
+  private flex = 0; private flexV = 0; private flexDir = -1;
   private twist = 0;
   private wasSeated = false;
   /** worst ankle-to-binding distance after the last solve (m); 0 means the boots are on the bindings */
@@ -97,6 +107,11 @@ export class RiderView {
   private readonly tmpR = new THREE.Vector3();
   private readonly rot = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
+  /** FEAT-110: the board orientation before the flip is applied, and the flip itself */
+  private readonly baseQ = new THREE.Quaternion();
+  private readonly airFlipQ = new THREE.Quaternion();
+  private readonly flipAxis = new THREE.Vector3(1, 0, 0);
+  private readonly pivot = new THREE.Vector3();
   private readonly pq = new THREE.Quaternion();
   private readonly v1 = new THREE.Vector3();
   private readonly v2 = new THREE.Vector3();
@@ -178,6 +193,7 @@ export class RiderView {
     this.rig = this.mount(d);
     this.poses = d === 'ski' ? SKI_POSES : POSES;
     Object.assign(this.pose, clonePose(this.poses.neutral));
+    this.flex = 0; this.flexV = 0;
     this.wasSeated = false;
     this.footActive = false; this.gaitLive = false;
     this.setFirstPerson(this.fp);
@@ -280,6 +296,7 @@ export class RiderView {
     // on foot, or stepping on or off the board
     const u = seated ? 0 : r.footU;
     if (u > 0 && this.pack && this.gait) {
+      if (this.flex !== 0) { this.flex = 0; this.flexV = 0; bendBoard(this.rig, 0, this.flexDir); } // FEAT-118: flat when carried
       this.updateFoot(r, dt, u);
       this.updateSpray(r, dt, this.tmpF, this.tmpR, false);
       return;
@@ -296,7 +313,16 @@ export class RiderView {
     const right = this.tmpR.crossVectors(f, n).normalize();
     this.rot.makeBasis(right, n, this.v1.copy(f).negate());
     this.q.setFromRotationMatrix(this.rot);
-    this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
+    this.baseQ.slerp(this.q, Math.min(1, dt * 12));
+    this.group.quaternion.copy(this.baseQ);
+    // FEAT-110: the flip pitches the rider and board about the board's own side axis, through a point
+    // 0.7 m up (about the hips); a front flip (+) puts the nose down
+    if (!r.onGround && r.flip !== 0) {
+      this.airFlipQ.setFromAxisAngle(this.flipAxis, -r.flip);
+      this.group.quaternion.multiply(this.airFlipQ);
+      this.pivot.set(0, 0.7, 0).applyQuaternion(this.baseQ);
+      this.group.position.add(this.pivot).sub(this.v1.set(0, 0.7, 0).applyQuaternion(this.group.quaternion));
+    }
     // ---- inclination: lean into the turn until lateral acceleration balances gravity,
     // phi = atan(a_lat / g), capped at 40 degrees. lateralG > 0 = toward the board's right (toe side).
     // Braking, the board lies across the travel direction, so the braking deceleration is lateral
@@ -311,6 +337,25 @@ export class RiderView {
     this.lean.position.set(side * 0.13, 0, 0);
     this.lean.rotation.set(0, 0, -this.leanAngle); // positive lateralG tips +Y toward +X
     this.rig.board.position.set(-side * 0.13, 0, 0);
+    // FEAT-112: the board tips up about its loaded end, up to 18 deg: nose up on a lean back (ollie,
+    // tail press), tail up on a lean forward (nollie, nose press). The feet ride the bindings with it.
+    const L = r.lean ?? 0;
+    if (this.discipline === 'board') {
+      // FEAT-118: the snowboard bends instead: tail flat, arched from the back foot, nose up.
+      // The load grows with the lean and the jump charge and lets go in the air (the pop).
+      this.rig.board.rotation.set(0, 0, 0);
+      const target = seated || !r.onGround ? 0 : Math.abs(L) * (0.6 + 0.4 * Math.min(1, r.jumpCharge));
+      if (Math.abs(L) > 0.01) this.flexDir = Math.sign(L);
+      const h = Math.min(dt, 0.05);
+      this.flexV += (FLEX_W * FLEX_W * (target - this.flex) - 2 * FLEX_ZETA * FLEX_W * this.flexV) * h;
+      this.flex += this.flexV * h;
+      bendBoard(this.rig, this.flex, this.flexDir);
+    } else if (Math.abs(L) > 0.01 && !seated) {
+      const end = L < 0 ? BOARD_HALF : -BOARD_HALF; // the end that stays down (local -Z is the nose)
+      this.rig.board.rotation.set((L < 0 ? 1 : -1) * Math.abs(L) * LEAN_TIP, 0, 0);
+      this.pivot.set(0, 0, end);
+      this.rig.board.position.add(this.pivot).sub(this.v2.set(0, 0, end).applyQuaternion(this.rig.board.quaternion));
+    } else this.rig.board.rotation.set(0, 0, 0);
 
     // ---- pose blend from rider state
     const t = this.target;
@@ -318,7 +363,11 @@ export class RiderView {
     Object.assign(t, clonePose(P.neutral));
     if (seated) { lerpPose(t, t, P.seated, 1); }
     else if (r.crashed > 0) { lerpPose(t, t, P.crash, 1); }
-    else if (!r.onGround) { lerpPose(t, t, grab ? P.grab : P.air, 1); }
+    else if (!r.onGround) {
+      lerpPose(t, t, grab ? P.grab : P.air, 1);
+      if (r.squat > 0) lerpPose(t, t, P.squat, 0.7 * r.squat); // tucked up tight in the air
+      if (Math.abs(r.flipRate) > 1) lerpPose(t, t, P.tuck, Math.min(0.85, Math.abs(r.flipRate) / 10)); // FEAT-110: balled up mid-flip, opening as it slows
+    }
     else {
       // braking stance: sitting back on the heel edge or kneeling into the toe edge
       const b = r.brakeSide !== 0 ? r.brakeAmt : 0;
@@ -326,6 +375,11 @@ export class RiderView {
       if (edge > 0) lerpPose(t, t, P.carveToe, Math.min(1, edge * 1.2)); else if (edge < 0) lerpPose(t, t, P.carveHeel, Math.min(1, -edge * 1.2));
       if (tuck) lerpPose(t, t, P.tuck, 0.85);
       if (r.jumpCharge > 0) lerpPose(t, t, P.crouch, Math.min(1, r.jumpCharge));
+      if (r.squat > 0) lerpPose(t, t, P.squat, r.squat); // FEAT-111: deeper than tuck or charge, wins over both
+      // FEAT-085 skating: knees bent, chest over the front foot, bobbing down into each push
+      // FEAT-112: hips over the loaded end, the chest leaning with them
+      if (Math.abs(r.lean) > 0.01) { t.torso = [t.torso[0] + 0.3 * r.lean, t.torso[1], t.torso[2]]; t.hipsY -= 0.06 * Math.abs(r.lean); }
+      if (r.skating) { const push = Math.max(0, Math.cos(r.skatePhase * Math.PI * 2)); lerpPose(t, t, P.crouch, 0.35 + 0.25 * push); t.torso = [t.torso[0] + 0.25 * push, t.torso[1], t.torso[2]]; }
       if (r.landingShock > 0) lerpPose(t, t, P.land, Math.min(1, r.landingShock * 1.5));
       // knees bent and hips low in proportion to how hard the edge is biting
       const bite = b * Math.min(1, r.brakeAcc / 8);
@@ -347,11 +401,23 @@ export class RiderView {
       if (r.onGround && r.speed > 2) {
         slip = Math.atan2(r.vx, r.vy) - yaw;
         slip = Math.atan2(Math.sin(slip), Math.cos(slip));
-        if (Math.abs(slip) > Math.PI / 2) slip = 0; // backwards: no twist
+        const a = Math.abs(slip);
+        if (this.discipline === 'ski') {
+          // past 90 deg hold the cap, then fade to no twist by 135 deg (really backwards), so an
+          // overshooting hockey stop does not pop the chest back
+          if (a > Math.PI / 2) slip = Math.sign(slip) * (Math.PI / 2) * Math.max(0, 1 - (a - Math.PI / 2) / (Math.PI / 4));
+        } else if (a > Math.PI / 2) slip = 0; // backwards: no twist
       }
-      this.twist += (Math.max(-1.05, Math.min(1.05, -slip * 0.7)) - this.twist) * Math.min(1, dt * 6);
+      // BUG-034: a skier's hockey stop keeps the chest square to the fall line while the skis go 84 deg
+      // across, so skis take the full slip (to 90 deg) and split it between the pelvis and the chest;
+      // the snowboarder keeps 70 % up to 60 deg, all in the chest, on top of the side-on stance
+      const ski = this.discipline === 'ski';
+      const k = ski ? 1 : 0.7, twistCap = ski ? Math.PI / 2 : 1.05;
+      this.twist += (Math.max(-twistCap, Math.min(twistCap, -slip * k)) - this.twist) * Math.min(1, dt * 6);
     } else this.twist *= Math.max(0, 1 - dt * 6);
-    t.torso = [t.torso[0], t.torso[1] + this.twist, t.torso[2]];
+    const hipShare = this.discipline === 'ski' ? SKI_HIP_TWIST : 0;
+    t.hipsRot = [t.hipsRot[0], t.hipsRot[1] + this.twist * hipShare, t.hipsRot[2]];
+    t.torso = [t.torso[0], t.torso[1] + this.twist * (1 - hipShare), t.torso[2]];
     if (this.fp) {
       // first person: arms closer to the sides so the front arm is not held level across the view
       t.lShoulder = [t.lShoulder[0], t.lShoulder[1], t.lShoulder[2] * 0.35];
@@ -492,6 +558,7 @@ export class RiderView {
     this.rot.makeBasis(right, n, this.v1.copy(f).negate());
     this.q.setFromRotationMatrix(this.rot);
     this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
+    this.baseQ.copy(this.group.quaternion); // FEAT-110: keep the riding base in step, no swing when strapping back in
     this.leanAngle = 0; this.twist = 0;
     this.lean.position.set(0, 0, 0); this.lean.rotation.set(0, 0, 0);
 
@@ -521,6 +588,7 @@ export class RiderView {
     lerpPose(t, t, walk, stand);
     const crouch = u > 0.08 && u < 0.78 ? Math.sin(Math.PI * (u - 0.08) / 0.7) : 0;
     t.hipsY -= 0.3 * crouch + 0.6 * r.sink * stand + 0.12 * this.slip; // sitting into a slip
+    if (r.squat > 0) { t.hipsY -= 0.45 * r.squat; t.hipsRot = [t.hipsRot[0] + 0.3 * r.squat, t.hipsRot[1], t.hipsRot[2]]; t.torso = [t.torso[0] + 0.35 * r.squat, t.torso[1], t.torso[2]]; } // on foot: hunker down (FEAT-111)
     t.hipsRot = [t.hipsRot[0] + 0.35 * crouch, t.hipsRot[1], t.hipsRot[2]];
     t.torso = [t.torso[0] + 0.5 * crouch - 0.25 * this.slip + 0.4 * Math.max(0, Math.min(0.8, grade)) * stand * Math.min(1, gait.speed), t.torso[1], t.torso[2]];
     t.lShoulder = [t.lShoulder[0] + 0.9 * crouch, t.lShoulder[1], t.lShoulder[2] * (1 - crouch * 0.7)];

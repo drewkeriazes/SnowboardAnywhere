@@ -49,12 +49,42 @@ function kindOf(type: string): LiftKind {
   return 'chair';
 }
 
+// ---------------------------------------------------------------- cables (BUG-029)
+
+const CABLE_DIAMETER = 0.05; // metres; a 1 px GL line is drawn this many pixels wide at most
+const CABLE_MIN_ALPHA = 0.15; // far cables stay a faint thread so lifts still read as lifts
+const cableViewH = { value: 1080 };
+const _size = new THREE.Vector2();
+export function setCableViewport(renderer: THREE.WebGLRenderer): void { cableViewH.value = renderer.getDrawingBufferSize(_size).y; }
+
+/**
+ * GL lines are never thinner than 1 px, so a far cable drawn solid is 10 to 20 times too heavy.
+ * Alpha = the rope's projected width in pixels, clamped to [CABLE_MIN_ALPHA, 1]: solid up close,
+ * a faint thread at a distance. The fog chunk still applies, so distant cables also take the haze.
+ */
+export function cableMaterial(): THREE.LineBasicMaterial {
+  const mat = new THREE.LineBasicMaterial({ color: 0x4a4f55, transparent: true });
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uCableViewH = cableViewH;
+    sh.vertexShader = sh.vertexShader
+      .replace('void main() {', `uniform float uCableViewH;\nvarying float vCover;\nvoid main() {`)
+      .replace('#include <project_vertex>', `#include <project_vertex>
+  // projected rope width in pixels: diameter * focal length (px) / distance
+  vCover = clamp(${CABLE_DIAMETER.toFixed(3)} * projectionMatrix[1][1] * 0.5 * uCableViewH / max(-mvPosition.z, 1.0), ${CABLE_MIN_ALPHA.toFixed(2)}, 1.0);`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace('void main() {', 'varying float vCover;\nvoid main() {')
+      .replace('#include <opaque_fragment>', 'diffuseColor.a *= vCover;\n#include <opaque_fragment>');
+  };
+  return mat;
+}
+
 export class Lifts {
   readonly group = new THREE.Group();
   private readonly lifts: LiftRuntime[] = [];
   private readonly mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.35 });
   get material(): THREE.MeshStandardMaterial { return this.mat; }
-  private readonly cableMat = new THREE.LineBasicMaterial({ color: 0x1a1a1a });
+  /** haul rope (BUG-029): steel grey, fogged like the terrain, and faded by how much of a pixel a ~5 cm rope covers */
+  private readonly cableMat = cableMaterial();
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
   private readonly p = new THREE.Vector3();
@@ -219,6 +249,7 @@ export class Lifts {
       const offs = pts.map((v) => new THREE.Vector3(v.x + lx * lateralOff * side, v.y, v.z - ly * lateralOff * side));
       const cable = new THREE.Line(new THREE.BufferGeometry().setFromPoints(offs), this.cableMat);
       cable.name = side < 0 ? 'cable left' : 'cable right';
+      cable.onBeforeRender = setCableViewport;
       group.add(cable);
     }
     // carriers

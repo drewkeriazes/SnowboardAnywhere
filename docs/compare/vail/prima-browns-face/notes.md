@@ -1,6 +1,6 @@
 # Prima, near Brown's Face (Front Side)
 
-Real: Street View, Jan 2017, contributor Hongbin Zhuang, listed as "Vail Ski Resort" (links in spot.json; `real-*.png` local only). Overcast, fresh snow. Game: `eye-<view>.png`, eye camera at (-652, 1809), 1919x910, 2026-11-06.
+Real: Street View, Jan 2017, contributor Hongbin Zhuang, listed as "Vail Ski Resort" (links in spot.json; `real-*.png` local only). Overcast, fresh snow. Game: `eye-<view>.jpg`, eye camera at (-652, 1809), 1919x910, 2026-11-06.
 
 **The Street View pin is about 540 m off.** Google places it at (-1192, 1709), in forest between Christmas and Riva Glade, and it shows up when searching "Riva Ridge". From there nothing matched: the game camera stood in trees, and the 34-degree view ran across the slope instead of down it. The real spot was found by scoring every open slope within 900 m on three things the photo fixes: the fall line (about 36 degrees true), the end-of-run building (about 59 degrees true) and open ground. Then candidates were rendered. Prima / Brown's Face matched every view; the clincher is the three parallel cut runs on the ridge across the drainage in the east view. The compass is good. Stored with `--at -652,1809`.
 

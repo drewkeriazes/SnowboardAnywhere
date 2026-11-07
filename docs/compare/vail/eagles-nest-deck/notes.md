@@ -1,6 +1,6 @@
 # Front Side, Eagle's Nest event deck (top of Eagle Bahn)
 
-Real: Street View, Jan 2016, contributor Justin Donat (links in spot.json; `real-*.png` local only). Sun and broken cloud. Game: `eye-<view>.png`, eye camera at (-3317, 1983), 1919x910, 2026-11-06.
+Real: Street View, Jan 2016, contributor Justin Donat (links in spot.json; `real-*.png` local only). Sun and broken cloud. Game: `eye-<view>.jpg`, eye camera at (-3317, 1983), 1919x910, 2026-11-06.
 
 The compass of this photosphere is good: Eagle's Nest is at a grid bearing of 21 degrees in the pack and sits about 2 degrees right of centre in the 23-degree view. No offset needed.
 
