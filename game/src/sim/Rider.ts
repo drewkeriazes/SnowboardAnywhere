@@ -43,9 +43,10 @@ const PLOUGH_SPEED = 5;
 export const UNSTRAP_TIME = 0.8, STRAP_TIME = 1.0;
 /** fastest the rider can be going to unstrap (m/s), and to strap in (standing still) */
 const UNSTRAP_SPEED = 1.5, STRAP_SPEED = 0.3;
-/** BUG-045 on foot: ledges up to STEP_UP are stepped onto by walking into them; up to CLIMB_UP a
- *  jump climbs (mantles) onto them over MANTLE_TIME, probing MANTLE_PROBE ahead; taller stays a wall (m, s) */
-const STEP_UP = 0.45, CLIMB_UP = 1.4, MANTLE_TIME = 0.9, MANTLE_PROBE = 0.7;
+/** BUG-045 on foot: ledges up to STEP_UP are stepped onto by walking into them (eased over STEP_TIME);
+ *  up to CLIMB_UP a jump climbs (mantles) onto them over MANTLE_TIME, probing MANTLE_PROBE ahead;
+ *  taller stays a wall (m, s) */
+const STEP_UP = 0.45, STEP_TIME = 0.25, CLIMB_UP = 1.4, MANTLE_TIME = 0.9, MANTLE_PROBE = 0.7;
 /** on-foot speeds on groomed snow (m/s): walk, sprint, a tired sprint (a run), walking backwards */
 const WALK = 1.4, SPRINT = 3.8, JOG = 2.4, BACK = 0.6;
 /** seconds of sprint, and how much has to come back before sprinting again after running out */
@@ -192,6 +193,8 @@ export class Rider {
   /** BUG-045: climbing onto a ledge (mantle): progress 0..1 (0 = not climbing) and its start and end */
   mantle = 0;
   private readonly mantleFrom = [0, 0, 0]; private readonly mantleTo = [0, 0, 0];
+  /** BUG-045: stepping up onto a low ledge: progress 0..1 (0 = not stepping), from mantleFrom to mantleTo */
+  private stepT = 0;
   /** scrambling up on all fours (too steep to walk, not too steep to climb) */
   crawling = false;
   /** body-scale slope along the way you are walking (degrees, + = uphill) */
@@ -241,7 +244,7 @@ export class Rider {
     this.crashed = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
     this.edgeAngle = 0; this.lateralG = 0; this.landingShock = 0;
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
-    this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false; this.mantle = 0;
+    this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false; this.mantle = 0; this.stepT = 0;
     this.sprinting = false; this.crawling = false; this.slipT = 0; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
     this.rng.seed(seed);
     this.squareBoard();
@@ -639,7 +642,7 @@ export class Rider {
     this.landingShock = Math.max(0, this.landingShock - dt * 3);
     this.squareBoard();
     // hop on the press edge
-    let hop = input.jumpHeld && !this.hopHeld;
+    const hop = input.jumpHeld && !this.hopHeld;
     this.hopHeld = input.jumpHeld;
     // BUG-045: a mantle in progress: up the wall first, then over the edge, then stand
     if (this.mantle > 0) {
@@ -654,6 +657,20 @@ export class Rider {
       if (this.mantle >= 1) this.mantle = 0;
       return;
     }
+    // BUG-045: a step up onto a low ledge, eased so the camera and board do not pop; the walk
+    // velocity is kept so you carry on at the same pace once up
+    if (this.stepT > 0) {
+      this.stepT = Math.min(1, this.stepT + dt / STEP_TIME);
+      const a = this.mantleFrom, b = this.mantleTo, m = this.stepT;
+      const up = Math.min(1, m / 0.6), ease = (t: number) => t * t * (3 - 2 * t);
+      this.x = a[0] + (b[0] - a[0]) * m; this.y = a[1] + (b[1] - a[1]) * m;
+      this.z = a[2] + (b[2] - a[2]) * ease(up);
+      this.vz = 0; this.onGround = true;
+      this.speed = Math.hypot(this.walkVx, this.walkVy);
+      this.distance += this.speed * dt;
+      if (this.stepT >= 1) this.stepT = 0;
+      return;
+    }
     // BUG-045: jump into a chest-high ledge (a deck, platform or low roof) to climb onto it
     if (hop && this.onGround && this.collider) {
       const hx0 = Math.sin(this.heading), hy0 = Math.cos(this.heading);
@@ -663,7 +680,7 @@ export class Rider {
         this.mantleFrom[0] = this.x; this.mantleFrom[1] = this.y; this.mantleFrom[2] = this.z;
         this.mantleTo[0] = this.x + hx0 * (MANTLE_PROBE + 0.2); this.mantleTo[1] = this.y + hy0 * (MANTLE_PROBE + 0.2); this.mantleTo[2] = top;
         if (this.collider.floorAt(this.mantleTo[0], this.mantleTo[1], this.z, CLIMB_UP) < top) { this.mantleTo[0] = px; this.mantleTo[1] = py; }
-        this.mantle = 1e-3; hop = false;
+        this.mantle = 1e-3;
         return;
       }
     }
@@ -761,12 +778,15 @@ export class Rider {
     if (!this.collider) return;
     const hit = this.collider.resolve(this.x, this.y, this.z, r);
     if (!hit) return;
-    // BUG-045: walking into a low ledge (a curb, a step, a low deck): step up onto it
-    if (walking && hit.kind === 0 && !hit.inside) {
+    // BUG-045: walking into a low ledge (a curb, a step, a low deck): step up onto it. Only a
+    // building edge counts, so a post, trunk or railing is never stepped over.
+    if (walking && hit.ledge && !hit.inside) {
       const px = hit.x - hit.nx * (r + 0.15), py = hit.y - hit.ny * (r + 0.15);
       const top = this.collider.floorAt(px, py, this.z, STEP_UP);
       if (top > this.z && Number.isFinite(top) && (this.walkVx * hit.nx + this.walkVy * hit.ny) < 0) {
-        this.x = px; this.y = py; this.z = top;
+        this.mantleFrom[0] = hit.x; this.mantleFrom[1] = hit.y; this.mantleFrom[2] = this.z;
+        this.mantleTo[0] = px; this.mantleTo[1] = py; this.mantleTo[2] = top;
+        this.x = hit.x; this.y = hit.y; this.stepT = 1e-3;
         return;
       }
     }
