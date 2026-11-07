@@ -97,6 +97,11 @@ export class RiderView {
   private readonly tmpR = new THREE.Vector3();
   private readonly rot = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
+  /** FEAT-110: the board orientation before the flip is applied, and the flip itself */
+  private readonly baseQ = new THREE.Quaternion();
+  private readonly airFlipQ = new THREE.Quaternion();
+  private readonly flipAxis = new THREE.Vector3(1, 0, 0);
+  private readonly pivot = new THREE.Vector3();
   private readonly pq = new THREE.Quaternion();
   private readonly v1 = new THREE.Vector3();
   private readonly v2 = new THREE.Vector3();
@@ -296,7 +301,16 @@ export class RiderView {
     const right = this.tmpR.crossVectors(f, n).normalize();
     this.rot.makeBasis(right, n, this.v1.copy(f).negate());
     this.q.setFromRotationMatrix(this.rot);
-    this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
+    this.baseQ.slerp(this.q, Math.min(1, dt * 12));
+    this.group.quaternion.copy(this.baseQ);
+    // FEAT-110: the flip pitches the rider and board about the board's own side axis, through a point
+    // 0.7 m up (about the hips); a front flip (+) puts the nose down
+    if (!r.onGround && r.flip !== 0) {
+      this.airFlipQ.setFromAxisAngle(this.flipAxis, -r.flip);
+      this.group.quaternion.multiply(this.airFlipQ);
+      this.pivot.set(0, 0.7, 0).applyQuaternion(this.baseQ);
+      this.group.position.add(this.pivot).sub(this.v1.set(0, 0.7, 0).applyQuaternion(this.group.quaternion));
+    }
     // ---- inclination: lean into the turn until lateral acceleration balances gravity,
     // phi = atan(a_lat / g), capped at 40 degrees. lateralG > 0 = toward the board's right (toe side).
     // Braking, the board lies across the travel direction, so the braking deceleration is lateral
@@ -318,7 +332,11 @@ export class RiderView {
     Object.assign(t, clonePose(P.neutral));
     if (seated) { lerpPose(t, t, P.seated, 1); }
     else if (r.crashed > 0) { lerpPose(t, t, P.crash, 1); }
-    else if (!r.onGround) { lerpPose(t, t, grab ? P.grab : P.air, 1); if (r.squat > 0) lerpPose(t, t, P.squat, 0.7 * r.squat); } // tucked up tight in the air
+    else if (!r.onGround) {
+      lerpPose(t, t, grab ? P.grab : P.air, 1);
+      if (r.squat > 0) lerpPose(t, t, P.squat, 0.7 * r.squat); // tucked up tight in the air
+      if (Math.abs(r.flipRate) > 1) lerpPose(t, t, P.tuck, Math.min(0.85, Math.abs(r.flipRate) / 10)); // FEAT-110: balled up mid-flip, opening as it slows
+    }
     else {
       // braking stance: sitting back on the heel edge or kneeling into the toe edge
       const b = r.brakeSide !== 0 ? r.brakeAmt : 0;
@@ -493,6 +511,7 @@ export class RiderView {
     this.rot.makeBasis(right, n, this.v1.copy(f).negate());
     this.q.setFromRotationMatrix(this.rot);
     this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
+    this.baseQ.copy(this.group.quaternion); // FEAT-110: keep the riding base in step, no swing when strapping back in
     this.leanAngle = 0; this.twist = 0;
     this.lean.position.set(0, 0, 0); this.lean.rotation.set(0, 0, 0);
 

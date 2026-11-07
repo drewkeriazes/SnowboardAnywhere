@@ -96,6 +96,19 @@ const SQUAT_GRIP = 0.08;
 const SQUAT_AERO = 0.3;
 const SQUAT_POP = 1.15;
 const SQUAT_SPRING_WINDOW = 0.25;
+/** FEAT-110 flips: full-input pitch rate (1.1 rotations a second), how fast it builds and decays (1/s),
+ * and the landing windows (rad): within FLIP_CLEAN of upright is clean, up to FLIP_CRASH a wobble, past it a crash */
+const FLIP_RATE = 1.1 * Math.PI * 2;
+const FLIP_EASE = 6, FLIP_DECAY = 4;
+const FLIP_CLEAN = 35 * Math.PI / 180, FLIP_CRASH = 60 * Math.PI / 180;
+const COUNT = ['', '', 'Double ', 'Triple ', 'Quad '];
+/** "Backflip", "Double front flip", "Rodeo 540" (a backflip with a spin), "Front flip 360" */
+export function trickName(flip: number, spin: number, rotations: number): string {
+  const n = COUNT[Math.min(rotations, 4)] ?? `${rotations}x `;
+  const turns = Math.round(Math.abs(spin) / Math.PI) * 180;
+  if (turns >= 360) return flip < 0 ? `${n}Rodeo ${turns}` : `${n}Front flip ${turns}`;
+  return `${n}${flip > 0 ? 'front flip' : 'backflip'}`.replace(/^./, (c) => c.toUpperCase());
+}
 
 export class Rider {
   x = 0; y = 0; z = 0; // position, local metres (z up)
@@ -111,6 +124,11 @@ export class Rider {
   speed = 0;
   edgeAngle = 0; // visual, -1..1
   spin = 0; // extra yaw while airborne
+  /** FEAT-110: pitch rotation in the air (rad, + = front flip, nose down) and its rate */
+  flip = 0;
+  flipRate = 0;
+  /** FEAT-110: called on landing a flip ("Backflip", "Double front flip", "Rodeo 540"), clean or sketchy */
+  onTrick: ((name: string) => void) | null = null;
   crashed = 0; // seconds remaining in a crash
   surface: SurfaceInfo = { rock: 0, scree: 0, groomed: 0, canopy: 0 };
   normal: [number, number, number] = [0, 0, 1];
@@ -353,6 +371,12 @@ export class Rider {
       // air control: spin with steer, slight drift
       this.spin += input.steer * 3.5 * dt;
       this.heading += input.steer * 3.5 * dt;
+      // FEAT-110: Up/W pitches forward (front flip), Down/S back (backflip); the rate builds while
+      // held and carries on a little after letting go, like real momentum
+      const want = (input.tuck ? 1 : 0) - (input.brake ? 1 : 0);
+      if (want !== 0) this.flipRate += (want * FLIP_RATE - this.flipRate) * Math.min(1, dt * FLIP_EASE);
+      else this.flipRate *= Math.exp(-dt * FLIP_DECAY);
+      this.flip += this.flipRate * dt;
       this.x += this.vx * dt; this.y += this.vy * dt; this.z += this.vz * dt;
       this.travelYaw += input.steer * 3.5 * dt; // spin carries the swung board round with it
       this.poseBoard();
@@ -474,7 +498,7 @@ export class Rider {
       const spring = this.squat >= 0.6 || this.squatUp < SQUAT_SPRING_WINDOW ? SQUAT_POP : 1;
       const pop = (2.5 + 4.5 * this.jumpCharge) * spring;
       this.vx += n[0] * pop; this.vy += n[1] * pop; this.vz = n[2] * pop + Math.max(0, -(this.vx * n[0] + this.vy * n[1]));
-      this.onGround = false; this.airTime = 0; this.spin = 0; this.jumpCharge = 0;
+      this.onGround = false; this.airTime = 0; this.spin = 0; this.flip = 0; this.flipRate = 0; this.jumpCharge = 0;
       this.z = ground + 0.05;
       return;
     }
@@ -488,7 +512,7 @@ export class Rider {
     const ballistic = this.vz - G * dt;
     if (ballistic > vzSurf + 1.5 && spd > 6) {
       // the ground drops away faster than we fall: airborne
-      this.onGround = false; this.airTime = 0; this.spin = 0;
+      this.onGround = false; this.airTime = 0; this.spin = 0; this.flip = 0; this.flipRate = 0;
       this.z = Math.max(this.z, g2 + 0.02);
       this.vz = vzSurf; // start with the surface's vertical speed
     } else {
@@ -517,7 +541,7 @@ export class Rider {
             const launch = Math.min(0.9, 0.25 + 0.9 * headOn) * Math.min(1, h / 1.5);
             this.vz = Math.max(this.vz, spdNow * launch * 0.5 + 1.5);
             this.vx *= 1 - 0.12 * headOn; this.vy *= 1 - 0.12 * headOn;
-            this.onGround = false; this.airTime = 0; this.spin = 0;
+            this.onGround = false; this.airTime = 0; this.spin = 0; this.flip = 0; this.flipRate = 0;
             this.z = Math.max(this.z, hit.top - 0.3);
             this.landingShock = 0.3;
           } else if (headOn < 0.5) {
@@ -695,13 +719,20 @@ export class Rider {
     const spd = Math.hypot(this.vx, this.vy);
     const align = spd > 0.5 ? Math.abs((this.vx * hx + this.vy * hy) / spd) : 1;
     const spinOff = Math.abs(((this.spin % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2) - Math.PI); // distance from facing forward/backward
-    const clean = align > 0.6 || spinOff < 0.6;
-    const penalty = (clean ? 0.08 : 0.5) + impact * (clean ? 0.012 : 0.03);
+    // FEAT-110: how far the flip is from a whole number of rotations (the board back under you)
+    const flipOff = Math.abs(((this.flip % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2) - Math.PI);
+    const flipped = Math.round(Math.abs(this.flip) / (Math.PI * 2));
+    const sketchy = flipOff > FLIP_CLEAN && flipOff <= FLIP_CRASH;
+    const clean = (align > 0.6 || spinOff < 0.6) && flipOff <= FLIP_CLEAN;
+    const penalty = (clean ? 0.08 : sketchy ? 0.3 : 0.5) + impact * (clean ? 0.012 : 0.03);
     this.vx *= Math.max(0, 1 - penalty); this.vy *= Math.max(0, 1 - penalty);
     this.landingShock = Math.min(1, impact / 12);
-    if (impact > 16 || (!clean && impact > 8 && !input.grab)) this.crashed = 1.3;
+    if (impact > 16 || (!clean && !sketchy && impact > 8 && !input.grab)) this.crashed = 1.3;
+    if (flipOff > FLIP_CRASH) this.crashed = 1.3; // landed on the head or the back
+    else if (sketchy) this.landingShock = Math.max(this.landingShock, 0.6); // a wobble
+    if (flipped > 0 && this.crashed <= 0) this.onTrick?.(trickName(this.flip, this.spin, flipped));
     if (!clean) this.heading = Math.atan2(this.vx, this.vy); // the board snaps to the direction of travel
-    this.spin = 0;
+    this.spin = 0; this.flip = 0; this.flipRate = 0;
     this.airTime = 0;
   }
 }
