@@ -12,7 +12,7 @@ import type { Collider } from '../sim/Collider';
 const SINK = 2.5; // m below the lowest ground point under the footprint
 
 /** BUG-024: named buildings bigger than this (m^2) with no height in OSM get a lodge height */
-const BIG_LODGE_M2 = 1500;
+const BIG_LODGE_M2 = 1500; // keep in step with BIG_LODGE_M2 in pipeline/build_pack.py (old packs only)
 function footprintArea(pts: number[][]): number {
   let a = 0;
   for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; }
@@ -74,7 +74,8 @@ export class Buildings {
     const base = Math.min(zMin, b.zBase) - SINK;
     let height = Math.max(3, b.height || 5);
     // older packs: a big named lodge with only the 5.5 m default is 3 to 4 storeys (Eagle's Nest)
-    if (b.name && height <= 5.5 && footprintArea(pts) > BIG_LODGE_M2) height = 12;
+    // packs with zMax already apply this rule in build_pack.py only when OSM has no height, so skip it there
+    if (b.zMax === undefined && b.name && height <= 5.5 && footprintArea(pts) > BIG_LODGE_M2) height = 12;
     const top = Math.max(zMax, hi) + height;
     const named = !!b.name;
     const kind = b.kind ?? 'yes';
