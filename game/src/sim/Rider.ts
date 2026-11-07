@@ -470,7 +470,7 @@ export class Rider {
     // jump: hold to charge, release to pop (impulse along the normal plus the slope direction)
     if (input.jumpHeld) this.jumpCharge = Math.min(1, this.jumpCharge + dt * 1.6);
     if (input.jumpReleased && this.jumpCharge > 0.1) {
-      // squat then stand fast (release Ctrl as you jump): a bigger pop
+      // jumping from a deep squat, or within SQUAT_SPRING_WINDOW of standing up from one: a bigger pop
       const spring = this.squat >= 0.6 || this.squatUp < SQUAT_SPRING_WINDOW ? SQUAT_POP : 1;
       const pop = (2.5 + 4.5 * this.jumpCharge) * spring;
       this.vx += n[0] * pop; this.vy += n[1] * pop; this.vz = n[2] * pop + Math.max(0, -(this.vx * n[0] + this.vy * n[1]));

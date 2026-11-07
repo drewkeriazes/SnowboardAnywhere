@@ -11,6 +11,8 @@ export class Controls {
   /** action -> KeyboardEvent.code (remappable); WASD stay as fixed aliases for the movement keys */
   keymap: Record<string, string> = { left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft', squat: 'ControlLeft', lift: 'KeyE', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft', board: 'KeyB' };
   invertSteer = false;
+  /** FEAT-111: ask before the page closes (Ctrl+W mid-ride); main turns it off while paused */
+  guardLeave = true;
   private readonly listeners: [string, EventListener][] = [];
   private readonly docListeners: [string, EventListener][] = [];
   readonly keys = new Set<string>();
@@ -39,7 +41,7 @@ export class Controls {
     this.listeners.push(['keydown', kd as EventListener], ['keyup', ku as EventListener], ['blur', bl]);
     // FEAT-111: Ctrl+W / Ctrl+N / Ctrl+T can't be blocked with preventDefault, so ask before leaving
     // mid-ride, and in real fullscreen ask the browser to hand those keys to the page (Keyboard Lock, Chromium)
-    const unload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    const unload = (e: BeforeUnloadEvent) => { if (!this.guardLeave) return; e.preventDefault(); e.returnValue = ''; };
     const fs = () => {
       const kb = (navigator as Navigator & { keyboard?: { lock?: (codes?: string[]) => Promise<void>; unlock?: () => void } }).keyboard;
       if (document.fullscreenElement) kb?.lock?.(['KeyW', 'KeyN', 'KeyT', 'KeyS', 'KeyD', 'KeyR', 'KeyF']).catch(() => undefined);
