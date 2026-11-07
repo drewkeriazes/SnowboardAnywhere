@@ -22,6 +22,7 @@ import { Bootprints } from './world/Bootprints';
 import { Outrun } from './sim/Outrun';
 import { Monsters } from './world/Monster';
 import { Puffs } from './world/Puffs';
+import { ParticleLight } from './world/ParticleLight';
 import { Eat } from './world/Eat';
 import { OutrunUI } from './ui/OutrunUI';
 import { RiderChair } from './world/RiderChair';
@@ -130,6 +131,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     // Outrun (FEAT-097 to FEAT-101): the chase sim, the monsters, their big prints, puffs, the eat sequence, the HUD
     const outrun = new Outrun(pack, lifts);
     const puffs = new Puffs();
+    const particleLight = new ParticleLight();
     add('puffs', puffs.points);
     const bigprints = new Bootprints(pack, 3.2);
     add('monster prints', bigprints.mesh);
@@ -620,6 +622,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       clouds.render(renderer, cam.camera, dt, env.sunDir, env.sun.color, env.sun.intensity, env.hemi.color, env.hemi.intensity, env.atmo.hazeLinear);
       env.followCamera(cam.camera.position);
       snow.update(dt, cam.camera, renderer.domElement.height, 0.45 + 0.6 * env.hemi.intensity / 1.4);
+      // BUG-046: spray and puffs are unlit points; give them the light flat snow gets at the rider (dark at dusk, darker in a ridge's shade)
+      const pl = particleLight.update(dt, env, (x, y) => pack.terrainHeight(x, y), rider.x, rider.y, rider.z);
+      (riderView.sprayObject.material as THREE.PointsMaterial).color.copy(pl);
+      (puffs.points.material as THREE.PointsMaterial).color.copy(pl);
       veg.setSun(env.sun.color, env.sun.intensity);
       const cp = cam.camera.position;
       terrain.update(cp.x, -cp.z, cp.y);
