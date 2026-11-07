@@ -30,6 +30,8 @@ import { rockCover } from '../terrain/rockCover';
  */
 const MAX = 6000;
 const STEP = 0.5; // m between sections
+/** BUG-019: below this speed (m/s) the track keeps its last direction; the band may grow this many m of half width per m ridden */
+const ACROSS_FREEZE = 1, HALF_GROW = 0.5;
 const DEPTH = 0.05; // m, about 2 in on a groomer
 export const FADE = 600; // s until the snow has filled the track back in (bootprints too)
 /** BUG-043: rock coverage above which no groove is laid, and where it starts to fade out */
@@ -238,6 +240,11 @@ export class Tracks {
   private offsets: number[] = [0];
   /** BUG-044: the two ski lanes are drawn as one band (overlapping in a stop) */
   private merged = false;
+  /** BUG-019: travel direction kept from the last section ridden faster than ACROSS_FREEZE, and the last half width */
+  private dirX = NaN;
+  private dirY = NaN;
+  private lastHalf = NaN;
+  private laneHalf: number[] = [NaN, NaN];
   private lastX = NaN;
   private lastY = NaN;
   /** edge tilt smoothed over distance, so the line crosses the board in a soft S between turns (FEAT-109) */
@@ -324,7 +331,14 @@ export class Tracks {
     if (moved > 6) for (const l of this.lanes) l.gap();
     this.lastX = r.x; this.lastY = r.y;
     const sp = Math.hypot(r.vx, r.vy);
-    const fx = sp > 0.3 ? r.vx / sp : Math.sin(r.heading), fy = sp > 0.3 ? r.vy / sp : Math.cos(r.heading);
+    // BUG-019: below ACROSS_FREEZE the velocity direction is noise (the end of a hockey stop, standing
+    // across the hill) and the heading is the board's, 84 deg off the travel, so the across vector
+    // swung between sections and twisted the quads into arrows and bow-ties. Keep the last good
+    // direction instead; a fresh stroke with no history falls back to the heading.
+    if (sp > ACROSS_FREEZE || moved > 6 || Number.isNaN(this.dirX)) {
+      this.dirX = sp > 0.3 ? r.vx / sp : Math.sin(r.heading); this.dirY = sp > 0.3 ? r.vy / sp : Math.cos(r.heading);
+    }
+    const fx = this.dirX, fy = this.dirY;
     const ax = fy, ay = -fx; // right-hand side, pack coords
     const skid = Math.min(1, r.skid);
     const s = r.surface;
@@ -347,7 +361,10 @@ export class Tracks {
     const edge = Math.abs(tilt);
     // a committed carve collapses the trench to a knife cut about 1 cm wide (FEAT-109)
     const ec = edgeCurve(edge);
-    const half = Math.max(MIN_HALF, 0.5 * (L * gs + W * gc * (1 - 0.95 * ec)) + (ski ? 0.05 : 0.15) * skid);
+    const halfRaw = Math.max(MIN_HALF, 0.5 * (L * gs + W * gc * (1 - 0.95 * ec)) + (ski ? 0.05 : 0.15) * skid);
+    // BUG-019: ease the width so a stop widens the band over a few sections, not in one long wedge
+    const half = moved > 6 || Number.isNaN(this.lastHalf) ? halfRaw : Math.min(halfRaw, this.lastHalf + HALF_GROW * moved);
+    this.lastHalf = half;
     const depth = DEPTH * (1 + 0.6 * powder) * (1 + 0.3 * edge) * (1 - 0.6 * scrape) * (s.rock + s.scree > 0.5 ? 0.3 : 1);
     // the cut sits under the engaged edge, not the middle of the board: slide the section across by
     // up to half the width as the board goes on edge, so the line crosses the board between turns
@@ -366,7 +383,11 @@ export class Tracks {
     this.offsets.forEach((off, i) => {
       if (this.merged && i > 0) { this.lanes[i].gap(); return; } // the first lane carries the one band
       const o = this.merged ? shift : off * gc + shift; // skis turned across the travel direction sweep the same band
-      const bandHalf = this.merged ? half + spread : half;
+      const want = this.merged ? half + spread : half;
+      // the merged band is wider than either groove: grow into it at the same rate (BUG-019)
+      const prev = this.laneHalf[i];
+      const bandHalf = moved > 6 || Number.isNaN(prev) ? want : Math.min(want, prev + HALF_GROW * moved);
+      this.laneHalf[i] = bandHalf;
       const cx = r.x + ax * o, cy = r.y + ay * o;
       const g = this.pack.groundHeight(cx, cy);
       // BUG-043: no groove in rock the player can see; it fades out over the last bit of snow
