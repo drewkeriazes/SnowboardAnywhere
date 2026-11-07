@@ -277,6 +277,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       env.setBluebird(!storm && !overcast); // deep blue sky behind the clouds too; storm and overcast are grey
       env.setStorm(storm);
       env.setOvercast(overcast);
+      env.setCirrus(weather === 'cirrus'); // FEAT-084
       // flat light: the snow surface reads poorly under a storm, a little less under overcast
       terrain.setFlatLight(storm ? 1 : overcast ? 0.85 : 0);
       env.setValleyFog(!!s.valleyFog || params.has('valleyfog')); // ?valleyfog forces it on for render checks
