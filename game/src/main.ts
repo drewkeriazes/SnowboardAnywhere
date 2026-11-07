@@ -17,7 +17,7 @@ import { GoggleView } from './ui/GoggleView';
 import { ChaseCamera } from './world/ChaseCamera';
 import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
-import { Tracks } from './world/Tracks';
+import { FILL_RATE, Tracks, setTrackFillRate } from './world/Tracks';
 import { Bootprints } from './world/Bootprints';
 import { Outrun } from './sim/Outrun';
 import { Monsters } from './world/Monster';
@@ -236,6 +236,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       snow.points.visible = storm || weather === 'flurries';
       const flakes = s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500;
       snow.setCount(storm ? flakes : Math.round(flakes / 6));
+      // old tracks and boot prints fill in faster while it snows (FEAT-107)
+      setTrackFillRate(storm ? FILL_RATE.storm : weather === 'flurries' ? FILL_RATE.flurries : FILL_RATE.clear);
       // limited render distance in the storm: nothing past the fog is drawn
       cam.camera.far = storm ? 1200 : 300000; cam.camera.updateProjectionMatrix();
       audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music);
