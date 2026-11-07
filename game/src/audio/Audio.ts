@@ -182,13 +182,17 @@ export class GameAudio {
       this.music.src = `${import.meta.env.BASE_URL}music/${t.file}`;
       this.music.volume = this.musicVolume * this.duck;
       void this.music.play().catch(() => undefined);
-      this.onTrack?.(`${t.artist ? `${t.title} by ${t.artist}` : t.title} · ${it.list}`);
+      this.announce(`${t.artist ? `${t.title} by ${t.artist}` : t.title} · ${it.list}`);
     } else {
       this.music?.pause();
       this.jukebox?.play(it.seed, it.style);
-      this.onTrack?.(`${this.jukebox?.trackName ?? ''} (built-in) · ${it.list}`);
+      this.announce(`${this.jukebox?.trackName ?? ''} (built-in) · ${it.list}`);
     }
   }
+  private nowPlayingText: string | null = null;
+  private announce(text: string): void { this.nowPlayingText = text; this.onTrack?.(text); }
+  /** toast text for the track playing right now ("title by artist · station"), null when music is off or silent */
+  get nowPlaying(): string | null { return this.trackName === null ? null : this.nowPlayingText; }
   /** next queue item; a finished queue is rebuilt (reshuffled, fresh jukebox seeds) */
   private advance(): void {
     if (this.source === 'off') return;

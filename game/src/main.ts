@@ -329,6 +329,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const showToast = (text: string, ms = 4000) => { toast.textContent = text; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => toast.classList.remove('show'), ms); };
     if (params.get('cam') === 'eye' && !headless) showToast('Eye camera: click, then mouse to look · WASD move · Q/E height · [ ] zoom · P save shot · F free fly', 10000);
     audio.onTrack = (name) => showToast(`\u266B ${name}`);
+    // the menu may already have started a song before onTrack was set (BUG-033): announce it now
+    if (audio.nowPlaying && !headless && params.get('cam') !== 'eye') showToast(`\u266B ${audio.nowPlaying}`);
     const prompt = document.getElementById('prompt')!;
     let promptShown = '';
     const showPrompt = (html: string) => { if (html !== promptShown) { promptShown = html; prompt.innerHTML = html; prompt.classList.toggle('show', html !== ''); } };
