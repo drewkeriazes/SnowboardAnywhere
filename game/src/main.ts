@@ -16,6 +16,9 @@ import { RunsOverlay } from './world/RunsOverlay';
 import { Environment } from './world/Sky';
 import { RiderView, BODY_LAYER } from './world/RiderView';
 import { GoggleView } from './ui/GoggleView';
+import { RunStats } from './sim/RunStats';
+import { RunCard } from './ui/RunCard';
+import { fmtSpeed, fmtHeight, fmtDistance } from './ui/Units';
 import { Replay, type ReplaySample } from './sim/Replay';
 import { SpeedLines } from './ui/SpeedLines';
 import { ChaseCamera } from './world/ChaseCamera';
@@ -213,6 +216,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     let csmSize = 0;
     if (!params.has('noimpostors')) veg.enableImpostors(renderer, true);
     const goggles = new GoggleView();
+    // FEAT-055: run stats, the after-run card and today's totals
+    const runStats = new RunStats(pack), runCard = new RunCard();
+    runStats.onRunEnd = (s) => { if (!headless) runCard.show(s, settings.units === 'metric'); };
     const speedLines = new SpeedLines(document.body); // FEAT-045
     // ---- FEAT-043: the session recording, the replay viewer (K) and the practice rewind (hold Backspace)
     const replay = new Replay();
@@ -403,7 +409,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
 
     pause.onAction = (a) => {
       if (a === 'resume') setPaused(false);
-      else if (a === 'restart') { setPaused(false); if (outrun.active) stopOutrun(); liftRide.cancel(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      else if (a === 'restart') { setPaused(false); if (outrun.active) stopOutrun(); liftRide.cancel(); runStats.end(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
       else if (a === 'map') { setPaused(false); map.open(); }
       else if (a === 'outrunStart') { setPaused(false); startOutrun(); }
       else if (a === 'outrunStop') { setPaused(false); stopOutrun(); }
@@ -487,7 +493,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       tracks.dispose();
       trialWorld.dispose();
       if (outrun.active) stopOutrun();
-      outrunUI.destroy(); speedLines.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
+      outrunUI.destroy(); runCard.dispose(); speedLines.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
       trialEl.classList.remove('show');
       finishArrow.style.display = 'none';
       audio.onTrack = null;
@@ -509,7 +515,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     let elapsed = 0;
     const clockStart = performance.now();
     const speedStr = (ms: number) => settings.units === 'metric' ? `${(ms * 3.6).toFixed(0)}</b> km/h` : `${(ms * 2.23694).toFixed(0)}</b> mph`;
-    const altStr = (m: number) => settings.units === 'metric' ? `${m.toFixed(0)} m` : `${(m * 3.28084).toFixed(0)} ft`;
+    const altStr = (m: number) => fmtHeight(m, settings.units === 'metric');
 
     /** Main render, then in first person the body again over a cleared depth buffer (near 0.05 m). */
     function render(): void {
@@ -538,7 +544,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (paused) { controls.endFrame(); touch?.pressed.clear(); render(); if (!headless) requestAnimationFrame(frame); return; }
       touch?.setVisible(!map.fullOpen);
       elapsed += dt;
-      if (!replayOpen && controls.action('restart')) { if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      if (!replayOpen && controls.action('restart')) { if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); runStats.end(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
       if (!replayOpen && controls.action('trial') && settings.timeTrials && !outrun.active) {
         const c = trial.nearestStart(rider.x, rider.y);
         if (c) {
@@ -627,6 +633,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       const onLift = !detached && !eating && !frozen && liftRide.update(rider, dt, boardPressed, input.tuck);
       if (!detached && !onLift && !map.fullOpen && !eating && !frozen) rider.update(dt, input);
       if (!frozen && !onLift && !eating) replay.record(dt, rider, input.tuck); // FEAT-043
+      if (!frozen && !eating && !outrun.active) runStats.update(dt, rider, onLift); // FEAT-055
+      runCard.update(dt);
       // visuals draw the pose interpolated between the last two 120 Hz physics steps; gameplay
       // (trials, lifts, audio) keeps reading the sim pose
       riderView.setFirstPerson(cam.firstPerson);
@@ -811,6 +819,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         `<b>${speedStr(rider.speed)} &nbsp; ${altStr(rider.z)} &nbsp; slope ${rider.slopeDeg.toFixed(0)}&deg;` +
         (rider.onFoot ? ` &nbsp; ${rider.crawling ? 'SCRAMBLING' : 'ON FOOT'} &nbsp; <span class="dim">sprint</span> ${'&#9646;'.repeat(Math.ceil(rider.stamina / STAMINA * 5))}${'&#9647;'.repeat(5 - Math.ceil(rider.stamina / STAMINA * 5))}` : '') +
         (rider.onGround || rider.onFoot ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') +
+        // FEAT-055: the run so far
+        (runStats.active ? `</b><br><span class="dim">${runStats.current ? runStats.current + ' &middot; ' : ''}top ${fmtSpeed(runStats.topSpeed, settings.units === 'metric')} &middot; ${altStr(runStats.vertical)} vert &middot; ${fmtDistance(runStats.distance, settings.units === 'metric')}</span><b>` : '') +
         `<br><span class="dim">${fps.toFixed(0)} fps &middot; ${terrain.stats.chunks} chunks &middot; ${(terrain.stats.triangles / 1000).toFixed(0)}k tris &middot; trees ${veg.stats.instances} &middot; cam ${cam.mode}` +
         ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}</span>` +
         // BUG-053 ?debug: the edge model's numbers for tuning (edge angle, the lateral acceleration it balances, turn radius and rate, the brake's cut and swing)
