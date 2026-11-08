@@ -60,6 +60,10 @@ Packs need a rebuild from 20526bf or later: `ao/` tiles (baked sky visibility, `
 
 Built on one branch from the research doc (`docs/research/outrun-mode.md`): `game/src/sim/Outrun.ts` (the chase sim), `world/Monster.ts` (the procedural yeti rig and gallop), `world/Eat.ts` (the eat sequence), `audio/ChaseAudio.ts` (spatial sound and music stages, the jukebox `chase` style), `ui/OutrunUI.ts` (HUD and card), the Outrun panel in the pause menu. Checked headless on Vail with `game/tools/outruncheck.mjs` (countdown, head start, spawn 150 to 250 m back, chase, lift ride, catch, eat, card). Not yet tuned by hand on the real GPU: the Normal speed law (`PRESETS` in Outrun.ts) and the eat timing are the first things to play with. Known gaps: no tree sway (a puff and a crack instead), the monster's fur is a jittered flat-shaded silhouette with tufts, and the base rule picks the lowest lift-base building cluster nearest the start.
 
+## 2026-11-08: adaptive quality (FEAT-062)
+
+`game/src/ui/AutoQuality.ts` holds the target frame rate by stepping through five cumulative levels (render resolution, cloud steps one preset lower, tree density, snowfall), cheapest visual loss first. It steps down after 2 s below 92% of the target and tries back up after 8 s at target, with a doubling wait (up to 2 min) if the step back up relapses. `main.ts` applies the level in `applySettings` and `applyAuto`. New settings: Auto quality (`autoQuality`, on by default) and Target FPS (`targetFps`: 30, 60 or 0 = uncapped; auto quality aims for 60 when it is 0; 30 also skips display frames). The HUD stats line shows the current level text from `auto.describe()` whenever the level is above 0. Not yet tuned by hand on the real GPU: the thresholds and `LEVELS` are the first things to play with.
+
 ## Session lanes (2026-11-05 14:50 ET, synced by the cloud session)
 
 Two sessions are active. To avoid overlapping edits:

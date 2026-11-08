@@ -31,7 +31,7 @@ export interface Settings {
   treeDensity: number; // 0.25 .. 1
   pixelRatio: number; // 0.5 .. 2 (capped by the device)
   fov: number; // base chase FOV, 50 .. 100
-  /** FEAT-062: adaptive quality on, and the frame rate it holds (0 = uncapped, auto aims for 60) */
+  /** FEAT-062: adaptive quality on, and the frame rate it holds (30, 60 or 0 = uncapped; main.ts makes auto quality aim for 60 when it is 0) */
   autoQuality: boolean; targetFps: number;
   /** FEAT-045 speed feel, each can be turned off: FOV widening with speed, camera rumble and landing shake, speed lines */
   speedFov: boolean; camShake: boolean; speedLines: boolean;
