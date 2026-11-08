@@ -59,6 +59,7 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 - `leadcheck.mjs [pack] [--headed] [--control]` body lead / board lag check (BUG-056): linked carves on the synthetic mountain; at each edge change prints the ms at which the shoulders' pose, the hips' pose, the body's inclination, the physics edge and the drawn board cross to the new side, and checks that order, that the drawn board never rolls past the physics edge, that the drawn yaw stays near the physics yaw, and that tapping left and right every 133 ms keeps the body smooth (no velocity kinks). `--control` zeroes the leads and the lag to show the old look. Exits 1 on a failed check.
 - `leancheck.mjs [pack] [outDir] [--headed] [--ski]` carve lean check (FEAT-126): a gentle turn, then hard linked carves; prints the lean, hip height and each body part's lowest point above the snow, and saves shots at the deepest toeside and heelside lean.
 - `shoot_spots.mjs [pack] [spot ...] [--gpu | --headed]` re-shoots the game side of the real vs game photo pairs in `docs/compare/<pack>/` with the eye camera, as `eye-<view>.png` (DATA-008; see [compare/README.md](compare/README.md)).
+- `host.mjs [--https] [--port N]` (`npm run host`) hosts the game for other computers on the home network (FEAT-138): `vite build` into `game/dist-host/` (not `dist/`, which the test tools serve), then `vite preview --host` on port 5173 with `../packs` served at `/packs/` (the `servePacks` plugin has a `configurePreviewServer` hook next to `configureServer`), and prints the LAN URLs with `?pack=vail`. The build sets `VITE_HOST_NAME` to the PC's name: the main menu shows "Hosted from <PC> · <address>", and the hosted build leaves out the dev-only tools (`?debug` is ignored, P in the eye camera downloads the shot instead of posting to `/__compare/save`, which only the dev server has). `--https` or `HOST_HTTPS=1` adds `@vitejs/plugin-basic-ssl` (a self-signed certificate cached in `node_modules/.vite/basic-ssl`, renewed after 30 days) so the page is a secure context: Firefox, and Chrome as it phases the rule in, only expose the Gamepad API there. `Controls` reads gamepads through `readPads()`, which returns null and stops asking if `getGamepads` throws, so plain http falls back to the keyboard.
 - `fetch-music.ps1 -Source <folder> -Playlist <name>` converts downloaded tracks into a playlist (needs ffmpeg).
 
 Typecheck before committing: `cd game && npx tsc --noEmit`.
@@ -92,7 +93,7 @@ The data hosts (USGS, Planetary Computer, Overpass, Mapterhorn) are not reachabl
 - `time=now` or `time=16.5` override the time of day
 - `weather=clear|cirrus|few|scattered|broken|overcast|flurries|storm` override the cloud cover; `valleyfog` forces valley fog on
 - `rider=ski` or `rider=board`
-- `debug` adds a HUD line with the edge angle, lateral acceleration, turn radius and turn rate, and sliders for the body lead / board lag chain (BUG-056)
+- `debug` (not in the `npm run host` build) adds a HUD line with the edge angle, lateral acceleration, turn radius and turn rate, and sliders for the body lead / board lag chain (BUG-056)
 - `lowgfx` reduced graphics for software GPUs; `headless` is used by the test tools; `csm` / `nocsm` force cascaded shadows on or off; `noimpostors` disables tree impostors; `bridgeguess` adds the segment-chord bridge detector
 
 ## Milestones
