@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Rider } from '../sim/Rider';
 import { rockCover } from '../terrain/rockCover';
+import { carveLean } from './carveLean';
 
 /**
  * Tracks in the snow as real 3D grooves. Every STEP metres on the snow a cross-section is laid
@@ -383,7 +384,7 @@ export class Tracks {
     const scrape = Math.max(skid, gs); // 0 a clean cut, 1 a flat scraped band
     // edge angle from the physics (same inclination the rider model leans by): flat base going
     // straight presses the full board width; on edge the board cuts a narrow, deeper, tilted trench
-    const phi = Math.atan(r.lateralG * 0.8);                 // + = turning toward the right-hand side
+    const phi = carveLean(r.lateralG);                       // + = turning toward the right-hand side
     // lateral G flips edge to edge in a couple of sections; real snow shows the crossover as the
     // board rolls flat and over, so smooth the tilt over two or three metres of travel: the
     // line slides across through the wedge and the flat imprint instead of stepping sideways
