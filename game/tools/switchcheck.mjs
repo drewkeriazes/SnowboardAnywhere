@@ -43,46 +43,61 @@ for (const stance of ['regular', 'goofy']) {
   page.setDefaultTimeout(240000);
   const goofy = stance === 'goofy';
 
-  /** Step n frames at 60 Hz (steer with the keys); per frame the drawn yaw (pack convention), the rig's toe
-   *  side across the heading (+ right), the physics state and the drawn board roll. */
-  const ride = (n) => page.evaluate((n) => {
+  /** Step n 60 Hz frames of the rider physics and the rider view with `steer` held (no render, so it
+   *  runs in seconds on a software GPU: the view is scene-graph maths). Per frame: the drawn yaw (pack
+   *  convention), the rig's toe side across the heading (+ right), the physics state, the drawn board
+   *  roll, and the trick toast. `frame` renders one real frame at the end (the HUD). */
+  const ride = (n, steer = 0, frame = false) => page.evaluate(([n, steer, frame]) => {
     const s = window.__sim, r = s.rider, v = s.riderView, out = [];
+    const input = { steer, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false };
     for (let i = 0; i < n; i++) {
-      window.__step(1, 1 / 60);
+      r.update(1 / 60, input);
+      r.applyRenderPose(); v.update(r, 1 / 60, false); r.restoreSimPose();
       const q = v.group.quaternion, x = q.x, y = q.y, z = q.z, w = q.w;
       // the group's -Z (drawn nose) and +X (the rig's toe side) in three.js world
       const fx = -(2 * (x * z + w * y)), fz = -(1 - 2 * (x * x + y * y));
       const tx = 1 - 2 * (y * y + z * z), tz = 2 * (x * z - w * y);
       const hx = Math.sin(r.heading), hy = Math.cos(r.heading); // pack
       const toe = tx * hy + tz * hx; // the toe side vector (three x, -z = pack north) against the heading's right (hy, -hx) in pack
-      out.push({ yaw: Math.atan2(fx, -fz), toe, sw: r.switch, ground: r.onGround, crashed: r.crashed, speed: r.speed, travel: Math.atan2(r.vx, r.vy), heading: r.heading, roll: v.leadState.physRoll, hud: document.getElementById('hud').textContent.includes('SWITCH'), toast: document.getElementById('toast').textContent });
+      out.push({ yaw: Math.atan2(fx, -fz), toe, sw: r.switch, ground: r.onGround, crashed: r.crashed, speed: r.speed, travel: Math.atan2(r.vx, r.vy), heading: r.heading, roll: v.leadState.physRoll, spin: r.spin, hit: r.lastHit, x: r.x, y: r.y, toast: document.getElementById('toast').textContent });
     }
+    if (frame) { window.__step(1, 1 / 60); out[out.length - 1].hud = document.getElementById('hud').textContent.includes('SWITCH'); }
     return out;
-  }, n);
+  }, [n, steer, frame]);
   const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   const maxStep = (ss) => ss.slice(1).reduce((m, s, i) => Math.max(m, Math.abs(wrap(s.yaw - ss[i].yaw))), 0);
-  /** jump (spin with a steer key held for `ms`), then ride on until landed and settled */
-  const spin = async (key, ms) => {
+  /** jump, spin with `steer` held for `ms`, then ride on until landed and 0.5 s more; also the spin and
+   *  the state on the landing frame, for the failure detail */
+  const spin = async (steer, ms) => {
     await page.evaluate(() => { const r = window.__sim.rider; r.onGround = false; r.vz = 9; r.z += 0.1; r.airTime = 0; r.spin = 0; r.flip = 0; r.flipRate = 0; });
-    await page.keyboard.down(key); const a = await ride(Math.round(ms * 60 / 1000)); await page.keyboard.up(key);
-    let b = await ride(10);
-    for (let k = 0; k < 30 && !b[b.length - 1].ground; k++) b = b.concat(await ride(10));
-    return a.concat(b, await ride(30));
+    let a = await ride(Math.round(ms * 60 / 1000), steer);
+    for (let k = 0; k < 60 && !a[a.length - 1].ground; k++) a = a.concat(await ride(10));
+    const land = a.findIndex((x) => x.ground);
+    const at = land > 0 ? a[land - 1] : null;
+    const all = a.concat(await ride(30, 0, true));
+    const L = all[all.length - 1];
+    L.detail = `air spin ${at ? deg(at.spin) : '?'} deg, crashed ${L.crashed.toFixed(2)}, switch ${L.sw}, HUD ${L.hud}, hits ${[...new Set(all.map((x) => x.hit).filter(Boolean))].join('/') || 'none'}, toast "${L.toast}"`;
+    return all;
   };
 
-  await ride(30); await page.waitForTimeout(1500); await ride(30);
-  await page.keyboard.down('ArrowUp');
-  for (let i = 0; i < 40; i++) { const s = await ride(15); if (s[s.length - 1].speed > 12) break; }
-  await page.keyboard.up('ArrowUp');
+  for (let i = 0; i < 6; i++) { await ride(30); await page.waitForTimeout(500); } // the tiles under the start stream in
+  // speed up straight down the fall line (a tuck)
   let s = await ride(20);
+  for (let i = 0; i < 40 && s[s.length - 1].speed < 12; i++) s = await page.evaluate(() => {
+    const r = window.__sim.rider, v = window.__sim.riderView, out = [];
+    for (let k = 0; k < 15; k++) { r.update(1 / 60, { steer: 0, tuck: true, brake: false, jumpHeld: false, jumpReleased: false, grab: false }); r.applyRenderPose(); v.update(r, 1 / 60, true); r.restoreSimPose(); }
+    out.push({ speed: r.speed });
+    return out;
+  });
+  s = await ride(20, 0, true);
   const last = (a) => a[a.length - 1];
-  check('rides the normal stance, toe side as the stance has it', !last(s).sw && Math.sign(last(s).toe) === (goofy ? -1 : 1), `toe ${last(s).toe.toFixed(2)}`);
+  check('rides the normal stance, toe side as the stance has it', !last(s).sw && !last(s).hud && Math.sign(last(s).toe) === (goofy ? -1 : 1), `toe ${last(s).toe.toFixed(2)}, speed ${last(s).speed.toFixed(1)}`);
 
   const before = last(s).yaw;
-  s = await spin('ArrowRight', 900);
-  const L = last(s);
-  check('the 180 lands clean', L.ground && L.crashed <= 0);
-  check('rides away switch', L.sw && L.hud, `switch ${L.sw}, HUD ${L.hud}`);
+  s = await spin(1, 900);
+  let L = last(s);
+  check('the 180 lands clean', L.ground && L.crashed <= 0, L.detail);
+  check('rides away switch', L.sw && L.hud, L.detail);
   check('drawn turned round, tail leading', Math.abs(Math.abs(wrap(L.yaw - before)) - Math.PI) < 0.6, `${deg(wrap(L.yaw - before))} deg`);
   check('no turn-round pop (drawn yaw steps under 12 deg a frame)', maxStep(s) < 12 * Math.PI / 180, `largest ${deg(maxStep(s))} deg`);
   check('toe side flipped across the heading', Math.sign(L.toe) === (goofy ? 1 : -1), `toe ${L.toe.toFixed(2)}`);
@@ -90,17 +105,19 @@ for (const stance of ['regular', 'goofy']) {
 
   s = await ride(120);
   check('stays switch on its own (2 s)', s.every((x) => x.sw) && maxStep(s) < 0.05, `largest ${deg(maxStep(s))} deg`);
-  await page.keyboard.down('ArrowRight'); const t = await ride(40); await page.keyboard.up('ArrowRight');
+  const t = await ride(40, 1);
   const turned = wrap(last(t).travel - t[0].travel);
   const roll = t[30].roll;
   check('steer right turns right riding switch', turned > 0.15, `${deg(turned)} deg`);
   check(`on the ${goofy ? 'toe' : 'heel'} edge as drawn`, Math.sign(roll) === (goofy ? 1 : -1), `rig roll ${deg(roll)} deg`);
-  await ride(60);
+  s = await ride(60);
+  check('still switch before the second jump', last(s).sw && last(s).crashed <= 0, `switch ${last(s).sw}, crashed ${last(s).crashed.toFixed(2)}, speed ${last(s).speed.toFixed(1)}`);
 
-  s = await spin('ArrowLeft', 900);
-  check('a second 180 back to the normal stance', !last(s).sw && !last(s).hud && last(s).crashed <= 0, `switch ${last(s).sw}`);
+  s = await spin(-1, 900);
+  L = last(s);
+  check('a second 180 back to the normal stance', !L.sw && !L.hud && L.crashed <= 0, L.detail);
   check('no pop on the way back', maxStep(s) < 12 * Math.PI / 180, `largest ${deg(maxStep(s))} deg`);
-  check('switch trick named', last(s).toast.startsWith('Switch '), last(s).toast);
+  check('switch trick named', L.toast === (goofy ? 'Switch frontside 180' : 'Switch backside 180'), L.toast);
 
   // BUG-059: a ghost on the snow (riding switch) is drawn with no errors
   const ghost = await page.evaluate(() => {

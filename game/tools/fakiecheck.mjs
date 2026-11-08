@@ -84,7 +84,7 @@ for (const goofy of [false, true]) {
   // another 180 takes you back
   j = spinJump(r, -1, 0.9);
   check('180 back to the normal stance', j.landed && !r.switch, `switch ${r.switch}`);
-  check('switch 180 named', tricks.at(-1)?.startsWith('Switch ') ?? false, `${tricks.at(-1)}`);
+  check('switch 180 named', tricks.at(-1) === (goofy ? 'Switch frontside 180' : 'Switch backside 180'), `${tricks.at(-1)}`);
 
   // carve up the hill until the board stalls and slides back
   const c = new Rider(pack, null); c.goofy = goofy;
