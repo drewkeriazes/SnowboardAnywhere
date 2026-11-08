@@ -107,14 +107,14 @@ check('edge to edge in about 0.3 s tucked', xt.tCross > 0.1 && xt.tCross < 0.4, 
 check('no hang at the crossover (board keeps coming round)', xs.hang < 0.12 && xt.hang < 0.12, `${xs.hang.toFixed(2)} s standing, ${xt.hang.toFixed(2)} s tucked below 0.2 rad/s`);
 
 {
-  // across the hill: turning back up out of a traverse should not be much weaker than turning down into it
-  const down = turn(25, 20, false, 1), up = turn(25, 20, false, -1);
-  // start heading east (90 deg): steer right turns down toward the fall line (south is uphill here: the plane falls to +y, so turning toward +y is down)
+  // across the hill: turning back up out of a traverse should not be much weaker than turning down into it.
+  // Both riders start heading east (90 deg) on a plane that falls toward +y (north), so steer left
+  // (-1, anticlockwise, toward north) turns down into the fall line and steer right (+1, toward south) turns up across the hill
   const r1 = start(25, 20, Math.PI / 2), r2 = start(25, 20, Math.PI / 2);
   const i1 = Object.assign(input(), { steer: -1 }), i2 = Object.assign(input(), { steer: 1 });
   let pDown = 0, pUp = 0;
   for (let i = 0; i < 144; i++) { pDown = Math.max(pDown, Math.abs(tick(r1, i1))); pUp = Math.max(pUp, Math.abs(tick(r2, i2))); }
-  console.log(`traverse at 20 m/s on 25 deg: turning down ${pDown.toFixed(2)} rad/s, turning up across the hill ${pUp.toFixed(2)} rad/s (fall-line turns ${down.peak.toFixed(2)} / ${up.peak.toFixed(2)})`);
+  console.log(`traverse at 20 m/s on 25 deg: turning down ${pDown.toFixed(2)} rad/s, turning up across the hill ${pUp.toFixed(2)} rad/s`);
   check('turning back up across the hill keeps most of the turn', pUp > 0.6 * pDown, `${pUp.toFixed(2)} vs ${pDown.toFixed(2)} rad/s`);
 }
 {

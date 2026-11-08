@@ -199,7 +199,7 @@ export class Rider {
   /** the edge as a share of EDGE_FULL (sound, poses, replays and ghosts) */
   get edgeAngle(): number { return this.edge / EDGE_FULL; }
   set edgeAngle(v: number) { this.edge = v * EDGE_FULL; }
-  /** radius of the turn the heading is following (m, Infinity going straight), for debugging and tools */
+  /** radius of the turn the heading is following (m, Infinity going straight): speed over the heading rate, so it includes the steer yaw and any slip wash-out (BUG-053; was the arc the edge and lean balance), for the debug HUD and tools */
   turnRadius = Infinity;
   /** BUG-053: heading rate this step (rad/s, + clockwise) and the lateral acceleration the edge and lean
    *  balance (m/s^2), for the debug readout and tools */
@@ -750,7 +750,7 @@ export class Rider {
     this.x += this.vx * dt; this.y += this.vy * dt;
     this.z = ground; this.vz = 0; this.onGround = true;
     this.speed = Math.hypot(this.vx, this.vy);
-    this.edge = 0; this.turnRadius = Infinity; this.lateralG = 0; this.skid = 0; this.jumpCharge = 0; this.landingShock = 0;
+    this.edge = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.skid = 0; this.jumpCharge = 0; this.landingShock = 0;
     this.sink = bootSink(this.surface);
     this.squareBoard();
     this.strapT += dt;
@@ -772,7 +772,7 @@ export class Rider {
    */
   private walkStep(dt: number, input: Input, n: [number, number, number], ground: number): void {
     this.sink = bootSink(this.surface);
-    this.edge = 0; this.turnRadius = Infinity; this.lateralG = 0; this.skid = 0; this.jumpCharge = 0;
+    this.edge = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.skid = 0; this.jumpCharge = 0;
     this.landingShock = Math.max(0, this.landingShock - dt * 3);
     this.squareBoard();
     // hop on the press edge
