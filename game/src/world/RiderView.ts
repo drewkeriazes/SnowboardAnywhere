@@ -23,6 +23,31 @@ const PRESS_REACH = 0.975, HEAD_LEVEL = 0.8;
 /** FEAT-125 balance arms: wobble amplitude on a press (rad) at first and after holding it FLAIL_RAMP s,
  *  and the correction swing when the lean changes: spring frequency (rad/s), damping, kick per unit lean */
 const FLAIL_BASE = 0.04, FLAIL_HOLD = 0.13, FLAIL_RAMP = 2.5, CORR_W = 11, CORR_ZETA = 0.35, CORR_KICK = 5;
+/** FEAT-125 wobble growth: share added per m/s of speed (up to FLAIL_VMAX m/s), share added at full
+ *  bumps, and the vertical acceleration counted as full bumps (m/s^2, about 1.5 g) */
+const FLAIL_SPEED = 0.04, FLAIL_VMAX = 15, FLAIL_BUMP = 1.5, BUMP_ACC = 15;
+/** FEAT-125 wobble shape: the fore-aft swing as a share of the up-down wave, and the elbow's bend
+ *  (deg) per rad of wave (each elbow follows the other arm's wave, so the two never move in step) */
+const FLAIL_SWING = 0.6, FLAIL_ELBOW = 40;
+type Wave = readonly (readonly [number, number, number])[];
+/** FEAT-125 wobble waves, each a sum of sines normalised to +-1: rows are [weight, frequency rad/s,
+ *  phase rad]. Out-of-phase and off-harmonic so the two arms never repeat together. */
+const WOBBLE: Record<'lOut' | 'rOut' | 'lSwing' | 'rSwing', Wave> = {
+  lOut: [[1, 2.3, 0], [0.6, 3.7, 1.1], [0.3, 6.1, 2.3]],
+  rOut: [[1, 2.9, 2.0], [0.6, 4.3, 0.4], [0.3, 5.3, 4.1]],
+  lSwing: [[1, 1.7, 0.7], [0.5, 3.1, 2.9]],
+  rSwing: [[1, 2.1, 3.3], [0.5, 3.9, 1.7]],
+};
+function wave(rows: Wave, t: number): number {
+  let s = 0, w = 0;
+  for (const [a, f, ph] of rows) { s += a * Math.sin(f * t + ph); w += a; }
+  return s / w;
+}
+type V3 = [number, number, number];
+/** FEAT-125: a += k (q - n), in place (a pose offset from neutral) */
+function addOffset(a: V3, q: V3, n: V3, k: number): void { a[0] += k * (q[0] - n[0]); a[1] += k * (q[1] - n[1]); a[2] += k * (q[2] - n[2]); }
+/** FEAT-125: a moves k of the way to q, in place */
+function mixTo(a: V3, q: V3, k: number): void { a[0] += k * (q[0] - a[0]); a[1] += k * (q[1] - a[1]); a[2] += k * (q[2] - a[2]); }
 /** FEAT-125: the arms' upswing on the pop: length (s) and extra lift at its peak (rad) */
 const POP_T = 0.4, POP_LIFT = 0.45;
 /** BUG-034: share of a skier's counter-rotation taken by the pelvis (the rest is the chest) */
@@ -359,15 +384,14 @@ export class RiderView {
   /**
    * FEAT-125: snowboard press (ollie or nollie load). The upper body rolls over the loaded end and the
    * head, torso and pelvis offsets add to the current pose; the arms blend to the press's balance
-   * pose. Returns the pelvis roll added (rad), which the head later takes back out.
+   * pose. Returns the pelvis roll added (rad), which the head later takes back out. Writes into the
+   * target's own arrays (rebuilt every frame from clonePose / lerpPose, never the shared tables).
    */
   private pressPose(t: Pose, lean: number): number {
     const P = this.poses, Q = lean < 0 ? P.pressTail : P.pressNose, N = P.neutral;
     const k = smooth(0.05, 0.9, Math.abs(lean));
-    const add = (a: [number, number, number], q: [number, number, number], n: [number, number, number]): [number, number, number] => [a[0] + k * (q[0] - n[0]), a[1] + k * (q[1] - n[1]), a[2] + k * (q[2] - n[2])];
-    const mix = (a: [number, number, number], q: [number, number, number]): [number, number, number] => [a[0] + k * (q[0] - a[0]), a[1] + k * (q[1] - a[1]), a[2] + k * (q[2] - a[2])];
-    t.hipsRot = add(t.hipsRot, Q.hipsRot, N.hipsRot); t.torso = add(t.torso, Q.torso, N.torso); t.head = add(t.head, Q.head, N.head);
-    t.lShoulder = mix(t.lShoulder, Q.lShoulder); t.rShoulder = mix(t.rShoulder, Q.rShoulder);
+    addOffset(t.hipsRot, Q.hipsRot, N.hipsRot, k); addOffset(t.torso, Q.torso, N.torso, k); addOffset(t.head, Q.head, N.head, k);
+    mixTo(t.lShoulder, Q.lShoulder, k); mixTo(t.rShoulder, Q.rShoulder, k);
     t.lElbow += k * (Q.lElbow - t.lElbow); t.rElbow += k * (Q.rElbow - t.rElbow);
     return k * (Q.hipsRot[2] - N.hipsRot[2]);
   }
@@ -387,28 +411,25 @@ export class RiderView {
     this.load = r.onGround ? Math.max(La, Math.min(1, r.jumpCharge)) : 0;
     this.popT = Math.max(0, this.popT - h / POP_T);
     this.holdT = ground && La > 0.3 ? this.holdT + h : Math.max(0, this.holdT - 3 * h);
-    // bumps: vertical acceleration through the board, as a share of 1.5 g
+    // bumps: vertical acceleration through the board, as a share of BUMP_ACC
     const az = h > 0 && ground ? Math.abs(r.vz - this.prevVz) / h : 0;
     this.prevVz = r.vz;
-    this.bump += (Math.min(1, az / 15) - this.bump) * Math.min(1, h * 4);
+    this.bump += (Math.min(1, az / BUMP_ACC) - this.bump) * Math.min(1, h * 4);
     // correction: the lean's change kicks a damped spring (arms swing against the body's throw)
     const dL = free ? r.lean - this.prevLean : 0;
     this.prevLean = r.lean;
     this.corrV += CORR_KICK * dL - (CORR_W * CORR_W * this.corr + 2 * CORR_ZETA * CORR_W * this.corrV) * h;
     this.corr += this.corrV * h;
-    const amp = ground ? smooth(0.2, 0.8, La) * (FLAIL_BASE + FLAIL_HOLD * Math.min(1, this.holdT / FLAIL_RAMP)) * (1 + 0.04 * Math.min(15, r.speed) + 1.5 * this.bump) : 0;
+    const amp = ground ? smooth(0.2, 0.8, La) * (FLAIL_BASE + FLAIL_HOLD * Math.min(1, this.holdT / FLAIL_RAMP)) * (1 + FLAIL_SPEED * Math.min(FLAIL_VMAX, r.speed) + FLAIL_BUMP * this.bump) : 0;
     this.flailAmp += (amp - this.flailAmp) * Math.min(1, h * 6);
     const fp = this.fp ? 0.35 : 1, A = this.flailAmp * fp, c = this.clock;
-    const wl = (Math.sin(2.3 * c) + 0.6 * Math.sin(3.7 * c + 1.1) + 0.3 * Math.sin(6.1 * c + 2.3)) / 1.9;
-    const wr = (Math.sin(2.9 * c + 2.0) + 0.6 * Math.sin(4.3 * c + 0.4) + 0.3 * Math.sin(5.3 * c + 4.1)) / 1.9;
-    const sl = (Math.sin(1.7 * c + 0.7) + 0.5 * Math.sin(3.1 * c + 2.9)) / 1.5;
-    const sr = (Math.sin(2.1 * c + 3.3) + 0.5 * Math.sin(3.9 * c + 1.7)) / 1.5;
+    const wl = wave(WOBBLE.lOut, c), wr = wave(WOBBLE.rOut, c), sl = wave(WOBBLE.lSwing, c), sr = wave(WOBBLE.rSwing, c);
     const pop = this.popT > 0 ? Math.sin(Math.PI * Math.sqrt(1 - this.popT)) * POP_LIFT * fp : 0;
     const lift = Math.abs(this.corr) * 0.5 * fp + pop;
     // abduction is - for the left arm and + for the right; x swings the arm forward (+) or back
     p.lShoulder[2] -= A * wl + lift; p.rShoulder[2] += A * wr + lift;
-    p.lShoulder[0] += 0.6 * A * sl - this.corr * fp; p.rShoulder[0] += 0.6 * A * sr - this.corr * fp;
-    p.lElbow += 40 * A * wr; p.rElbow += 40 * A * wl;
+    p.lShoulder[0] += FLAIL_SWING * A * sl - this.corr * fp; p.rShoulder[0] += FLAIL_SWING * A * sr - this.corr * fp;
+    p.lElbow += FLAIL_ELBOW * A * wr; p.rElbow += FLAIL_ELBOW * A * wl;
   }
 
   /**
