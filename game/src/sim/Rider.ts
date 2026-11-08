@@ -199,6 +199,11 @@ export class Rider {
   /** the edge as a share of EDGE_FULL (sound, poses, replays and ghosts) */
   get edgeAngle(): number { return this.edge / EDGE_FULL; }
   set edgeAngle(v: number) { this.edge = v * EDGE_FULL; }
+  /** BUG-056: the edge angle the steer is rolling toward this step (rad, 0 off the snow), for the rider
+   *  view's body lead: the rider knows where the turn is going before the board gets there */
+  edgeTarget = 0;
+  /** BUG-056: the lean the press input is easing toward (-1 .. 1, 0 off the snow), for the body lead */
+  leanTarget = 0;
   /** radius of the turn the heading is following (m, Infinity going straight): speed over the heading rate, so it includes the steer yaw and any slip wash-out (BUG-053; was the arc the edge and lean balance), for the debug HUD and tools */
   turnRadius = Infinity;
   /** BUG-053: heading rate this step (rad/s, + clockwise) and the lateral acceleration the edge and lean
@@ -312,7 +317,7 @@ export class Rider {
     this.vx = this.vy = this.vz = 0;
     this.heading = heading; this.onGround = true; this.airTime = 0; this.jumpCharge = 0;
     this.crashed = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
-    this.edge = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.landingShock = 0;
+    this.edge = 0; this.edgeTarget = 0; this.leanTarget = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.landingShock = 0;
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
     this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false; this.mantle = 0; this.stepT = 0;
     this.sprinting = false; this.crawling = false; this.slipT = 0; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
@@ -379,7 +384,8 @@ export class Rider {
       const fb = this.pack.coarseFallbacks;
       // FEAT-124: the squat key grabs in the air and sprints on foot, so it only squats riding on the snow
       this.easeSquat(STEP, !!input.squat && this.onGround && !this.onFoot);
-      this.lean += ((this.onGround ? input.lean ?? 0 : 0) - this.lean) * Math.min(1, STEP / LEAN_IN); // snaps back level in the air
+      this.leanTarget = this.onGround ? input.lean ?? 0 : 0;
+      this.lean += (this.leanTarget - this.lean) * Math.min(1, STEP / LEAN_IN); // snaps back level in the air
       this.step(STEP, input);
       this.steps++;
       if (this.pack.coarseFallbacks !== fb) this.onCoarse();
@@ -468,7 +474,7 @@ export class Rider {
       // the board squares up quickly once off the snow
       this.brakeAmt = Math.max(0, this.brakeAmt - dt / 0.15);
       this.brakeAcc = 0; this.scrape *= Math.exp(-dt * 10); this.slip = 0;
-      this.edge *= Math.exp(-dt * 5); this.brakePsi *= Math.exp(-dt * 8); this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; // off the snow the board rolls back flat
+      this.edge *= Math.exp(-dt * 5); this.edgeTarget = 0; this.brakePsi *= Math.exp(-dt * 8); this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; // off the snow the board rolls back flat
       if (this.brakeAmt === 0) this.brakeSide = 0;
       this.vz -= G * dt;
       // air control: spin with steer, slight drift
@@ -513,6 +519,7 @@ export class Rider {
     // edge rolls toward it at F.roll, quicker through the flat while it changes sides (BUG-053), so
     // edge to edge takes about 0.3 s. A brake takes the edge over.
     const want = input.steer * this.edgeCap(input, F, powder, spd) * (1 - this.brakeAmt);
+    this.edgeTarget = want;
     const roll = F.roll * dt * (want * this.edge < 0 ? EDGE_SNAP : 1);
     this.edge += Math.max(-roll, Math.min(roll, (want - this.edge) * Math.min(1, dt * EDGE_EASE)));
     const psi = Math.abs(this.edge);
@@ -930,6 +937,35 @@ export class Rider {
     let d = into(this.vx, this.vy); this.vx -= d * hit.nx; this.vy -= d * hit.ny;
     d = into(this.walkVx, this.walkVy); this.walkVx -= d * hit.nx; this.walkVy -= d * hit.ny;
     d = into(this.slideVx, this.slideVy); this.slideVx -= d * hit.nx; this.slideVy -= d * hit.ny;
+  }
+
+  /**
+   * BUG-056: where the edge will be `lead` seconds from now if the steer holds: the same ease and
+   * roll-rate limit the step applies, run forward once. Visual only (the rider view's body lead).
+   */
+  predictEdge(lead: number): number {
+    if (lead <= 0) return this.edge;
+    const d = (this.edgeTarget - this.edge) * Math.min(1, lead * EDGE_EASE);
+    const cap = FEEL[this.discipline].roll * lead * (this.edgeTarget * this.edge < 0 ? EDGE_SNAP : 1);
+    return this.edge + Math.max(-cap, Math.min(cap, d));
+  }
+
+  /**
+   * BUG-056: the inclination (rad, + toward the toe edge) that balances the edge `lead` seconds from
+   * now at the current speed: the carve model's arc, R = Rsc cos(psi), opened out to what the lean
+   * can hold, with no slope or skid terms. Visual only (the rider view's crossover).
+   */
+  predictIncline(lead: number): number {
+    const e = this.predictEdge(lead), psi = Math.abs(e), F = FEEL[this.discipline];
+    const spd = Math.hypot(this.vx, this.vy);
+    const phi = Math.min(PHI_MAX, psi * (1 - F.angulation));
+    const aLat = Math.min((spd * spd) / (F.sidecut * Math.cos(psi)), G * this.normal[2] * Math.tan(phi));
+    return Math.sign(e) * Math.atan(aLat / G);
+  }
+
+  /** BUG-056: where the press lean will be `lead` seconds from now if the input holds (visual only). */
+  predictLean(lead: number): number {
+    return lead <= 0 ? this.lean : this.lean + (this.leanTarget - this.lean) * Math.min(1, lead / LEAN_IN);
   }
 
   /**
