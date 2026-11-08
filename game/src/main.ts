@@ -536,8 +536,11 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (!alive) return;
       const now = performance.now();
       // FEAT-062: a 30 fps target skips display frames (a millisecond of slack for timer jitter)
-      if (!headless && !fixedDt && settings.targetFps === 30 && now - lastDraw < 1000 / 30 - 1) { requestAnimationFrame(frame); return; }
-      lastDraw = now;
+      // against a running deadline so the average hits 30 even when the refresh rate does not divide evenly (75, 100 Hz)
+      const capped = !headless && !fixedDt && settings.targetFps === 30;
+      if (capped && now < lastDraw - 1) { requestAnimationFrame(frame); return; }
+      // lastDraw holds the next deadline; reset it to now if we fell more than a frame behind
+      lastDraw = capped ? (now - lastDraw > 1000 / 30 ? now : lastDraw) + 1000 / 30 : now;
       const dt = fixedDt ?? Math.min(0.1, (now - last) / 1000);
       last = now;
       // FEAT-062: feed the frame time; a level change re-applies the scaled settings
