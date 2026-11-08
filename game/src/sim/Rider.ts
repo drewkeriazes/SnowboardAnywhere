@@ -940,13 +940,6 @@ export class Rider {
   }
 
   /**
-   * FEAT-127: the highest edge angle the rider can hold here (rad). Lower in powder (the board
-   * planes), cut by a tuck and a press, raised a little by a squat. Rock and ice take a full edge
-   * but hold little (the grip limit), so a hard carve there washes out. Slow, there is little turn
-   * force to lean against, so past what the knees and hips angulate a high edge would tip the
-   * rider into the hill: the cap is that plus the lean the sidecut's arc needs.
-   */
-  /**
    * BUG-056: where the edge will be `lead` seconds from now if the steer holds: the same ease and
    * roll-rate limit the step applies, run forward once. Visual only (the rider view's body lead).
    */
@@ -975,6 +968,13 @@ export class Rider {
     return lead <= 0 ? this.lean : this.lean + (this.leanTarget - this.lean) * Math.min(1, lead / LEAN_IN);
   }
 
+  /**
+   * FEAT-127: the highest edge angle the rider can hold here (rad). Lower in powder (the board
+   * planes), cut by a tuck and a press, raised a little by a squat. Rock and ice take a full edge
+   * but hold little (the grip limit), so a hard carve there washes out. Slow, there is little turn
+   * force to lean against, so past what the knees and hips angulate a high edge would tip the
+   * rider into the hill: the cap is that plus the lean the sidecut's arc needs.
+   */
   private edgeCap(input: Input, F: Feel, powder: number, spd: number): number {
     let cap = F.psiMax - (F.psiMax - F.psiPowder) * Math.min(1, powder);
     if (input.tuck) cap *= TUCK_EDGE;

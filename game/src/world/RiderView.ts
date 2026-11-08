@@ -3,7 +3,7 @@ import { EDGE_FULL, type Rider } from '../sim/Rider';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
 import { Ragdoll, RAGDOLL_RECOVER } from './Ragdoll';
-import { lerpPose, clonePose, defaultMaterials, POSES, SKI_POSES, WALK_POSES, type Pose, type RiderMaterials } from './RiderModel';
+import { lerpPose, clonePose, copyPose, defaultMaterials, POSES, SKI_POSES, WALK_POSES, type Pose, type RiderMaterials } from './RiderModel';
 import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, bendBoard, deckY, BONES as BONE_LIST, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
 import { Gait, type Plant } from './Gait';
 import { carveLean, LEAN_MAX } from './carveLean';
@@ -677,7 +677,7 @@ export class RiderView {
       this.edgeUpper = edgeFor(this.leadUpper); this.edgeHips = edgeFor(this.leadHips);
       pressRoll = this.ridingPose(t, r, tuck, b, this.edgeUpper, r.predictLean(this.leadUpper));
       const h = this.hipsTarget;
-      Object.assign(h, clonePose(P.neutral));
+      copyPose(h, P.neutral);
       this.ridingPose(h, r, tuck, b, this.edgeHips, r.predictLean(this.leadHips));
       t.hipsY = h.hipsY; t.hipsRot = h.hipsRot; t.lHip = h.lHip; t.rHip = h.rHip; t.lKnee = h.lKnee; t.rKnee = h.rKnee;
     }
