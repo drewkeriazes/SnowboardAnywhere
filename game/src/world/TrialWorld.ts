@@ -23,7 +23,7 @@ export class TrialWorld {
   readonly ghost: RiderView;
   private readonly gates = new Map<string, THREE.Group>();
   private readonly poleMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.5, metalness: 0.4 });
-  private readonly fake: Record<string, unknown> = { normal: [0, 0, 1], onGround: true, crashed: 0, edgeAngle: 0, jumpCharge: 0, landingShock: 0, lateralG: 0, skid: 0, brakeAmt: 0, brakeSide: 0, brakeAcc: 0, scrape: 0, slip: 0, speed: 0, vx: 0, vy: 0, airTime: 0 };
+  private readonly fake: Record<string, unknown> = { normal: [0, 0, 1], onGround: true, crashed: 0, edgeAngle: 0, brakePsi: 0, jumpCharge: 0, landingShock: 0, lateralG: 0, skid: 0, brakeAmt: 0, brakeSide: 0, brakeAcc: 0, scrape: 0, slip: 0, speed: 0, vx: 0, vy: 0, airTime: 0 };
   enabled = false;
   // boundary walls for the active course
   private walls: THREE.Mesh[] = [];

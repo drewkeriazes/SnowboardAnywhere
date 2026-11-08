@@ -4,6 +4,7 @@ import { Terrain } from './terrain/Terrain';
 import { Rider } from './sim/Rider';
 import { Collider } from './sim/Collider';
 import { Bridges } from './world/Bridges';
+import { Landmarks, landmarkStart } from './world/Landmarks';
 import { Clouds, isOvercast, parseWeather, type CloudCover } from './world/Clouds';
 import { Snow } from './world/Snow';
 import { Controls } from './sim/Controls';
@@ -54,6 +55,7 @@ const SKIED_BASE: Record<string, number> = { fresh: 0.15, mid: 0.9, spring: 0.7 
 const params = new URLSearchParams(location.search);
 let packSlug = params.get('pack') ?? '';
 const headless = params.has('headless');
+const debugHud = params.has('debug'); // BUG-053: extra HUD line with the edge model numbers
 
 async function main(): Promise<void> {
   const status = document.getElementById('status')!;
@@ -87,7 +89,8 @@ async function main(): Promise<void> {
   for (;;) {
     let openMapAtStart = false;
     if (!headless && !skipMenu) {
-      const startInfo = { resortLabel: pack.meta.start.run ? `Starts on ${pack.meta.start.run}` : 'Starts at the resort start', custom: hasCustomStart(packSlug), onReset: () => resetStart(packSlug) };
+      const lmStart = landmarkStart(pack.meta.slug); // FEAT-132: Vail starts at the Back Bowls sign
+      const startInfo = { resortLabel: lmStart ? lmStart.label : pack.meta.start.run ? `Starts on ${pack.meta.start.run}` : 'Starts at the resort start', custom: hasCustomStart(packSlug), onReset: () => resetStart(packSlug) };
       const choice = await showMainMenu(pack.meta.name, audio, settings, () => undefined, resorts, packSlug, startInfo);
       openMapAtStart = choice.action === 'map';
     }
@@ -131,6 +134,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('buildings', buildings.group);
     const roads = new Roads(pack, settings.roadsOnSnow);
     add('roads', roads.group);
+    const landmarks = new Landmarks(pack, collider); // FEAT-132: hand-placed signs (the Back Bowls gateway)
+    add('landmarks', landmarks.group);
     const bridges = new Bridges(pack, collider, params.has('bridgeguess')); // BUG-022: OSM-tagged bridges and creek-bed dips; ?bridgeguess adds segment chords
     add('bridges', bridges.group);
     const tracks = new Tracks(pack);
@@ -204,6 +209,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     for (const m of Object.values(riderView.mats)) env.registerMaterial(m);
     for (const m of Object.values(monsters.materials)) env.registerMaterial(m);
     for (const m of eat.materials) env.registerMaterial(m);
+    for (const m of landmarks.materials) env.registerMaterial(m);
     let csmSize = 0;
     if (!params.has('noimpostors')) veg.enableImpostors(renderer, true);
     const goggles = new GoggleView();
@@ -279,6 +285,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       env.setBluebird(!storm && !overcast); // deep blue sky behind the clouds too; storm and overcast are grey
       env.setStorm(storm);
       env.setOvercast(overcast);
+      env.setCirrus(weather === 'cirrus'); // FEAT-084
       // flat light: the snow surface reads poorly under a storm, a little less under overcast
       terrain.setFlatLight(storm ? 1 : overcast ? 0.85 : 0);
       env.setValleyFog(!!s.valleyFog || params.has('valleyfog')); // ?valleyfog forces it on for render checks
@@ -320,7 +327,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     };
 
     // ---------------------------------------------------------------- spawn point
-    const start = pack.meta.start;
+    const start = landmarkStart(pack.meta.slug) ?? pack.meta.start; // FEAT-132: a landmark marked `start` beats meta.start
     const saveKey = spawnKey(pack.meta.slug);
     let saved: { x: number; y: number; h: number } | null = null;
     try { saved = JSON.parse(localStorage.getItem(saveKey) ?? 'null'); } catch { saved = null; }
@@ -763,6 +770,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       lifts.maintain(dt, rider.x, rider.y);
       bridges.maintain(dt, rider.x, rider.y);
       liftLines.maintain(rider.x, rider.y);
+      const passed = landmarks.maintain(rider.x, rider.y);
+      if (passed) showToast(passed.name, 3000);
       if (settings.timeOfDay === 'now' || timeParam === 'now') { sunClock += dt; if (sunClock > 60) { sunClock = 0; applySun(settings); } }
       lifts.updateMarkers(elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
       map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
@@ -803,7 +812,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         (rider.onFoot ? ` &nbsp; ${rider.crawling ? 'SCRAMBLING' : 'ON FOOT'} &nbsp; <span class="dim">sprint</span> ${'&#9646;'.repeat(Math.ceil(rider.stamina / STAMINA * 5))}${'&#9647;'.repeat(5 - Math.ceil(rider.stamina / STAMINA * 5))}` : '') +
         (rider.onGround || rider.onFoot ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') +
         `<br><span class="dim">${fps.toFixed(0)} fps &middot; ${terrain.stats.chunks} chunks &middot; ${(terrain.stats.triangles / 1000).toFixed(0)}k tris &middot; trees ${veg.stats.instances} &middot; cam ${cam.mode}` +
-        ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}</span>`;
+        ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}</span>` +
+        // BUG-053 ?debug: the edge model's numbers for tuning (edge angle, the lateral acceleration it balances, turn radius and rate, the brake's cut and swing)
+        (debugHud ? `<br><span class="dim">edge ${(rider.edge * 180 / Math.PI).toFixed(0)}&deg; &middot; aLat ${rider.carveAcc.toFixed(1)} m/s&sup2; (${rider.lateralG.toFixed(2)} g) &middot; R ${Number.isFinite(rider.turnRadius) ? rider.turnRadius.toFixed(0) + ' m' : '&infin;'} &middot; ${(rider.turnRate * 180 / Math.PI).toFixed(0)}&deg;/s` +
+          (rider.brakeAmt > 0 ? ` &middot; brake &Psi; ${(rider.brakePsi * 180 / Math.PI).toFixed(0)}&deg; &gamma; ${(Math.abs(rider.slip) * 180 / Math.PI).toFixed(0)}&deg; ${rider.brakeAcc.toFixed(1)} m/s&sup2; mod ${rider.brakeMod.toFixed(2)}` : '') + '</span>' : '');
       (window as any).__sim = { rider, riderView, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, eyeAt, outrun, monsters, startOutrun, stopOutrun,
         /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
         setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); } };

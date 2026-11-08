@@ -109,6 +109,11 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         uniform float uTime;
         uniform vec3 uSnow, uSnowShade, uGroomed, uShadeTint, uSSS;
         uniform float uWrap, uGlint, uFlat, uAO;
+        // FEAT-075: forest darkening from FOREST_NEAR (full by FOREST_FULL, m); canopy cover FOREST_LO..FOREST_HI maps to 0..1
+        #define FOREST_NEAR 350.0
+        #define FOREST_FULL 1000.0
+        #define FOREST_LO 0.08
+        #define FOREST_HI 0.45
         uniform float uSnowCover;
         uniform float uSkied, uSpring;
         uniform vec2 uSnowLee;
@@ -232,9 +237,14 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         gGlintW = step(0.92, hash3(gci + 5.3)) * gdot * (1.0 - smoothstep(0.35, 1.0, gpix)) * uGlint * (1.0 - uFlat);
         // distant forest: past the instanced trees, forested ground reads as dark conifer green
         // speckled with snow (real distant Colorado slopes are mostly dark timber, not white)
-        float fd = smoothstep(2500.0, 6000.0, dist) * vForest;
+        // FEAT-075: forested ground goes dark from just past the instanced trees' detail (350 m, full by
+        // 1 km), not only beyond 2.5 km, so valley forest reads as a dark mass like the photos. The canopy
+        // cover is low in the data (BUG-028), so it is lifted; runs and bowls (no canopy) stay white.
+        float forestK = smoothstep(FOREST_LO, FOREST_HI, vForest);
+        float fd = max(smoothstep(FOREST_NEAR, FOREST_FULL, dist) * forestK, smoothstep(2500.0, 6000.0, dist) * vForest);
         float speck = vnoise(wp * 0.02) * 0.6 + vnoise(wp * 0.11) * 0.4;
-        vec3 timber = mix(vec3(0.06, 0.08, 0.06), vec3(0.14, 0.16, 0.13), speck);
+        // FEAT-075: conifer canopy in sun is dark (shaded needles and crowns), dark green-black in the photos
+        vec3 timber = mix(vec3(0.03, 0.045, 0.035), vec3(0.08, 0.1, 0.075), speck);
         timber = mix(timber, snow * 0.8, smoothstep(0.62, 0.9, speck) * 0.6); // snowy gaps between crowns
         base = mix(base, timber, fd * 0.9);
         gSnowW = wSnow * (1.0 - fd);
@@ -304,7 +314,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         }`)
       .replace('#include <roughnessmap_fragment>', `
         // flat light: no sheen toward a sun hidden behind cloud, so the snow goes fully rough
-        float roughnessFactor = roughness * mix(0.6, 1.1, uFlat) * wSnow + rockR * rockCov + screeR * screeCov;`);
+        float roughnessFactor = roughness * mix(0.6, 1.1, uFlat) * wSnow + rockR * rockCov + screeR * screeCov;
+        roughnessFactor = mix(roughnessFactor, 1.0, fd); // FEAT-075: canopy has no snow sheen`);
   };
   return mat;
 }
