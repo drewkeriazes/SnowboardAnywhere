@@ -75,6 +75,15 @@ Inputs (match Bonvo so players can switch): Left/Right steer, Up tuck (Cd*A x 0.
 
 Camera (chase): follow point 6 m behind and 2.5 m above the rider along the velocity direction, critically damped spring (omega ~ 6 rad/s), FOV 65 deg at rest rising to 80 deg at 25 m/s, minus 3 deg in a tuck.
 
+## As built (FEAT-127, `game/src/sim/Rider.ts`)
+
+The game keeps the carve geometry and the balance but departs from strict ideal carving at speed:
+- Steer sets a target edge `Psi = steer * Psi_cap`; the edge rolls at 220 deg/s (skis 260), easing in over the last ~18 deg, so edge to edge takes about 0.6 s. `Psi_cap` is 72 deg on firm snow (skis 68), 45 deg in powder (the board planes), 70 % of that in a tuck, +5 deg in a squat, less on a press, and at a crawl only 25 deg plus the lean the sidecut's arc needs (slow, a high edge would tip you into the hill).
+- The body inclines `Phi = Psi * (1 - angulation)` (angulation 0.12, capped at 68 deg); the knees and hips make up the rest.
+- Turn: `a_lat = min(v^2 / (R_sc cos Psi), g cos(alpha) tan(Phi) + g_in)`, where `g_in` is the slope's pull toward the turn centre (the paper's `tan(alpha) cos(beta)` term). Slow, the sidecut's arc sets the radius; fast, the arc opens out to the radius the lean can balance (a partly bent board), instead of the paper's forced skid above `V_sc`. With keyboard steer being all or nothing, forcing a skid on every fast turn was unplayable. The heading turns at `a_lat / v`, plus a pivot that fades out by 9 m/s (8 for skis) so slow steering still works.
+- Grip: `g * surface * (0.55 + 0.9 * min(1, Psi / 40 deg))` for the board (skis 0.65 + 0.75), `surface` 1.4 on corduroy, 1.0 off piste, 0.5 less on rock and scree, x1.08 in a squat, less on a press. Past it the heading pulls ahead of the velocity; past 4 deg of slip the arc lets go of the heading (gone by 34 deg), so a wash-out settles into a skid at about 10 to 15 deg of slip rather than spinning out.
+- Result on a 22 deg groomer (board): 8 m/s full edge R ~ 6 m at 1.6 g (the validation target below), 15 m/s R ~ 15 to 17 m, 22 m/s R ~ 30 m, all at 72 deg edge with no skid; on rock the same turn washes out; a squat on corduroy just exceeds the hold.
+
 ## 3. Validation targets
 - Groomed blue at 12 to 15 deg (Born Free, Lost Boy, Swingsville): cruising speed 35 to 50 km/h with turns; terminal ~100 km/h without turning.
 - A carved turn at 30 km/h on an 8 m board: R ~ 5 to 7 m, about 1.5 g.

@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Rider } from '../sim/Rider';
 import { rockCover } from '../terrain/rockCover';
-import { carveLean } from './carveLean';
 
 /**
  * Tracks in the snow as real 3D grooves. Every STEP metres on the snow a cross-section is laid
@@ -77,6 +76,8 @@ export const edgeCurve = (edge: number) => { const t = Math.min(1, Math.max(0, (
 const SLANT = 0.06;
 /** the smallest half width of a section (a knife cut is about 1 cm wide) */
 export const MIN_HALF = 0.005;
+/** FEAT-127: edge angle (rad) that counts as fully on edge for the track; past about 80 % of it the cut is a knife line */
+const TRACK_EDGE_FULL = 55 * Math.PI / 180;
 /** how the profile morphs on one side: + toward the sharp engaged wall, - toward the base slant, scaled by the carve amount */
 const sideMorph = (side: number, tilt: number) => side * Math.sign(tilt) * edgeCurve(Math.abs(tilt));
 /** across-track offset of profile vertex k: the floor inset shrinks with the width, the base side slides out along the slant */
@@ -382,13 +383,14 @@ export class Tracks {
     const gs = Math.abs(Math.sin(r.slip)), gc = Math.abs(Math.cos(r.slip));
     const L = ski ? 1.7 : 1.55, W = ski ? 0.1 : 0.26;
     const scrape = Math.max(skid, gs); // 0 a clean cut, 1 a flat scraped band
-    // edge angle from the physics (same inclination the rider model leans by): flat base going
-    // straight presses the full board width; on edge the board cuts a narrow, deeper, tilted trench
-    const phi = carveLean(r.lateralG);                       // + = turning toward the right-hand side
+    // edge angle from the physics (FEAT-127, the board's real edge): flat base going straight
+    // presses the full board width; on edge the board cuts a narrow, deeper, tilted trench, a knife
+    // line once it is up past TRACK_EDGE_FULL
+    const phi = r.edge;                                      // + = the right-hand edge
     // lateral G flips edge to edge in a couple of sections; real snow shows the crossover as the
     // board rolls flat and over, so smooth the tilt over two or three metres of travel: the
     // line slides across through the wedge and the flat imprint instead of stepping sideways
-    const raw = Math.sign(phi) * Math.min(1, Math.abs(phi) / 0.6) * (1 - scrape);
+    const raw = Math.sign(phi) * Math.min(1, Math.abs(phi) / TRACK_EDGE_FULL) * (1 - scrape);
     this.tiltS = moved > 6 ? raw : this.tiltS + (raw - this.tiltS) * (1 - Math.exp(-moved / 1.2));
     const tilt = this.tiltS;
     const edge = Math.abs(tilt);
