@@ -54,6 +54,9 @@ export interface Settings {
   keys: Record<string, string>; // action -> KeyboardEvent.code
   outfit: Outfit;
   discipline: 'board' | 'ski';
+  /** FEAT-134: how hard the fall line works on a flat board: realistic (side-slip and weathervane
+   *  unless the uphill edge is held), assisted (half of it) or off (a flat board holds like rails) */
+  fallLine: 'real' | 'assist' | 'off';
   /** Outrun mode (FEAT-097): the last picked difficulty, escape rule and the Gentle eat */
   outrun: { difficulty: 'chill' | 'normal' | 'skifree'; escape: 'endless' | 'base'; gentle: boolean };
 }
@@ -75,9 +78,11 @@ const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer r
 
 const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-  fov: 68, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
+  fov: 68, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', fallLine: 'real', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
   outrun: { difficulty: 'normal', escape: 'base', gentle: false },
 };
+/** FEAT-134: the fall line setting as the rider's `fallLine` factor */
+export const FALL_LINE: Record<Settings['fallLine'], number> = { real: 1, assist: 0.5, off: 0 };
 const KEY = 'settings';
 
 export function loadSettings(): Settings {
@@ -165,6 +170,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
     </div>
     <div class="tab hidden" data-t="rider">
       <div class="row"><label>Ride</label><select data-k="discipline"><option value="board">Snowboard</option><option value="ski">Skis</option></select></div>
+      <div class="row"><label>Fall line</label><select data-k="fallLine"><option value="real">Realistic</option><option value="assist">Assisted</option><option value="off">Off</option></select></div>
       <div class="row"><label>Preset</label><select data-o="preset"><option value="">Custom</option>${Object.keys(OUTFIT_PRESETS).map((n) => `<option value="${n}">${n}</option>`).join('')}</select></div>
       ${(['jacket', 'pants', 'helmet', 'gloves', 'board'] as (keyof Outfit)[]).map((k) => `<div class="row"><label>${k[0].toUpperCase() + k.slice(1)}</label><input type="color" data-o="${k}"><span class="val" data-ov="${k}"></span></div>`).join('')}
     </div>

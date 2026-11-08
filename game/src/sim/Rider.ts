@@ -129,6 +129,16 @@ const STEER_YAW = 0.25;
 /** BUG-053: share of the fall line's pull kept when it fights the turn (climbing out across the
  *  hill); in full when it helps (turning down into it) */
 const GIN_FIGHT = 0.5;
+/** FEAT-134 the fall line, all scaled by `fallLine` (1 realistic, 0.5 assisted, 0 off = rails as before).
+ *  A flat base holds only GRIP_FLAT_REAL g sideways (a waxed base on snow), so across a slope it
+ *  side-slips unless an edge is in. A flat board weathervanes toward the fall line at up to
+ *  FALL_YAW x sin(slope) rad/s (a feel term: the rider's weight on the front foot), gone by FALL_EDGE
+ *  of edge and halved by FALL_YAW_SPEED m/s. Standing on a slope needs STAND_EDGE of uphill edge or the brake.
+ *  Side-slipping downhill (the velocity more than 30 deg off the board, over CATCH_SLIDE m/s of it
+ *  sideways at over CATCH_SPEED) onto the downhill edge past CATCH_EDGE for CATCH_TIME s catches it:
+ *  a slam (realistic only). A skidded carve transition slips 10 to 15 deg and never trips it. */
+const GRIP_FLAT_REAL = 0.12, FALL_YAW = 4, FALL_YAW_SPEED = 20, FALL_EDGE = 12 * D2R, STAND_EDGE = 10 * D2R;
+const CATCH_SPEED = 3, CATCH_SLIDE = 2, CATCH_EDGE = 15 * D2R, CATCH_TIME = 0.05;
 /** the board's slip past its line (rad) before the carve lets go: from SLIP_HOLD on, the arc stops
  *  driving the heading, gone by SLIP_HOLD + SLIP_WASH (a skid that settles, not a spin) */
 const SLIP_HOLD = 4 * D2R, SLIP_WASH = 30 * D2R;
@@ -283,6 +293,10 @@ export class Rider {
   distance = 0;
   maxSpeed = 0;
   discipline: Discipline = 'board';
+  /** FEAT-134: how hard the fall line works on the board: 1 realistic, 0.5 assisted, 0 off (Settings > Rider) */
+  fallLine = 1;
+  /** seconds the downhill edge has been catching (a slam past CATCH_TIME) */
+  private catchT = 0;
   /** sim randomness: seeded on reset so the same inputs replay the same run */
   readonly rng = new Rng(1);
   /** physics steps so far, and how many of them sampled a coarser height set than the point has */
@@ -312,7 +326,7 @@ export class Rider {
     this.vx = this.vy = this.vz = 0;
     this.heading = heading; this.onGround = true; this.airTime = 0; this.jumpCharge = 0;
     this.crashed = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
-    this.edge = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.landingShock = 0;
+    this.edge = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.landingShock = 0; this.catchT = 0;
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
     this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false; this.mantle = 0; this.stepT = 0;
     this.sprinting = false; this.crawling = false; this.slipT = 0; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
@@ -534,12 +548,28 @@ export class Rider {
       if (ahead > SLIP_HOLD && ahead < Math.PI / 2) hold = Math.max(0, 1 - (ahead - SLIP_HOLD) / SLIP_WASH);
     }
     const carveRate = spd > 0.1 ? Math.sign(this.edge) * (aLat / spd) * hold : 0;
+    // how far the edge's grip is in (the flat base holds little sideways)
+    const bite = Math.min(1, psi / GRIP_EDGE);
+    // the fall line (FEAT-134): the slope's pull across the heading (+ = downhill is to the right)
+    // and the yaw a flat or lightly edged board takes toward it, quicker on steep pitches and when
+    // slow, not while the brake has the board swung
+    const fall = Math.hypot(n[0], n[1]);
+    const gLat = ax * lx + ay * ly;
+    let fallRate = 0;
+    if (this.fallLine > 0 && fall > 0.03 && spd > 0.3) {
+      const toFall = wrap(Math.atan2(n[0], n[1]) - this.heading);
+      const flat = Math.max(0, 1 - psi / FALL_EDGE);
+      fallRate = FALL_YAW * fall * Math.sin(toFall) * flat * flat / (1 + spd / FALL_YAW_SPEED) * (1 - this.brakeAmt) * this.fallLine;
+    }
     // slow or flat: a pivot (a skidded turn) straight from the steer, gone by F.pivotFade; from about
     // there on a small steer yaw (STEER_YAW) keeps the board coming round through an edge change.
     // Neither while the board is swung across for a brake: the steer works the brake then (FEAT-133).
     const steerFade = Math.max(0, Math.min(1, spd / F.pivotFade - 0.5));
-    const pivotRate = input.steer * ((input.tuck ? F.pivotTuck : F.pivot) * Math.max(0, 1 - spd / F.pivotFade) + STEER_YAW * steerFade) * (1 - this.brakeAmt);
-    const turnRate = carveRate + pivotRate;
+    let pivotRate = input.steer * ((input.tuck ? F.pivotTuck : F.pivot) * Math.max(0, 1 - spd / F.pivotFade) + STEER_YAW * steerFade) * (1 - this.brakeAmt);
+    // standing on the uphill edge the hill is in the way, so at a crawl the pivot into it is cut: the
+    // steer holds the edge instead of spinning the board (FEAT-134); pivoting downhill still runs
+    if (spd < 1 && fall > 0.03 && input.steer * gLat < 0) pivotRate *= 1 - this.fallLine * (1 - spd);
+    const turnRate = carveRate + pivotRate + fallRate;
     this.turnRate = turnRate;
     this.turnRadius = Math.abs(turnRate) > 1e-3 ? spd / Math.abs(turnRate) : Infinity;
     const dHeading = turnRate * dt;
@@ -616,15 +646,23 @@ export class Rider {
     // lateral grip: the most sideways force the snow holds (FEAT-127), a little on the flat base and
     // the rest as the edge rolls in; less off the groomers and on rock and scree (icy, scraped).
     // Swung across for a brake the board is not under the heading, so the edge's push above takes
-    // over from it (FEAT-133).
-    const bite = Math.min(1, psi / GRIP_EDGE);
-    const maxLat = G * gripBase * (F.gripFlat + F.gripEdge * bite);
+    // over from it (FEAT-133). With the fall line on (FEAT-134) the flat base holds only a waxed
+    // base's friction, so across a slope the board side-slips until an edge is in; a full edge
+    // holds the same as before, the edge making up what the base lost.
     // wanted: kill lateral velocity (carve) within a short time
     let latAcc = -vLat / Math.max(0.04, 0.12 - 0.08 * bite);
+    const gripFlat = F.gripFlat - (F.gripFlat - GRIP_FLAT_REAL) * this.fallLine;
+    const maxLat = G * gripBase * (gripFlat + (F.gripFlat + F.gripEdge - gripFlat) * bite);
     const skidding = Math.abs(latAcc) > maxLat;
     if (skidding) latAcc = Math.sign(latAcc) * maxLat;
     latAcc *= 1 - swing;
     this.skid += (((skidding ? Math.min(1, Math.abs(vLat) / 6) : 0)) - this.skid) * Math.min(1, dt * 10);
+    // catching the downhill edge (FEAT-134, realistic only): sliding downhill fast onto the edge on
+    // the downhill side trips the board, a slam like catching an edge for real
+    if (this.fallLine >= 1 && spd > CATCH_SPEED && Math.abs(vLat) > Math.max(CATCH_SLIDE, 0.5 * spd) && vLat * gLat > 0 && vLat * this.edge > 0 && psi > CATCH_EDGE && this.brakeAmt === 0) {
+      this.catchT += dt;
+      if (this.catchT > CATCH_TIME) { this.crashed = 1.3; this.catchT = 0; this.lastHit = 'catch'; }
+    } else this.catchT = 0;
     ax += latAcc * lx; ay += latAcc * ly;
     this.lateralG += ((latAcc / G) - this.lateralG) * Math.min(1, dt * 12);
 
@@ -654,11 +692,13 @@ export class Rider {
     } else this.skatePhase = 0;
     // standing on the uphill edge: nearly stopped with the board across the fall line (within
     // about 50 degrees of it) the edge holds, so the rider stands still instead of creeping down.
-    // Turning the board toward the fall line or tucking lets it run again.
-    const fall = Math.hypot(n[0], n[1]);
+    // Turning the board toward the fall line or tucking lets it run again. With the fall line
+    // realistic (FEAT-134) the edge has to be held, by steering into the hill or by the brake; let
+    // go and the board starts to slide.
     if (spd < 0.3 && !input.tuck && fall > 0.03 && this.slopeDeg < 55) {
       const across = Math.abs(Math.sin(this.boardYaw - Math.atan2(n[0], n[1])));
-      if (across > 0.75) { this.vx = this.vy = 0; ax = ay = 0; }
+      const held = this.fallLine < 1 || -Math.sign(gLat) * this.edge > STAND_EDGE || this.brakeAmt > 0.5;
+      if (across > 0.75 && held) { this.vx = this.vy = 0; ax = ay = 0; }
     }
     // backwards riding is unstable: if moving against heading fast, flip heading (fakie)
     if (F.fakie && vAlong < -4) { this.heading += Math.PI; this.edge = -this.edge; } // the same edge is now on the other side of the heading

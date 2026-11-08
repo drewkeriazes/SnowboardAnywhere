@@ -91,6 +91,15 @@ Komissarov's snow-cutting model of the side-slip and the hockey stop: holding br
 
 Steer works the brake while it is held (eased over 0.2 s): toward the brake side squares the board to 90 deg and tips the edge 12 deg past the plain cut (stop from 10 m/s on 15 deg in 1.0 s and 5.8 m instead of 1.4 s and 7.9 m); away from it opens the swing to 40 deg and lets the edge off to 25 deg, a skidded turn that turns 20 deg in the first 1.5 s and about 60 deg by the time it stops, 4 s and 21 m later, drifting down the fall line. On a 35 deg pitch the soft edge cannot hold the slope's pull across the board (`g sin(alpha)` = 5.6 m/s^2 against `g cos(alpha) tan(25 deg)` = 3.7) and the rider side-slips at 3.7 m/s after 3 s; the dug-in edge (47 deg) holds and stops in half a second. `tools/brakecheck.mjs` checks all of these.
 
+## As built: the fall line (FEAT-134, `game/src/sim/Rider.ts`)
+
+Before FEAT-134 the flat base held 0.55 g sideways (0.77 g on corduroy), more than the pull across a 50 deg pitch, so a rider with no input traversed any slope on rails. Now, scaled by the Fall line setting (Realistic 1, Assisted 0.5, Off 0 = the old behaviour):
+- Grip: `g * surface * (0.12 + 1.33 * min(1, Psi / 40 deg))` for the board, so a flat base holds a waxed base's friction and a full edge holds the same 1.45 g as before. Across a 30 deg groomer the flat board side-slips at `g sin 30 - 0.12 * 1.4 g` = 3.2 m/s^2; 20 deg of uphill edge holds it.
+- Weathervane: the heading turns toward the fall line at `4 * sin(slope) * sin(angle to the fall line) * (1 - Psi / 12 deg)^2 / (1 + v / 20)` rad/s. A feel term standing in for the rider's weight on the front foot, not from the paper: on a blue (17 deg) a flat board swings from across to within 30 deg of the fall line in about 1.3 s at 8 m/s, on a black (30 deg) in 0.9 s, and any real edge stops it.
+- Standing: nearly stopped across the hill, the rider only holds still with 10 deg of uphill edge (steer into the hill) or the brake; at a crawl the steer into the hill is not a pivot, so holding it does not spin the board, while steer downhill still turns the board to run.
+- Edge catch (realistic only): side-slipping (the velocity more than 30 deg off the board, over 2 m/s of it sideways, over 3 m/s) onto the downhill edge past 15 deg for 0.05 s is a crash. A skidded carve transition slips 10 to 15 deg and never trips it; six seconds of linked full carves from 20 m/s lose the same speed as with the fall line off (slowest 12.0 m/s either way).
+- Not done from the card: an edge that only holds a push toward its own side (it turned every carve transition into a skid, since the new edge is always briefly on the wrong side of the lagging velocity), and the minimap fall-line arrow.
+
 ## 3. Validation targets
 - Groomed blue at 12 to 15 deg (Born Free, Lost Boy, Swingsville): cruising speed 35 to 50 km/h with turns; terminal ~100 km/h without turning.
 - A carved turn at 30 km/h on an 8 m board: R ~ 5 to 7 m, about 1.5 g.

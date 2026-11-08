@@ -42,7 +42,7 @@ import { PauseMenu } from './ui/PauseMenu';
 import { Labels } from './ui/Labels';
 import { TouchControls } from './ui/TouchControls';
 import { sunPosition, guessUtcOffset } from './world/Sun';
-import { loadSettings, keyName, type Settings } from './ui/Settings';
+import { loadSettings, keyName, FALL_LINE, type Settings } from './ui/Settings';
 import { STAMINA } from './sim/Rider';
 import { availableResorts } from './resorts';
 import { hasCustomStart, resetStart, spawnKey } from './spawn';
@@ -319,6 +319,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (!s.timeTrials) trial.cancel('Time trials off');
       refreshCourseFlags();
       rider.discipline = s.discipline;
+      rider.fallLine = FALL_LINE[s.fallLine] ?? 1; // FEAT-134
       labels.visible = s.showLabels && !storm; // peaks are hidden in the storm
       map.metric = s.units === 'metric';
       if (what === 'camera' || what === 'reset') cam.mode = s.camera;
