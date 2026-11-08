@@ -940,14 +940,20 @@ export class Rider {
   }
 
   /**
-   * BUG-056: where the edge will be `lead` seconds from now if the steer holds: the same ease and
-   * roll-rate limit the step applies, run forward once. Visual only (the rider view's body lead).
+   * BUG-056: where the edge will be `lead` seconds from now if the steer holds: the step's own ease
+   * and roll-rate rule integrated forward in 20 ms substeps, so the prediction moves at the physics
+   * roll rate and is continuous through the edge change (a closed form with the quicker through-flat
+   * limit jumped when the edge crossed zero). Visual only (the rider view's body lead).
    */
   predictEdge(lead: number): number {
     if (lead <= 0) return this.edge;
-    const d = (this.edgeTarget - this.edge) * Math.min(1, lead * EDGE_EASE);
-    const cap = FEEL[this.discipline].roll * lead * (this.edgeTarget * this.edge < 0 ? EDGE_SNAP : 1);
-    return this.edge + Math.max(-cap, Math.min(cap, d));
+    const F = FEEL[this.discipline], want = this.edgeTarget, n = Math.ceil(lead / 0.02), h = lead / n;
+    let e = this.edge;
+    for (let i = 0; i < n; i++) {
+      const roll = F.roll * h * (want * e < 0 ? EDGE_SNAP : 1);
+      e += Math.max(-roll, Math.min(roll, (want - e) * Math.min(1, h * EDGE_EASE)));
+    }
+    return e;
   }
 
   /**
