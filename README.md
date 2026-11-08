@@ -2,9 +2,10 @@
 
 A browser snowboarding game set on real mountains, rebuilt at 1:1 from public data: lidar terrain,
 real trees, and the actual lifts, runs and buildings from OpenStreetMap. Ride Vail top to bottom,
-take the chairs back up, race your own ghost.
+take the chairs back up, race your own ghost, or outrun the snow monster.
 
 Built with Three.js, TypeScript and Vite. Resorts so far: Vail and Breckenridge (pick one on the main menu).
+Modes: free ride, time trials (turn on in Settings > Game) and Outrun (Esc > Outrun).
 
 ## Play
 
@@ -21,19 +22,28 @@ no resort pack built yet (packs are generated locally, see below).
 
 | Key | Action |
 | --- | --- |
-| Arrows or WASD | steer, tuck (up), brake (down) |
-| Space (hold, release) | jump |
-| Shift | grab |
-| E | ride a lift (at the bottom terminal); skip to the top while riding |
+| Arrows or WASD | steer, tuck (up), brake (down); in the air, steer spins and up / down flip |
+| Space (hold, release) | jump; hold W or S with it for a nollie or ollie |
+| Shift | grab; sprint on foot |
+| Left Ctrl (hold) | squat |
+| X (hold) | skate on the flat |
+| V / Z (hold) | nose / tail press |
+| B | unstrap and walk, or strap back in |
+| E | ride a lift (at the base, inside the lift line where there is one); skip to the top while riding |
 | Alt (hold) | look around |
-| C | change camera (chase, close, far, first person, free) |
+| C | change camera (chase, close, far, cinematic, first person, helmet cam, free) |
+| F | free fly |
 | M | map; click to drop in anywhere |
+| P | piste lines on or off |
 | T | go to the nearest time trial (when on in Settings) |
+| K | replay viewer |
+| Backspace (hold) | rewind, let go to carry on from there |
+| Q / G (hold) | Outrun: boost / look back |
 | N | next song |
 | R | restart |
 | Esc | pause and settings |
 
-Keys can be remapped in Settings > Controls.
+Keys can be remapped in Settings > Controls. The replay viewer lists its own keys on screen.
 
 ## How a resort gets built
 
