@@ -23,6 +23,16 @@ const padBtn = (gp: Gamepad, i: number): boolean => !!gp.buttons[i]?.pressed;
 const padVal = (gp: Gamepad, i: number): number => gp.buttons[i]?.value ?? 0;
 const padAxis = (gp: Gamepad, i: number): number => { const a = gp.axes[i] ?? 0; return Math.abs(a) > DEAD ? a : 0; };
 const PAD_ACTIONS: [number, string][] = [[PAD.Y, 'lift'], [PAD.UP, 'camera'], [PAD.RIGHT, 'map'], [PAD.LEFT, 'piste'], [PAD.DOWN, 'track'], [PAD.SELECT, 'replay'], [PAD.START, 'pause']];
+/**
+ * FEAT-138: the connected gamepads, or null. Firefox (and Chrome as it phases it in) only exposes the Gamepad
+ * API in a secure context (https or localhost); over plain http on the home network getGamepads is missing or throws, so the
+ * game plays on keyboard instead of failing every frame. After the first throw it stops asking.
+ */
+let padsBlocked = false;
+function readPads(): ArrayLike<Gamepad | null> | null {
+  if (padsBlocked || typeof navigator === 'undefined' || !navigator.getGamepads) return null;
+  try { return navigator.getGamepads(); } catch { padsBlocked = true; return null; }
+}
 
 export class Controls {
   readonly input: Input = { steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false, squat: false, skate: false, lean: 0 };
@@ -121,7 +131,7 @@ export class Controls {
     let lean = (this.held('pressNose') ? 1 : 0) - (this.held('pressTail') ? 1 : 0);
     // ---- FEAT-124 gamepad (the standard mapping)
     // (no per-frame allocations beyond getGamepads itself: a plain loop over the list, module-level helpers, padPrev reused)
-    const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : null;
+    const pads = readPads();
     let gp: Gamepad | null = null;
     if (pads) for (let i = 0; i < pads.length; i++) { const p = pads[i]; if (p && p.connected && p.mapping === 'standard') { gp = p; break; } }
     this.padActive = !!gp;

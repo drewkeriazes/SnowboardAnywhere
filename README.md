@@ -18,6 +18,32 @@ npm run dev
 Open http://localhost:5173/?pack=vail. Use `?pack=synth` for a synthetic test mountain if you have
 no resort pack built yet (packs are generated locally, see below).
 
+### Play on another computer
+
+Host the game on the PC that has the packs and play it from any computer on the same home network:
+
+```
+cd game
+npm run host
+```
+
+It builds the game, serves it on port 5173 and prints the address to open on the other computer,
+e.g. `http://192.168.1.42:5173/?pack=vail`. The packs stream from the PC, and the main menu shows
+"Hosted from <PC name>" with the address so it is easy to read off. Ctrl+C stops it.
+
+- **Controllers:** some browsers (Firefox, and Chrome as it phases in the rule) only let a page see a
+  gamepad over https. If a controller on the other computer is not seen, run `npm run host -- --https`
+  instead and open the `https://` address. The certificate is self-signed, so the browser warns once:
+  click Advanced > Proceed. It is renewed every 30 days, and then it warns once more.
+- **Windows Firewall:** the first time, allow Node.js on **Private networks**. If you missed the prompt:
+  Windows Security > Firewall & network protection > Allow an app through firewall > Node.js, Private.
+- The PC's wifi or ethernet must be set to a **Private** network, not Public.
+- Guest networks often block devices from seeing each other: use the main network.
+- The game renders on the other computer's GPU, so a weak laptop runs slower than the PC.
+- The address can change after a router reboot: check what `npm run host` prints.
+- Settings, best times and saved spots are kept per browser, so the other computer starts with defaults.
+- `npm run host -- --port 8080` picks another port.
+
 ## Controls
 
 | Key | Action |
