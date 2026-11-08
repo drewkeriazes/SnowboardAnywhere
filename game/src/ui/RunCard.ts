@@ -21,7 +21,9 @@ export class RunCard {
     const len = (m: number) => fmtDistance(m, metric);
     const ht = (m: number) => fmtHeight(m, metric);
     const tm = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-    const name = s.names.length ? s.names.join(' &rarr; ') : 'Off-piste';
+    // run names come from OSM via the pack: escape them before they go into innerHTML
+    const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+    const name = s.names.length ? s.names.map(esc).join(' &rarr; ') : 'Off-piste';
     const row = (k: string, v: string, pb = false) => `<div style="display:flex;justify-content:space-between;margin:2px 0"><span style="opacity:.7">${k}</span><b>${v}${pb ? ' <span style="color:#facc15">PB</span>' : ''}</b></div>`;
     this.el.innerHTML = `<div style="font-weight:700;font-size:15px;margin-bottom:6px">${name}</div>
       <canvas width="228" height="120" style="width:228px;height:120px;background:rgba(255,255,255,.06);border-radius:8px;margin-bottom:8px"></canvas>

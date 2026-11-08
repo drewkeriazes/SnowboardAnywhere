@@ -40,6 +40,8 @@ export class RunStats {
   private names: string[] = [];
   private line: [number, number][] = [];
   private lineT = 0; private nameT = 0; private stillT = 0;
+  /** last pack x / y seen during the run, so the line can end where the rider did */
+  private lastX = NaN; private lastY = NaN;
   private lastZ = NaN; private wasGround = true; private takeoffZ = 0; private wasLift = false;
   private readonly runs: RunLine[] = [];
   day: DayTotals;
@@ -93,6 +95,7 @@ export class RunStats {
     if (!this.wasGround && r.onGround) this.maxDrop = Math.max(this.maxDrop, this.takeoffZ - r.z);
     this.wasGround = r.onGround;
     // the line and the run names
+    this.lastX = r.x; this.lastY = r.y;
     this.lineT -= dt;
     if (this.lineT <= 0) { this.lineT = 2; this.line.push([r.x, r.y]); }
     this.nameT -= dt;
@@ -110,12 +113,14 @@ export class RunStats {
   private start(r: Rider): void {
     this.reset();
     this.active = true; this.lastZ = r.z; this.wasGround = r.onGround;
+    this.lastX = r.x; this.lastY = r.y;
     this.line.push([r.x, r.y]);
   }
 
   private reset(): void {
     this.active = false; this.time = 0; this.topSpeed = 0; this.distance = 0; this.vertical = 0;
     this.maxAir = 0; this.maxDrop = 0; this.maxG = 0; this.names = []; this.line = []; this.lineT = 0; this.nameT = 0; this.stillT = 0;
+    this.lastX = NaN; this.lastY = NaN;
   }
 
   /** Close the run (a restart counts only if it was a real run). */
@@ -133,6 +138,9 @@ export class RunStats {
       pbs[first] = { time: pb ? Math.min(pb.time, this.time) : this.time, speed: pb ? Math.max(pb.speed, this.topSpeed) : this.topSpeed };
       savePbs(pbs);
     }
+    // the line is sampled every 2 s: close it at the last position so the end dot is where the run ended
+    const tail = this.line[this.line.length - 1];
+    if (Number.isFinite(this.lastX) && (!tail || tail[0] !== this.lastX || tail[1] !== this.lastY)) this.line.push([this.lastX, this.lastY]);
     const s: RunSummary = { names: [...this.names], time: this.time, topSpeed: this.topSpeed, distance: this.distance, vertical: this.vertical, maxAir: this.maxAir, maxDrop: this.maxDrop, maxG: this.maxG, line: [...this.line], pbTime, pbSpeed, day: { ...this.day } };
     this.reset();
     this.onRunEnd?.(s);
