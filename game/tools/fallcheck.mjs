@@ -92,9 +92,15 @@ check('off: a flat board traverses on rails as before', off30.toFall > 85 && Mat
     return { moved: Math.hypot(r.x, r.y), down: r.y, turned: Math.abs(wrap(r.heading - EAST)) / D, speed: r.speed };
   };
   const loose = stand(1, 0), held = stand(1, 1), off = stand(0, 0), run = stand(1, -1);
+  // a light uphill edge (steer 0.3, about 7.5 deg): over Assisted's 5 deg, under Realistic's 10
+  const aLoose = stand(0.5, 0), aLight = stand(0.5, 0.3), rLight = stand(1, 0.3), aFull = stand(0.5, 1);
+  console.log(`assisted on 25 deg for 3 s: no input ${aLoose.moved.toFixed(2)} m; light uphill edge ${(aLight.moved * 100).toFixed(1)} cm (realistic ${rLight.moved.toFixed(2)} m); full edge ${(aFull.moved * 100).toFixed(1)} cm, board turned ${aFull.turned.toFixed(1)} deg`);
   console.log(`standing on 25 deg for 3 s: no input ${loose.moved.toFixed(2)} m (down ${loose.down.toFixed(2)}); uphill edge held ${(held.moved * 100).toFixed(1)} cm, board turned ${held.turned.toFixed(1)} deg; off, no input ${(off.moved * 100).toFixed(1)} cm; steer downhill ${run.speed.toFixed(1)} m/s`);
   check('realistic: let go of the edge and you start to slide', loose.moved > 0.5 && loose.down > 0.3, `${loose.moved.toFixed(2)} m, ${loose.down.toFixed(2)} m downhill`);
   check('realistic: holding the uphill edge stands still without spinning the board', held.moved < 0.05 && held.turned < 5, `${(held.moved * 100).toFixed(1)} cm, turned ${held.turned.toFixed(1)} deg`);
+  check('assisted: with no input it slides, less than realistic', aLoose.moved > 0.2 && aLoose.moved < loose.moved, `${aLoose.moved.toFixed(2)} m against ${loose.moved.toFixed(2)} m`);
+  check('assisted: a light uphill edge stands still, where realistic needs more', aLight.moved < 0.05 && rLight.moved > 0.5, `${(aLight.moved * 100).toFixed(1)} cm against ${rLight.moved.toFixed(2)} m`);
+  check('assisted: holding the uphill edge stands still without spinning the board', aFull.moved < 0.05 && aFull.turned < 5, `${(aFull.moved * 100).toFixed(1)} cm, turned ${aFull.turned.toFixed(1)} deg`);
   check('off: stands still with no input as before', off.moved < 0.05, `${(off.moved * 100).toFixed(1)} cm`);
   check('steering downhill from a stand turns the board and runs', run.speed > 2, `${run.speed.toFixed(1)} m/s after 3 s`);
 }

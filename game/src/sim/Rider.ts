@@ -133,7 +133,7 @@ const GIN_FIGHT = 0.5;
  *  A flat base holds only GRIP_FLAT_REAL g sideways (a waxed base on snow), so across a slope it
  *  side-slips unless an edge is in. A flat board weathervanes toward the fall line at up to
  *  FALL_YAW x sin(slope) rad/s (a feel term: the rider's weight on the front foot), gone by FALL_EDGE
- *  of edge and halved by FALL_YAW_SPEED m/s. Standing on a slope needs STAND_EDGE of uphill edge or the brake.
+ *  of edge and halved by FALL_YAW_SPEED m/s. Standing on a slope needs STAND_EDGE x fallLine of uphill edge or the brake.
  *  Side-slipping downhill (the velocity more than 30 deg off the board, over CATCH_SLIDE m/s of it
  *  sideways at over CATCH_SPEED) onto the downhill edge past CATCH_EDGE for CATCH_TIME s catches it:
  *  a slam (realistic only). A skidded carve transition slips 10 to 15 deg and never trips it. */
@@ -567,8 +567,9 @@ export class Rider {
     const steerFade = Math.max(0, Math.min(1, spd / F.pivotFade - 0.5));
     let pivotRate = input.steer * ((input.tuck ? F.pivotTuck : F.pivot) * Math.max(0, 1 - spd / F.pivotFade) + STEER_YAW * steerFade) * (1 - this.brakeAmt);
     // standing on the uphill edge the hill is in the way, so at a crawl the pivot into it is cut: the
-    // steer holds the edge instead of spinning the board (FEAT-134); pivoting downhill still runs
-    if (spd < 1 && fall > 0.03 && input.steer * gLat < 0) pivotRate *= 1 - this.fallLine * (1 - spd);
+    // steer holds the edge instead of spinning the board (FEAT-134); pivoting downhill still runs.
+    // Whole for Assisted too, which also needs the edge held to stand
+    if (this.fallLine > 0 && spd < 1 && fall > 0.03 && input.steer * gLat < 0) pivotRate *= spd;
     const turnRate = carveRate + pivotRate + fallRate;
     this.turnRate = turnRate;
     this.turnRadius = Math.abs(turnRate) > 1e-3 ? spd / Math.abs(turnRate) : Infinity;
@@ -694,10 +695,11 @@ export class Rider {
     // about 50 degrees of it) the edge holds, so the rider stands still instead of creeping down.
     // Turning the board toward the fall line or tucking lets it run again. With the fall line
     // realistic (FEAT-134) the edge has to be held, by steering into the hill or by the brake; let
-    // go and the board starts to slide.
+    // go and the board starts to slide. The edge needed scales with the setting: Assisted needs half
+    // of STAND_EDGE, and Off stands with no input as before.
     if (spd < 0.3 && !input.tuck && fall > 0.03 && this.slopeDeg < 55) {
       const across = Math.abs(Math.sin(this.boardYaw - Math.atan2(n[0], n[1])));
-      const held = this.fallLine < 1 || -Math.sign(gLat) * this.edge > STAND_EDGE || this.brakeAmt > 0.5;
+      const held = this.fallLine <= 0 || -Math.sign(gLat) * this.edge > STAND_EDGE * this.fallLine || this.brakeAmt > 0.5;
       if (across > 0.75 && held) { this.vx = this.vy = 0; ax = ay = 0; }
     }
     // backwards riding is unstable: if moving against heading fast, flip heading (fakie)
