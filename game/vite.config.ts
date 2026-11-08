@@ -11,9 +11,11 @@ function servePacks(): Plugin {
   const types: Record<string, string> = { '.png': 'image/png', '.json': 'application/json', '.bin': 'application/octet-stream', '.webp': 'image/webp' };
   const handle: Connect.NextHandleFunction = (req, res, next) => {
     if (!req.url || !req.url.startsWith('/packs/')) return next();
-    const rel = decodeURIComponent(req.url.split('?')[0].slice('/packs/'.length));
+    // npm run host serves this to the LAN: a bad escape is a 400, and only files inside packs/ (not a packs-old/ sibling)
+    let rel: string;
+    try { rel = decodeURIComponent(req.url.split('?')[0].slice('/packs/'.length)); } catch { res.statusCode = 400; res.end(); return; }
     const file = path.join(packsDir, rel);
-    if (!file.startsWith(packsDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.statusCode = 404; res.end(); return; }
+    if (!file.startsWith(packsDir + path.sep) ||!fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.statusCode = 404; res.end(); return; }
     res.setHeader('content-type', types[path.extname(file)] ?? 'application/octet-stream');
     res.setHeader('cache-control', 'no-cache');
     fs.createReadStream(file).pipe(res);
