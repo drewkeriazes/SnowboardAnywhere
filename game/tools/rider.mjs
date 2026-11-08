@@ -69,7 +69,7 @@ await page.keyboard.down('ArrowRight'); await ride(50); await shot('04_carve_rig
 await page.keyboard.down('ArrowLeft'); await ride(60); await shot('05_carve_left', -1); await page.keyboard.up('ArrowLeft');
 // FEAT-125: held tail press (Z) and nose press (V); the worst foot gap below covers both
 await page.keyboard.down('KeyZ'); await ride(60); await shot('05b_tail_press'); await page.keyboard.up('KeyZ'); await ride(30);
-await page.keyboard.down('KeyV'); await ride(60); await shot('05c_nose_press'); await page.keyboard.up('KeyV'); await ride(30);
+await page.keyboard.down('KeyQ'); await ride(60); await shot('05c_nose_press'); await page.keyboard.up('KeyQ'); await ride(30);
 await page.keyboard.down('Space'); await ride(40); await shot('06_charge'); await page.keyboard.up('Space');
 await ride(8); await shot('07_air');
 for (let i = 0; i < 40; i++) { await ride(3); if (await page.evaluate(() => window.__sim.rider.landingShock > 0.2)) break; }
