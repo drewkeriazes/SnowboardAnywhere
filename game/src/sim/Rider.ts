@@ -30,6 +30,15 @@ const STEP = 1 / 120;
 const D2R = Math.PI / 180;
 /** board angle to the direction of travel in a full hockey stop */
 const STOP_GAMMA = 84 * D2R;
+/** FEAT-133: steering while braking opens the swing out to GAMMA_SOFT and lets the edge off to
+ *  PSI_SOFT (a skidded turn, steer away from the edge), or squares it up to GAMMA_HARD and tips it
+ *  PSI_DIG further than a plain brake's cut (steer into the edge); eased over BRAKE_MOD_IN s */
+const GAMMA_SOFT = 40 * D2R, GAMMA_HARD = 90 * D2R, PSI_SOFT = 25 * D2R, PSI_DIG = 12 * D2R, BRAKE_MOD_IN = 0.2;
+/** FEAT-133: how fast the steering axis follows the direction of travel while the board is swung (1/s) */
+const HEAD_FOLLOW = 10;
+/** FEAT-133: the dug-in edge drags along its own length with up to this share of the cut's hold,
+ *  settling the slide along the board over BRAKE_TRENCH_T s */
+const BRAKE_TRENCH = 0.35, BRAKE_TRENCH_T = 0.12;
 /** seconds to swing the board across, and back on release */
 const SWING_IN = 0.25, SWING_OUT = 0.3;
 /** hard cap on braking deceleration from the snow cut (m/s^2): the paper's 60 degree edge case */
@@ -95,8 +104,8 @@ interface Feel {
   brake: number; fakie: boolean; aero: number; aeroTuck: number;
 }
 const FEEL: Record<Discipline, Feel> = {
-  board: { pivot: 1.9, pivotTuck: 0.9, pivotFade: 9, sidecut: 7.8, psiMax: 72 * D2R, psiPowder: 45 * D2R, roll: 220 * D2R, angulation: 0.12, gripFlat: 0.55, gripEdge: 0.9, brake: 0.45, fakie: true, aero: 0.0055, aeroTuck: 0.0025 },
-  ski: { pivot: 2.4, pivotTuck: 1.1, pivotFade: 8, sidecut: 13, psiMax: 68 * D2R, psiPowder: 42 * D2R, roll: 260 * D2R, angulation: 0.08, gripFlat: 0.65, gripEdge: 0.75, brake: 0.6, fakie: false, aero: 0.005, aeroTuck: 0.0021 },
+  board: { pivot: 1.9, pivotTuck: 0.9, pivotFade: 9, sidecut: 7.8, psiMax: 72 * D2R, psiPowder: 45 * D2R, roll: 400 * D2R, angulation: 0.12, gripFlat: 0.55, gripEdge: 0.9, brake: 0.45, fakie: true, aero: 0.0055, aeroTuck: 0.0025 },
+  ski: { pivot: 2.4, pivotTuck: 1.1, pivotFade: 8, sidecut: 13, psiMax: 68 * D2R, psiPowder: 42 * D2R, roll: 460 * D2R, angulation: 0.08, gripFlat: 0.65, gripEdge: 0.75, brake: 0.6, fakie: false, aero: 0.005, aeroTuck: 0.0021 },
 };
 /** FEAT-127: `edgeAngle` is the edge as a share of this (1 = 60 degrees) for sound, poses and the ghost format */
 export const EDGE_FULL = 60 * D2R;
@@ -107,9 +116,19 @@ const PHI_MAX = 68 * D2R;
 /** at a crawl the body can't lean against a turn, so only this much edge (rad) comes from angulation alone */
 const ANG_SLOW = 25 * D2R;
 /** a tuck keeps this share of the top edge; a full squat adds SQUAT_EDGE (rad); a full press loses PRESS_EDGE of it */
-const TUCK_EDGE = 0.7, SQUAT_EDGE = 5 * D2R, PRESS_EDGE = 0.4;
+const TUCK_EDGE = 0.85, SQUAT_EDGE = 5 * D2R, PRESS_EDGE = 0.4;
 /** the edge eases into its target over the last part of the roll (1/s) */
-const EDGE_EASE = 12;
+const EDGE_EASE = 30;
+/** BUG-053: the roll is this much quicker while the edge crosses to the other side (unweighting
+ *  between turns), so a full edge change at speed takes about 0.3 s */
+const EDGE_SNAP = 1.5;
+/** BUG-053: yaw rate (rad/s) a full steer adds at speed whatever the edge is doing, faded in as the
+ *  pivot fades out, so the board starts coming round through the flat crossover instead of hanging
+ *  until the new edge bites. A game feel term, not physics. */
+const STEER_YAW = 0.25;
+/** BUG-053: share of the fall line's pull kept when it fights the turn (climbing out across the
+ *  hill); in full when it helps (turning down into it) */
+const GIN_FIGHT = 0.5;
 /** the board's slip past its line (rad) before the carve lets go: from SLIP_HOLD on, the arc stops
  *  driving the heading, gone by SLIP_HOLD + SLIP_WASH (a skid that settles, not a spin) */
 const SLIP_HOLD = 4 * D2R, SLIP_WASH = 30 * D2R;
@@ -126,10 +145,15 @@ const SLIP_HOLD = 4 * D2R, SLIP_WASH = 30 * D2R;
  *
  * Brake model (FEAT-065, after Komissarov's snow-cutting model of side-slipping and hockey
  * stops): holding brake swings the board yaw across the direction of travel to the angle of
- * attack gamma (about 84 degrees) while the edge angle Psi ramps up. The snow resists with
- * N tan(Psi), and the part of it along the travel direction brakes: a = g cos(alpha) tan(Psi)
- * sin(gamma), on top of the slope's own pull, so more edge than slope slows you. `heading` stays
- * the steering axis; `boardYaw` is the board as drawn and as it marks the snow.
+ * attack gamma (about 84 degrees) while the edge angle Psi ramps up. The snow resists the board's
+ * slide across its own edge with up to N tan(Psi), pushing at right angles to the board
+ * (FEAT-133): the part of that push against the travel direction brakes, a = g cos(alpha) tan(Psi)
+ * sin(gamma), and the part across it turns the rider toward the edge, so a partial swing is a
+ * skidded turn. Steering while braking modulates both: into the edge squares the board up and
+ * digs it in (a harder stop), away opens the swing and softens the edge (a drift down the fall
+ * line). On a steep pitch a soft edge cannot hold the slope's pull across the board and the rider
+ * side-slips. `heading` is the steering axis and follows the travel direction while the board is
+ * swung; `boardYaw` is the board as drawn and as it marks the snow.
  */
 /** FEAT-111 deep squat: ease time (s), extra grip, share of the tuck's drag cut, jump bonus and its window after letting go (s) */
 const SQUAT_IN = 0.25;
@@ -175,8 +199,14 @@ export class Rider {
   /** the edge as a share of EDGE_FULL (sound, poses, replays and ghosts) */
   get edgeAngle(): number { return this.edge / EDGE_FULL; }
   set edgeAngle(v: number) { this.edge = v * EDGE_FULL; }
-  /** radius of the turn the edge is holding (m, Infinity going straight), for debugging and tools */
+  /** radius of the turn the heading is following (m, Infinity going straight), for debugging and tools */
   turnRadius = Infinity;
+  /** BUG-053: heading rate this step (rad/s, + clockwise) and the lateral acceleration the edge and lean
+   *  balance (m/s^2), for the debug readout and tools */
+  turnRate = 0;
+  carveAcc = 0;
+  /** FEAT-133: eased steer while braking, -1 away from the edge (open swing, soft edge) .. +1 into it (square, dug in) */
+  brakeMod = 0;
   /** edge angle of the brake's snow cut (rad, 0 when not braking), for the board's roll on screen */
   brakePsi = 0;
   spin = 0; // extra yaw while airborne
@@ -282,7 +312,7 @@ export class Rider {
     this.vx = this.vy = this.vz = 0;
     this.heading = heading; this.onGround = true; this.airTime = 0; this.jumpCharge = 0;
     this.crashed = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
-    this.edge = 0; this.turnRadius = Infinity; this.lateralG = 0; this.landingShock = 0;
+    this.edge = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.landingShock = 0;
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
     this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false; this.mantle = 0; this.stepT = 0;
     this.sprinting = false; this.crawling = false; this.slipT = 0; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
@@ -333,7 +363,7 @@ export class Rider {
   /** End any brake swing: the board lines up with the heading again. */
   private squareBoard(): void {
     this.boardYaw = this.travelYaw = this.heading;
-    this.brakeAmt = 0; this.brakeSide = 0; this.brakeAcc = 0; this.brakePsi = 0; this.scrape = 0; this.slip = 0;
+    this.brakeAmt = 0; this.brakeSide = 0; this.brakeAcc = 0; this.brakePsi = 0; this.brakeMod = 0; this.scrape = 0; this.slip = 0;
   }
 
   /**
@@ -437,7 +467,7 @@ export class Rider {
       // the board squares up quickly once off the snow
       this.brakeAmt = Math.max(0, this.brakeAmt - dt / 0.15);
       this.brakeAcc = 0; this.scrape *= Math.exp(-dt * 10); this.slip = 0;
-      this.edge *= Math.exp(-dt * 5); this.brakePsi *= Math.exp(-dt * 8); this.turnRadius = Infinity; // off the snow the board rolls back flat
+      this.edge *= Math.exp(-dt * 5); this.brakePsi *= Math.exp(-dt * 8); this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; // off the snow the board rolls back flat
       if (this.brakeAmt === 0) this.brakeSide = 0;
       this.vz -= G * dt;
       // air control: spin with steer, slight drift
@@ -479,20 +509,23 @@ export class Rider {
     const gripBase = (1.0 + 0.4 * groomed - 0.5 * rock) * (1 + SQUAT_GRIP * this.squat) * (1 - PRESS_GRIP * Math.abs(this.lean)); // low centre of mass bites a little more; on a press you can't carve
 
     // ---- FEAT-127 edge and carve. Steer sets a target edge angle up to what can be held here; the
-    // edge rolls toward it at F.roll, so edge to edge takes a moment. A brake takes the edge over.
+    // edge rolls toward it at F.roll, quicker through the flat while it changes sides (BUG-053), so
+    // edge to edge takes about 0.3 s. A brake takes the edge over.
     const want = input.steer * this.edgeCap(input, F, powder, spd) * (1 - this.brakeAmt);
-    const roll = F.roll * dt;
+    const roll = F.roll * dt * (want * this.edge < 0 ? EDGE_SNAP : 1);
     this.edge += Math.max(-roll, Math.min(roll, (want - this.edge) * Math.min(1, dt * EDGE_EASE)));
     const psi = Math.abs(this.edge);
     // the board bent on edge carves an arc of R = Rsc cos(psi), and the rider balances it with
     // tan(phi) = v^2 / (g R), phi being the body's inclination (the edge less the angulation). Slow,
     // the sidecut's arc sets the turn; fast, the arc opens out to the radius the lean can hold.
     // Either way more edge is a tighter turn. The lean balances the edge's load, so on a slope the
-    // pull of the fall line helps the turn into it (gIn > 0) and fights it climbing across (gIn < 0).
+    // pull of the fall line helps the turn into it (gIn > 0) and fights it climbing across (gIn < 0,
+    // kept at GIN_FIGHT so the end of a turn across the hill is not its weakest part).
     const phi = Math.min(PHI_MAX, psi * (1 - F.angulation));
-    const gIn = (ax * lx + ay * ly) * Math.sign(this.edge);
+    const gInRaw = (ax * lx + ay * ly) * Math.sign(this.edge);
+    const gIn = gInRaw < 0 ? gInRaw * GIN_FIGHT : gInRaw;
     const aLat = Math.min((spd * spd) / (F.sidecut * Math.cos(psi)), Math.max(0, G * n[2] * Math.tan(phi) + gIn));
-    this.turnRadius = aLat > 1e-3 ? (spd * spd) / aLat : Infinity;
+    this.carveAcc = aLat;
     // more than the snow holds and the tail slides out: once the board slips past its line the
     // arc lets go of the heading, so the skid settles at a slip angle instead of spinning out
     let hold = 1;
@@ -501,9 +534,15 @@ export class Rider {
       if (ahead > SLIP_HOLD && ahead < Math.PI / 2) hold = Math.max(0, 1 - (ahead - SLIP_HOLD) / SLIP_WASH);
     }
     const carveRate = spd > 0.1 ? Math.sign(this.edge) * (aLat / spd) * hold : 0;
-    // slow or flat: a pivot (a skidded turn) straight from the steer, gone by F.pivotFade
-    const pivotRate = input.steer * (input.tuck ? F.pivotTuck : F.pivot) * Math.max(0, 1 - spd / F.pivotFade);
-    const dHeading = (carveRate + pivotRate) * dt;
+    // slow or flat: a pivot (a skidded turn) straight from the steer, gone by F.pivotFade; from about
+    // there on a small steer yaw (STEER_YAW) keeps the board coming round through an edge change.
+    // Neither while the board is swung across for a brake: the steer works the brake then (FEAT-133).
+    const steerFade = Math.max(0, Math.min(1, spd / F.pivotFade - 0.5));
+    const pivotRate = input.steer * ((input.tuck ? F.pivotTuck : F.pivot) * Math.max(0, 1 - spd / F.pivotFade) + STEER_YAW * steerFade) * (1 - this.brakeAmt);
+    const turnRate = carveRate + pivotRate;
+    this.turnRate = turnRate;
+    this.turnRadius = Math.abs(turnRate) > 1e-3 ? spd / Math.abs(turnRate) : Infinity;
+    const dHeading = turnRate * dt;
     this.heading += dHeading;
 
     // brake: swing the board across the direction of travel (a hockey stop). Steer picks the
@@ -516,6 +555,7 @@ export class Rider {
       if (this.brakeSide === 0) {
         this.brakeSide = input.steer > 0.1 ? 1 : input.steer < -0.1 ? -1 : this.edgeAngle > 0.3 ? 1 : -1;
         this.brakeGamma = this.discipline === 'ski' && spd < PLOUGH_SPEED ? 0 : STOP_GAMMA;
+        this.brakeMod = 0;
       }
       this.brakeAmt = Math.min(1, this.brakeAmt + dt / SWING_IN);
     } else if (this.brakeAmt > 0) {
@@ -528,21 +568,44 @@ export class Rider {
         if (this.brakeAmt === 0) this.brakeSide = 0;
       }
     }
+    // FEAT-133: steer works the brake while it is held: toward the brake side digs the edge in and
+    // squares the board up (a harder stop), away lets the edge off and opens the swing (a skidded
+    // turn, a drift down the fall line); eased so nothing snaps
+    const modWant = input.brake && this.brakeSide !== 0 && this.brakeGamma > 0 ? Math.max(-1, Math.min(1, input.steer * this.brakeSide)) : 0;
+    this.brakeMod += (modWant - this.brakeMod) * Math.min(1, dt / BRAKE_MOD_IN);
     const swing = this.poseBoard();
     this.slip = spd > 0.5 ? wrap(this.boardYaw - Math.atan2(this.vx, this.vy)) : 0;
-    // snow cut: a = g cos(alpha) tan(Psi) sin(gamma). The edge angle Psi ramps with the swing and
-    // rises with the slope (riders tip further on steeper pitches) so a brake can hold anywhere
-    // up to about 55 degrees. Skis below PLOUGH_SPEED snowplough with a flat drag instead.
-    let brakeAcc = 0;
+    // while the board is swung the steering axis follows the direction of travel, so the carve grip
+    // below does not fight the edge's push and the board rides off on its new line when the brake lets go
+    if (swing > 0 && spd > 0.5) this.heading += wrap(this.travelYaw - this.heading) * Math.min(1, dt * HEAD_FOLLOW) * swing;
+    // snow cut (FEAT-133): the edge resists the board's slide across itself with up to
+    // a = g cos(alpha) tan(Psi), pushing at right angles to the board. Psi ramps with the swing and
+    // rises with the slope (riders tip further on steeper pitches) so a brake can hold anywhere up
+    // to about 55 degrees, and the steer digs it in or lets it off. The push against the direction
+    // of travel is the braking, a = g cos(alpha) tan(Psi) sin(gamma); the push across it turns the
+    // rider toward the edge. The dug-in edge also drags along its own length (BRAKE_TRENCH of the
+    // cut), so the slide settles instead of running on along the board. On a steep pitch a soft edge
+    // cannot hold the slope's pull across the board and the rider side-slips. Skis below PLOUGH_SPEED
+    // snowplough with a flat drag instead.
+    let brakeAcc = 0, plough = 0;
     this.brakePsi = 0;
     if (swing > 0) {
       if (this.brakeGamma > 0) {
-        const cutMax = Math.min(68, Math.max(45, this.slopeDeg + 12));
-        const cut = (15 + (cutMax - 15) * swing) * D2R;
-        const sinG = spd > 0.5 ? Math.abs(Math.sin(this.slip)) : Math.sin(this.brakeGamma) * swing;
-        brakeAcc = Math.min(BRAKE_MAX, G * n[2] * Math.tan(cut) * sinG * (1 - 0.4 * rock));
+        const cutMax = Math.min(68, Math.max(45, this.slopeDeg + 12)) * D2R;
+        let cut = 15 * D2R + (cutMax - 15 * D2R) * swing;
+        cut += this.brakeMod > 0 ? (Math.min(68 * D2R, cutMax + PSI_DIG) - cut) * this.brakeMod : (Math.max(cut, PSI_SOFT) - PSI_SOFT) * this.brakeMod;
+        const bx = Math.cos(this.boardYaw), by = -Math.sin(this.boardYaw); // the board's right-hand side
+        const fx = Math.sin(this.boardYaw), fy = Math.cos(this.boardYaw); // along the board
+        const nvx = this.vx + ax * dt, nvy = this.vy + ay * dt; // after this step's gravity, so a dug-in edge holds on a slope
+        const aMax = Math.min(BRAKE_MAX, G * n[2] * Math.tan(cut)) * (1 - 0.4 * rock);
+        const aB = -Math.max(-aMax, Math.min(aMax, (nvx * bx + nvy * by) / dt));
+        const aF = -Math.max(-aMax * BRAKE_TRENCH, Math.min(aMax * BRAKE_TRENCH, (nvx * fx + nvy * fy) / BRAKE_TRENCH_T)) * swing;
+        ax += aB * bx + aF * fx; ay += aB * by + aF * fy;
+        // the deceleration along the travel direction, for spray, sound, the track and the lean;
+        // standing on the brake it reads the cut's full hold so the stance stays dug in
+        brakeAcc = spd > 0.5 ? -(aB * (bx * this.vx + by * this.vy) + aF * (fx * this.vx + fy * this.vy)) / spd : aMax * Math.sin(this.brakeGamma) * swing;
         this.brakePsi = cut;
-      } else brakeAcc = F.brake * G * swing;
+      } else plough = F.brake * G * swing;
     }
     this.brakeAcc = brakeAcc;
     this.scrape += (Math.min(1, (brakeAcc * spd) / 50) - this.scrape) * Math.min(1, dt * 10);
@@ -551,13 +614,16 @@ export class Rider {
     const vAlong = this.vx * hx + this.vy * hy;
     const vLat = this.vx * lx + this.vy * ly;
     // lateral grip: the most sideways force the snow holds (FEAT-127), a little on the flat base and
-    // the rest as the edge rolls in; less off the groomers and on rock and scree (icy, scraped)
+    // the rest as the edge rolls in; less off the groomers and on rock and scree (icy, scraped).
+    // Swung across for a brake the board is not under the heading, so the edge's push above takes
+    // over from it (FEAT-133).
     const bite = Math.min(1, psi / GRIP_EDGE);
     const maxLat = G * gripBase * (F.gripFlat + F.gripEdge * bite);
     // wanted: kill lateral velocity (carve) within a short time
     let latAcc = -vLat / Math.max(0.04, 0.12 - 0.08 * bite);
     const skidding = Math.abs(latAcc) > maxLat;
     if (skidding) latAcc = Math.sign(latAcc) * maxLat;
+    latAcc *= 1 - swing;
     this.skid += (((skidding ? Math.min(1, Math.abs(vLat) / 6) : 0)) - this.skid) * Math.min(1, dt * 10);
     ax += latAcc * lx; ay += latAcc * ly;
     this.lateralG += ((latAcc / G) - this.lateralG) * Math.min(1, dt * 12);
@@ -566,7 +632,7 @@ export class Rider {
     const aeroK = input.tuck ? F.aeroTuck : F.aero + (F.aeroTuck - F.aero) * SQUAT_AERO * this.squat; // a squat is part way to a tuck
     const aero = aeroK * spd * spd * (this.boost ? 0.55 : 1) + PRESS_DRAG * Math.abs(this.lean) * spd; // FEAT-112: the loaded end digs in
     const snowDrag = 0.015 * G * (1 - 0.5 * groomed) + powder * 0.004 * spd + 0.35 * this.skid * G;
-    const dragAcc = aero + snowDrag + brakeAcc;
+    const dragAcc = aero + snowDrag + plough;
     if (spd > 0.01) {
       const d = Math.min(dragAcc * dt, spd);
       ax -= (this.vx / spd) * (d / dt); ay -= (this.vy / spd) * (d / dt);
@@ -888,9 +954,17 @@ export class Rider {
     const a = this.brakeAmt;
     const e = a * a * (3 - 2 * a);
     if (e === 0 || this.brakeSide === 0) { this.boardYaw = this.heading; return 0; }
-    const target = this.travelYaw + this.brakeSide * this.brakeGamma;
+    const target = this.travelYaw + this.brakeSide * this.stopAngle();
     this.boardYaw = this.heading + wrap(target - this.heading) * e;
     return e;
+  }
+
+  /** FEAT-133: the board angle to travel this brake is swinging to: the stop angle, squared up toward
+   *  GAMMA_HARD steering into the edge or opened out toward GAMMA_SOFT steering away (0 = snowplough) */
+  private stopAngle(): number {
+    if (this.brakeGamma <= 0) return 0;
+    const m = this.brakeMod;
+    return m >= 0 ? STOP_GAMMA + (GAMMA_HARD - STOP_GAMMA) * m : STOP_GAMMA + (STOP_GAMMA - GAMMA_SOFT) * m;
   }
 
   private land(ground: number, input: Input): void {
