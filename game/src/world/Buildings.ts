@@ -17,11 +17,14 @@ const SINK = 2.5; // m below the lowest ground point under the footprint
 const POST = 0.35, CANOPY_FASCIA = 0.6;
 /** BUG-024: named buildings bigger than this (m^2) with no height in OSM get a lodge height */
 const BIG_LODGE_M2 = 1500; // keep in step with BIG_LODGE_M2 in pipeline/build_pack.py (old packs only)
-function footprintArea(pts: number[][]): number {
+/** twice the signed shoelace area: positive for a counter-clockwise footprint */
+function signedArea2(pts: number[][]): number {
   let a = 0;
   for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; }
-  return Math.abs(a) / 2;
+  return a;
 }
+/** edges shorter than this (m) get the plain wall quad only, no facade bands (keeps curved blocks cheap) */
+const MIN_FACADE_EDGE = 3;
 
 export class Buildings {
   readonly group = new THREE.Group();
@@ -81,14 +84,15 @@ export class Buildings {
     const hi = b.zMax ?? b.zBase;
     if (!Number.isFinite(zMin)) { zMin = b.zBase; zMax = hi; }
     const base = Math.min(zMin, b.zBase) - SINK;
-    const area = footprintArea(pts);
+    const sArea = signedArea2(pts);
+    const area = Math.abs(sArea) / 2;
     const kind = b.kind ?? 'yes';
     // FEAT-071: a style class from where the building is and what it is tagged
     const style = styleOf(b, area, this.valleyFloor);
     let height = Math.max(3, b.height || 5);
     // older packs: a big named lodge with only the 5.5 m default is 3 to 4 storeys (Eagle's Nest)
     // packs with zMax already apply this rule in build_pack.py only when OSM has no height, so skip it there
-    if (b.zMax === undefined && b.name && height <= 5.5 && footprintArea(pts) > BIG_LODGE_M2) height = 12;
+    if (b.zMax === undefined && b.name && height <= 5.5 && area > BIG_LODGE_M2) height = 12;
     // FEAT-071: the pipeline's untagged defaults (5.5 m, or 9 m for hotels and shops) become a height
     // by class and size; heights from building:levels or height tags are kept
     if (b.height === 5.5 || (b.height === 9 && DEFAULT_9.has(kind))) height = classHeight(style, kind, area, !!b.name);
@@ -97,8 +101,6 @@ export class Buildings {
     const wall = P.wall;
     const roofSnow = [0.95, 0.96, 1.0];
     // ensure counter-clockwise (positive area) in x/y so wall normals face out
-    let sArea = 0;
-    for (let i = 0; i < pts.length; i++) { const a = pts[i], c = pts[(i + 1) % pts.length]; sArea += a[0] * c[1] - c[0] * a[1]; }
     if (sArea < 0) pts = [...pts].reverse();
     const n = pts.length;
     const quad = (q: number[][], nx: number, ny: number, nz: number, c: number[]) => {
@@ -129,7 +131,7 @@ export class Buildings {
       const len = Math.hypot(ex, ey) || 1;
       const nx = ey / len, ny = -ex / len; // outward for CCW footprint (x east, y north)
       quad([[a[0], a[1], wallBase], [c[0], c[1], wallBase], [c[0], c[1], top], [a[0], a[1], top]], nx, ny, 0, wall);
-      if (canopy) continue;
+      if (canopy || len < MIN_FACADE_EDGE) continue;
       // FEAT-071 facade, just proud of the wall: a stone base band up to the highest ground plus a
       // little, a dark window band per storey (huts get one small one), and a timber band under the eaves
       const o = 0.04, ox = nx * o, oy = ny * o;

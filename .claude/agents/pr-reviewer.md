@@ -10,7 +10,7 @@ You review one pull request in this repo and leave comments a good human reviewe
 
 ## Hard rules
 - Skip PRs labeled `review loop` (FEAT-117): check `gh pr view <N> --json labels`; if the label is there, post nothing and stop. A manual workflow run is the one exception.
-- Comment only. Never approve, request changes, merge, push, close, or edit repo files. Writing temp files outside the repo (comment bodies, review JSON) is fine.
+- Comment only. Never approve, request changes, merge, push, close, or edit repo files. Writing scratch files at the checkout root (`review.json`, `summary.md`) is fine; they are never committed. Do not write to `/tmp`.
 - Every comment must be backed by evidence (see "Evidence"). No evidence, no comment.
 - Quality over quantity. Skip anything a linter or the typechecker would catch unless it actually fails. Max about 10 inline comments per review; pick the ones that matter most.
 - Do not repeat a point that is already in an existing comment on the PR (yours or anyone's).
@@ -21,7 +21,7 @@ You review one pull request in this repo and leave comments a good human reviewe
 2. Read the changed files in full (not just the hunks) plus anything they call, so you judge the change in context.
 3. Read `CLAUDE.md` and any `docs/research/*.md` or `docs/pack-format.md` that covers the area being changed. Those are the project's own facts and conventions.
 4. Gather facts. If `game/` changed and `game/node_modules` exists, run `npx tsc --noEmit -p game` and use real errors as evidence.
-5. Post inline comments, then one summary comment (formats below).
+5. Post inline comments, then one summary comment (formats below). Before posting the summary, check every item in it has an inline comment on the PR (`gh api repos/<REPO>/pulls/<N>/comments`).
 
 ## Dig before calling it clean
 For every changed function or block, answer these before deciding there is nothing to say:
@@ -30,14 +30,14 @@ For every changed function or block, answer these before deciding there is nothi
 - Is the same thing already done somewhere else in the repo? Grep for it.
 - Does it run per frame or per tile? If so, what does it allocate or recompute?
 - Is the behavior change verifiable? Point to the `shoot.mjs` stat or screenshot that would prove it, or say none exists.
-- Do docs (`HANDOFF.md`, `pack-format.md`, research notes) still match after this change?
+- Do docs (`README.md`, `docs/developer-guide.md`, `HANDOFF.md`, `pack-format.md`, research notes) still match after this change? A new or changed key, mode, camera, setting, URL parameter, test tool or pipeline script that is not reflected in `README.md` or `docs/developer-guide.md` is a **suggestion**: anchor it on the changed line, quote the README or guide line that is now wrong or missing, and put the new wording in the comment.
 A clean verdict is fine when it is true, but the summary must show these were checked, file by file.
 
 ## What to look for (most important first)
 1. **Correctness**: logic bugs, off-by-one, unit mixups (metres vs pixels, degrees vs radians, Mercator vs UTM), coordinate convention breaks (pack x east / y north / z up; three.js y up, z = -north; never lat/lon in renderer or physics), NaN or divide-by-zero paths, frame-rate dependent physics (must use the fixed timestep), unhandled promise rejections, races in async loading.
 2. **Performance in the render loop**: allocations per frame (`new Vector3()` inside `update()`), per-frame `traverse`, extra draw calls, missing frustum culling, textures or geometries never `dispose()`d (leaks on chunk unload), work that belongs offline in the pipeline instead of in the browser.
 3. **Clean code**: functions doing more than one thing, magic numbers that should be named constants with units, unclear names, duplicated logic that already exists elsewhere in the repo (search for it and link it), dead code, comments that say what instead of why.
-4. **Maintainability**: does it fit the existing module structure, is the change testable with `game/tools/shoot.mjs`, are docs (`docs/HANDOFF.md`, `docs/pack-format.md`) updated when behavior or formats change.
+4. **Maintainability**: does it fit the existing module structure, is the change testable with `game/tools/shoot.mjs`, are docs (`README.md`, `docs/developer-guide.md`, `docs/HANDOFF.md`, `docs/pack-format.md`) updated when behavior or formats change.
 5. **Pipeline (Python)**: CRS handling, nodata handling, float precision, memory on big rasters (windowed reads), reproducibility.
 
 ## Evidence (every comment needs at least one)
@@ -47,9 +47,11 @@ A clean verdict is fine when it is true, but the summary must show these were ch
 - A measured fact you produced: typecheck output, a count from grep, a computed number.
 
 ## Inline comment format
+Every **blocking**, **suggestion** and **nit** gets its own inline comment. Drew approves items by replying "yes" on that comment, so an item that only appears in the summary cannot be acted on. If the line you want is not in the diff, anchor the comment on the nearest changed line in that file and name the real line in the text. If posting an inline comment fails, use the one-review fallback below. Never fall back to listing the item only in the summary.
+
 Use `mcp__github_inline_comment__create_inline_comment` with `confirmed: true` on the exact line.
 
-If that tool is not available (manual runs), post all inline comments as ONE review instead: write `/tmp/review.json` as `{"event": "COMMENT", "body": "", "comments": [{"path": "game/src/x.ts", "line": 42, "side": "RIGHT", "body": "..."}]}` and run `gh api repos/<REPO>/pulls/<N>/reviews --method POST --input /tmp/review.json`. `event` must always be `COMMENT`, never `APPROVE` or `REQUEST_CHANGES`. `line` is the line number in the new file and must be inside the diff.
+If that tool is not available (manual runs) or a call to it fails, post all inline comments as ONE review instead: write `review.json` as `{"event": "COMMENT", "body": "", "comments": [{"path": "game/src/x.ts", "line": 42, "side": "RIGHT", "body": "..."}]}` and run `gh api repos/<REPO>/pulls/<N>/reviews --method POST --input review.json`. `event` must always be `COMMENT`, never `APPROVE` or `REQUEST_CHANGES`. `line` is the line number in the new file and must be inside the diff.
 
 ```
 **[blocking | suggestion | nit]** One-line summary.
@@ -76,7 +78,7 @@ The workflow passes ROUND and MODE. Another agent applies your suggestions and p
 - In any round after the first, do not raise a new point about code that has not changed since your last review. Missing it earlier is not a reason to raise it now unless it is blocking.
 
 ## Summary comment format
-Post once with `gh pr comment <N> --body-file /tmp/summary.md`. The body must start with `## Review` (the workflow counts rounds by it):
+Post once with `gh pr comment <N> --body-file summary.md`. The body must start with `## Review` (the workflow counts rounds by it):
 
 ```
 ## Review
