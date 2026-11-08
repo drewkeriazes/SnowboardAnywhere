@@ -2,11 +2,6 @@ import * as THREE from 'three';
 import { CSM } from 'three/examples/jsm/csm/CSM.js';
 import { Atmosphere } from './Atmosphere';
 
-/**
- * Sky and atmosphere (Atmosphere.ts: scattering sky, height fog, aerial perspective), sun with cascaded shadow maps (3 cascades over the first 1.2 km so trees shadow
- * pistes at distance and the rider still gets a crisp shadow) and hemisphere fill.
- * `sun` is kept as the colour/intensity reference; the CSM owns the actual lights.
- */
 /** FEAT-092: the most the sun's colour may depart from neutral: (max - min) / max of the RGB */
 const SUN_TINT_MAX = 0.32;
 /** Lift a colour's weaker channels toward its brightest until its saturation is at most `max` (the brightness, its max, is kept). */
@@ -19,6 +14,11 @@ export function capTint(c: THREE.Color, max: number): void {
   c.setRGB(hi - (hi - c.r) * f, hi - (hi - c.g) * f, hi - (hi - c.b) * f);
 }
 
+/**
+ * Sky and atmosphere (Atmosphere.ts: scattering sky, height fog, aerial perspective), sun with cascaded shadow maps (3 cascades over the first 1.2 km so trees shadow
+ * pistes at distance and the rider still gets a crisp shadow) and hemisphere fill.
+ * `sun` is kept as the colour/intensity reference; the CSM owns the actual lights.
+ */
 export class Environment {
   readonly atmo: Atmosphere;
   readonly sky: THREE.Mesh;
