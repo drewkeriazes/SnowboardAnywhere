@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Rider } from '../sim/Rider';
+import { EDGE_FULL, type Rider } from '../sim/Rider';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
 import { Ragdoll, RAGDOLL_RECOVER } from './Ragdoll';
@@ -9,6 +9,8 @@ import { Gait, type Plant } from './Gait';
 
 /** FEAT-112: half the skis' length (where they pivot) and the most they tip up on a full lean (rad) */
 const BOARD_HALF = 0.72, LEAN_TIP = 18 * Math.PI / 180;
+/** FEAT-127: the board's roll pivots on its engaged edge, this far off centre (m); each ski on its own edge */
+const EDGE_OFF = 0.13, SKI_EDGE_OFF = 0.05, EDGE_PIVOT_ROLL = 0.15;
 /** FEAT-118: board flex spring: natural frequency (rad/s, about 0.3 s a cycle) and damping ratio
  *  (0.45 overshoots about 20 %, so a full load snaps past flat to about -0.15 on the pop) */
 const FLEX_W = 21, FLEX_ZETA = 0.45;
@@ -95,6 +97,8 @@ export class RiderView {
   private poses: Record<string, Pose> = POSES;
   discipline: 'board' | 'ski' = 'board';
   private leanAngle = 0;
+  /** FEAT-127: the board's roll onto its edge (rad, + = toe / right edge), smoothed */
+  private boardRoll = 0;
   /** FEAT-118: board bend (0 flat .. 1 full load), its rate, and which end is loaded (-1 tail, +1 nose) */
   private flex = 0; private flexV = 0; private flexDir = -1;
   private twist = 0;
@@ -342,19 +346,27 @@ export class RiderView {
     const latG = r.lateralG * (1 - r.brakeAmt) + brakeG;
     const phi = r.onGround && !seated ? Math.max(-0.7, Math.min(0.7, Math.atan(latG * 0.8))) : 0;
     this.leanAngle += (phi - this.leanAngle) * Math.min(1, dt * 8);
-    // the board and the rider roll together about the engaged edge (0.13 m off centre) so the edge
-    // stays in the snow; angulation comes from the carve poses bending at the waist
-    const side = Math.abs(this.leanAngle) > 0.03 ? Math.sign(this.leanAngle) : 0;
-    this.lean.position.set(side * 0.13, 0, 0);
+    // FEAT-127: the board rolls onto the sim's real edge angle (the brake's snow cut while braking),
+    // further over than the body: the knees and hips make up the difference (angulation)
+    const bk = r.brakeSide !== 0 ? r.brakeAmt : 0;
+    const rollT = r.onGround && !seated && r.crashed <= 0 ? r.edgeAngle * EDGE_FULL * (1 - bk) + r.brakeSide * (r.brakePsi ?? 0) * bk : 0;
+    this.boardRoll += (rollT - this.boardRoll) * Math.min(1, dt * 15);
+    // the board and the rider roll together about the engaged edge so it stays in the snow, then the
+    // board rolls on by `ex` about that same edge. The pivot slides out from the middle of the base
+    // to the edge (EDGE_OFF) over the first EDGE_PIVOT_ROLL of roll, so an edge change never pops.
+    const pv = EDGE_OFF * Math.max(-1, Math.min(1, this.boardRoll / EDGE_PIVOT_ROLL));
+    const ex = this.boardRoll - this.leanAngle;
+    this.lean.position.set(pv, 0, 0);
     this.lean.rotation.set(0, 0, -this.leanAngle); // positive lateralG tips +Y toward +X
-    this.rig.board.position.set(-side * 0.13, 0, 0);
+    if (this.discipline === 'board') this.rig.board.position.set(-pv * Math.cos(ex), pv * Math.sin(ex), 0);
+    else { this.rig.board.position.set(-pv, 0, 0); if (!seated) this.rollSkis(ex, pv / EDGE_OFF); }
     // FEAT-112: the board tips up about its loaded end, up to 18 deg: nose up on a lean back (ollie,
     // tail press), tail up on a lean forward (nollie, nose press). The feet ride the bindings with it.
     const L = r.lean ?? 0;
     if (this.discipline === 'board') {
       // FEAT-118: the snowboard bends instead: tail flat, arched from the back foot, nose up.
       // The load grows with the lean and the jump charge and lets go in the air (the pop).
-      this.rig.board.rotation.set(0, 0, 0);
+      this.rig.board.rotation.set(0, 0, -ex);
       const target = seated || !r.onGround ? 0 : Math.abs(L) * (0.6 + 0.4 * Math.min(1, r.jumpCharge));
       if (Math.abs(L) > 0.01) this.flexDir = Math.sign(L);
       const h = Math.min(dt, 0.05);
@@ -467,7 +479,7 @@ export class RiderView {
       const floor = deckY(this.rig, hipZ) + 0.022 + HIP_CLEAR;
       if (p.hipsY < floor) p.hipsY = floor;
     }
-    this.applyFK(p, -side * 0.13, hipZ);
+    this.applyFK(p, -pv, hipZ);
     p.hipsY = hy; p.torso[0] = tx;
 
     // ---- legs: boots pinned to the bindings, or on a chair the board hangs from the feet
@@ -499,6 +511,15 @@ export class RiderView {
       this.rig.body.updateMatrixWorld(true);
     }
     this.updateSpray(r, dt, f, right, true);
+  }
+
+  /** FEAT-127: roll each ski by `ex` past the body's lean, about its own edge on the turn's side (`side` -1..1) */
+  private rollSkis(ex: number, side: number): void {
+    for (const c of this.rig.carriers) {
+      const x0 = c.rest.elements[12], e = side * SKI_EDGE_OFF;
+      c.obj.rotation.set(0, 0, -ex);
+      c.obj.position.set(x0 + e - e * Math.cos(ex), e * Math.sin(ex), 0);
+    }
   }
 
   /**
@@ -606,7 +627,7 @@ export class RiderView {
     this.q.setFromRotationMatrix(this.rot);
     this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
     this.baseQ.copy(this.group.quaternion); // FEAT-110: keep the riding base in step, no swing when strapping back in
-    this.leanAngle = 0; this.twist = 0;
+    this.leanAngle = 0; this.boardRoll = 0; this.twist = 0;
     this.lean.position.set(0, 0, 0); this.lean.rotation.set(0, 0, 0);
 
     // ---- gait (pack coords): runs once fully on foot; until then the feet's standing spots follow the body
