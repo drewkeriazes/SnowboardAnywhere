@@ -704,6 +704,10 @@ export class RiderView {
       this.ridingPose(h, r, tuck, b, this.edgeHips, fl * r.predictLean(this.leadHips));
       t.hipsY = h.hipsY; t.hipsRot = h.hipsRot; t.lHip = h.lHip; t.rHip = h.rHip; t.lKnee = h.lKnee; t.rKnee = h.rKnee;
     }
+    // FEAT-139: the poses turn the chest and head toward the rig's nose. Drawn turned round (riding
+    // switch, or goofy) that end trails, so the rider looks the other way along the board instead:
+    // over the rig's tail, where they are going. The pose blend below eases the turn after a 180.
+    if (fl < 0 && !seated && r.crashed <= 0) { t.torso = [t.torso[0], -t.torso[1], t.torso[2]]; t.head = [t.head[0], -t.head[1], t.head[2]]; }
     // ---- physical layer on top of the poses
     const free = !seated && r.crashed <= 0;
     if (free) {

@@ -4,7 +4,8 @@
 // (regular switch) or right (goofy switch), SWITCH on the HUD and the trick named. Then steers right
 // riding switch and checks it turns right with the heel edge drawn engaged (regular) or the toe edge
 // (goofy), and lands a second 180 back to the normal stance. Also shows a time-trial ghost riding
-// switch on the snow (BUG-059: the ghost threw there) and checks there are no console errors.
+// switch on the snow (BUG-059: the ghost threw there) and checks there are no console errors. The head
+// looks ahead along the direction of travel in every stance (it looked back up the hill riding switch).
 // node tools/switchcheck.mjs [pack] [--headed]   (run after `npx vite build`; exit 1 on a failed check)
 const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
 import http from 'node:http';
@@ -59,7 +60,11 @@ for (const stance of ['regular', 'goofy']) {
       const tx = 1 - 2 * (y * y + z * z), tz = 2 * (x * z - w * y);
       const hx = Math.sin(r.heading), hy = Math.cos(r.heading); // pack
       const toe = tx * hy + tz * hx; // the toe side vector (three x, -z = pack north) against the heading's right (hy, -hx) in pack
-      out.push({ yaw: Math.atan2(fx, -fz), toe, sw: r.switch, ground: r.onGround, crashed: r.crashed, speed: r.speed, travel: Math.atan2(r.vx, r.vy), heading: r.heading, roll: v.leadState.physRoll, spin: r.spin, hit: r.lastHit, x: r.x, y: r.y, toast: document.getElementById('toast').textContent });
+      // where the head looks (its -Z, flat) against the direction of travel: + ahead, - back up the hill
+      v.group.updateMatrixWorld(true);
+      const he = v.rig.bones.Head.matrixWorld.elements, gx = -he[8], gn = he[10], gl = Math.hypot(gx, gn) || 1, sp = Math.hypot(r.vx, r.vy) || 1;
+      const look = (gx * r.vx + gn * r.vy) / (gl * sp);
+      out.push({ look, yaw: Math.atan2(fx, -fz), toe, sw: r.switch, ground: r.onGround, crashed: r.crashed, speed: r.speed, travel: Math.atan2(r.vx, r.vy), heading: r.heading, roll: v.leadState.physRoll, spin: r.spin, hit: r.lastHit, x: r.x, y: r.y, toast: document.getElementById('toast').textContent });
     }
     if (frame) { window.__step(1, 1 / 60); out[out.length - 1].hud = document.getElementById('hud').textContent.includes('SWITCH'); }
     return out;
@@ -91,6 +96,7 @@ for (const stance of ['regular', 'goofy']) {
   });
   s = await ride(20, 0, true);
   const last = (a) => a[a.length - 1];
+  check('looks ahead riding the normal stance', last(s).look > 0.3, `head to travel ${last(s).look.toFixed(2)}`);
   check('rides the normal stance, toe side as the stance has it', !last(s).sw && !last(s).hud && Math.sign(last(s).toe) === (goofy ? -1 : 1), `toe ${last(s).toe.toFixed(2)}, speed ${last(s).speed.toFixed(1)}`);
 
   const before = last(s).yaw;
@@ -104,6 +110,7 @@ for (const stance of ['regular', 'goofy']) {
   check('trick named', L.toast === (goofy ? 'Frontside 180' : 'Backside 180'), L.toast);
 
   s = await ride(120);
+  check('looks ahead riding switch, not back up the hill', last(s).look > 0.3, `head to travel ${last(s).look.toFixed(2)}`);
   check('stays switch on its own (2 s)', s.every((x) => x.sw) && maxStep(s) < 0.05, `largest ${deg(maxStep(s))} deg`);
   const t = await ride(40, 1);
   const turned = wrap(last(t).travel - t[0].travel);
@@ -116,6 +123,7 @@ for (const stance of ['regular', 'goofy']) {
   s = await spin(-1, 900);
   L = last(s);
   check('a second 180 back to the normal stance', !L.sw && !L.hud && L.crashed <= 0, L.detail);
+  check('looks ahead again back in the normal stance', L.look > 0.3, `head to travel ${L.look.toFixed(2)}`);
   check('no pop on the way back', maxStep(s) < 12 * Math.PI / 180, `largest ${deg(maxStep(s))} deg`);
   check('switch trick named', L.toast === (goofy ? 'Switch frontside 180' : 'Switch backside 180'), L.toast);
 
