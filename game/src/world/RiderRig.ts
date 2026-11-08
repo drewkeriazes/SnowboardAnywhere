@@ -65,6 +65,8 @@ interface BoardFlex { meshes: FlexMesh[]; bindings: { obj: THREE.Object3D; y: nu
  *  from the loaded end (t0, 0..1) and the nose (or tail) rise on a full load (m) */
 const FLEX_HALF = 0.78, FLEX_N = 41, FLEX_T0 = 0.3, FLEX_RISE = 0.28;
 const _bz = new Float32Array(FLEX_N), _by = new Float32Array(FLEX_N), _ba = new Float32Array(FLEX_N);
+/** BUG-049: bendBoard's per-point lookup result (bent z, height, bend angle), reused */
+let _oz = 0, _oy = 0, _oa = 0;
 const _qx = new THREE.Quaternion(), _qy = new THREE.Quaternion(), _ax = new THREE.Vector3(1, 0, 0), _ay = new THREE.Vector3(0, 1, 0);
 
 /**
@@ -135,23 +137,26 @@ export function bendBoard(rig: RiderRig, amount: number, dir: number): void {
   }
   fx.zs.set(_bz); fx.ys.set(_by);
   // a rest z -> its bent station (linear between stations)
-  const at = (z: number): [number, number, number] => {
+  // BUG-049: writes the bent point into _oz / _oy / _oa instead of returning a new array per vertex
+  const at = (z: number): void => {
     const f = Math.max(0, Math.min(FLEX_N - 1, (FLEX_HALF - s * z) / ds)), i = Math.min(FLEX_N - 2, Math.floor(f)), k = f - i;
-    return [_bz[i] + (_bz[i + 1] - _bz[i]) * k, _by[i] + (_by[i + 1] - _by[i]) * k, _ba[i] + (_ba[i + 1] - _ba[i]) * k];
+    _oz = _bz[i] + (_bz[i + 1] - _bz[i]) * k; _oy = _by[i] + (_by[i + 1] - _by[i]) * k; _oa = _ba[i] + (_ba[i + 1] - _ba[i]) * k;
   };
   for (const m of fx.meshes) {
     const P = m.geo.attributes.position as THREE.BufferAttribute, N = m.geo.attributes.normal as THREE.BufferAttribute;
     const p = P.array as Float32Array, n = N.array as Float32Array, r = m.rest, rn = m.restN;
     for (let v = 0; v < r.length; v += 3) {
-      const [bz, by, a] = at(r[v + 2]), c = Math.cos(a), sn = Math.sin(a), h = r[v + 1];
-      p[v] = r[v]; p[v + 1] = by + h * c; p[v + 2] = bz + h * sn;
+      at(r[v + 2]);
+      const c = Math.cos(_oa), sn = Math.sin(_oa), h = r[v + 1];
+      p[v] = r[v]; p[v + 1] = _oy + h * c; p[v + 2] = _oz + h * sn;
       n[v] = rn[v]; n[v + 1] = rn[v + 1] * c - rn[v + 2] * sn; n[v + 2] = rn[v + 1] * sn + rn[v + 2] * c;
     }
     P.needsUpdate = true; N.needsUpdate = true;
   }
   for (const b of fx.bindings) {
-    const [bz, by, a] = at(b.z);
-    b.obj.position.set(0, by + b.y * Math.cos(a), bz + b.y * Math.sin(a));
+    at(b.z);
+    const a = _oa;
+    b.obj.position.set(0, _oy + b.y * Math.cos(a), _oz + b.y * Math.sin(a));
     b.obj.quaternion.copy(_qx.setFromAxisAngle(_ax, a)).multiply(_qy.setFromAxisAngle(_ay, b.ang));
   }
 }

@@ -16,22 +16,27 @@ export type CameraMode = 'chase' | 'close' | 'far' | 'cine' | 'fp' | 'helmet' | 
 
 /**
  * FEAT-122: how each third-person camera frames the rider (metres). dist / height place the camera
- * behind and above the board; it looks at a point lookAhead in front of the rider along the travel
- * direction and lookUp above the board. tuckDrop lowers it in a tuck, side swings it off to one side,
- * lead (0..1) is how much of the follow lag is cancelled so the distance holds at speed.
+ * behind and above the board, and clear is the least it keeps above the snow under itself (on a steep
+ * slope that, not height, sets how high it sits). It looks at a point lookAhead in front of the rider
+ * along the travel direction, lookUp above the board, or with aimGround lookUp above the snow there,
+ * so it looks over the rider's head at what is coming. tuckDrop lowers it in a tuck, side swings it
+ * off to one side, lead (0..1) is how much of the follow lag is cancelled so the distance holds at speed.
  */
-interface Framing { dist: number; height: number; lookAhead: number; lookUp: number; tuckDrop: number; side: number; lead: number }
+interface Framing { dist: number; height: number; clear: number; lookAhead: number; lookUp: number; aimGround: boolean; tuckDrop: number; side: number; lead: number }
 const FRAMING: Record<'chase' | 'close' | 'far' | 'cine', Framing> = {
-  // default at speed: close behind, a little above the head, the rider in the lower middle of the frame
-  chase: { dist: 4.0, height: 1.6, lookAhead: 5, lookUp: 1.5, tuckDrop: 0.3, side: 0, lead: 1 },
-  close: { dist: 3.0, height: 1.4, lookAhead: 4, lookUp: 1.4, tuckDrop: 0.25, side: 0, lead: 1 },
+  // default: above and behind, looking over the head at the snow ahead; the rider in the lower third
+  chase: { dist: 4.5, height: 4.0, clear: 3.6, lookAhead: 10, lookUp: 1.0, aimGround: true, tuckDrop: 0.3, side: 0, lead: 1 },
+  // tight and low behind the back: the rider big in frame, for the feel of speed
+  close: { dist: 2.6, height: 1.3, clear: 1.0, lookAhead: 4, lookUp: 1.5, aimGround: false, tuckDrop: 0.25, side: 0, lead: 1 },
   // broadcast view: high and further back, looking down at the rider about 25 deg, the line ahead in view
-  far: { dist: 11, height: 6.5, lookAhead: 3, lookUp: 0.6, tuckDrop: 0.4, side: 0, lead: 1 },
+  far: { dist: 11, height: 6.5, clear: 1.2, lookAhead: 3, lookUp: 0.6, aimGround: false, tuckDrop: 0.4, side: 0, lead: 1 },
   // FEAT-045 cinematic: low, off to one side and trailing on a long lens, slow to follow (lag kept)
-  cine: { dist: 11, height: 1.3, lookAhead: 0, lookUp: 1.0, tuckDrop: 0.6, side: 5, lead: 0 },
+  cine: { dist: 11, height: 1.3, clear: 1.2, lookAhead: 0, lookUp: 1.0, aimGround: false, tuckDrop: 0.6, side: 5, lead: 0 },
 };
 /** FEAT-122: the default camera stopped or slow relaxes back to this, so you can see around you */
-const CHASE_SLOW = { dist: 5.0, height: 2.1 };
+const CHASE_SLOW = { dist: 5.5, height: 4.2 };
+/** aimGround: the aim point never drops faster than this (rise / run) below the rider, nor rises above it more than AIM_RISE, so a cliff, a jump or an uphill does not yank the view */
+const AIM_DROP = 0.6, AIM_RISE = 0.15;
 /** speeds (m/s) between which the default blends from CHASE_SLOW to its at-speed framing */
 const CHASE_BLEND_LO = 3, CHASE_BLEND_HI = 12;
 
@@ -348,7 +353,7 @@ export class ChaseCamera {
     if (f.side) this.desired.add(new THREE.Vector3(-back.z, 0, back.x).multiplyScalar(f.side));
     // keep the camera above the snow
     const ground = this.pack.groundHeight(this.desired.x, -this.desired.z);
-    if (this.desired.y < ground + 1.2) this.desired.y = ground + 1.2;
+    if (this.desired.y < ground + f.clear) this.desired.y = ground + f.clear;
     // BUG-032: a trunk, rock or wall between the rider and the camera pulls the camera in front of it,
     // quickly (no lag through the tree); the normal lag eases it back out once the line is clear
     const blocked = this.pullIn(r, this.desired);
@@ -364,7 +369,13 @@ export class ChaseCamera {
     const under = this.pack.groundHeight(this.pos.x, -this.pos.z) + 0.8;
     if (this.pos.y < under) this.pos.y = under;
     // while orbiting look at the rider, not ahead of them
-    const lookTarget = riderPos.clone().addScaledVector(back, orbiting ? 0 : f.lookAhead).add(new THREE.Vector3(0, orbiting ? 1.0 : f.lookUp, 0));
+    const ahead = orbiting ? 0 : f.lookAhead;
+    const lookTarget = riderPos.clone().addScaledVector(back, ahead);
+    if (f.aimGround && !orbiting) {
+      // over the head at the snow ahead: follows the slope down, within AIM_DROP / AIM_RISE of the rider
+      const ga = this.pack.groundHeight(lookTarget.x, -lookTarget.z);
+      lookTarget.y = THREE.MathUtils.clamp(Number.isFinite(ga) ? ga : r.z, r.z - ahead * AIM_DROP, r.z + ahead * AIM_RISE) + f.lookUp;
+    } else lookTarget.y += orbiting ? 1.0 : f.lookUp;
     const kl = 1 - Math.exp(-dt * 8), ll = f.lead * lagTime(dt, kl);
     lookTarget.x += r.vx * ll; lookTarget.y += vz * ll; lookTarget.z -= r.vy * ll;
     this.look.lerp(lookTarget, kl);

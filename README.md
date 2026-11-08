@@ -2,9 +2,10 @@
 
 A browser snowboarding game set on real mountains, rebuilt at 1:1 from public data: lidar terrain,
 real trees, and the actual lifts, runs and buildings from OpenStreetMap. Ride Vail top to bottom,
-take the chairs back up, race your own ghost.
+take the chairs back up, race your own ghost, or outrun the snow monster.
 
 Built with Three.js, TypeScript and Vite. Resorts so far: Vail and Breckenridge (pick one on the main menu).
+Modes: free ride, time trials (turn on in Settings > Game) and Outrun (Esc > Outrun).
 
 ## Play
 
@@ -27,16 +28,16 @@ no resort pack built yet (packs are generated locally, see below).
 | Shift | squat on the snow, grab in the air, sprint on foot |
 | Q / Z | nose / tail press (hold) |
 | X | skate on the flat (hold) |
-| E | ride a lift (at the bottom terminal); skip to the top while riding; strap in or out when stopped away from lifts |
+| E | ride a lift (at the base, inside the lift line where there is one); skip to the top while riding; strap in or out when stopped away from lifts |
 | G (hold) | look behind, in every camera |
 | Alt (hold) or right mouse button | look around |
-| C | change camera (chase, close, far, first person, free) |
+| C | change camera (chase, close, far, cinematic, first person, helmet cam, free) |
 | M | map; click to drop in anywhere |
 | P | piste lines |
 | T | go to the nearest time trial (when on in Settings) |
 | N | next song |
 | R (hold) | restart |
-| K / Backspace | replay viewer / rewind (hold) |
+| K / Backspace (hold) | replay viewer / rewind, let go to carry on from there |
 | F | boost (Outrun) |
 | ` | free fly |
 | Esc | pause and settings |
@@ -45,7 +46,13 @@ Every action has two slots in Settings > Controls (click a slot, press a key or 
 A gamepad with the standard mapping works too: left stick steers, up / down or the triggers tuck and brake,
 A jumps, X squats and grabs, B skates, bumpers press, right stick looks around, R3 looks behind, Y interacts,
 the d-pad cycles camera / map / piste lines / track, Select opens the replay and Start pauses.
+The replay viewer lists its own keys on screen.
 
+While you ride, the HUD shows the run you're on, top speed, vertical and distance. After a real
+descent (60 m or more of vertical, ended by boarding a lift, stopping for 4 s or restarting) a run
+card shows time, top speed, distance, vertical, longest air, biggest drop, max g, the named runs
+ridden, your line on a little map and today's totals. Personal bests are kept per named run. Click
+the card to dismiss it; it hides itself after 10 s.
 
 ## How a resort gets built
 

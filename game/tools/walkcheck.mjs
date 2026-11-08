@@ -84,11 +84,11 @@ await page.evaluate(() => {
   v.onPlant = (p) => { window.__plants.push({ ...p }); prev?.(p); };
 });
 await ride(30); await page.waitForTimeout(1500); await ride(10);
-// stand on the snow: hold brake to a stop, then press B
+// stand on the snow: hold brake to a stop, then press E
 await page.keyboard.down('ArrowDown');
 for (let i = 0; i < 40; i++) { await ride(10); if ((await state()).speed < 1) break; }
 await page.keyboard.up('ArrowDown');
-await page.keyboard.press('KeyB');
+await page.keyboard.press('KeyE') // FEAT-124: E straps in and out;
 await ride(20); await shot('01_unstrap_crouch', 0.5, 3.5, 0.8, 0.6);
 await ride(15); await shot('02_unstrap_step', 0.5, 3.5, 0.8, 0.6);
 await ride(30); await shot('03_carry_front', -3.2, 0.6, 0.3, 1.0);
@@ -124,7 +124,7 @@ await page.evaluate(() => { const r = window.__sim.rider; const n = r.normal; r.
 await page.keyboard.down('ArrowUp'); await ride(120); console.log('straight up the fall line', JSON.stringify(await state())); await page.keyboard.up('ArrowUp');
 await ride(60);
 // strap back in and ride off
-await page.keyboard.press('KeyB');
+await page.keyboard.press('KeyE') // FEAT-124: E straps in and out;
 await ride(30); await shot('10_strap_in', 0.5, 3.5, 0.8, 0.6);
 await ride(40);
 console.log('strapped', JSON.stringify(await state()));
