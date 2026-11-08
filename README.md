@@ -35,6 +35,12 @@ no resort pack built yet (packs are generated locally, see below).
 
 Keys can be remapped in Settings > Controls.
 
+While you ride, the HUD shows the run you're on, top speed, vertical and distance. After a real
+descent (60 m or more of vertical, ended by boarding a lift, stopping for 4 s or restarting) a run
+card shows time, top speed, distance, vertical, longest air, biggest drop, max g, the named runs
+ridden, your line on a little map and today's totals. Personal bests are kept per named run. Click
+the card to dismiss it; it hides itself after 10 s.
+
 ## How a resort gets built
 
 A Python pipeline downloads public data for a resort (USGS 1 m lidar, NAIP imagery, LANDFIRE

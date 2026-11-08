@@ -16,6 +16,7 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 - Outrun (Esc > Outrun, FEAT-097 to FEAT-101; design in `docs/research/outrun-mode.md`): a snow monster chases you down the mountain after a head start. It follows your breadcrumbs by arc length (no pathfinding, any pack), charges straight with line of sight inside 60 m, rubber-bands on your recent speed so crashes and stops feed it, and rides the cable tower to tower when you take a lift (no lift skip while it runs). Difficulties Chill / Normal / SkiFree, escape by reaching the base (lowest building cluster near a lift bottom) or Endless (a second one at 3 min). Q burns adrenaline (close calls, clean landings, fast carving) for a 4 s boost, hold G to look back. Spatial sound (HRTF gallop, roars, breathing, heartbeat), music ducks, muffles and cuts as it closes in with war drums from the jukebox. Caught: slow-mo grab, rip in half (snow and confetti, no gore), unhinged jaw, two bites, the board spat out, a burp, then the EATEN card with best scores; Gentle swallows you whole. `node tools/outruncheck.mjs vail shots-outrun --gpu` runs the whole flow headless.
 - Sky and weather: real sun position for the resort's lon/lat and date (resort default, real time, or a fixed hour and month); volumetric clouds from bluebird to broken; a snowstorm option.
 - Cameras: chase, close, far, first person and free fly. Hold Alt to look around. First person sees through goggles (dark frame, lens tint, snow drift, frost in powder, darken and shake on hard landings) with your legs, board and arms in view.
+- Run stats (FEAT-055): each run tracks time, top speed, distance, vertical, longest air, biggest drop, max lateral g, the named runs ridden (nearest mapped run line within 25 m) and the line, sampled every 2 s. A run starts at 3 m/s on the board and ends on boarding a lift, a 4 s stop or a restart; under 60 m of vertical it is dropped. The after-run card shows the summary; the HUD shows the live run. Day totals (vertical, runs, lifts) and per-run personal bests (fastest time, top speed, keyed by the first named run) persist in localStorage under `session-day` and `run-pbs`. Paused during Outrun; no card in headless runs.
 - Maps: minimap with nearby lift names, and a full map (M) with zoom, pan and click to drop in anywhere.
 - Sound: layered surface-aware board sound (groomed, powder, hardpack, crust), carve and wind layers, varied one-shots, lift sounds.
 - Music: four playlists (Ska-punk, Melodic house, Metal, Lofi hip-hop, plus Shuffle all) picked on the main menu or in Settings. Ska-punk is the DavidKBD "Skank the Summer" pack (CC BY 4.0); playlists without files play a procedural jukebox in that style. See `game/public/music/README.md`.
@@ -27,9 +28,9 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 - `game/` the client (Three.js 0.172, TypeScript, Vite). `cd game && npm install && npm run dev`.
   - `src/pack/` pack loader, tiled height / mask sampling, bridge decks
   - `src/terrain/` quadtree LOD terrain and snow material
-  - `src/sim/` rider physics, controls, collisions, lift riding, time trials
+  - `src/sim/` rider physics, controls, collisions, lift riding, time trials, run stats (`RunStats.ts`)
   - `src/world/` trees, rocks, buildings, roads, bridges, lifts, piste overlay, sky, sun, clouds, snow, rider model, cameras
-  - `src/ui/` main menu, pause menu, settings, resort map, horizon labels, goggles, touch controls
+  - `src/ui/` main menu, pause menu, settings, resort map, horizon labels, goggles, touch controls, run card (`RunCard.ts`), shared speed / height / distance formatters (`Units.ts`)
   - `src/audio/` synthesised sound and the music player / jukebox
   - `public/music/` soundtrack, `playlist.json`, credits
 - `pipeline/` data pipeline (Python, plus PowerShell fetch scripts for Windows)
