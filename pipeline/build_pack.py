@@ -455,6 +455,7 @@ for el in built["elements"]:
     if "building" in t and len(pts) >= 4:
         zs = [ground(x, y) for x, y in pts]
         h = None
+        h_default = False
         try:
             if "height" in t: h = float(t["height"].split()[0])
             elif "building:levels" in t: h = 3.2 * float(t["building:levels"])
@@ -462,14 +463,16 @@ for el in built["elements"]:
             h = None
         if h is None:
             h = 9.0 if t.get("building") in ("hotel", "apartments", "commercial", "retail") else 5.5
+            h_default = True
             # BUG-024: a big named lodge with no height or levels in OSM (Eagle's Nest) is 3 to 4 storeys
             if t.get("name") and polygon_area(pts) > BIG_LODGE_M2:
                 h = 12.0
+                h_default = False
         # BUG-024: the highest ground under the footprint too (corners and centre), so the client can put
         # the roof above the uphill side before any height tiles have loaded
         cx_, cy_ = sum(p[0] for p in pts[:-1]) / (len(pts) - 1), sum(p[1] for p in pts[:-1]) / (len(pts) - 1)
         z_hi = max(zs + [ground(cx_, cy_)])
-        buildings.append({"name": t.get("name"), "points": [[x, y] for x, y in pts[:-1]], "zBase": float(min(zs)), "zMax": float(z_hi), "height": h, "kind": t.get("building")})
+        buildings.append({"name": t.get("name"), "points": [[x, y] for x, y in pts[:-1]], "zBase": float(min(zs)), "zMax": float(z_hi), "height": h, "heightDefault": h_default, "kind": t.get("building")})
     elif "highway" in t and len(pts) >= 2:
         kind = t["highway"]
         width = {"motorway": 24, "trunk": 14, "primary": 10, "secondary": 8, "tertiary": 7, "residential": 6, "service": 4, "track": 3, "path": 1.5, "footway": 1.5}.get(kind, 4)

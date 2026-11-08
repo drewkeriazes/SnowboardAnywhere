@@ -95,7 +95,9 @@ export class Buildings {
     if (b.zMax === undefined && b.name && height <= 5.5 && area > BIG_LODGE_M2) height = 12;
     // FEAT-071: the pipeline's untagged defaults (5.5 m, or 9 m for hotels and shops) become a height
     // by class and size; heights from building:levels or height tags are kept
-    if (b.height === 5.5 || (b.height === 9 && DEFAULT_9.has(kind))) height = classHeight(style, kind, area, !!b.name);
+    // packs with heightDefault use the flag; older packs fall back to the magic values
+    const untagged = b.heightDefault ?? (b.height === 5.5 || (b.height === 9 && DEFAULT_9.has(kind)));
+    if (untagged) height = classHeight(style, kind, area, !!b.name);
     const top = Math.max(zMax, hi) + height;
     const P = PALETTE[style];
     const wall = P.wall;

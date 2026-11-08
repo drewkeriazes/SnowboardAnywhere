@@ -80,6 +80,8 @@ export interface BuildingFeature {
   /** highest ground under the footprint (BUG-024); absent in packs built before it */
   zMax?: number;
   height: number;
+  /** true when the pipeline had no height or levels tag and used its fallback; absent in older packs */
+  heightDefault?: boolean;
   kind?: string;
 }
 
