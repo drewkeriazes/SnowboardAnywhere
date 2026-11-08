@@ -8,7 +8,7 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 ## Features in detail
 
 - Terrain: quadtree LOD over the 262 km far ring, 1 m near the rider, snow / rock / scree / groomed material; forested ground darkens from the tree impostor ring outward so the far forest reads dark.
-- Riding: carving on a real edge angle (up to 72 deg on firm snow, 45 in powder) with the turn radius from the board's sidecut, washing into a skid past the grip; the rider leans into the hill up to 60 deg with deep toeside and heelside carve poses. Also tuck, brake (the board swings across into a hockey stop, scrapes a wide track and holds on its edge once stopped), charged jumps with ollie and nollie off the board's spring (hold W / S with Space), nose and tail presses (V / Z), squat (Left Ctrl), skating on the flat (X), grabs, air spins, front flips and backflips (Up / Down in the air, trick names toast on landing), landings; collisions with trees, rocks and building walls. The snowboard bends when loaded. Snowboard or skis, outfit colours, articulated rider with blended poses.
+- Riding: carving on a real edge angle (up to 72 deg on firm snow, 45 in powder) with the turn radius from the board's sidecut, washing into a skid past the grip; edge to edge takes about 0.3 s at speed; the rider leans into the hill up to 60 deg with deep toeside and heelside carve poses. Also tuck, brake (the board swings across into a hockey stop, scrapes a wide track and holds on its edge once stopped; steering while braking digs the edge in for a harder stop or lets it off into a skidded turn or a side-slip), charged jumps with ollie and nollie off the board's spring (hold W / S with Space), nose and tail presses (V / Z), squat (Left Ctrl), skating on the flat (X), grabs, air spins, front flips and backflips (Up / Down in the air, trick names toast on landing), landings; collisions with trees, rocks and building walls. The snowboard bends when loaded. Snowboard or skis, outfit colours, articulated rider with blended poses.
 - Crashes: a Verlet ragdoll takes over the skeleton, tumbles against the snow, trunks, rocks and walls, follows the sim's crash slide and blends back to the animated pose as the rider gets up.
 - On foot: B unstraps when nearly stopped (or straps back in standing still); walk with the board carried (on the shoulder when sprinting), sprint on Shift (stamina), step up and climb onto platforms, bootprints in the snow.
 - Snow: 3D tracks pressed into the snow behind the rider (carves narrow to a knife-cut line); tracks and bootprints fill in faster while it snows, and new snow buries terrain rock from its edges in.
@@ -51,7 +51,8 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 - `views.mjs <pack> <outDir> <views.json> [--headed | --gpu]` stills from fixed free-camera spots for look checks (`views-*.json` in the same folder).
 - `shoot_features.mjs` map, buildings, rocks and lift feature check.
 - `probe.mjs` step timing probe for hangs.
-- `brakecheck.mjs` brake physics on exact planes, no browser: hockey-stop time and distance against the snow-cutting targets, board swing, release, standing across the hill, ski snowplough. Exits 1 on a failed check.
+- `brakecheck.mjs` brake physics on exact planes, no browser: hockey-stop time and distance against the snow-cutting targets, board swing, release, standing across the hill, ski snowplough, and the steer-modulated brake (FEAT-133: a harder stop into the edge, a skidded turn and a side-slip away from it, release onto the new line). Exits 1 on a failed check.
+- `carvecheck.mjs` carve feel on exact planes, no browser (BUG-053): turn rate and radius at 25 m/s standing and tucked, edge-to-edge time and the hang at the crossover, turning back up across the hill, the slow pivot. Exits 1 on a failed check.
 - `brakeshot.mjs [pack] [outDir] [--headed] [--ski]` hockey-stop render check: tucks to speed, holds brake, saves shots of the swing, spray and scraped track.
 - `carveshot.mjs [pack] [outDir] [--headed] [--ski]` carve track render check (FEAT-109): tucks to speed, links hard carves, saves the knife-cut line close up, overhead and from 40 m down the run, and prints the edge amount per shot.
 - `leancheck.mjs [pack] [outDir] [--headed] [--ski]` carve lean check (FEAT-126): a gentle turn, then hard linked carves; prints the lean, hip height and each body part's lowest point above the snow, and saves shots at the deepest toeside and heelside lean.
@@ -89,6 +90,7 @@ The data hosts (USGS, Planetary Computer, Overpass, Mapterhorn) are not reachabl
 - `time=now` or `time=16.5` override the time of day
 - `weather=clear|cirrus|few|scattered|broken|overcast|flurries|storm` override the cloud cover; `valleyfog` forces valley fog on
 - `rider=ski` or `rider=board`
+- `debug` adds a HUD line with the edge angle, lateral acceleration, turn radius and turn rate
 - `lowgfx` reduced graphics for software GPUs; `headless` is used by the test tools; `csm` / `nocsm` force cascaded shadows on or off; `noimpostors` disables tree impostors; `bridgeguess` adds the segment-chord bridge detector
 
 ## Milestones
