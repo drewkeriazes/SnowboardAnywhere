@@ -1,4 +1,5 @@
 import type { RunSummary } from '../sim/RunStats';
+import { fmtSpeed, fmtHeight, fmtDistance } from './Units';
 
 /**
  * FEAT-055: the after-run card, like a ski-tracker app: the run names, the stats, the line drawn
@@ -16,9 +17,9 @@ export class RunCard {
   }
 
   show(s: RunSummary, metric: boolean): void {
-    const spd = (v: number) => metric ? `${(v * 3.6).toFixed(0)} km/h` : `${(v * 2.23694).toFixed(0)} mph`;
-    const len = (m: number) => metric ? (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(0)} m`) : (m >= 1609 * 0.25 ? `${(m / 1609.34).toFixed(2)} mi` : `${(m * 3.28084).toFixed(0)} ft`);
-    const ht = (m: number) => metric ? `${m.toFixed(0)} m` : `${(m * 3.28084).toLocaleString('en-US', { maximumFractionDigits: 0 })} ft`;
+    const spd = (v: number) => fmtSpeed(v, metric);
+    const len = (m: number) => fmtDistance(m, metric);
+    const ht = (m: number) => fmtHeight(m, metric);
     const tm = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
     const name = s.names.length ? s.names.join(' &rarr; ') : 'Off-piste';
     const row = (k: string, v: string, pb = false) => `<div style="display:flex;justify-content:space-between;margin:2px 0"><span style="opacity:.7">${k}</span><b>${v}${pb ? ' <span style="color:#facc15">PB</span>' : ''}</b></div>`;
