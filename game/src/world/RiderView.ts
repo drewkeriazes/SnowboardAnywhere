@@ -16,8 +16,42 @@ const EDGE_OFF = 0.13, SKI_EDGE_OFF = 0.05, EDGE_PIVOT_ROLL = 0.15;
  *  (0.45 overshoots about 20 %, so a full load snaps past flat to about -0.15 on the pop) */
 const FLEX_W = 21, FLEX_ZETA = 0.45;
 /** BUG-047: the hip joint stays this far above the deck under it (the glutes hang 0.1 to 0.15 m below
- *  the joint), and on a full load the hips move this far toward the loaded end (m) */
-const HIP_CLEAR = 0.2, HIP_SHIFT = 0.12;
+ *  the joint). FEAT-125: on a full press the hips move this far toward the loaded end (m), reached
+ *  at this much bend (a full lean without a charge bends the board 0.6) */
+const HIP_CLEAR = 0.2, HIP_SHIFT = 0.3, PRESS_FLEX = 0.6;
+/** FEAT-125: on a full press the leg over the unloaded end reaches this share of its length (knee
+ *  about 20 deg), and the head takes this share of the pelvis roll back out so it stays up */
+const PRESS_REACH = 0.975, HEAD_LEVEL = 0.8;
+/** FEAT-125 balance arms: wobble amplitude on a press (rad) at first and after holding it FLAIL_RAMP s,
+ *  and the correction swing when the lean changes: spring frequency (rad/s), damping, kick per unit lean */
+const FLAIL_BASE = 0.04, FLAIL_HOLD = 0.13, FLAIL_RAMP = 2.5, CORR_W = 11, CORR_ZETA = 0.35, CORR_KICK = 5;
+/** FEAT-125 wobble growth: share added per m/s of speed (up to FLAIL_VMAX m/s), share added at full
+ *  bumps, and the vertical acceleration counted as full bumps (m/s^2, about 1.5 g) */
+const FLAIL_SPEED = 0.04, FLAIL_VMAX = 15, FLAIL_BUMP = 1.5, BUMP_ACC = 15;
+/** FEAT-125 wobble shape: the fore-aft swing as a share of the up-down wave, and the elbow's bend
+ *  (deg) per rad of wave (each elbow follows the other arm's wave, so the two never move in step) */
+const FLAIL_SWING = 0.6, FLAIL_ELBOW = 40;
+type Wave = readonly (readonly [number, number, number])[];
+/** FEAT-125 wobble waves, each a sum of sines normalised to +-1: rows are [weight, frequency rad/s,
+ *  phase rad]. Out-of-phase and off-harmonic so the two arms never repeat together. */
+const WOBBLE: Record<'lOut' | 'rOut' | 'lSwing' | 'rSwing', Wave> = {
+  lOut: [[1, 2.3, 0], [0.6, 3.7, 1.1], [0.3, 6.1, 2.3]],
+  rOut: [[1, 2.9, 2.0], [0.6, 4.3, 0.4], [0.3, 5.3, 4.1]],
+  lSwing: [[1, 1.7, 0.7], [0.5, 3.1, 2.9]],
+  rSwing: [[1, 2.1, 3.3], [0.5, 3.9, 1.7]],
+};
+function wave(rows: Wave, t: number): number {
+  let s = 0, w = 0;
+  for (const [a, f, ph] of rows) { s += a * Math.sin(f * t + ph); w += a; }
+  return s / w;
+}
+type V3 = [number, number, number];
+/** FEAT-125: a += k (q - n), in place (a pose offset from neutral) */
+function addOffset(a: V3, q: V3, n: V3, k: number): void { a[0] += k * (q[0] - n[0]); a[1] += k * (q[1] - n[1]); a[2] += k * (q[2] - n[2]); }
+/** FEAT-125: a moves k of the way to q, in place */
+function mixTo(a: V3, q: V3, k: number): void { a[0] += k * (q[0] - a[0]); a[1] += k * (q[1] - a[1]); a[2] += k * (q[2] - a[2]); }
+/** FEAT-125: the arms' upswing on the pop: length (s) and extra lift at its peak (rad) */
+const POP_T = 0.4, POP_LIFT = 0.45;
 /** BUG-034: share of a skier's counter-rotation taken by the pelvis (the rest is the chest) */
 const SKI_HIP_TWIST = 0.35;
 /** FEAT-126: lean (rad) where the deep carve pose starts blending in; it is all in at LEAN_MAX */
@@ -108,6 +142,14 @@ export class RiderView {
   /** FEAT-118: board bend (0 flat .. 1 full load), its rate, and which end is loaded (-1 tail, +1 nose) */
   private flex = 0; private flexV = 0; private flexDir = -1;
   private twist = 0;
+  /** FEAT-125: the press's pelvis roll (smoothed, rad), seconds the press has been held, the arm
+   *  correction spring and its rate, wobble amplitude, a bump measure, the pop upswing (1 at takeoff
+   *  down to 0), how loaded the board was on the last ground frame, and a clock for the wobble */
+  private pressRoll = 0; private holdT = 0; private corr = 0; private corrV = 0; private flailAmp = 0;
+  private bump = 0; private prevVz = 0; private prevLean = 0; private popT = 0; private load = 0; private wasGround = true; private clock = 0;
+  private readonly headQ = new THREE.Quaternion();
+  /** the smoothed pose's arm angles, kept while the balance layer is drawn on top of them */
+  private readonly armKeep = new Float64Array(6);
   private wasSeated = false;
   /** worst ankle-to-binding distance after the last solve (m); 0 means the boots are on the bindings */
   footGap = 0;
@@ -343,6 +385,79 @@ export class RiderView {
     }
   }
 
+  /**
+   * FEAT-125: snowboard press (ollie or nollie load). The upper body rolls over the loaded end and the
+   * head, torso and pelvis offsets add to the current pose; the arms blend to the press's balance
+   * pose. Returns the pelvis roll added (rad), which the head later takes back out. Writes into the
+   * target's own arrays (rebuilt every frame from clonePose / lerpPose, never the shared tables).
+   */
+  private pressPose(t: Pose, lean: number): number {
+    const P = this.poses, Q = lean < 0 ? P.pressTail : P.pressNose, N = P.neutral;
+    const k = smooth(0.05, 0.9, Math.abs(lean));
+    addOffset(t.hipsRot, Q.hipsRot, N.hipsRot, k); addOffset(t.torso, Q.torso, N.torso, k); addOffset(t.head, Q.head, N.head, k);
+    mixTo(t.lShoulder, Q.lShoulder, k); mixTo(t.rShoulder, Q.rShoulder, k);
+    t.lElbow += k * (Q.lElbow - t.lElbow); t.rElbow += k * (Q.rElbow - t.rElbow);
+    return k * (Q.hipsRot[2] - N.hipsRot[2]);
+  }
+
+  /**
+   * FEAT-125 balance on top of the smoothed pose (the caller restores the arm angles after FK): a
+   * small out-of-phase wave per arm while pressing that grows the longer the press is held and with
+   * speed and bumps, a quick swing when the lean changes, and both arms swinging up on the pop.
+   */
+  private balanceArms(r: Rider, dt: number, free: boolean): void {
+    const h = Math.min(dt, 0.05), p = this.pose;
+    this.clock += h;
+    const La = Math.abs(r.lean), ground = free && r.onGround;
+    // the pop: leaving the snow with the board loaded
+    if (this.wasGround && !r.onGround && free && this.load > 0.3) this.popT = 1;
+    this.wasGround = r.onGround;
+    this.load = r.onGround ? Math.max(La, Math.min(1, r.jumpCharge)) : 0;
+    this.popT = Math.max(0, this.popT - h / POP_T);
+    this.holdT = ground && La > 0.3 ? this.holdT + h : Math.max(0, this.holdT - 3 * h);
+    // bumps: vertical acceleration through the board, as a share of BUMP_ACC
+    const az = h > 0 && ground ? Math.abs(r.vz - this.prevVz) / h : 0;
+    this.prevVz = r.vz;
+    this.bump += (Math.min(1, az / BUMP_ACC) - this.bump) * Math.min(1, h * 4);
+    // correction: the lean's change kicks a damped spring (arms swing against the body's throw)
+    const dL = free ? r.lean - this.prevLean : 0;
+    this.prevLean = r.lean;
+    this.corrV += CORR_KICK * dL - (CORR_W * CORR_W * this.corr + 2 * CORR_ZETA * CORR_W * this.corrV) * h;
+    this.corr += this.corrV * h;
+    const amp = ground ? smooth(0.2, 0.8, La) * (FLAIL_BASE + FLAIL_HOLD * Math.min(1, this.holdT / FLAIL_RAMP)) * (1 + FLAIL_SPEED * Math.min(FLAIL_VMAX, r.speed) + FLAIL_BUMP * this.bump) : 0;
+    this.flailAmp += (amp - this.flailAmp) * Math.min(1, h * 6);
+    const fp = this.fp ? 0.35 : 1, A = this.flailAmp * fp, c = this.clock;
+    const wl = wave(WOBBLE.lOut, c), wr = wave(WOBBLE.rOut, c), sl = wave(WOBBLE.lSwing, c), sr = wave(WOBBLE.rSwing, c);
+    const pop = this.popT > 0 ? Math.sin(Math.PI * Math.sqrt(1 - this.popT)) * POP_LIFT * fp : 0;
+    const lift = Math.abs(this.corr) * 0.5 * fp + pop;
+    // abduction is - for the left arm and + for the right; x swings the arm forward (+) or back
+    p.lShoulder[2] -= A * wl + lift; p.rShoulder[2] += A * wr + lift;
+    p.lShoulder[0] += FLAIL_SWING * A * sl - this.corr * fp; p.rShoulder[0] += FLAIL_SWING * A * sr - this.corr * fp;
+    p.lElbow += FLAIL_ELBOW * A * wr; p.rElbow += FLAIL_ELBOW * A * wl;
+  }
+
+  /**
+   * FEAT-125: on a press, raise the hips so the leg over the unloaded end reaches nearly straight
+   * (the hips already sit over the loaded end, whose leg the IK then bends deep). Less in a squat or
+   * a charge, which keep both knees bent. Runs after FK and before the feet are pinned.
+   */
+  private pressLegs(r: Rider): void {
+    const w = Math.max(0, Math.min(1, this.flex / PRESS_FLEX)) * (1 - 0.8 * r.squat) * (1 - 0.5 * Math.min(1, r.jumpCharge));
+    if (w < 0.01) return;
+    const rig = this.rig, B = rig.bones;
+    const tail = this.flexDir < 0; // tail loaded: the front (left, nose side) leg reaches
+    const up = tail ? B.LeftUpLeg : B.RightUpLeg, anchor = tail ? rig.anchors.l : rig.anchors.r;
+    const s = rig.body.worldToLocal(up.getWorldPosition(this.v1));
+    const a = rig.body.worldToLocal(anchor.getWorldPosition(this.v2));
+    const reach = B.LeftLeg.position.length() + B.LeftFoot.position.length();
+    const dx = a.x - s.x, dz = a.z - s.z, dy = s.y - a.y;
+    const c0 = Math.hypot(dx, dy, dz), c = c0 + (PRESS_REACH * reach - c0) * w;
+    const r2 = c * c - dx * dx - dz * dz;
+    if (r2 <= 0) return;
+    B.Hips.position.y += Math.sqrt(r2) - dy;
+    B.Hips.updateMatrixWorld(true);
+  }
+
   update(r: Rider, dt: number, tuck: boolean, grab = false, seated = false): void {
     // on foot, or stepping on or off the board
     const u = seated ? 0 : r.footU;
@@ -438,6 +553,7 @@ export class RiderView {
     // ---- pose blend from rider state
     const t = this.target;
     const P = this.poses;
+    let pressRoll = 0;
     Object.assign(t, clonePose(P.neutral));
     if (seated) { lerpPose(t, t, P.seated, 1); }
     else if (r.crashed > 0) { lerpPose(t, t, P.crash, 1); }
@@ -461,7 +577,12 @@ export class RiderView {
       // FEAT-085 skating: knees bent, chest over the front foot, bobbing down into each push
       // FEAT-112: hips over the loaded end, the chest leaning with them
       // BUG-047: no extra drop when already squatting or charged (that put the seat through the deck)
-      if (Math.abs(r.lean) > 0.01) { t.torso = [t.torso[0] + 0.3 * r.lean, t.torso[1], t.torso[2]]; t.hipsY -= 0.06 * Math.abs(r.lean) * (1 - Math.min(1, Math.max(r.squat, r.jumpCharge))); }
+      // FEAT-125: a snowboarder leans the whole upper body over the loaded end with the arms up to balance
+      if (Math.abs(r.lean) > 0.01) {
+        if (this.discipline === 'board') pressRoll = this.pressPose(t, r.lean);
+        else t.torso = [t.torso[0] + 0.3 * r.lean, t.torso[1], t.torso[2]];
+        t.hipsY -= 0.06 * Math.abs(r.lean) * (1 - Math.min(1, Math.max(r.squat, r.jumpCharge)));
+      }
       if (r.skating) { const push = Math.max(0, Math.cos(r.skatePhase * Math.PI * 2)); lerpPose(t, t, P.crouch, 0.35 + 0.25 * push); t.torso = [t.torso[0] + 0.25 * push, t.torso[1], t.torso[2]]; }
       if (r.landingShock > 0) lerpPose(t, t, P.land, Math.min(1, r.landingShock * 1.5));
       // knees bent and hips low in proportion to how hard the edge is biting
@@ -507,15 +628,19 @@ export class RiderView {
       t.rShoulder = [t.rShoulder[0], t.rShoulder[1], t.rShoulder[2] * 0.35];
     }
     lerpPose(this.pose, this.pose, t, Math.min(1, dt * (r.crashed > 0 ? 6 : 10)));
+    this.pressRoll += (pressRoll - this.pressRoll) * Math.min(1, dt * 10);
     // idle breathing and balance wobble so a standing rider is not frozen
     const now = performance.now() / 1000;
     const p = this.pose;
     const hy = p.hipsY, tx = p.torso[0];
+    const arms = this.armKeep;
+    arms[0] = p.lShoulder[0]; arms[1] = p.lShoulder[2]; arms[2] = p.rShoulder[0]; arms[3] = p.rShoulder[2]; arms[4] = p.lElbow; arms[5] = p.rElbow;
     p.hipsY += Math.sin(now * 2.1) * 0.004; p.torso[0] += Math.sin(now * 1.3) * 0.015;
+    if (this.discipline === 'board') this.balanceArms(r, dt, free);
     // BUG-047: the hips sit over the loaded end and never below the deck under them
     let hipZ = 0;
     if (this.discipline === 'board' && !seated) {
-      hipZ = -this.flexDir * HIP_SHIFT * Math.max(0, Math.min(1, this.flex));
+      hipZ = -this.flexDir * HIP_SHIFT * Math.max(0, Math.min(1, this.flex / PRESS_FLEX));
       const floor = deckY(this.rig, hipZ) + 0.022 + HIP_CLEAR;
       if (p.hipsY < floor) p.hipsY = floor;
     }
@@ -542,6 +667,8 @@ export class RiderView {
       const toeIn = this.discipline === 'board' && this.leanAngle > 0 ? 2.5 * smooth(DEEP_FROM, LEAN_MAX, this.leanAngle) : 0;
       const lp = this.v3.copy(fwd).addScaledVector(nose, toeIn - k);
       const rp = this.v4.copy(fwd).addScaledVector(nose, toeIn + k);
+      const press = this.discipline === 'board' && free;
+      if (press) this.pressLegs(r);
       this.footGap = pinFeet(rig, lp, rp);
       // FEAT-126: raise the hips until the knees and the seat clear the snow, then solve the legs again.
       // A knee sits about halfway between the hips and the boot, so it rises about half as far.
@@ -551,11 +678,22 @@ export class RiderView {
           if (lift < 0.003) break;
           p.hipsY += lift / Math.max(0.4, Math.cos(this.leanAngle));
           this.applyFK(p, -pv, hipZ);
+          if (press) this.pressLegs(r);
           this.footGap = pinFeet(rig, lp, rp);
         }
       }
     }
     p.hipsY = hy; p.torso[0] = tx;
+    p.lShoulder[0] = arms[0]; p.lShoulder[2] = arms[1]; p.rShoulder[0] = arms[2]; p.rShoulder[2] = arms[3]; p.lElbow = arms[4]; p.rElbow = arms[5];
+    // FEAT-125: the head takes most of the press's pelvis roll back out, so it stays up and looks ahead
+    // (after the legs, since the FEAT-126 snow clearance can run the FK again)
+    if (Math.abs(this.pressRoll) > 1e-3) {
+      this.group.updateMatrixWorld(true);
+      const ql = this.lean.getWorldQuaternion(this.pq);
+      // the roll tips the body toward -Z (the nose) for a positive angle, which is -angle about the rider's X
+      this.headQ.setFromAxisAngle(this.v1.set(1, 0, 0), HEAD_LEVEL * this.pressRoll).premultiply(ql).multiply(this.q.copy(ql).invert());
+      setWorldQuat(this.rig.bones.Head, this.headQ.multiply(this.rig.bones.Head.getWorldQuaternion(this.q)));
+    }
     if (this.discipline === 'ski') this.skiHands(r, tuck, free);
     if (nearSnow) this.handsAboveSnow();
     if (this.recoverT > 0) {

@@ -60,6 +60,12 @@ Packs need a rebuild from 20526bf or later: `ao/` tiles (baked sky visibility, `
 
 Built on one branch from the research doc (`docs/research/outrun-mode.md`): `game/src/sim/Outrun.ts` (the chase sim), `world/Monster.ts` (the procedural yeti rig and gallop), `world/Eat.ts` (the eat sequence), `audio/ChaseAudio.ts` (spatial sound and music stages, the jukebox `chase` style), `ui/OutrunUI.ts` (HUD and card), the Outrun panel in the pause menu. Checked headless on Vail with `game/tools/outruncheck.mjs` (countdown, head start, spawn 150 to 250 m back, chase, lift ride, catch, eat, card). Not yet tuned by hand on the real GPU: the Normal speed law (`PRESETS` in Outrun.ts) and the eat timing are the first things to play with. Known gaps: no tree sway (a puff and a crack instead), the monster's fur is a jittered flat-shaded silhouette with tufts, and the base rule picks the lowest lift-base building cluster nearest the start.
 
+## 2026-11-07: ollie and nollie body (FEAT-125)
+
+On a tail or nose press (Z / V, or Space with S / W) the snowboarder's hips move up to 0.3 m toward the loaded end (`HIP_SHIFT`, was 0.12 m times the bend), reached at a bend of 0.6 (`PRESS_FLEX`, a full lean without a charge). The bend only comes from the lean, so this changes nothing outside a press; the BUG-047 deck clamp still applies. `pressLegs` then raises the hips so the leg over the unloaded end reaches nearly straight, and the IK bends the other. The upper body comes from the `pressTail` / `pressNose` poses in `RiderModel.ts` (added as offsets from neutral, the arms blended in), the head takes 80 % of the pelvis roll back out, and `balanceArms` adds the wobble, the correction swing when the lean changes and the upswing on the pop. Skis keep the old torso lean.
+
+Measured by stepping `RiderView` in Node with a fake rider: tail press front knee 26 deg, back knee 72 deg, both hands above the shoulders; nose press mirrored; ollie load (charged) back knee 102 deg; foot gap 0 throughout. Known gap: the card asked for a 90 to 110 deg back knee on a plain press, which with this rig's legs and stance needs the hips about 0.5 m back; the straight front leg and the 0.3 m shift won. `node tools/rider.mjs synth` now shoots a held tail and nose press (`05b`, `05c`) and folds them into its worst foot gap.
+
 ## Session lanes (2026-11-05 14:50 ET, synced by the cloud session)
 
 Two sessions are active. To avoid overlapping edits:

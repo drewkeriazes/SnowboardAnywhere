@@ -44,6 +44,13 @@ export const POSES: Record<string, Pose> = {
   crouch: { hipsY: 0.55, hipsRot: E(8, -90, 0), torso: E(30, 45, 0), head: E(-25, 45, 0), lShoulder: E(-30, 0, -60), rShoulder: E(-30, 0, 60), lElbow: 40, rElbow: 40, lHip: E(75, 0, -11), rHip: E(75, 0, 11), lKnee: 110, rKnee: 110 },
   // FEAT-111 deep squat (Left Ctrl): hips low over the board, back straight and leaned ~20 deg, arms out in front, head up; the leg IK bends the knees as far as it can
   squat: { hipsY: 0.3, hipsRot: E(22, -90, 0), torso: E(18, 45, 0), head: E(-30, 45, 0), lShoulder: E(70, 0, -25), rShoulder: E(70, 0, 25), lElbow: 20, rElbow: 20, lHip: E(115, 0, -11), rHip: E(115, 0, 11), lKnee: 140, rKnee: 140 },
+  // FEAT-125 tail press / ollie load and nose press / nollie. Added on top of the current pose as a
+  // difference from neutral (so they stack on a squat or a charge), except the arms, which take over.
+  // hipsRot z rolls the pelvis and everything above it along the board: - toward the tail, + the nose.
+  // Arms up and wide for balance: the arm over the unloaded end reaches out past shoulder height
+  // toward it, the other goes out and back over the loaded end.
+  pressTail: { hipsY: 0.92, hipsRot: E(2, -90, -20), torso: E(-2, 50, 0), head: E(-12, 45, 0), lShoulder: E(15, 0, -112), rShoulder: E(-25, 0, 128), lElbow: 15, rElbow: 25, lHip: E(18, 0, -11), rHip: E(18, 0, 11), lKnee: 35, rKnee: 35 },
+  pressNose: { hipsY: 0.92, hipsRot: E(6, -90, 20), torso: E(12, 40, 0), head: E(-14, 40, 0), lShoulder: E(-25, 0, -128), rShoulder: E(15, 0, 112), lElbow: 25, rElbow: 15, lHip: E(18, 0, -11), rHip: E(18, 0, 11), lKnee: 35, rKnee: 35 },
   air: { hipsY: 0.78, hipsRot: E(0, -90, 0), torso: E(10, 40, 0), head: E(-15, 40, 0), lShoulder: E(-40, 0, -110), rShoulder: E(-40, 0, 110), lElbow: 20, rElbow: 20, lHip: E(50, 0, -11), rHip: E(50, 0, 11), lKnee: 85, rKnee: 85 },
   grab: { hipsY: 0.6, hipsRot: E(10, -90, 0), torso: E(40, 40, 10), head: E(-30, 40, 0), lShoulder: E(30, 0, -40), rShoulder: E(80, 0, 30), lElbow: 30, rElbow: 10, lHip: E(85, 0, -11), rHip: E(85, 0, 11), lKnee: 125, rKnee: 125 },
   land: { hipsY: 0.5, hipsRot: E(8, -90, 0), torso: E(35, 45, 0), head: E(-25, 45, 0), lShoulder: E(20, 0, -50), rShoulder: E(20, 0, 50), lElbow: 60, rElbow: 60, lHip: E(85, 0, -11), rHip: E(85, 0, 11), lKnee: 125, rKnee: 125 },
