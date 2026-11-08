@@ -50,7 +50,8 @@ export class Controls {
       this.pressed.add(e.code);
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'AltLeft', 'AltRight', 'Backspace', 'Backquote'].includes(e.code)) e.preventDefault();
       // anyone who binds Ctrl: block the browser shortcuts a page can block while it is held
-      if (e.ctrlKey && this.bound(e.code === 'ControlLeft' || e.code === 'ControlRight' ? '' : e.code)) e.preventDefault();
+      // (only when Ctrl itself is bound to an action, so Ctrl+R etc. keep working for everyone else)
+      if (e.ctrlKey && (this.bound('ControlLeft') || this.bound('ControlRight')) && this.bound(e.code === 'ControlLeft' || e.code === 'ControlRight' ? '' : e.code)) e.preventDefault();
     };
     const ku = (e: KeyboardEvent) => {
       this.keys.delete(e.code);
