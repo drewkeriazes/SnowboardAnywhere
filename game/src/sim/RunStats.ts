@@ -99,7 +99,8 @@ export class RunStats {
     if (this.nameT <= 0) {
       this.nameT = 0.5;
       this.current = this.runAt(r.x, r.y);
-      if (this.current && this.names[this.names.length - 1] !== this.current && !this.names.includes(this.current)) this.names.push(this.current);
+      // each run name is listed once, so a revisit (A, B, A) shows as "A → B"
+      if (this.current && !this.names.includes(this.current)) this.names.push(this.current);
     }
     // stopped after a real descent: the run is over
     this.stillT = spd < 0.5 ? this.stillT + dt : 0;
