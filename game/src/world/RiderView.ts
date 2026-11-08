@@ -6,6 +6,7 @@ import { Ragdoll, RAGDOLL_RECOVER } from './Ragdoll';
 import { lerpPose, clonePose, defaultMaterials, POSES, SKI_POSES, WALK_POSES, type Pose, type RiderMaterials } from './RiderModel';
 import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, bendBoard, deckY, BONES as BONE_LIST, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
 import { Gait, type Plant } from './Gait';
+import { carveLean, LEAN_MAX } from './carveLean';
 
 /** FEAT-112: half the skis' length (where they pivot) and the most they tip up on a full lean (rad) */
 const BOARD_HALF = 0.72, LEAN_TIP = 18 * Math.PI / 180;
@@ -26,6 +27,11 @@ const FLAIL_BASE = 0.04, FLAIL_HOLD = 0.13, FLAIL_RAMP = 2.5, CORR_W = 11, CORR_
 const POP_T = 0.4, POP_LIFT = 0.45;
 /** BUG-034: share of a skier's counter-rotation taken by the pelvis (the rest is the chest) */
 const SKI_HIP_TWIST = 0.35;
+/** FEAT-126: lean (rad) where the deep carve pose starts blending in; it is all in at LEAN_MAX */
+const DEEP_FROM = 0.3;
+/** FEAT-126: least height above the snow on a lean (m): the knee joints (the knee pad is about 5 cm
+ *  round), the hip joint (the glutes hang 0.1 to 0.15 m below it) and the wrists */
+const CLEAR_KNEE = 0.06, CLEAR_HIP = 0.17, CLEAR_HAND = 0.05;
 
 const d2r = Math.PI / 180;
 const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -163,6 +169,8 @@ export class RiderView {
   private readonly aa = [new THREE.Vector3(), new THREE.Vector3()];
   private readonly m1 = new THREE.Matrix4();
   private readonly m2 = new THREE.Matrix4();
+  /** FEAT-126: world to the riding frame (the snow plane is y = 0) */
+  private readonly invG = new THREE.Matrix4();
   private readonly cq = new THREE.Quaternion();
   private readonly cp = new THREE.Vector3();
   private readonly armSave = [new THREE.Quaternion(), new THREE.Quaternion()];
@@ -290,6 +298,34 @@ export class RiderView {
     // feet level with the pelvis (hip pitch minus knee bend)
     B.LeftFoot.rotation.set(-p.lHip[0] + p.lKnee * d2r, 0, 0);
     B.RightFoot.rotation.set(-p.rHip[0] + p.rKnee * d2r, 0, 0);
+  }
+
+  /** Height of a bone above the snow under the board (m): the board's base plane, y = 0 in the group frame. */
+  private snowHeight(b: THREE.Bone): number {
+    return b.getWorldPosition(this.v1).applyMatrix4(this.invG).y;
+  }
+
+  /** FEAT-126: how far the hips must rise (m, along the snow normal) for the knees and the seat to clear the snow. */
+  private snowDeficit(): number {
+    const B = this.rig.bones;
+    this.invG.copy(this.group.matrixWorld).invert();
+    const knee = CLEAR_KNEE - Math.min(this.snowHeight(B.LeftLeg), this.snowHeight(B.RightLeg));
+    return Math.max(0, CLEAR_HIP - this.snowHeight(B.Hips), 2 * knee);
+  }
+
+  /** FEAT-126: a hand that would dip into the snow on a deep lean rests on it instead (a light drag touch). */
+  private handsAboveSnow(): void {
+    const B = this.rig.bones;
+    this.invG.copy(this.group.matrixWorld).invert();
+    const chestQ = B.Spine2.getWorldQuaternion(this.pq);
+    for (const [s, up, lo, end] of [[-1, B.LeftArm, B.LeftForeArm, B.LeftHand], [1, B.RightArm, B.RightForeArm, B.RightHand]] as const) {
+      const local = end.getWorldPosition(this.v1).applyMatrix4(this.invG);
+      if (local.y >= CLEAR_HAND) continue;
+      local.y = CLEAR_HAND;
+      const target = local.applyMatrix4(this.group.matrixWorld);
+      // elbows out and back, as when holding the gear
+      twoBone(up, lo, end, target, this.v2.set(s * 0.7, -1, 0.4).applyQuaternion(chestQ));
+    }
   }
 
   /** Skier: hands placed by IK in the chest frame, poles aimed at a plant point beside the boots. */
@@ -429,12 +465,12 @@ export class RiderView {
       this.group.position.add(this.pivot).sub(this.v1.set(0, 0.7, 0).applyQuaternion(this.group.quaternion));
     }
     // ---- inclination: lean into the turn until lateral acceleration balances gravity,
-    // phi = atan(a_lat / g), capped at 40 degrees. lateralG > 0 = toward the board's right (toe side).
-    // Braking, the board lies across the travel direction, so the braking deceleration is lateral
-    // to it: the rider leans back into the hill onto the trailing edge (heelside -, toeside +).
+    // phi = atan(a_lat / g), capped at 60 degrees (FEAT-126). lateralG > 0 = toward the board's right
+    // (toe side). Braking, the board lies across the travel direction, so the braking deceleration
+    // is lateral to it: the rider leans back into the hill onto the trailing edge (heelside -, toeside +).
     const brakeG = r.brakeSide * r.brakeAcc / 9.81;
     const latG = r.lateralG * (1 - r.brakeAmt) + brakeG;
-    const phi = r.onGround && !seated ? Math.max(-0.7, Math.min(0.7, Math.atan(latG * 0.8))) : 0;
+    const phi = r.onGround && !seated ? carveLean(latG) : 0;
     this.leanAngle += (phi - this.leanAngle) * Math.min(1, dt * 8);
     // the board and the rider roll together about the engaged edge (0.13 m off centre) so the edge
     // stays in the snow; angulation comes from the carve poses bending at the waist
@@ -498,6 +534,10 @@ export class RiderView {
       const b = r.brakeSide !== 0 ? r.brakeAmt : 0;
       const edge = Math.max(-1, Math.min(1, r.edgeAngle * (1 - b) + r.brakeSide * b));
       if (edge > 0) lerpPose(t, t, P.carveToe, Math.min(1, edge * 1.2)); else if (edge < 0) lerpPose(t, t, P.carveHeel, Math.min(1, -edge * 1.2));
+      // FEAT-126: the harder the lean, the lower and more bent: light turns stay relaxed and tall,
+      // a full-lean carve drops into the deep pose on the side the body leans to
+      const deep = smooth(DEEP_FROM, LEAN_MAX, Math.abs(this.leanAngle)) * (1 - b);
+      if (deep > 0) lerpPose(t, t, this.leanAngle > 0 ? P.carveToeDeep : P.carveHeelDeep, deep);
       if (tuck) lerpPose(t, t, P.tuck, 0.85);
       if (r.jumpCharge > 0) lerpPose(t, t, P.crouch, Math.min(1, r.jumpCharge));
       if (r.squat > 0) lerpPose(t, t, P.squat, r.squat); // FEAT-111: deeper than tuck or charge, wins over both
@@ -572,20 +612,12 @@ export class RiderView {
       if (p.hipsY < floor) p.hipsY = floor;
     }
     this.applyFK(p, -side * 0.13, hipZ);
-    p.hipsY = hy; p.torso[0] = tx;
-    p.lShoulder[0] = arms[0]; p.lShoulder[2] = arms[1]; p.rShoulder[0] = arms[2]; p.rShoulder[2] = arms[3]; p.lElbow = arms[4]; p.rElbow = arms[5];
-    // FEAT-125: the head takes most of the press's pelvis roll back out, so it stays up and looks ahead
-    if (Math.abs(this.pressRoll) > 1e-3) {
-      this.group.updateMatrixWorld(true);
-      const ql = this.lean.getWorldQuaternion(this.pq);
-      // the roll tips the body toward -Z (the nose) for a positive angle, which is -angle about the rider's X
-      this.headQ.setFromAxisAngle(this.v1.set(1, 0, 0), HEAD_LEVEL * this.pressRoll).premultiply(ql).multiply(this.q.copy(ql).invert());
-      setWorldQuat(this.rig.bones.Head, this.headQ.multiply(this.rig.bones.Head.getWorldQuaternion(this.q)));
-    }
 
     // ---- legs: boots pinned to the bindings, or on a chair the board hangs from the feet
     const rig = this.rig;
     this.group.updateMatrixWorld(true);
+    // FEAT-126: on a deep lean the snow can come within reach of the inside knee and the hips
+    const nearSnow = free && r.onGround && Math.abs(this.leanAngle) > DEEP_FROM;
     if (seated) {
       hangCarriersFromFeet(rig);
       this.wasSeated = true;
@@ -597,12 +629,40 @@ export class RiderView {
       const fwd = this.v1.set(0, 0, -1).applyQuaternion(rig.bones.Hips.getWorldQuaternion(this.pq));
       const nose = this.v2.set(0, 0, -1).applyQuaternion(this.lean.getWorldQuaternion(this.pq));
       const k = this.discipline === 'board' ? 0.25 : 0;
-      const lp = this.v3.copy(fwd).addScaledVector(nose, -k);
-      const rp = this.v4.copy(fwd).addScaledVector(nose, k);
-      if (this.discipline === 'board' && free) this.pressLegs(r);
+      // FEAT-126: on a deep toeside lean the toe edge faces the snow, so both knees drive toward the
+      // nose instead (parallel to the snow), keeping the deep bend without the knees going in
+      const toeIn = this.discipline === 'board' && this.leanAngle > 0 ? 2.5 * smooth(DEEP_FROM, LEAN_MAX, this.leanAngle) : 0;
+      const lp = this.v3.copy(fwd).addScaledVector(nose, toeIn - k);
+      const rp = this.v4.copy(fwd).addScaledVector(nose, toeIn + k);
+      const press = this.discipline === 'board' && free;
+      if (press) this.pressLegs(r);
       this.footGap = pinFeet(rig, lp, rp);
+      // FEAT-126: raise the hips until the knees and the seat clear the snow, then solve the legs again.
+      // A knee sits about halfway between the hips and the boot, so it rises about half as far.
+      if (nearSnow) {
+        for (let it = 0; it < 3; it++) {
+          const lift = this.snowDeficit();
+          if (lift < 0.003) break;
+          p.hipsY += lift / Math.max(0.4, Math.cos(this.leanAngle));
+          this.applyFK(p, -side * 0.13, hipZ);
+          if (press) this.pressLegs(r);
+          this.footGap = pinFeet(rig, lp, rp);
+        }
+      }
+    }
+    p.hipsY = hy; p.torso[0] = tx;
+    p.lShoulder[0] = arms[0]; p.lShoulder[2] = arms[1]; p.rShoulder[0] = arms[2]; p.rShoulder[2] = arms[3]; p.lElbow = arms[4]; p.rElbow = arms[5];
+    // FEAT-125: the head takes most of the press's pelvis roll back out, so it stays up and looks ahead
+    // (after the legs, since the FEAT-126 snow clearance can run the FK again)
+    if (Math.abs(this.pressRoll) > 1e-3) {
+      this.group.updateMatrixWorld(true);
+      const ql = this.lean.getWorldQuaternion(this.pq);
+      // the roll tips the body toward -Z (the nose) for a positive angle, which is -angle about the rider's X
+      this.headQ.setFromAxisAngle(this.v1.set(1, 0, 0), HEAD_LEVEL * this.pressRoll).premultiply(ql).multiply(this.q.copy(ql).invert());
+      setWorldQuat(this.rig.bones.Head, this.headQ.multiply(this.rig.bones.Head.getWorldQuaternion(this.q)));
     }
     if (this.discipline === 'ski') this.skiHands(r, tuck, free);
+    if (nearSnow) this.handsAboveSnow();
     if (this.recoverT > 0) {
       // FEAT-046: ease from the last ragdoll pose into the animated one
       this.recoverT = Math.max(0, this.recoverT - dt);
