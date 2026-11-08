@@ -36,6 +36,11 @@ export const POSES: Record<string, Pose> = {
   tuck: { hipsY: 0.68, hipsRot: E(12, -90, 0), torso: E(45, 40, 0), head: E(-35, 45, 0), lShoulder: E(60, 0, -20), rShoulder: E(60, 0, 20), lElbow: 90, rElbow: 90, lHip: E(60, 0, -11), rHip: E(60, 0, 11), lKnee: 95, rKnee: 95 },
   carveToe: { hipsY: 0.84, hipsRot: E(6, -90, 0), torso: E(-14, 50, 0), head: E(-4, 50, 0), lShoulder: E(-10, 0, -85), rShoulder: E(-10, 0, 40), lElbow: 20, rElbow: 60, lHip: E(35, 0, -11), rHip: E(35, 0, 11), lKnee: 60, rKnee: 60 },
   carveHeel: { hipsY: 0.79, hipsRot: E(-6, -90, 0), torso: E(16, 35, 0), head: E(-4, 35, 0), lShoulder: E(20, 0, -45), rShoulder: E(20, 0, 85), lElbow: 50, rElbow: 20, lHip: E(50, 0, -11), rHip: E(50, 0, 11), lKnee: 75, rKnee: 75 },
+  // FEAT-126 hard carve at full lean (about 60 deg): hips low (the leg IK bends the knees to 100 to 120 deg),
+  // the chest angulated back up the slope from the legs so it leans about 75 % of the body, head near level;
+  // toeside the arms reach low and forward toward the snow, heelside they are held out in front
+  carveToeDeep: { hipsY: 0.56, hipsRot: E(10, -90, 0), torso: E(-24, 50, 0), head: E(-22, 50, 0), lShoulder: E(50, 0, -30), rShoulder: E(35, 0, 30), lElbow: 15, rElbow: 40, lHip: E(80, 0, -11), rHip: E(80, 0, 11), lKnee: 115, rKnee: 115 },
+  carveHeelDeep: { hipsY: 0.54, hipsRot: E(0, -90, 0), torso: E(26, 35, 0), head: E(14, 35, 0), lShoulder: E(50, 0, -25), rShoulder: E(35, 0, 20), lElbow: 25, rElbow: 35, lHip: E(85, 0, -11), rHip: E(85, 0, 11), lKnee: 115, rKnee: 115 },
   crouch: { hipsY: 0.55, hipsRot: E(8, -90, 0), torso: E(30, 45, 0), head: E(-25, 45, 0), lShoulder: E(-30, 0, -60), rShoulder: E(-30, 0, 60), lElbow: 40, rElbow: 40, lHip: E(75, 0, -11), rHip: E(75, 0, 11), lKnee: 110, rKnee: 110 },
   // FEAT-111 deep squat (Left Ctrl): hips low over the board, back straight and leaned ~20 deg, arms out in front, head up; the leg IK bends the knees as far as it can
   squat: { hipsY: 0.3, hipsRot: E(22, -90, 0), torso: E(18, 45, 0), head: E(-30, 45, 0), lShoulder: E(70, 0, -25), rShoulder: E(70, 0, 25), lElbow: 20, rElbow: 20, lHip: E(115, 0, -11), rHip: E(115, 0, 11), lKnee: 140, rKnee: 140 },
@@ -73,6 +78,9 @@ export const SKI_POSES: Record<string, Pose> = {
   tuck: { hipsY: 0.66, hipsRot: E(15, 0, 0), torso: E(60, 0, 0), head: E(-50, 0, 0), lShoulder: E(75, 0, -10), rShoulder: E(75, 0, 10), lElbow: 110, rElbow: 110, lHip: E(70, 0, -1.2), rHip: E(70, 0, 1.2), lKnee: 100, rKnee: 100 },
   carveToe: { hipsY: 0.84, hipsRot: E(6, 0, 12), torso: E(18, 0, -14), head: E(-8, 0, -4), lShoulder: E(30, 0, -40), rShoulder: E(30, 0, 10), lElbow: 50, rElbow: 60, lHip: E(35, 0, -6), rHip: E(45, 0, 1.2), lKnee: 55, rKnee: 75 },
   carveHeel: { hipsY: 0.84, hipsRot: E(6, 0, -12), torso: E(18, 0, 14), head: E(-8, 0, 4), lShoulder: E(30, 0, -10), rShoulder: E(30, 0, 40), lElbow: 60, rElbow: 50, lHip: E(45, 0, -1.2), rHip: E(35, 0, 6), lKnee: 75, rKnee: 55 },
+  // FEAT-126 hard carve at full lean: hips low and rolled into the turn, chest angulated back over the outside ski
+  carveToeDeep: { hipsY: 0.62, hipsRot: E(12, 0, 18), torso: E(24, 0, -26), head: E(-14, 0, -16), lShoulder: E(45, 0, -35), rShoulder: E(40, 0, 15), lElbow: 55, rElbow: 60, lHip: E(60, 0, -6), rHip: E(70, 0, 1.2), lKnee: 90, rKnee: 110 },
+  carveHeelDeep: { hipsY: 0.62, hipsRot: E(12, 0, -18), torso: E(24, 0, 26), head: E(-14, 0, 16), lShoulder: E(40, 0, -15), rShoulder: E(45, 0, 35), lElbow: 60, rElbow: 55, lHip: E(70, 0, -1.2), rHip: E(60, 0, 6), lKnee: 110, rKnee: 90 },
   crouch: { hipsY: 0.55, hipsRot: E(8, 0, 0), torso: E(35, 0, 0), head: E(-25, 0, 0), lShoulder: E(-10, 0, -20), rShoulder: E(-10, 0, 20), lElbow: 40, rElbow: 40, lHip: E(80, 0, -1.8), rHip: E(80, 0, 1.8), lKnee: 115, rKnee: 115 },
   squat: { hipsY: 0.32, hipsRot: E(22, 0, 0), torso: E(18, 0, 0), head: E(-30, 0, 0), lShoulder: E(70, 0, -15), rShoulder: E(70, 0, 15), lElbow: 20, rElbow: 20, lHip: E(115, 0, -1.8), rHip: E(115, 0, 1.8), lKnee: 140, rKnee: 140 },
   air: { hipsY: 0.8, hipsRot: E(0, 0, 0), torso: E(10, 0, 0), head: E(-10, 0, 0), lShoulder: E(-20, 0, -70), rShoulder: E(-20, 0, 70), lElbow: 30, rElbow: 30, lHip: E(45, 0, -2.4), rHip: E(45, 0, 2.4), lKnee: 70, rKnee: 70 },
