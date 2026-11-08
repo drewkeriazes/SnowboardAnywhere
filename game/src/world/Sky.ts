@@ -108,6 +108,9 @@ export class Environment {
   /** overcast (FEAT-078): grey cloud deck, no sun disc, soft shadowless light, flat snow, more haze; the sky still reaches the horizon */
   overcast = false;
   setOvercast(on: boolean): void { this.overcast = on; this.setSun(this.lastSun[0], this.lastSun[1]); }
+  /** FEAT-084: thin high cloud (cirrus and contrails drawn on the sky dome) */
+  cirrus = false;
+  setCirrus(on: boolean): void { this.cirrus = on; this.setSun(this.lastSun[0], this.lastSun[1]); }
   private readonly deckColor = new THREE.Color();
   /** morning valley fog layer (burns off as the sun climbs) */
   valleyFog = false;
@@ -128,7 +131,7 @@ export class Environment {
     this.stormColor.setRGB(0.8 * g, 0.82 * g, 0.86 * g);
     const gd = 0.3 + 0.7 * up;
     this.deckColor.setRGB(0.72 * gd, 0.74 * gd, 0.78 * gd); // the Mid-Vail photo's sky, about sRGB (182, 187, 197)
-    this.atmo.update({ sunDir: this.sunDir, sunElevationDeg: elevationDeg, exposure, bluebird: this.bluebird, storm: this.storm, stormColor: this.stormColor, valleyFog: this.valleyFog, overcast: this.overcast && !this.storm, deckColor: this.deckColor });
+    this.atmo.update({ sunDir: this.sunDir, sunElevationDeg: elevationDeg, exposure, bluebird: this.bluebird, storm: this.storm, stormColor: this.stormColor, valleyFog: this.valleyFog, overcast: this.overcast && !this.storm, deckColor: this.deckColor, cirrus: this.cirrus });
     this.sun.color.copy(this.atmo.sunColor);
     if (this.csm) {
       this.csm.lightDirection.copy(this.sunDir).negate();
