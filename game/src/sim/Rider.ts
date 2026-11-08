@@ -332,7 +332,7 @@ export class Rider {
   }
   /** off the board or getting on or off it: no board physics, tracks or spray */
   get unstrapped(): boolean { return this.onFoot || this.strapState !== 'none'; }
-  /** nearly stopped on the snow, so B unstraps */
+  /** nearly stopped on the snow, so E (interact) unstraps */
   get canUnstrap(): boolean { return !this.onFoot && this.strapState === 'none' && this.onGround && this.crashed <= 0 && this.speed < UNSTRAP_SPEED; }
   /** standing still on foot, so B straps in */
   get canStrapIn(): boolean { return this.onFoot && this.strapState === 'none' && this.onGround && this.speed < STRAP_SPEED; }
@@ -377,7 +377,8 @@ export class Rider {
     while (this.accum >= STEP) {
       this.prev[0] = this.x; this.prev[1] = this.y; this.prev[2] = this.z; this.prev[3] = this.heading; this.prev[4] = this.boardYaw;
       const fb = this.pack.coarseFallbacks;
-      this.easeSquat(STEP, !!input.squat);
+      // FEAT-124: the squat key grabs in the air and sprints on foot, so it only squats riding on the snow
+      this.easeSquat(STEP, !!input.squat && this.onGround && !this.onFoot);
       this.lean += ((this.onGround ? input.lean ?? 0 : 0) - this.lean) * Math.min(1, STEP / LEAN_IN); // snaps back level in the air
       this.step(STEP, input);
       this.steps++;
