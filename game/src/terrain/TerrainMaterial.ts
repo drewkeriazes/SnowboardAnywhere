@@ -109,6 +109,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         uniform float uTime;
         uniform vec3 uSnow, uSnowShade, uGroomed, uShadeTint, uSSS;
         uniform float uWrap, uGlint, uFlat, uAO;
+        #define AO_POW 2.6
+        #define AO_DIRECT 0.6
         // FEAT-075: forest darkening from FOREST_NEAR (full by FOREST_FULL, m); canopy cover FOREST_LO..FOREST_HI maps to 0..1
         #define FOREST_NEAR 350.0
         #define FOREST_FULL 1000.0
@@ -181,7 +183,10 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float wind = fbm2(wp.xz * 0.08 + vec2(wp.y * 0.01, 0.0));
         float ripple = vnoise(vec3(wp.x * 0.35, 0.0, wp.z * 1.6)) * (1.0 - smoothstep(30.0, 140.0, length(cameraPosition - wp)));
         float grain = vnoise(wp * 2.5);
-        vec3 snow = mix(uSnowShade, uSnow, 0.45 + 0.55 * wind) * (0.93 + 0.05 * grain + 0.04 * ripple);
+        // FEAT-092: the wind tone is a near-field detail; past a few hundred metres it averages out to an
+        // even tone (real snow is evenly toned at distance, shaded only by the terrain), so no blotches
+        float windAmt = mix(0.55, 0.1, smoothstep(80.0, 700.0, dist));
+        vec3 snow = mix(uSnowShade, uSnow, 1.0 - windAmt + windAmt * wind) * (0.93 + 0.05 * grain + 0.04 * ripple);
         // groomed: clean, even snow with corduroy ridges down the fall line and groomer passes
         float passTone, seam;
         vec4 cd = corduroy(wp, vFall, passTone, seam);
@@ -258,7 +263,10 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           vec3 wpn = vWorldPos;
           float e = 0.6;
           // drifts (20 m), lumps and old tracks (7 m), wind crust (3 m)
-          #define SNOWH(q) (fbm2((q) * 0.05) * 2.0 + fbm2((q) * 0.14) * 1.1 + fbm2((q) * 0.35) * 0.5)
+          // FEAT-092: the 20 m drift octave shades into soft cloudy blotches a few hundred metres off, so
+          // it fades with distance; the 7 m and 3 m octaves keep the snow textured out there
+          float bigK = 1.0 - 0.75 * smoothstep(150.0, 600.0, length(cameraPosition - wpn));
+          #define SNOWH(q) (fbm2((q) * 0.05) * 2.0 * bigK + fbm2((q) * 0.14) * 1.1 + fbm2((q) * 0.35) * 0.5)
           float h0 = SNOWH(wpn.xz);
           float hx = SNOWH(wpn.xz + vec2(e, 0.0));
           float hz = SNOWH(wpn.xz + vec2(0.0, e));
@@ -306,11 +314,12 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           // occluding only the sky fill barely shows), faded out before the chunks that carry no AO
           // (coarser than 32 m, beyond ~5 km); plus shade under the canopy (tree wells) near the trees
           float aoK = uAO * (1.0 - smoothstep(3500.0, 5000.0, dist));
-          float aoT = mix(1.0, pow(vAO, 1.8), aoK) * (1.0 - 0.28 * vForest * (1.0 - fd));
+          // FEAT-092: a steeper curve so gullies read in depth (was pow 1.8)
+          float aoT = mix(1.0, pow(vAO, AO_POW), aoK) * (1.0 - 0.28 * vForest * (1.0 - fd));
           reflectedLight.indirectDiffuse *= aoT * mix(vec3(1.0), uShadeTint, wSnow * (1.0 - 0.6 * uFlat));
           reflectedLight.indirectSpecular *= aoT;
           // gullies and couloirs read in depth in sun too, and it stands in for self-shadowing past the shadow maps
-          reflectedLight.directDiffuse *= mix(1.0, aoT, 0.45);
+          reflectedLight.directDiffuse *= mix(1.0, aoT, AO_DIRECT);
         }`)
       .replace('#include <roughnessmap_fragment>', `
         // flat light: no sheen toward a sun hidden behind cloud, so the snow goes fully rough

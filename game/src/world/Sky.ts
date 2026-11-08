@@ -2,6 +2,18 @@ import * as THREE from 'three';
 import { CSM } from 'three/examples/jsm/csm/CSM.js';
 import { Atmosphere } from './Atmosphere';
 
+/** FEAT-092: the most the sun's colour may depart from neutral: (max - min) / max of the RGB */
+const SUN_TINT_MAX = 0.32;
+/** Lift a colour's weaker channels toward its brightest until its saturation is at most `max` (the brightness, its max, is kept). */
+export function capTint(c: THREE.Color, max: number): void {
+  const hi = Math.max(c.r, c.g, c.b), lo = Math.min(c.r, c.g, c.b);
+  if (hi <= 0) return;
+  const sat = (hi - lo) / hi;
+  if (sat <= max) return;
+  const f = max / sat;
+  c.setRGB(hi - (hi - c.r) * f, hi - (hi - c.g) * f, hi - (hi - c.b) * f);
+}
+
 /**
  * Sky and atmosphere (Atmosphere.ts: scattering sky, height fog, aerial perspective), sun with cascaded shadow maps (3 cascades over the first 1.2 km so trees shadow
  * pistes at distance and the rider still gets a crisp shadow) and hemisphere fill.
@@ -133,6 +145,8 @@ export class Environment {
     this.deckColor.setRGB(0.72 * gd, 0.74 * gd, 0.78 * gd); // the Mid-Vail photo's sky, about sRGB (182, 187, 197)
     this.atmo.update({ sunDir: this.sunDir, sunElevationDeg: elevationDeg, exposure, bluebird: this.bluebird, storm: this.storm, stormColor: this.stormColor, valleyFog: this.valleyFog, overcast: this.overcast && !this.storm, deckColor: this.deckColor, cirrus: this.cirrus });
     this.sun.color.copy(this.atmo.sunColor);
+    // FEAT-092: cap the golden-hour tint: a low sun stays warm, but snow should not go orange
+    capTint(this.sun.color, SUN_TINT_MAX);
     if (this.csm) {
       this.csm.lightDirection.copy(this.sunDir).negate();
       for (const l of this.csm.lights) { l.color.copy(this.sun.color); l.intensity = this.sun.intensity; }
