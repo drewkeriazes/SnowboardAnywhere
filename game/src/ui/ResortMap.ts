@@ -1,3 +1,4 @@
+import { LANDMARKS } from '../world/Landmarks';
 import type { Pack } from '../pack/Pack';
 import type { Difficulty } from '../pack/types';
 
@@ -210,6 +211,14 @@ export class ResortMap {
       this.path(ctx, l.stations);
       ctx.fillStyle = '#d7263d';
       for (const s of [l.stations[0], l.stations[l.stations.length - 1]]) { const [px, py] = this.toPixel(s[0], s[1]); ctx.beginPath(); ctx.arc(px, py, 2.5, 0, Math.PI * 2); ctx.fill(); }
+    }
+    // FEAT-132 landmarks: a gold diamond with the name beside it
+    ctx.font = '600 11px system-ui, sans-serif'; ctx.textBaseline = 'middle';
+    for (const l of LANDMARKS[this.pack.meta.slug] ?? []) {
+      const [px, py] = this.toPixel(l.x, l.y);
+      ctx.fillStyle = '#e8b931'; ctx.strokeStyle = '#3a2b20'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(px, py - 5); ctx.lineTo(px + 5, py); ctx.lineTo(px, py + 5); ctx.lineTo(px - 5, py); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.strokeText(l.name, px + 8, py); ctx.fillStyle = '#3a2b20'; ctx.fillText(l.name, px + 8, py);
     }
   }
 
