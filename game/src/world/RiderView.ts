@@ -71,12 +71,16 @@ const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
  *  damped follow), so every turn reads look, shoulders, hips cross, knees roll, then the board tips.
  *  Physics, collision and the tracks keep the true board state. Live-tunable on the view
  *  (`leadUpper`, `leadHips`, `boardLag`; the ?debug HUD has sliders). */
-export const LEAD_UPPER = 0.18, LEAD_HIPS = 0.09, BOARD_LAG = 0.08;
+export const LEAD_UPPER = 0.2, LEAD_HIPS = 0.12, BOARD_LAG = 0.08;
 /** BUG-056: how far the edge must be moving (rad ahead of the physics edge over the hips' lead) for
  *  the inclination to lean fully for the predicted edge instead of the measured lateral g, the most
- *  the shoulders turn ahead of the drawn board (rad), the pelvis's share of that turn on a
- *  snowboard, and the inclination's ease (1/s) */
-const LEAD_BLEND = 0.2, YAW_LEAD_CAP = 0.5, HIP_YAW_SHARE = 0.5, LEAN_EASE = 20;
+ *  the shoulders turn ahead of the drawn board (rad), and the pelvis's share of that turn on a snowboard */
+const LEAD_BLEND = 0.2, YAW_LEAD_CAP = 0.5, HIP_YAW_SHARE = 0.5;
+/** BUG-056: the body's own response time (s): every lead signal (the edges the poses are built for,
+ *  the inclination, the shoulders' turn, the hips over a press) is a critically damped follow of its
+ *  prediction with this lag, so a new steer moves the body at a human speed, ahead of the board but
+ *  never snapping to it (the prediction itself jumps the moment the input changes) */
+const BODY_RESPONSE = 0.09;
 /** a second-order follow: position and rate */
 interface Follow { x: number; v: number }
 /** BUG-056: critically damped follow of `target`: no overshoot, and a steady ramp is tracked `lag` s behind */
@@ -164,7 +168,6 @@ export class RiderView {
   private readonly lean = new THREE.Group();
   private poses: Record<string, Pose> = POSES;
   discipline: 'board' | 'ski' = 'board';
-  private leanAngle = 0;
   /** BUG-056 tunables (s): how far ahead the head and shoulders and the hips pose, how far behind the board is drawn */
   leadUpper = LEAD_UPPER; leadHips = LEAD_HIPS; boardLag = BOARD_LAG;
   /** FEAT-127 / BUG-056: the board's roll onto its edge as drawn (rad, + = toe / right edge) and its
@@ -174,7 +177,15 @@ export class RiderView {
   private readonly rollF: Follow = { x: 0, v: 0 };
   private readonly yawF: Follow = { x: 0, v: 0 };
   private rollPhys = 0; private prevGround = true; private visLive = false;
-  private yawLead = 0; private edgeUpper = 0; private edgeHips = 0;
+  private readonly leanF: Follow = { x: 0, v: 0 };
+  private readonly yawLeadF: Follow = { x: 0, v: 0 };
+  private readonly edgeUpperF: Follow = { x: 0, v: 0 };
+  private readonly edgeHipsF: Follow = { x: 0, v: 0 };
+  private readonly hipZF: Follow = { x: 0, v: 0 };
+  private get leanAngle(): number { return this.leanF.x; }
+  private get yawLead(): number { return this.yawLeadF.x; }
+  private get edgeUpper(): number { return this.edgeUpperF.x; }
+  private get edgeHips(): number { return this.edgeHipsF.x; }
   /** FEAT-118: board bend (0 flat .. 1 full load), its rate, and which end is loaded (-1 tail, +1 nose) */
   private flex = 0; private flexV = 0; private flexDir = -1;
   private twist = 0;
@@ -594,7 +605,7 @@ export class RiderView {
     const k = Math.min(1, Math.abs(edgeAhead) / LEAD_BLEND) * (1 - r.brakeAmt);
     const measured = carveLean(latG);
     const phi = r.onGround && !seated ? Math.max(-LEAN_MAX, Math.min(LEAN_MAX, measured + (r.predictIncline(this.leadHips) - measured) * k)) : 0;
-    this.leanAngle += (phi - this.leanAngle) * Math.min(1, dt * LEAN_EASE);
+    follow(this.leanF, phi, BODY_RESPONSE, dt);
     // FEAT-127: the board rolls onto the sim's real edge angle (the brake's snow cut while braking),
     // further over than the body: the knees and hips make up the difference (angulation).
     // BUG-056: drawn boardLag behind the physics edge (the same snap rules as the yaw), and never
@@ -603,7 +614,9 @@ export class RiderView {
     const rollT = live ? r.edgeAngle * EDGE_FULL * (1 - bk) + r.brakeSide * (r.brakePsi ?? 0) * bk : 0;
     this.rollPhys = rollT;
     if (snap) { this.rollF.x = rollT; this.rollF.v = 0; } else follow(this.rollF, rollT, this.boardLag, dt);
-    if (live && this.rollF.x * rollT >= 0 && Math.abs(this.rollF.x) > Math.abs(rollT)) { this.rollF.x = rollT; this.rollF.v = 0; } // in the air it just eases flat
+    // easing off the edge the drawn board may not trail behind the physics (it would be rolled further than
+    // the edge is), so there it catches up with a quarter of the lag: still a smooth follow, no snap
+    if (live && this.rollF.x * rollT >= 0 && Math.abs(this.rollF.x) > Math.abs(rollT)) follow(this.rollF, rollT, this.boardLag / 4, dt);
     // the board and the rider roll together about the engaged edge so it stays in the snow, then the
     // board rolls on by `ex` about that same edge. The pivot slides out from the middle of the base
     // to the edge (EDGE_OFF) over the first EDGE_PIVOT_ROLL of roll, so an edge change never pops.
@@ -674,7 +687,7 @@ export class RiderView {
       // head, shoulders and arms for the edge and lean leadUpper ahead, the pelvis for leadHips ahead
       const b = r.brakeSide !== 0 ? r.brakeAmt : 0;
       const edgeFor = (lead: number) => Math.max(-1, Math.min(1, r.predictEdge(lead) / EDGE_FULL * (1 - b) + r.brakeSide * b));
-      this.edgeUpper = edgeFor(this.leadUpper); this.edgeHips = edgeFor(this.leadHips);
+      follow(this.edgeUpperF, edgeFor(this.leadUpper), BODY_RESPONSE, dt); follow(this.edgeHipsF, edgeFor(this.leadHips), BODY_RESPONSE, dt);
       pressRoll = this.ridingPose(t, r, tuck, b, this.edgeUpper, r.predictLean(this.leadUpper));
       const h = this.hipsTarget;
       copyPose(h, P.neutral);
@@ -716,7 +729,7 @@ export class RiderView {
     // Not the swing of a brake: there the shoulders stay down the hill (the slip twist above) and the
     // board swings across under them.
     const ahead = free && r.onGround ? wrap(r.boardYaw - this.yawF.x) * (1 - r.brakeAmt) + r.turnRate * this.leadUpper : 0;
-    this.yawLead += (Math.max(-YAW_LEAD_CAP, Math.min(YAW_LEAD_CAP, ahead)) - this.yawLead) * Math.min(1, dt * 12);
+    follow(this.yawLeadF, Math.max(-YAW_LEAD_CAP, Math.min(YAW_LEAD_CAP, ahead)), BODY_RESPONSE, dt);
     const hipShare = this.discipline === 'ski' ? SKI_HIP_TWIST : 0;
     const hipYaw = this.discipline === 'ski' ? SKI_HIP_TWIST : HIP_YAW_SHARE;
     t.hipsRot = [t.hipsRot[0], t.hipsRot[1] + this.twist * hipShare - this.yawLead * hipYaw, t.hipsRot[2]];
@@ -742,7 +755,8 @@ export class RiderView {
       // BUG-056: on a press the hips move over the loaded end ahead of the bend (a full lean bends it 0.6)
       const leanH = free && r.onGround ? r.predictLean(this.leadHips) : 0;
       const ahead = Math.sign(leanH) === this.flexDir ? 0.6 * Math.abs(leanH) : 0;
-      hipZ = -this.flexDir * HIP_SHIFT * Math.max(0, Math.min(1, Math.max(this.flex, ahead) / PRESS_FLEX));
+      follow(this.hipZF, Math.max(0, Math.min(1, Math.max(this.flex, ahead) / PRESS_FLEX)), BODY_RESPONSE, dt);
+      hipZ = -this.flexDir * HIP_SHIFT * this.hipZF.x;
       const floor = deckY(this.rig, hipZ) + 0.022 + HIP_CLEAR;
       if (p.hipsY < floor) p.hipsY = floor;
     }
@@ -924,7 +938,8 @@ export class RiderView {
     this.q.setFromRotationMatrix(this.rot);
     this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
     this.baseQ.copy(this.group.quaternion); // FEAT-110: keep the riding base in step, no swing when strapping back in
-    this.leanAngle = 0; this.rollF.x = 0; this.rollF.v = 0; this.twist = 0; this.yawLead = 0; this.visLive = false; // BUG-056: the follows snap when strapping back in
+    for (const f of [this.leanF, this.rollF, this.yawLeadF, this.edgeUpperF, this.edgeHipsF, this.hipZF]) { f.x = 0; f.v = 0; }
+    this.twist = 0; this.visLive = false; // BUG-056: the follows snap when strapping back in
     this.lean.position.set(0, 0, 0); this.lean.rotation.set(0, 0, 0);
 
     // ---- gait (pack coords): runs once fully on foot; until then the feet's standing spots follow the body
