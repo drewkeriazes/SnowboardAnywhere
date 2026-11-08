@@ -49,6 +49,8 @@ import { hasCustomStart, resetStart, spawnKey } from './spawn';
 
 /** FEAT-105: the New snow setting as a snow cover amount */
 const NEW_SNOW: Record<string, number> = { none: 0, dusting: 0.25, '6in': 0.6, powder: 1 };
+/** FEAT-077: how skied out the snow gets by late afternoon for each Snow conditions setting */
+const SKIED_BASE: Record<string, number> = { fresh: 0.15, mid: 0.9, spring: 0.7 };
 
 const params = new URLSearchParams(location.search);
 let packSlug = params.get('pack') ?? '';
@@ -752,6 +754,14 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (weatherNow === 'storm') snowCover = Math.min(1, snowCover + dt / 600);
       else if (weatherNow === 'flurries') snowCover = Math.min(1, snowCover + dt / 3000);
       terrain.setSnowCover(snowCover, snow.wind.x, snow.wind.y);
+      // FEAT-077: groomers get skied out through the day (fresh corduroy first thing, tracked out by
+      // mid-afternoon); new snow covers the tracks again
+      {
+        const hour = typeof settings.timeOfDay === 'number' ? settings.timeOfDay : settings.timeOfDay === 'now' ? ((new Date().getUTCHours() + new Date().getUTCMinutes() / 60 + utcOff) % 24 + 24) % 24 : 13;
+        const day = Math.max(0, Math.min(1, (hour - 8.5) / 6.5));
+        const base = SKIED_BASE[settings.snowDay ?? 'mid'];
+        terrain.setSkied(base * (0.15 + 0.85 * day * day * (3 - 2 * day)) * (1 - snowCover), settings.snowDay === 'spring' ? 1 : 0);
+      }
       rocks.setSnow(Math.min(1, snowCover * 3), snow.wind.x, snow.wind.y); // boulder tops fill three times faster than the slopes
       roads.update(fx, fy);
       const carried = onLift && liftRide.airborneRide ? liftRide.lift : null;
