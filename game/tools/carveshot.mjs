@@ -40,8 +40,11 @@ page.setDefaultTimeout(240000);
 const ride = (n) => page.evaluate((n) => { for (let i = 0; i < n; i++) window.__step(1, 1 / 60); }, n);
 const state = () => page.evaluate(() => {
   const r = window.__sim.rider;
-  const phi = Math.atan(r.lateralG * 0.8);
-  return { speed: +r.speed.toFixed(2), lateralG: +r.lateralG.toFixed(2), edge: +Math.min(1, Math.abs(phi) / 0.6).toFixed(2), skid: +r.skid.toFixed(2), slipDeg: +(r.slip * 180 / Math.PI).toFixed(0) };
+  // FEAT-127: the board's real edge angle; `edge` is it as a share of the track's full-edge angle (55 deg).
+  // `radius` is the turn the heading is actually following (speed over the heading rate, BUG-053), so
+  // it includes the steer yaw and any slip wash-out, not just the arc the edge and lean balance
+  const edgeDeg = Math.abs(r.edge) * 180 / Math.PI;
+  return { speed: +r.speed.toFixed(2), lateralG: +r.lateralG.toFixed(2), edgeDeg: +edgeDeg.toFixed(0), edge: +Math.min(1, edgeDeg / 55).toFixed(2), radius: +Math.min(999, r.turnRadius).toFixed(1), skid: +r.skid.toFixed(2), slipDeg: +(r.slip * 180 / Math.PI).toFixed(0) };
 });
 /** camera `back` m behind the rider along travel (negative = ahead), `side` m right, `up` m above, looking at a point `ahead` m along travel */
 async function shot(label, back, side, up, ahead = 0) {

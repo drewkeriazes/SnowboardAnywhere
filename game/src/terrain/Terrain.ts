@@ -87,6 +87,12 @@ export class Terrain {
     if (l > 1e-6) u.uSnowLee.value.set(windX / l, windZ / l);
   }
 
+  /** FEAT-077: how skied the snow is (0 fresh corduroy .. 1 tracked out and chopped) and how much spring snow (0..1). */
+  setSkied(skied: number, spring: number): void {
+    const u = this.material.userData.uniforms as { uSkied: { value: number }; uSpring: { value: number } };
+    u.uSkied.value = Math.max(0, Math.min(1, skied)); u.uSpring.value = Math.max(0, Math.min(1, spring));
+  }
+
   /** Storm flat light: 0 = normal, 1 = overcast (snow relief and glints fade out). */
   setFlatLight(v: number): void {
     (this.material.userData.uniforms as { uFlat: { value: number } }).uFlat.value = v;
