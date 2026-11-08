@@ -19,6 +19,9 @@ export type KeyMap = Record<string, string[]>;
 const PAD = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, SELECT: 8, START: 9, L3: 10, R3: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 } as const;
 const DEAD = 0.18;
 /** one-shot gamepad buttons and the action each one fires */
+const padBtn = (gp: Gamepad, i: number): boolean => !!gp.buttons[i]?.pressed;
+const padVal = (gp: Gamepad, i: number): number => gp.buttons[i]?.value ?? 0;
+const padAxis = (gp: Gamepad, i: number): number => { const a = gp.axes[i] ?? 0; return Math.abs(a) > DEAD ? a : 0; };
 const PAD_ACTIONS: [number, string][] = [[PAD.Y, 'lift'], [PAD.UP, 'camera'], [PAD.RIGHT, 'map'], [PAD.LEFT, 'piste'], [PAD.DOWN, 'track'], [PAD.SELECT, 'replay'], [PAD.START, 'pause']];
 
 export class Controls {
@@ -117,13 +120,14 @@ export class Controls {
     let crouch = this.held('grab'), squatOnly = this.held('squat'), skate = this.held('skate');
     let lean = (this.held('pressNose') ? 1 : 0) - (this.held('pressTail') ? 1 : 0);
     // ---- FEAT-124 gamepad (the standard mapping)
-    const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
-    const gp = Array.from(pads ?? []).find((p) => p && p.connected && p.mapping === 'standard') ?? null;
+    // (no per-frame allocations beyond getGamepads itself: a plain loop over the list, module-level helpers, padPrev reused)
+    const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : null;
+    let gp: Gamepad | null = null;
+    if (pads) for (let i = 0; i < pads.length; i++) { const p = pads[i]; if (p && p.connected && p.mapping === 'standard') { gp = p; break; } }
     this.padActive = !!gp;
     this.padLookX = this.padLookY = 0; this.padGlance = false;
     if (gp) {
-      const b = (i: number) => !!gp.buttons[i]?.pressed, v = (i: number) => gp.buttons[i]?.value ?? 0;
-      const ax = (i: number) => { const a = gp.axes[i] ?? 0; return Math.abs(a) > DEAD ? a : 0; };
+      const b = (i: number) => padBtn(gp, i), v = (i: number) => padVal(gp, i), ax = (i: number) => padAxis(gp, i);
       if (ax(0)) steer = Math.max(-1, Math.min(1, steer + ax(0)));
       if (ax(1) < -0.5 || v(PAD.RT) > 0.3) tuck = true;
       if (ax(1) > 0.5 || v(PAD.LT) > 0.3) brake = true;
@@ -135,7 +139,7 @@ export class Controls {
       this.padLookX = ax(2); this.padLookY = ax(3);
       this.padGlance = b(PAD.R3);
       for (const [i, a] of PAD_ACTIONS) if (b(i) && !this.padPrev[i]) { if (a === 'pause') this.pressed.add('Escape'); else this.padPressed.add(a); }
-      this.padPrev = gp.buttons.map((x) => x.pressed);
+      for (let i = 0; i < gp.buttons.length; i++) this.padPrev[i] = gp.buttons[i].pressed;
     }
     if (this.invertSteer) steer = -steer;
     if (steer === 0) steer = this.touchSteer;

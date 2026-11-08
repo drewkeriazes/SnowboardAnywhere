@@ -229,7 +229,9 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
     tabs.forEach((x) => x.classList.toggle('on', x === b));
     host.querySelectorAll<HTMLElement>('.tab').forEach((t) => t.classList.toggle('hidden', t.dataset.t !== b.dataset.t));
   }));
+  let cancelListen: (() => void) | null = null; // the one key slot waiting for a press, if any
   const fill = () => {
+    cancelListen?.();
     host.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-k]').forEach((el) => {
       const k = el.dataset.k as keyof Settings;
       if (el instanceof HTMLInputElement && el.type === 'checkbox') el.checked = !!s[k];
@@ -248,6 +250,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
     keys.innerHTML = KEY_GROUPS.map(([g, list]) => `<div class="hint" style="margin-top:10px;font-weight:600;opacity:.9">${g}</div>` +
       list.map(([act, label]) => `<div class="row"><label>${label}</label>${slot(act, 0)}${slot(act, 1)}</div>`).join('')).join('');
     keys.querySelectorAll<HTMLButtonElement>('button.key').forEach((b) => b.addEventListener('click', () => {
+      cancelListen?.(); // a slot that was still listening stops (else both would take the next key)
       b.textContent = '...'; b.classList.add('listening');
       const act = b.dataset.action!, i = Number(b.dataset.slot);
       const set = (code: string | null) => {
@@ -256,15 +259,17 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
         s.keys[act] = arr.filter((x) => !!x).slice(0, 2);
         saveSettings(s); onChange(s, 'keys');
       };
-      const done = () => { window.removeEventListener('keydown', onKey, true); window.removeEventListener('mousedown', onMouse, true); fill(); };
+      const done = () => { stop(); fill(); };
       const onKey = (e: KeyboardEvent) => {
         e.preventDefault(); e.stopPropagation();
         if (e.code === 'Delete') set(null); else if (e.code !== 'Escape') set(e.code);
         done();
       };
       const onMouse = (e: MouseEvent) => { if (e.button !== 2) return; e.preventDefault(); e.stopPropagation(); set('Mouse2'); done(); };
+      const mouseTimer = setTimeout(() => window.addEventListener('mousedown', onMouse, true), 0);
+      const stop = () => { clearTimeout(mouseTimer); window.removeEventListener('keydown', onKey, true); window.removeEventListener('mousedown', onMouse, true); cancelListen = null; };
+      cancelListen = stop;
       window.addEventListener('keydown', onKey, true);
-      setTimeout(() => window.addEventListener('mousedown', onMouse, true), 0);
     }));
   };
   fill();

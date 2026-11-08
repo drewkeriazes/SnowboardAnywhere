@@ -90,7 +90,7 @@ await step(120, '07d_after');
 await page.keyboard.up('ArrowUp');
 // a boost if there is adrenaline, else grant it
 await page.evaluate(() => { window.__sim.outrun.adrenaline = 1; });
-await page.keyboard.press('KeyQ');
+await page.keyboard.press('KeyF'); // FEAT-124: boost moved from Q to F
 await step(60, '08_boost');
 // teleport the rider in front of the monster to get caught
 await page.evaluate(() => { const s = window.__sim, m = s.outrun.nearest; if (m) { s.rider.x = m.x; s.rider.y = m.y; s.rider.z = m.z + 0.5; s.rider.vx = s.rider.vy = 0; } });

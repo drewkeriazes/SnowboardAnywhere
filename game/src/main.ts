@@ -464,6 +464,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const helpEl = document.getElementById('help');
     let helpShown = '', helpT = 0;
     const k = (a: string) => `<kbd>${keysOf(settings, a)}</kbd>`;
+    const k1 = (a: string) => keyName(settings.keys[a]?.[0] ?? ''); // first binding only (the walk cluster reads "WASD")
     if (settings.keysNote) { boardMsgNote = 'New default key layout available: Settings > Controls > Reset keys'; settings.keysNote = false; saveSettings(settings); }
     const showPrompt = (html: string) => { if (html !== promptShown) { promptShown = html; prompt.innerHTML = html; prompt.classList.toggle('show', html !== ''); } };
 
@@ -535,6 +536,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       const dt = fixedDt ?? Math.min(0.1, (now - last) / 1000);
       last = now;
       const input = controls.update();
+      // FEAT-124: the gamepad's right stick looks around like the mouse: a rate (px/s at full deflection),
+      // added before the cameras consume mouseDx / mouseDy so it lands this frame, not the next
+      if (controls.padLookX || controls.padLookY) { mouseDx += controls.padLookX * 840 * dt; mouseDy += controls.padLookY * 600 * dt; }
       // pause has priority; Esc closes the map first if it is open
       if (controls.once('Escape') || touch?.once('pause')) { if (replayOpen) closeReplay(); else if (map.fullOpen) map.close(); else setPaused(!paused); }
       if (paused) { controls.endFrame(); touch?.pressed.clear(); render(); if (!headless) requestAnimationFrame(frame); return; }
@@ -788,18 +792,16 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         else showPrompt(`<div class="name">${name}</div><div class="row">ride to the lift <span class="dim">${dist}</span> then <kbd>E</kbd></div>`);
       } else if (!map.fullOpen && !detached) {
         // board on / off
-        const bk = `<kbd>${keyName(settings.keys.lift?.[0] ?? '')}</kbd>`; // FEAT-124: E straps in and out
+        const bk = `<kbd>${keysOf(settings, 'board') || keysOf(settings, 'lift')}</kbd>`; // FEAT-124: E straps in and out (or the optional board-only key)
         if (boardMsgT > 0) showPrompt(`<div class="row">${boardMsg}</div>`);
         else if (rider.strapState !== 'none') showPrompt('');
-        else if (rider.onFoot) showPrompt(`<div class="row">${bk} strap in${rider.speed > 0.3 ? ' <span class="dim">(stand still)</span>' : ''} &nbsp; <kbd>${keyName(settings.keys.grab?.[0] ?? '')}</kbd> sprint</div>`);
+        else if (rider.onFoot) showPrompt(`<div class="row">${bk} strap in${rider.speed > 0.3 ? ' <span class="dim">(stand still)</span>' : ''} &nbsp; ${k('grab')} sprint</div>`);
         else if (rider.canUnstrap) showPrompt(`<div class="row">${bk} unstrap</div>`);
         else showPrompt('');
       } else showPrompt('');
       // FEAT-124: only the keys that matter right now (the full list is in Settings > Controls)
       helpT -= dt;
       if (boardMsgNote && (boardNoteT -= dt) <= 0) boardMsgNote = '';
-      // FEAT-124: the gamepad's right stick looks around like the mouse
-      if (controls.padLookX || controls.padLookY) { mouseDx += controls.padLookX * 14; mouseDy += controls.padLookY * 10; }
       cam.glance = controls.glancing;
       if (helpEl && helpT <= 0) {
         helpT = 0.25;
@@ -807,10 +809,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         if (controls.padActive) h = 'Gamepad: left stick steer and lean &middot; A jump &middot; X squat / grab &middot; RT / LT tuck / brake &middot; Y interact &middot; R3 look behind';
         else if (liftRide.riding) h = `${k('lift')} skip &middot; ${k('tuck')} hold for 5x &middot; ${k('glance')} look behind &middot; ${k('look')} look around`;
         else if (outrun.running) h = `${k('boost')} boost &middot; ${k('glance')} look behind &middot; ${k('jump')} jump`;
-        else if (rider.onFoot) h = `WASD walk &middot; ${k('grab')} sprint &middot; ${k('jump')} jump / climb &middot; ${k('lift')} strap in &middot; ${k('glance')} look behind`;
+        else if (rider.onFoot) h = `${k1('tuck')}${k1('left')}${k1('brake')}${k1('right')} walk &middot; ${k('grab')} sprint &middot; ${k('jump')} jump / climb &middot; ${k('lift')} strap in &middot; ${k('glance')} look behind`;
         else if (!rider.onGround) h = `${k('left')} ${k('right')} spin &middot; ${k('tuck')} front flip &middot; ${k('brake')} backflip &middot; ${k('grab')} grab`;
         else if (liftRide.nearby) h = `${k('lift')} ride the lift &middot; ${k('brake')} brake`;
-        else h = `${k('left')} ${k('right')} steer &middot; ${k('tuck')} tuck &middot; ${k('brake')} brake &middot; hold ${k('jump')} jump (+ W / S nollie / ollie) &middot; ${k('grab')} squat &middot; ${k('pressNose')} ${k('pressTail')} press &middot; ${k('skate')} skate<br>${k('lift')} interact &middot; hold ${k('glance')} look behind &middot; ${k('camera')} camera &middot; ${k('map')} map &middot; hold ${k('restart')} restart &middot; Esc pause`;
+        else h = `${k('left')} ${k('right')} steer &middot; ${k('tuck')} tuck &middot; ${k('brake')} brake &middot; hold ${k('jump')} jump (+ ${k1('tuck')} / ${k1('brake')} nollie / ollie) &middot; ${k('grab')} squat &middot; ${k('pressNose')} ${k('pressTail')} press &middot; ${k('skate')} skate<br>${k('lift')} interact &middot; hold ${k('glance')} look behind &middot; ${k('camera')} camera &middot; ${k('map')} map &middot; hold ${k('restart')} restart &middot; Esc pause`;
         if (boardMsgNote) h = `<b>${boardMsgNote}</b><br>` + h;
         if (h !== helpShown) { helpShown = h; helpEl.innerHTML = h; }
       }
