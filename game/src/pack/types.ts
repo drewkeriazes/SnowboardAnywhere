@@ -44,6 +44,8 @@ export interface PackMeta {
   mask?: MaskMeta;
   /** baked sky visibility (greyscale PNG tiles, same layout as the mask), FEAT-047 */
   ao?: MaskMeta;
+  /** piste direction (DATA-002): greyscale tiles on the mask grid, byte 0 = none, 1..255 = groomed run axis (byte - 1) / 254 * 180 deg from east toward north */
+  dir?: MaskMeta;
   instances?: InstancesMeta;
   start: { x: number; y: number; heading: number; run?: string };
   sun: { azimuth: number; elevation: number };

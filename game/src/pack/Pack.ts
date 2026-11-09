@@ -20,6 +20,8 @@ export class Pack {
   readonly mask: MaskSet | null;
   /** sky visibility 0..1 in channel 0 (gullies and cliff feet darker); null in older packs */
   readonly ao: MaskSet | null;
+  /** piste direction set (DATA-002), optional */
+  readonly dir: MaskSet | null;
   features: Features = { lifts: [], runs: [], buildings: [], roads: [], water: [], peaks: [], labels: [] };
 
   private constructor(baseUrl: string, meta: PackMeta) {
@@ -30,6 +32,7 @@ export class Pack {
     this.far = meta.terrain.far ? new HeightSet(`${baseUrl}/far`, meta.terrain.far) : null;
     this.mask = meta.mask ? new MaskSet(`${baseUrl}/mask`, meta.mask) : null;
     this.ao = meta.ao ? new MaskSet(`${baseUrl}/ao`, meta.ao) : null;
+    this.dir = meta.dir ? new MaskSet(`${baseUrl}/dir`, meta.dir) : null;
   }
 
   static async load(baseUrl: string): Promise<Pack> {

@@ -7,6 +7,7 @@ import os, sys, json, math
 import numpy as np
 from packwriter import (write_height_set, write_mask_set, write_instances, write_meta, write_features)
 from terrain_ao import sky_visibility
+from piste_dir import piste_direction
 
 out = sys.argv[1] if len(sys.argv) > 1 else "client/public/packs/synth"
 os.makedirs(out, exist_ok=True)
@@ -160,6 +161,7 @@ rock = np.clip(rock, 0, 1); rock[H < 2700] *= 0.3
 scree = np.clip((slope - 24) / 8.0, 0, 1) * (1 - rock) * np.clip((H - 3250) / 150.0, 0, 1)
 rgba = np.stack([rock * 255, scree * 255, groomed * 255, forest * 255], axis=-1).astype(np.uint8)
 meta["mask"] = write_mask_set(out, rgba, R, FX0, FY0)
+meta["dir"] = write_mask_set(out, piste_direction(runs, groomed, R, FX0, FY0 + N * R), R, FX0, FY0, kind="dir", pad=0)
 ao = sky_visibility(H.astype(np.float32), R, log=None)
 meta["ao"] = write_mask_set(out, (np.clip(ao, 0, 1) * 255 + 0.5).astype(np.uint8), R, FX0, FY0, kind="ao")
 

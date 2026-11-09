@@ -33,6 +33,8 @@ function proceduralForest(x: number, y: number, h: number, slope: number): numbe
 }
 /** chunks at or below this vertex spacing (m) take baked AO from the pack; coarser ones are open sky */
 const AO_MAX_RES = 32;
+/** DATA-002: slope (rise/run) the piste direction counts as at least, so corduroy stays on flat groomed cat tracks */
+const DIR_MIN_SLOPE = 0.1;
 const SPLIT_K = 2.6; // split when distance < size * SPLIT_K
 const MAX_BUILDS_PER_FRAME = 10;
 
@@ -77,6 +79,7 @@ export class Terrain {
     }
     if (pack.mask) pack.mask.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.mask!.meta.minX + tx * pack.mask!.size, pack.mask!.meta.minY + ty * pack.mask!.size, pack.mask!.size, 0);
     if (pack.ao) pack.ao.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.ao!.meta.minX + tx * pack.ao!.size, pack.ao!.meta.minY + ty * pack.ao!.size, pack.ao!.size, 0);
+    if (pack.dir) pack.dir.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.dir!.meta.minX + tx * pack.dir!.size, pack.dir!.meta.minY + ty * pack.dir!.size, pack.dir!.size, 0);
   }
 
   /** FEAT-105: new snow on the rock (0 = today's look, 1 = a powder day) and the downwind direction (three.js x, z). */
@@ -130,6 +133,7 @@ export class Terrain {
       else if (c.res <= 64 && this.pack.mid) this.pack.mid.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       else if (this.pack.far) this.pack.far.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if (c.res <= 8 && this.pack.mask) this.pack.mask.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
+      if (c.res <= 8 && this.pack.dir) this.pack.dir.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if (c.res <= AO_MAX_RES && this.pack.ao) this.pack.ao.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if ((!c.mesh || this.dirty.has(c.key)) && builds < MAX_BUILDS_PER_FRAME) {
         this.build(c);
@@ -207,10 +211,12 @@ export class Terrain {
     const aoSet = pack.ao && res <= AO_MAX_RES ? pack.ao : null;
     // footprint for the AO lookup: one 2 m sample near the rider, a 2 x 2 box of samples on coarser chunks
     const aoOff = res > 2 ? res / 4 : 0;
-    // smoothed downhill direction (three.js xz, length = slope) for groomer corduroy; heights 6 m
-    // either side so the ridges follow the run, not every 1 m bump
+    // groomer corduroy direction (three.js xz, length = slope): the run's axis from the pack's piste
+    // direction set (DATA-002) pointed downhill, else the smoothed fall line; heights 6 m either side
+    // so the ridges follow the run, not every 1 m bump
     const fall = new Float32Array(vertCount * 2);
     const FR = 6;
+    const dirSet = pack.dir && res <= 8 ? pack.dir : null;
     const heights = new Float32Array((n + 2) * (n + 2)); // with a 1-sample border for normals
     // sample heights including border
     let dataRes = Infinity;
@@ -277,7 +283,18 @@ export class Terrain {
         if (groom > 0.02) {
           const gx = (pack.height(x + FR, y, res) - pack.height(x - FR, y, res)) / (2 * FR);
           const gy = (pack.height(x, y + FR, res) - pack.height(x, y - FR, res)) / (2 * FR);
-          fall[v * 2] = -gx; fall[v * 2 + 1] = gy; // downhill east, and z = -north
+          const b = dirSet && dirSet.has(x, y) ? Math.round(dirSet.sample(x, y, this.maskSample)[0] * 255) : 0;
+          if (b > 0) {
+            // run axis (pack east, north), undirected; take the sense that points downhill. A groomer
+            // leaves corduroy on a flat cat track too, so the confidence has a floor the fall line lacks.
+            const th = ((b - 1) / 254) * Math.PI;
+            let ax = Math.cos(th), ay = Math.sin(th);
+            if (ax * gx + ay * gy > 0) { ax = -ax; ay = -ay; }
+            const l = Math.max(Math.hypot(gx, gy), DIR_MIN_SLOPE);
+            fall[v * 2] = ax * l; fall[v * 2 + 1] = -ay * l; // z = -north
+          } else {
+            fall[v * 2] = -gx; fall[v * 2 + 1] = gy; // downhill east, and z = -north
+          }
         }
         v++;
       }

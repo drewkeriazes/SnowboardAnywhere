@@ -11,6 +11,7 @@ pack/<slug>/
   far/<tx>_<ty>.png         128 m heights, 512 x 512 samples per tile, 262 km square
   mask/<tx>_<ty>.png        2 m RGBA surface classes, 512 x 512 per tile, resort area
   ao/<tx>_<ty>.png          2 m greyscale sky visibility (baked AO), same grid as mask (optional)
+  dir/<tx>_<ty>.png         2 m greyscale piste direction (groomed run axis), same grid as mask (optional)
   trees/<tx>_<ty>.bin       tree instances per 1 km cell
   rocks/<tx>_<ty>.bin       rock instances per 1 km cell
   features.json             lifts, runs, buildings, roads, water, peaks, labels
@@ -47,6 +48,17 @@ horizon angles up to 170 m measured above the cell's tangent plane, visibility `
 Planar slopes and ridges are 255; gullies, couloirs, cirques and cliff feet are darker. Padding
 outside the data is 255. The terrain uses it for chunks at 32 m or finer; packs without it render
 with open sky everywhere.
+
+## Piste direction tiles (optional)
+
+Greyscale PNG on the mask grid from `pipeline/piste_dir.py` (DATA-002): the axis a groomer drives
+along, so corduroy follows the run and not the raw fall line (a traversing cat track has ridges along
+the track). Byte 0 = no direction; 1..255 = axis angle `(byte - 1) / 254 * 180` degrees from east
+toward north, in [0, 180). The axis is undirected; the client picks the downhill sense from the
+heights. Every cell takes the nearest groomed centre line's segment direction (doubled-angle field,
+blurred 6 m across polyline kinks), kept where the mask is groomed or within 30 m of a groomed run.
+Padding and everything else is 0. Packs built before DATA-002 lack it; add it without a rebuild with
+`python pipeline/piste_dir.py packs/<slug>` (reads `features.json` and the mask tiles).
 
 ## Instances
 
@@ -88,6 +100,7 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
   "terrain": { "fine": {...}, "mid": {...}, "far": {...} },
   "mask": { "res": 2, "tileSize": 512, "minX", "minY", "tilesX", "tilesY" },
   "ao": { same fields as mask },                           // optional
+  "dir": { same fields as mask },                          // optional, DATA-002
   "instances": { "cellSize": 1000, "minX", "minY", "cellsX", "cellsY", "treeCount", "rockCount", "treeCells", "rockCells" },
   "start": { "x", "y", "heading" },                       // default drop-in
   "sun": { "azimuth": 160, "elevation": 32 },             // degrees, default lighting
