@@ -1,3 +1,4 @@
+import './ui/theme.css';
 import * as THREE from 'three';
 import { Pack } from './pack/Pack';
 import { Terrain } from './terrain/Terrain';
