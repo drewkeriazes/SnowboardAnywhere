@@ -6,7 +6,7 @@ import type { Input } from './Rider';
  *
  * Board: A / D steer, W tuck (front flip in the air), S brake (backflip in the air), hold and release
  * Space to jump (Space + W / S nollie / ollie), Shift squats on the snow and grabs in the air,
- * Q / Z nose / tail press, X skate. On foot: WASD walk, Shift sprint, Space jump / climb.
+ * Q / Z nose / tail press (W / S balance it, FEAT-140), X skate. On foot: WASD walk, Shift sprint, Space jump / climb.
  * Everywhere: E interact (lift, skip, strap in or out when stopped away from lifts), hold G to look
  * behind, Alt or the right mouse button to free look, C camera, M map, P piste lines, N next track,
  * T time trial, hold R to restart, K replay, Backspace rewind, F boost in Outrun, ` free fly.
@@ -35,7 +35,10 @@ function readPads(): ArrayLike<Gamepad | null> | null {
 }
 
 export class Controls {
-  readonly input: Input = { steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false, squat: false, skate: false, lean: 0 };
+  readonly input: Input = { steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false, squat: false, skate: false, lean: 0, balance: 0 };
+  /** FEAT-140: main sets this while a press would be balanced (on the board, on the snow, Press balance not Off):
+   *  with a press key held, W / S and the left stick up / down then balance the press instead of tucking and braking */
+  balancing = false;
   /** action -> up to two codes (remappable in Settings > Controls) */
   keymap: KeyMap = {};
   invertSteer = false;
@@ -129,6 +132,7 @@ export class Controls {
     let tuck = this.held('tuck'), brake = this.held('brake'), jump = this.held('jump');
     let crouch = this.held('grab'), squatOnly = this.held('squat'), skate = this.held('skate');
     let lean = (this.held('pressNose') ? 1 : 0) - (this.held('pressTail') ? 1 : 0);
+    let padY = 0; // FEAT-140: the left stick's fore-aft, analog (+ up)
     // ---- FEAT-124 gamepad (the standard mapping)
     // (no per-frame allocations beyond getGamepads itself: a plain loop over the list, module-level helpers, padPrev reused)
     const pads = readPads();
@@ -139,6 +143,7 @@ export class Controls {
     if (gp) {
       const b = (i: number) => padBtn(gp, i), v = (i: number) => padVal(gp, i), ax = (i: number) => padAxis(gp, i);
       if (ax(0)) steer = Math.max(-1, Math.min(1, steer + ax(0)));
+      padY = -ax(1);
       if (ax(1) < -0.5 || v(PAD.RT) > 0.3) tuck = true;
       if (ax(1) > 0.5 || v(PAD.LT) > 0.3) brake = true;
       if (b(PAD.A)) jump = true;
@@ -169,6 +174,13 @@ export class Controls {
       this.input.tuck = false; this.input.brake = false;
     }
     this.input.lean = lean;
+    // FEAT-140: holding a press, weight forward / back balances it (the keys are all or nothing, the stick is analog)
+    this.input.balance = 0;
+    if (this.balancing && lean !== 0 && !this.input.jumpHeld) {
+      const keys = (this.held('tuck') ? 1 : 0) - (this.held('brake') ? 1 : 0);
+      this.input.balance = Math.max(-1, Math.min(1, keys + padY));
+      this.input.tuck = false; this.input.brake = false;
+    }
     return this.input;
   }
 

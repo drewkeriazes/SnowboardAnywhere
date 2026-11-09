@@ -46,7 +46,8 @@ import { Labels } from './ui/Labels';
 import { TouchControls } from './ui/TouchControls';
 import { sunPosition, guessUtcOffset } from './world/Sun';
 import { loadSettings, keyName, keysOf, saveSettings, type Settings } from './ui/Settings';
-import { STAMINA } from './sim/Rider';
+import { STAMINA, switchName, type PressEnd } from './sim/Rider';
+import { PressMeter } from './ui/PressMeter';
 import { availableResorts } from './resorts';
 import { hasCustomStart, resetStart, spawnKey } from './spawn';
 
@@ -302,6 +303,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const applySettings = (s: Settings, what: string): void => {
       applySun(s);
       if (what === 'clouds') weatherOverride = null;
+      rider.pressMode = s.pressBalance ?? 'on'; // FEAT-140
       const weather = weatherOverride ?? s.clouds ?? 'scattered';
       weatherNow = weather;
       if (what === 'newSnow' || what === 'init' || what === 'reset') snowCover = NEW_SNOW[s.newSnow ?? 'none'] ?? 0; // FEAT-105: pick a look without waiting
@@ -483,6 +485,20 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     let toastTimer = 0;
     const showToast = (text: string, ms = 4000) => { toast.textContent = text; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => toast.classList.remove('show'), ms); };
     rider.onTrick = (name) => showToast(name, 1800); // FEAT-110: flips; FEAT-139: spins and switch tricks
+    // FEAT-140: the press balance meter above the head, and a toast with the time and distance when a press ends (best per resort)
+    const pressMeter = new PressMeter();
+    const pressHead = new THREE.Vector3();
+    const pressBestKey = `pressBest:${pack.meta.slug}`;
+    const PRESS_HOW: Record<PressEnd, string> = { clean: '', flat: ' · dropped flat', slam: ' · slammed', stall: ' · stalled' };
+    rider.onPress = (how, dir, t, dist, sw, from) => {
+      let best = 0; try { best = Number(localStorage.getItem(pressBestKey)) || 0; } catch { /* private mode */ }
+      const isBest = t > best;
+      if (isBest) try { localStorage.setItem(pressBestKey, t.toFixed(2)); } catch { /* private mode */ }
+      const press = switchName(dir > 0 ? 'Nose press' : 'Tail press', sw);
+      const name = from ? `${from} to ${press[0].toLowerCase()}${press.slice(1)}` : press; // landed into it from a trick
+      const tail = isBest ? (best > 0 ? ' · new best!' : '') : ` · best ${best.toFixed(1)} s`;
+      showToast(`${name} ${t.toFixed(1)} s, ${fmtDistance(dist, settings.units === 'metric')}${PRESS_HOW[how]}${tail}`, 2600);
+    };
     if (params.get('cam') === 'eye' && !headless) showToast('Eye camera: click, then mouse to look · WASD move · Q/E height · [ ] zoom · P save shot · ` free fly', 10000);
     audio.onTrack = (name) => showToast(`\u266B ${name}`);
     // the menu may already have started a song before onTrack was set (BUG-033): announce it now
@@ -524,7 +540,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       tracks.dispose();
       trialWorld.dispose();
       if (outrun.active) stopOutrun();
-      outrunUI.destroy(); runCard.dispose(); speedLines.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
+      outrunUI.destroy(); runCard.dispose(); speedLines.dispose(); pressMeter.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
       trialEl.classList.remove('show');
       finishArrow.style.display = 'none';
       audio.onTrack = null;
@@ -569,6 +585,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       const now = performance.now();
       const dt = fixedDt ?? Math.min(0.1, (now - last) / 1000);
       last = now;
+      // FEAT-140: on the snow on the board, W / S and the stick balance a held press instead of tucking and braking
+      controls.balancing = rider.pressMode !== 'off' && rider.discipline === 'board' && (rider.onGround || rider.pressing) && !rider.unstrapped && rider.crashed <= 0;
       const input = controls.update();
       // FEAT-124: the gamepad's right stick looks around like the mouse: a rate (px/s at full deflection),
       // added before the cameras consume mouseDx / mouseDy so it lands this frame, not the next
@@ -786,6 +804,17 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       speedLines.update(rider.speed, dt, !detached && !onLift && !eat.active && !paused && !rider.onFoot && !frozen);
       rider.restoreSimPose();
       cam.camera.updateMatrixWorld();
+      // FEAT-140: the press meter just above the head (low in the middle of the view in first person)
+      {
+        const on = rider.pressing && !replayOpen && !detached && !eat.active;
+        let px = -999, py = -999;
+        if (on && cam.firstPerson) { px = window.innerWidth * 0.5; py = window.innerHeight * 0.78; }
+        else if (on || pressMeter.root.style.opacity !== '0') {
+          riderView.eye(pressHead); pressHead.y += 0.4; pressHead.project(cam.camera);
+          if (pressHead.z < 1) { px = (pressHead.x + 1) / 2 * window.innerWidth; py = (1 - pressHead.y) / 2 * window.innerHeight; }
+        }
+        pressMeter.update(on && px > -999, rider.pressBalance, rider.pressDir, px, py);
+      }
       env.updateCSM();
       clouds.render(renderer, cam.camera, dt, env.sunDir, env.sun.color, env.sun.intensity, env.hemi.color, env.hemi.intensity, env.atmo.hazeLinear);
       env.followCamera(cam.camera.position);
@@ -858,7 +887,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         else if (rider.onFoot) h = `${k1('tuck')}${k1('left')}${k1('brake')}${k1('right')} walk &middot; ${k('grab')} sprint &middot; ${k('jump')} jump / climb &middot; ${k('lift')} strap in &middot; ${k('glance')} look behind`;
         else if (!rider.onGround) h = `${k('left')} ${k('right')} spin &middot; ${k('tuck')} front flip &middot; ${k('brake')} backflip &middot; ${k('grab')} grab`;
         else if (liftRide.nearby) h = `${k('lift')} ride the lift &middot; ${k('brake')} brake`;
-        else h = `${k('left')} ${k('right')} steer &middot; ${k('tuck')} tuck &middot; ${k('brake')} brake &middot; hold ${k('jump')} jump (+ ${k1('tuck')} / ${k1('brake')} nollie / ollie) &middot; ${k('grab')} squat &middot; ${k('pressNose')} ${k('pressTail')} press &middot; ${k('skate')} skate<br>${k('lift')} interact &middot; hold ${k('glance')} look behind &middot; ${k('camera')} camera &middot; ${k('map')} map &middot; hold ${k('restart')} restart &middot; Esc pause`;
+        else h = `${k('left')} ${k('right')} steer &middot; ${k('tuck')} tuck &middot; ${k('brake')} brake &middot; hold ${k('jump')} jump (+ ${k1('tuck')} / ${k1('brake')} nollie / ollie) &middot; ${k('grab')} squat &middot; ${k('pressNose')} ${k('pressTail')} press (${k1('tuck')} / ${k1('brake')} balance) &middot; ${k('skate')} skate<br>${k('lift')} interact &middot; hold ${k('glance')} look behind &middot; ${k('camera')} camera &middot; ${k('map')} map &middot; hold ${k('restart')} restart &middot; Esc pause`;
         if (boardMsgNote) h = `<b>${boardMsgNote}</b><br>` + h;
         if (h !== helpShown) { helpShown = h; helpEl.innerHTML = h; }
       }

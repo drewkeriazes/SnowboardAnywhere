@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { EDGE_FULL, type Rider } from '../sim/Rider';
+import { EDGE_FULL, PRESS_RANGE, type Rider } from '../sim/Rider';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
 import { Ragdoll, RAGDOLL_RECOVER } from './Ragdoll';
@@ -15,6 +15,15 @@ const EDGE_OFF = 0.13, SKI_EDGE_OFF = 0.05, EDGE_PIVOT_ROLL = 0.15;
 /** FEAT-118: board flex spring: natural frequency (rad/s, about 0.3 s a cycle) and damping ratio
  *  (0.45 overshoots about 20 %, so a full load snaps past flat to about -0.15 on the pop) */
 const FLEX_W = 21, FLEX_ZETA = 0.45;
+/** FEAT-140: a held press bends the board this much (share of full flex, the free tip about 22 cm up;
+ *  0.6 before), the bend follows the balance by this share at the edge (deeper toward the loaded
+ *  end, flatter toward the other), and never past BEND_MAX (the mesh's bounding sphere allows ~1.18) */
+const PRESS_BEND = 0.8, BAL_BEND = 0.5, BEND_MAX = 1.15;
+/** FEAT-140: deep in a press the whole board also tips up on its loaded tip, like a real tail press
+ *  at the extreme (35 deg or more with the bend): the tip at the edge of the balance toward the
+ *  loaded end (rad; half of it centred, none toward the other end), its response (s), and how far the
+ *  hips move on toward the loaded end at the full tip (m) */
+const PRESS_TIP = 32 * Math.PI / 180, TIP_RESPONSE = 0.12, TIP_SHIFT = 0.1;
 /** BUG-047: the hip joint stays this far above the deck under it (the glutes hang 0.1 to 0.15 m below
  *  the joint). FEAT-125: on a full press the hips move this far toward the loaded end (m), reached
  *  at this much bend (a full lean without a charge bends the board 0.6) */
@@ -28,6 +37,11 @@ const FLAIL_BASE = 0.04, FLAIL_HOLD = 0.13, FLAIL_RAMP = 2.5, CORR_W = 11, CORR_
 /** FEAT-125 wobble growth: share added per m/s of speed (up to FLAIL_VMAX m/s), share added at full
  *  bumps, and the vertical acceleration counted as full bumps (m/s^2, about 1.5 g) */
 const FLAIL_SPEED = 0.04, FLAIL_VMAX = 15, FLAIL_BUMP = 1.5, BUMP_ACC = 15;
+/** FEAT-140: the wobble added as the press balance runs out to either end (share at the end), the
+ *  extra pelvis roll toward the end it runs to (rad per unit of balance, about 23 deg; the head takes
+ *  most of it back out), and how far the hips slide along the board toward that end (m per unit).
+ *  The balance runs to PRESS_RANGE units, so at the edge the body leans PRESS_RANGE times as far. */
+const FLAIL_BAL = 1.6, BAL_ROLL = 0.4 * PRESS_RANGE, BAL_SHIFT = 0.14 * PRESS_RANGE;
 /** FEAT-125 wobble shape: the fore-aft swing as a share of the up-down wave, and the elbow's bend
  *  (deg) per rad of wave (each elbow follows the other arm's wave, so the two never move in step) */
 const FLAIL_SWING = 0.6, FLAIL_ELBOW = 40;
@@ -188,6 +202,10 @@ export class RiderView {
   private readonly edgeUpperF: Follow = { x: 0, v: 0 };
   private readonly edgeHipsF: Follow = { x: 0, v: 0 };
   private readonly hipZF: Follow = { x: 0, v: 0 };
+  /** FEAT-140: the press balance in the rig's frame, followed at body speed, for the hips' slide */
+  private readonly balF: Follow = { x: 0, v: 0 };
+  /** FEAT-140: the board's tip up on its loaded end (rad), followed */
+  private readonly tipF: Follow = { x: 0, v: 0 };
   private get leanAngle(): number { return this.leanF.x; }
   private get yawLead(): number { return this.yawLeadF.x; }
   private get edgeUpper(): number { return this.edgeUpperF.x; }
@@ -503,7 +521,7 @@ export class RiderView {
     this.prevLean = lean;
     this.corrV += CORR_KICK * dL - (CORR_W * CORR_W * this.corr + 2 * CORR_ZETA * CORR_W * this.corrV) * h;
     this.corr += this.corrV * h;
-    const amp = ground ? smooth(0.2, 0.8, La) * (FLAIL_BASE + FLAIL_HOLD * Math.min(1, this.holdT / FLAIL_RAMP)) * (1 + FLAIL_SPEED * Math.min(FLAIL_VMAX, r.speed) + FLAIL_BUMP * this.bump) : 0;
+    const amp = ground ? smooth(0.2, 0.8, La) * (FLAIL_BASE + FLAIL_HOLD * Math.min(1, this.holdT / FLAIL_RAMP)) * (1 + FLAIL_SPEED * Math.min(FLAIL_VMAX, r.speed) + FLAIL_BUMP * this.bump + (r.pressing ? FLAIL_BAL * smooth(0.2, 1, Math.abs(r.pressBalance)) : 0)) : 0;
     this.flailAmp += (amp - this.flailAmp) * Math.min(1, h * 6);
     const fp = this.fp ? 0.35 : 1, A = this.flailAmp * fp, c = this.clock;
     const wl = wave(WOBBLE.lOut, c), wr = wave(WOBBLE.rOut, c), sl = wave(WOBBLE.lSwing, c), sr = wave(WOBBLE.rSwing, c);
@@ -559,7 +577,11 @@ export class RiderView {
     // BUG-047: no extra drop when already squatting or charged (that put the seat through the deck)
     // FEAT-125: a snowboarder leans the whole upper body over the loaded end with the arms up to balance
     if (Math.abs(lean) > 0.01) {
-      if (this.discipline === 'board') pressRoll = this.pressPose(t, lean);
+      if (this.discipline === 'board') {
+        pressRoll = this.pressPose(t, lean);
+        // FEAT-140: the pelvis rolls on toward the end the balance is running to (the head takes it back out)
+        if (r.pressing) { const lr = BAL_ROLL * this.fl * r.pressBalance; t.hipsRot[2] += lr; pressRoll += lr; }
+      }
       else t.torso = [t.torso[0] + 0.3 * lean, t.torso[1], t.torso[2]];
       t.hipsY -= 0.06 * Math.abs(lean) * (1 - Math.min(1, Math.max(r.squat, r.jumpCharge)));
     }
@@ -657,6 +679,9 @@ export class RiderView {
       // The load grows with the lean and the jump charge and lets go in the air (the pop).
       this.rig.board.rotation.set(0, 0, -ex);
       let target = seated || !r.onGround ? 0 : Math.abs(L) * (0.6 + 0.4 * Math.min(1, r.jumpCharge));
+      // FEAT-140: a balanced press bends deeper, and deeper still as the balance runs to the loaded end
+      // (flatter toward the other end; a jump charge still adds its load on top)
+      if (r.pressing && r.onGround && !seated) target = Math.min(BEND_MAX, Math.abs(L) * (PRESS_BEND * (1 + BAL_BEND * r.pressBalance * r.pressDir) + 0.4 * Math.min(1, r.jumpCharge)));
       // BUG-048: a lean to the other end first lets the board come back to flat, and only then bends it
       // the other way (switching while still bent swapped nose-up for tail-up in one frame)
       if (Math.abs(L) > 0.01 && Math.sign(L) !== this.flexDir) {
@@ -667,6 +692,17 @@ export class RiderView {
       this.flexV += (FLEX_W * FLEX_W * (target - this.flex) - 2 * FLEX_ZETA * FLEX_W * this.flexV) * h;
       this.flex += this.flexV * h;
       bendBoard(this.rig, this.flex, this.flexDir);
+      // FEAT-140: deep in a press the whole board tips up about its loaded tip, which stays on the snow
+      const deep = Math.max(0, Math.min(1, 0.5 + 0.5 * r.pressBalance * r.pressDir));
+      // (in the air, a held press key tips it half way: set up to land into the press)
+      const tipTo = seated ? 0 : r.pressing && r.onGround ? Math.abs(L) * PRESS_TIP * deep : !r.onGround && r.crashed <= 0 ? Math.abs(L) * PRESS_TIP * 0.5 : 0;
+      follow(this.tipF, tipTo, TIP_RESPONSE, dt);
+      if (this.tipF.x > 1e-3) {
+        const sz = this.flexDir < 0 ? 1 : -1, end = sz * BOARD_HALF; // the loaded end's local z (+z the tail)
+        this.rig.board.rotation.set(sz * this.tipF.x, 0, -ex); // +x lifts the nose (-z)
+        this.pivot.set(0, 0, end);
+        this.rig.board.position.add(this.pivot).sub(this.v2.set(0, 0, end).applyQuaternion(this.rig.board.quaternion));
+      }
     } else if (Math.abs(L) > 0.01 && !seated) {
       const end = L < 0 ? BOARD_HALF : -BOARD_HALF; // the end that stays down (local -Z is the nose)
       this.rig.board.rotation.set((L < 0 ? 1 : -1) * Math.abs(L) * LEAN_TIP, 0, 0);
@@ -677,7 +713,7 @@ export class RiderView {
     // ---- FEAT-046: a crash is a ragdoll tumble; the body is pulled toward the sim's slide so it
     // gets up where the rider is, then blends back to the animated pose over RAGDOLL_RECOVER
     if (this.ragdoll && r.crashed > 0 && !seated) {
-      if (!this.ragdoll.active) { this.group.updateMatrixWorld(true); this.ragdoll.start(this.rig, this.v1.set(r.vx, r.vz, -r.vy)); }
+      if (!this.ragdoll.active) { this.group.updateMatrixWorld(true); this.ragdoll.start(this.rig, this.v1.set(r.vx, r.vz, -r.vy), r.crashFall ? this.v2.set(Math.sin(r.heading) * r.crashFall, 0, -Math.cos(r.heading) * r.crashFall) : null); } // FEAT-140: a press slam falls over its loaded end
       this.group.updateMatrixWorld(true);
       this.ragdoll.step(dt, this.v2.set(r.x, r.z, -r.y));
       this.ragdoll.apply(this.rig);
@@ -784,7 +820,13 @@ export class RiderView {
       const ahead = Math.sign(leanH) === this.flexDir ? 0.6 * Math.abs(leanH) : 0;
       follow(this.hipZF, Math.max(0, Math.min(1, Math.max(this.flex, ahead) / PRESS_FLEX)), BODY_RESPONSE, dt);
       hipZ = -this.flexDir * HIP_SHIFT * this.hipZF.x;
-      const floor = deckY(this.rig, hipZ) + 0.022 + HIP_CLEAR;
+      // FEAT-140: the hips slide on toward the end the press balance is running to (+ balance: the nose, -z)
+      follow(this.balF, free && r.pressing ? fl * r.pressBalance : 0, BODY_RESPONSE, dt);
+      hipZ -= BAL_SHIFT * this.balF.x;
+      hipZ -= this.flexDir * TIP_SHIFT * Math.max(0, this.tipF.x) / PRESS_TIP; // FEAT-140: on over the tipped board's loaded end
+      // FEAT-140: a tipped board's deck rises from the loaded tip toward the hips
+      const tipRise = Math.max(0, BOARD_HALF + this.flexDir * hipZ) * Math.sin(Math.max(0, this.tipF.x)); // the hips' distance from the loaded tip
+      const floor = deckY(this.rig, hipZ) + 0.022 + HIP_CLEAR + tipRise;
       if (p.hipsY < floor) p.hipsY = floor;
     }
     this.applyFK(p, -pv, hipZ);
@@ -965,7 +1007,7 @@ export class RiderView {
     this.q.setFromRotationMatrix(this.rot);
     this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
     this.baseQ.copy(this.group.quaternion); // FEAT-110: keep the riding base in step, no swing when strapping back in
-    for (const f of [this.leanF, this.rollF, this.yawLeadF, this.edgeUpperF, this.edgeHipsF, this.hipZF]) { f.x = 0; f.v = 0; }
+    for (const f of [this.leanF, this.rollF, this.yawLeadF, this.edgeUpperF, this.edgeHipsF, this.hipZF, this.balF, this.tipF]) { f.x = 0; f.v = 0; }
     this.twist = 0; this.visLive = false; // BUG-056: the follows snap when strapping back in
     this.lean.position.set(0, 0, 0); this.lean.rotation.set(0, 0, 0);
 

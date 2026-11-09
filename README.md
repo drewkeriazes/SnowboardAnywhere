@@ -52,7 +52,7 @@ e.g. `http://192.168.1.42:5173/?pack=vail`. The packs stream from the PC, and th
 | W / S (or arrows) | tuck / brake (front flip / backflip in the air); walk on foot |
 | Space (hold, release) | jump (hold W / S while charging for a nollie / ollie); climb on foot |
 | Shift | squat on the snow, grab in the air, sprint on foot |
-| Q / Z | nose / tail press (hold) |
+| Q / Z | nose / tail press (hold); W / S balance it |
 | X | skate on the flat (hold) |
 | E | ride a lift (at the base, inside the lift line where there is one); skip to the top while riding; strap in or out when stopped away from lifts |
 | G (hold) | look behind, in every camera |
@@ -73,6 +73,15 @@ A gamepad with the standard mapping works too: left stick steers, up / down or t
 A jumps, X squats and grabs, B skates, bumpers press, right stick looks around, R3 looks behind, Y interacts,
 the d-pad cycles camera / map / piste lines / track, Select opens the replay and Start pauses.
 The replay viewer lists its own keys on screen.
+
+Holding a nose or tail press is a balancing act. A small meter shows above the rider with a needle
+that drifts toward the nose or the tail, faster the longer you hold, the faster you go and the
+bumpier the snow. Keep it in the green with W / S (or the left stick up / down, which is analog).
+Off the loaded end (the cross) the board catches and you fall over that end, or stall when slow; off
+the other end (the bar) the board drops flat. There is no time limit: a long press only needs quicker,
+finer corrections. Let go any time to end it cleanly. Hold the press key through a trick to land
+straight into the press ("Backside 360 to nose press"). A toast gives the press time and distance,
+with your best for the resort. Settings > Game > Press balance: Easy, Normal, Hard or Off.
 
 You can ride switch (the other foot forward, the tail leading). Land a 180, or slide back down the
 hill tail first, and you carry on switch until you turn round again with another 180 or by stopping

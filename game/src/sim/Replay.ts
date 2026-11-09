@@ -12,7 +12,7 @@ export interface ReplaySample extends GhostSample { hd: number; vx: number; vy: 
 
 const DT = 0.05, MAX = 24000;
 /** the rider fields a sample drives (saved and put back around a replay or rewind frame) */
-const FIELDS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'boardYaw', 'onGround', 'lateralG', 'edgeAngle', 'lean', 'flip', 'squat', 'jumpCharge', 'crashed', 'speed', 'onFoot', 'turnRate', 'switch', 'goofy'] as const;
+const FIELDS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'boardYaw', 'onGround', 'lateralG', 'edgeAngle', 'lean', 'flip', 'squat', 'jumpCharge', 'crashed', 'speed', 'onFoot', 'turnRate', 'switch', 'goofy', 'pressBalance', 'pressing'] as const;
 type Field = typeof FIELDS[number];
 
 export class Replay {
@@ -80,6 +80,7 @@ export class Replay {
     r.onGround = !!(s.f & 1); r.lateralG = s.lg; r.edgeAngle = s.e; r.lean = s.ln; r.flip = s.fl; r.squat = s.sq; r.jumpCharge = s.jc;
     r.edgeTarget = r.edge; r.leanTarget = r.lean; r.turnRate = 0; // BUG-056: the steer target and turn rate are not recorded, so a replay draws no body lead
     r.switch = !!(s.f & 8); r.goofy = !!(s.f & 16); // FEAT-139: drawn the way round it was ridden
+    r.pressBalance = 0; r.pressing = false; // FEAT-140: the balance is not recorded, so a replay draws no balance wobble
     r.crashed = s.f & 4 ? 0.5 : 0; r.speed = Math.hypot(s.vx, s.vy); r.onFoot = !!s.on;
     const n = pack.groundNormal(s.x, s.y);
     r.normal[0] = n[0]; r.normal[1] = n[1]; r.normal[2] = n[2];
