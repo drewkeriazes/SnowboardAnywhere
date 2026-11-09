@@ -60,6 +60,8 @@ function lagTime(dt: number, kf: number): number {
 }
 
 /** Third-person chase camera with lag, speed-dependent FOV and terrain avoidance. */
+/** BUG-051: first-person head steadying time (s) and the slope pitch easing (s) */
+const FP_STEADY = 0.12, FP_PITCH_TAU = 0.4;
 export class ChaseCamera {
   readonly camera: THREE.PerspectiveCamera;
   mode: CameraMode = 'chase';
@@ -77,6 +79,11 @@ export class ChaseCamera {
   /** free look while riding a lift (radians, relative to the heading) */
   lookYaw = 0; lookPitch = 0;
   private fpRoll = 0;
+  /** BUG-051: first-person shake 0..1 (Graphics setting, default 0.3); 0 is fully smooth */
+  fpShake = 0.3;
+  /** BUG-051: the stabilised rider height (alpha-beta filter: follows the run down with no lag,
+   *  drops the fast ripples of the 1 m terrain) and its rate; and the smoothed slope pitch */
+  private fpZ = NaN; private fpZv = 0; private fpPitch = 0;
   /** FEAT-124: look behind held (first person turns the head round; the chase cams orbit in freeLook) */
   glance = false;
   private fpBob = 0;
@@ -204,7 +211,7 @@ export class ChaseCamera {
    * rock and scree, growing with speed; plus the landing shake. Smooth (sums of sines), not per-frame
    * noise. Returns a small offset (m) in camera space x, y and a roll (rad).
    */
-  private rumble(r: Rider, dt: number, scale: number): [number, number, number] {
+  private rumble(r: Rider, dt: number, scale: number, landScale = scale): [number, number, number] {
     if (r.landingShock > this.lastShock + 0.2 && r.landingShock > 0.4) this.shake = Math.min(1, r.landingShock);
     this.lastShock = r.landingShock;
     this.shake *= Math.exp(-dt * 7);
@@ -212,7 +219,7 @@ export class ChaseCamera {
     const s = r.surface, spd = Math.hypot(r.vx, r.vy);
     const rough = r.onGround && !r.onFoot ? (1 - 0.8 * s.groomed) * (1 + 1.5 * Math.min(1, s.rock + s.scree)) * Math.min(1, spd / 25) : 0;
     this.rumbleT += dt * (6 + spd * 0.6);
-    const t = this.rumbleT, a = rough * 0.03 * scale, sk = this.shake * this.shake * 0.12 * scale;
+    const t = this.rumbleT, a = rough * 0.03 * scale, sk = this.shake * this.shake * 0.12 * landScale;
     return [
       a * (Math.sin(t * 1.7) + 0.5 * Math.sin(t * 4.3)) + sk * Math.sin(t * 23),
       a * (Math.sin(t * 2.3 + 1) + 0.5 * Math.sin(t * 5.1)) + sk * Math.sin(t * 29 + 2),
@@ -251,7 +258,18 @@ export class ChaseCamera {
     // head position: 1.6 m above the board, lowered by tuck and landing shock
     const crouch = (tuck ? 0.45 : 0) + r.landingShock * 0.5 + r.jumpCharge * 0.3;
     this.fpDip += (crouch - this.fpDip) * Math.min(1, dt * 8);
-    const bobAmp = r.onGround && !onLift ? Math.min(0.06, spd * 0.003) * (1 - r.surface.groomed * 0.5) : 0;
+    // BUG-051: no stride bob on the board (there is no stride); a small one walking
+    const bobAmp = r.onGround && !onLift && r.onFoot ? Math.min(0.03, spd * 0.01) : 0;
+    // BUG-051: stabilise the head height. The legs soak up the terrain: an alpha-beta filter on the
+    // rider's height follows a steady descent with no lag but not the 1 m ripples. Snaps on a big jump
+    // (reset, lift, teleport). The posed head's own motion (tuck, squat, landing dip) rides on top.
+    if (!Number.isFinite(this.fpZ) || Math.abs(r.z - this.fpZ) > 3 || onLift) { this.fpZ = r.z; this.fpZv = r.vz; }
+    else {
+      const pz = this.fpZ + this.fpZv * dt, res = r.z - pz;
+      const al = 1 - Math.exp(-dt / FP_STEADY), be = (al * al) / (2 - al);
+      this.fpZ = pz + al * res; this.fpZv += (be * res) / Math.max(dt, 1e-4);
+    }
+    const steady = this.fpZ - r.z;
     this.fpBob += dt * (4 + spd * 0.3);
     const bob = Math.sin(this.fpBob) * bobAmp;
     // ground normal tilt so the head stays upright-ish relative to the slope, blended toward world up
@@ -259,9 +277,10 @@ export class ChaseCamera {
     if (eye) {
       // the posed head already crouches, tucks and compresses; 0.12 m forward keeps the helmet behind the eye
       this.fpPos.copy(eye).addScaledVector(n, bob).addScaledVector(this.fpLook, 0.12);
+      this.fpPos.y += steady;
     } else {
       const h = 1.6 - this.fpDip * 0.5 + bob + (onLift ? 0.2 : 0);
-      this.fpPos.set(r.x, r.z, -r.y).addScaledVector(n, h).addScaledVector(this.fpLook, 0.15);
+      this.fpPos.set(r.x, this.fpZ, -r.y).addScaledVector(n, h).addScaledVector(this.fpLook, 0.15);
     }
     // FEAT-045 helmet cam: a GoPro on top of the helmet, a little back, wide and level
     const helmet = this.mode === 'helmet';
@@ -269,8 +288,11 @@ export class ChaseCamera {
     // hard landing and terrain rumble (a darken pulse on landing is drawn by the goggle overlay).
     // First person gets the surface rumble too, on top of the slower stride bob above: rx sways the
     // eye sideways (along the view's right, -look.z, look.x), ry lifts it, rr rolls it.
-    const [rx, ry, rr] = this.rumble(r, dt, helmet ? 1.4 : 1);
-    const jx = rr, jy = ry * 0.6;
+    // BUG-051: a few mm on groomers up to about 1 cm on rough snow at the default 30 %, double for the
+    // helmet cam; the landing shake stays short and sharp. None of it pitches the view.
+    const sh = this.fpShake * (helmet ? 2 : 1);
+    const [rx, ry, rr] = this.rumble(r, dt, sh * 1.1, Math.min(1, this.fpShake * 3));
+    const jx = rr * 0.5;
     this.fpPos.x -= this.fpLook.z * rx; this.fpPos.z += this.fpLook.x * rx;
     this.fpPos.y += ry;
     // roll into carves (BUG-031): a body lean, not the horizon tipping over. Grows with speed and
@@ -281,9 +303,11 @@ export class ChaseCamera {
     this.fpRoll += (rollT - this.fpRoll) * Math.min(1, dt * 6);
     // pitch: look slightly down the slope, more when tucking
     const slopePitch = r.onGround ? Math.atan2(-(r.vx * r.normal[0] + r.vy * r.normal[1]), Math.max(0.3, spd)) * 0.25 : 0; // negative = looking downhill (a quarter of the slope)
+    // BUG-051: the eyes hold the line: the slope pitch eases over about 0.4 s instead of nodding over every roller
+    this.fpPitch += (slopePitch - this.fpPitch) * (1 - Math.exp(-dt / FP_PITCH_TAU));
     // BUG-057: that tilt is down the slope ahead; turned round (look behind, free look) it flips, so
     // looking back you look up the run above instead of into the snow rising behind you
-    const pitch = THREE.MathUtils.clamp((slopePitch - (tuck ? 0.06 : 0)) * Math.cos(this.lookYaw) + this.lookPitch + jy, -1.2, 1.2);
+    const pitch = THREE.MathUtils.clamp((this.fpPitch - (tuck ? 0.06 : 0)) * Math.cos(this.lookYaw) + this.lookPitch, -1.2, 1.2);
     const yaw = Math.atan2(this.fpLook.x, -this.fpLook.z) + this.lookYaw;
     // build orientation: yaw about up, then pitch, then roll about the view axis
     // camera forward is -Z; a yaw of `yaw` (clockwise from north) is a rotation of -yaw about +Y
