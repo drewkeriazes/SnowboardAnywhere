@@ -176,7 +176,8 @@ export class Spray {
     if (!r.onGround || budget <= 0) { this.acc = 0; this.flush(); return; }
     // the edge: snow leaves the engaged edge on the outside of the turn
     const edgeS = Math.sin(Math.min(1.2, Math.abs(r.edge)));
-    const rate = 30 * sp * (0.15 + edgeS) * depthK * (1 + 2 * Math.min(1, r.skid)) * (1 - 0.7 * hard);
+    // FEAT-148: a hard carve's deep edge throws a heavier plume off the tail
+    const rate = 30 * sp * (0.15 + edgeS) * depthK * (1 + 2 * Math.min(1, r.skid)) * (1 + 1.5 * r.hardCarve) * (1 - 0.7 * hard);
     // a hockey stop scrapes a sheet off the whole edge, thrown on ahead of the board
     const sheetRate = r.scrape * 350 * (0.5 + soft) * Math.min(1, sp / 4) * (1 - 0.5 * hard);
     this.acc += (rate + sheetRate) * dt;

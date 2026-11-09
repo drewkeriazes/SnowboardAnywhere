@@ -51,7 +51,7 @@ e.g. `http://192.168.1.42:5173/?pack=vail`. The packs stream from the PC, and th
 | A / D (or arrows) | steer |
 | W / S (or arrows) | tuck / brake (front flip / backflip in the air); walk on foot |
 | Space (hold, release) | jump (hold W / S while charging for a nollie / ollie); climb on foot |
-| Shift | squat on the snow, grab in the air, sprint on foot |
+| Shift | squat on the snow (hold while steering: hard carve), grab in the air, sprint on foot |
 | Q / Z | nose / tail press (hold); W / S balance it |
 | X | skate on the flat (hold) |
 | E | ride a lift (at the base, inside the lift line where there is one); skip to the top while riding; strap in or out when stopped away from lifts |
@@ -70,7 +70,7 @@ e.g. `http://192.168.1.42:5173/?pack=vail`. The packs stream from the PC, and th
 
 Every action has two slots in Settings > Controls (click a slot, press a key or the right mouse button; Delete clears it).
 A gamepad with the standard mapping works too: left stick steers, up / down or the triggers tuck and brake,
-A jumps, X squats and grabs, B skates, bumpers press, right stick looks around, R3 looks behind, Y interacts,
+A jumps, X squats and grabs (hard carves while steering), B skates, bumpers press, right stick looks around, R3 looks behind, Y interacts,
 the d-pad cycles camera / map / piste lines / track, Select opens the replay and Start pauses.
 The replay viewer lists its own keys on screen.
 
@@ -82,6 +82,14 @@ the other end (the bar) the board drops flat. There is no time limit: a long pre
 finer corrections. Let go any time to end it cleanly. Hold the press key through a trick to land
 straight into the press ("Backside 360 to nose press"). A toast gives the press time and distance,
 with your best for the resort. Settings > Game > Press balance: Easy, Normal, Hard or Off.
+
+Hold Shift while you steer for a hard carve: the rider drops low, drives the edge in to 80 degrees
+and lays over toward the snow with the inside hand dragging, for the tightest turn the board allows
+(about 3 to 4 m at 22 mph on a groomer, against about 5 m steering normally). Commit first: roll onto the
+edge, then press. Pressed from flat at speed, or on ice, the edge lags behind the turn you are asking
+for, so the tail skids out wide and scrubs speed, and badly overdone it washes out and you go down on
+your hip (toeside) or your butt (heelside). In deep powder the board planes instead, a deep surfy
+turn. Every hard carve slows you, a skidded one more. Steering without Shift is unchanged.
 
 You can ride switch (the other foot forward, the tail leading). Land a 180, or slide back down the
 hill tail first, and you carry on switch until you turn round again with another 180 or by stopping

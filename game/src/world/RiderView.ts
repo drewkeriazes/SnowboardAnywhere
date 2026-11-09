@@ -6,7 +6,7 @@ import { Ragdoll, RAGDOLL_RECOVER } from './Ragdoll';
 import { lerpPose, clonePose, copyPose, defaultMaterials, POSES, SKI_POSES, WALK_POSES, type Pose, type RiderMaterials } from './RiderModel';
 import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, bendBoard, deckY, BONES as BONE_LIST, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
 import { Gait, type Plant } from './Gait';
-import { carveLean, LEAN_MAX } from './carveLean';
+import { carveLean, LEAN_HARD, LEAN_MAX } from './carveLean';
 import { Spray } from './Spray';
 
 /** FEAT-112: half the skis' length (where they pivot) and the most they tip up on a full lean (rad) */
@@ -74,6 +74,9 @@ const DEEP_FROM = 0.3;
 /** FEAT-126: least height above the snow on a lean (m): the knee joints (the knee pad is about 5 cm
  *  round), the hip joint (the glutes hang 0.1 to 0.15 m below it) and the wrists */
 const CLEAR_KNEE = 0.06, CLEAR_HIP = 0.17, CLEAR_HAND = 0.05;
+/** FEAT-148: in a hard carve the inside hand reaches down and drags on the snow once the lean passes
+ *  HAND_DRAG_FROM (rad), all the way by HAND_DRAG_FULL, this high (m), a little out toward the inside */
+const HAND_DRAG_FROM = 0.95, HAND_DRAG_FULL = 1.15, HAND_DRAG_Y = 0.02, HAND_DRAG_OUT = 0.08;
 
 const d2r = Math.PI / 180;
 const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -418,15 +421,24 @@ export class RiderView {
     return Math.max(0, CLEAR_HIP - this.snowHeight(B.Hips), 2 * knee);
   }
 
-  /** FEAT-126: a hand that would dip into the snow on a deep lean rests on it instead (a light drag touch). */
-  private handsAboveSnow(): void {
+  /**
+   * FEAT-126: a hand that would dip into the snow on a deep lean rests on it instead (a light drag touch).
+   * FEAT-148: in a hard carve (`hard` 0..1) the inside hand, the one nearer the snow, reaches down to it
+   * and drags: toeside the forearm and hand, heelside the hand beside the hip.
+   */
+  private handsAboveSnow(hard: number): void {
     const B = this.rig.bones;
     this.invG.copy(this.group.matrixWorld).invert();
     const chestQ = B.Spine2.getWorldQuaternion(this.pq);
+    const drag = hard * smooth(HAND_DRAG_FROM, HAND_DRAG_FULL, Math.abs(this.leanAngle));
+    const yL = B.LeftHand.getWorldPosition(this.v1).applyMatrix4(this.invG).y, yR = B.RightHand.getWorldPosition(this.v1).applyMatrix4(this.invG).y;
+    const inside = yL < yR ? -1 : 1;
     for (const [s, up, lo, end] of [[-1, B.LeftArm, B.LeftForeArm, B.LeftHand], [1, B.RightArm, B.RightForeArm, B.RightHand]] as const) {
       const local = end.getWorldPosition(this.v1).applyMatrix4(this.invG);
-      if (local.y >= CLEAR_HAND) continue;
-      local.y = CLEAR_HAND;
+      const w = s === inside ? drag : 0;
+      if (local.y >= CLEAR_HAND && w <= 0) continue;
+      local.y = Math.max(CLEAR_HAND, local.y) + (HAND_DRAG_Y - Math.max(CLEAR_HAND, local.y)) * w;
+      local.x += Math.sign(this.leanAngle) * HAND_DRAG_OUT * w;
       const target = local.applyMatrix4(this.group.matrixWorld);
       // elbows out and back, as when holding the gear
       twoBone(up, lo, end, target, this.v2.set(s * 0.7, -1, 0.4).applyQuaternion(chestQ));
@@ -628,8 +640,10 @@ export class RiderView {
     const live = r.onGround && !seated && r.crashed <= 0;
     const edgeAhead = live ? r.predictEdge(this.leadHips) - r.edge : 0;
     const k = Math.min(1, Math.abs(edgeAhead) / LEAD_BLEND) * (1 - r.brakeAmt);
-    const measured = carveLean(latG);
-    const phi = r.onGround && !seated ? Math.max(-LEAN_MAX, Math.min(LEAN_MAX, measured + (fl * r.predictIncline(this.leadHips) - measured) * k)) : 0;
+    // FEAT-148: a hard carve lays the body over further, toward the snow
+    const leanMax = LEAN_MAX + (LEAN_HARD - LEAN_MAX) * (live ? r.hardCarve : 0);
+    const measured = carveLean(latG, leanMax);
+    const phi = r.onGround && !seated ? Math.max(-leanMax, Math.min(leanMax, measured + (fl * r.predictIncline(this.leadHips) - measured) * k)) : 0;
     follow(this.leanF, phi, BODY_RESPONSE, dt);
     // FEAT-127: the board rolls onto the sim's real edge angle (the brake's snow cut while braking),
     // further over than the body: the knees and hips make up the difference (angulation).
@@ -693,7 +707,7 @@ export class RiderView {
     // ---- FEAT-046: a crash is a ragdoll tumble; the body is pulled toward the sim's slide so it
     // gets up where the rider is, then blends back to the animated pose over RAGDOLL_RECOVER
     if (this.ragdoll && r.crashed > 0 && !seated) {
-      if (!this.ragdoll.active) { this.group.updateMatrixWorld(true); this.ragdoll.start(this.rig, this.v1.set(r.vx, r.vz, -r.vy), r.crashFall ? this.v2.set(Math.sin(r.heading) * r.crashFall, 0, -Math.cos(r.heading) * r.crashFall) : null); } // FEAT-140: a press slam falls over its loaded end
+      if (!this.ragdoll.active) { this.group.updateMatrixWorld(true); this.ragdoll.start(this.rig, this.v1.set(r.vx, r.vz, -r.vy), r.crashFall ? this.v2.set(Math.sin(r.heading) * r.crashFall, 0, -Math.cos(r.heading) * r.crashFall) : r.crashSide ? this.v2.set(Math.cos(r.heading) * r.crashSide, 0, Math.sin(r.heading) * r.crashSide) : null); } // FEAT-140: a press slam falls over its loaded end; FEAT-148: a washout to the inside of the turn
       this.group.updateMatrixWorld(true);
       this.ragdoll.step(dt, this.v2.set(r.x, r.z, -r.y));
       this.ragdoll.apply(this.rig);
@@ -860,7 +874,7 @@ export class RiderView {
       setWorldQuat(this.rig.bones.Head, this.headQ.multiply(this.rig.bones.Head.getWorldQuaternion(this.q)));
     }
     if (this.discipline === 'ski') this.skiHands(r, tuck, free);
-    if (nearSnow) this.handsAboveSnow();
+    if (nearSnow) this.handsAboveSnow(r.hardCarve);
     if (this.recoverT > 0) {
       // FEAT-046: ease from the last ragdoll pose into the animated one
       this.recoverT = Math.max(0, this.recoverT - dt);
