@@ -154,6 +154,8 @@ function setKind(k: InputKind): void {
   kind = k;
   for (const s of stack) s.opts.onInputKind?.(k);
 }
+/** PadNav (FEAT-137) saw the controller come into use or go out of it: the hints follow at once, before any menu press. */
+export function notePadInUse(on: boolean): void { if (on) setKind('pad'); else if (kind === 'pad') setKind('keyboard'); }
 /** The input kind used last (hint bars show keys or pad buttons from it). */
 export function lastInputKind(): InputKind { return kind; }
 
@@ -222,4 +224,5 @@ export function closeScreen(s: Screen): void {
   const t = top();
   if (r && r.isConnected && visible(r)) { if (t) t.focus(r); else r.focus({ preventScroll: true }); }
   else t?.refresh();
+  if (!stack.length) suspended = false; // nothing can be waiting for a key once every menu is closed
 }

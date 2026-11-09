@@ -1,6 +1,6 @@
 import { MENU_KEYS, MENU_PAD, type NavIntent } from './MenuKeys';
 import type { InputKind } from './MenuNav';
-import { PAD, lastPadKind } from '../sim/Pad';
+import { PAD, activePad, lastPadKind } from '../sim/Pad';
 import { padGlyph } from './PadGlyphs';
 import { keyName } from './Settings';
 
@@ -14,7 +14,7 @@ function keyChip(i: Hint[0]): string {
 }
 /** the controller's own glyphs (FEAT-137: PlayStation shapes or Xbox letters) */
 function padChip(i: Hint[0]): string {
-  const k = lastPadKind ?? 'xbox';
+  const k = activePad()?.kind ?? lastPadKind ?? 'ps'; // as Settings > Controls
   if (i === 'move') return padGlyph(k, PAD.UP) + padGlyph(k, PAD.DOWN);
   if (i === 'cat') return `${padGlyph(k, PAD.LB)} ${padGlyph(k, PAD.RB)}`;
   const b = MENU_PAD[i];

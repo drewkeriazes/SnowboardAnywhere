@@ -51,12 +51,13 @@ export class PauseMenu {
         saveSettings(settings);
       });
     });
-    this.el.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => b.addEventListener('click', () => {
+    // the menu's own buttons (Outrun's included), not the settings panel's, which act inside the panel
+    this.el.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => { if (!b.closest('.settings:not(.outrun)')) b.addEventListener('click', () => {
       if (b.dataset.a === 'settings') { this.panel.classList.toggle('hidden'); this.outrunPanel.classList.add('hidden'); this.afterToggle(b, this.panel); return; }
       if (b.dataset.a === 'outrun') { this.outrunPanel.classList.toggle('hidden'); this.panel.classList.add('hidden'); this.afterToggle(b, this.outrunPanel); return; }
       this.hide();
       this.onAction?.(b.dataset.a as PauseAction);
-    }));
+    }); });
     this.hintEl = this.el.querySelector('.hintbar') as HTMLElement;
     this.screen = new Screen(this.el, {
       primary: () => this.el.querySelector<HTMLElement>('button[data-a="resume"]'),
@@ -99,7 +100,7 @@ export class PauseMenu {
   }
 
   show(): void { this.open = true; this.el.style.display = 'flex'; if (document.pointerLockElement) document.exitPointerLock(); openScreen(this.screen); this.showHints(); }
-  hide(): void { this.open = false; this.el.style.display = 'none'; this.panel.classList.add('hidden'); this.outrunPanel.classList.add('hidden'); closeScreen(this.screen); }
+  hide(): void { this.open = false; this.el.style.display = 'none'; this.sp.cancel(); this.panel.classList.add('hidden'); this.outrunPanel.classList.add('hidden'); closeScreen(this.screen); }
   toggle(): void { this.open ? this.hide() : this.show(); }
   destroy(): void { closeScreen(this.screen); this.el.remove(); }
 }

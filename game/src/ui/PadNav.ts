@@ -2,7 +2,7 @@ import { PAD, activePad, isDualSense, padButtonName, padTouched, padUi, type Pad
 import { DualSenseHID, dualSense } from '../sim/DualSense';
 import { padFx } from '../sim/PadFeedback';
 import { padGlyph } from './PadGlyphs';
-import { hasScreen, padIntent } from './MenuNav';
+import { hasScreen, notePadInUse, padIntent } from './MenuNav';
 
 /**
  * FEAT-137: drive the menus with a controller. While the main menu, the pause menu or the Outrun card is
@@ -26,6 +26,8 @@ const prev: boolean[] = [];
 let focused: HTMLElement | null = null;
 let rootShown: HTMLElement | null = null;
 let held: { dir: string; t: number } | null = null;
+/** FEAT-128: a menu just opened: a stick or D-pad direction already held is ignored until let go (braking into pause must not walk the focus off Resume) */
+let dirWait = false;
 
 const visible = (el: Element): boolean => {
   if (!(el instanceof HTMLElement)) return false;
@@ -152,6 +154,7 @@ function frame(t: number, last: number): void {
     document.body.classList.toggle('pad-ps', kind === 'ps');
     document.body.classList.toggle('pad-xbox', !!kind && kind !== 'ps');
     if (kind) document.querySelectorAll<HTMLElement>('.pad-hint').forEach((el) => { el.innerHTML = menuPadHint(kind); });
+    notePadInUse(!!kind); // FEAT-128: the menus' hint bars
   }
   if (debugOn) debug();
   // a DualSense on the Gamepad API (no rumble there on Windows Chrome) and WebHID here: offer the extras in the menus
@@ -160,7 +163,7 @@ function frame(t: number, last: number): void {
   offerShown = offer;
   const root = openRoot();
   if (root !== rootShown) {
-    rootShown = root; held = null;
+    rootShown = root; held = null; dirWait = true;
     if (focused && (!root || !root.contains(focused))) setFocus(null);
     if (pad && root && !focused && !hasScreen()) move(root, 0, 0); // a menu opened: start on its main button
   }
@@ -171,7 +174,8 @@ function frame(t: number, last: number): void {
     const ax = pad.axes;
     const dir = b(PAD.UP) || (ax[1] ?? 0) < -0.6 ? 'up' : b(PAD.DOWN) || (ax[1] ?? 0) > 0.6 ? 'down' : b(PAD.LEFT) || (ax[0] ?? 0) < -0.6 ? 'left' : b(PAD.RIGHT) || (ax[0] ?? 0) > 0.6 ? 'right' : '';
     let step = '';
-    if (dir) {
+    if (dirWait) { if (!dir) dirWait = false; }
+    else if (dir) {
       if (!held || held.dir !== dir) { held = { dir, t: -REPEAT_DELAY }; step = dir; }
       else { held.t += dt; if (held.t >= REPEAT_RATE) { held.t = 0; step = dir; } }
     } else held = null;

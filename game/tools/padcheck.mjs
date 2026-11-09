@@ -3,8 +3,8 @@
 //     CRC-32, the USB and Bluetooth output reports (lightbar, motors, trigger blocks at their offsets, the
 //     Bluetooth CRC), the trigger effect encodings, and input parsing (buttons, D-pad hat, sticks, triggers,
 //     touchpad);
-//  2. the main menu on a fake DualSense (navigator.getGamepads stubbed): body.pad-on, the controller hint
-//     with glyphs, the focus starting on Free ride, D-pad down moving it, Cross opening Settings, R1
+//  2. the main menu on a fake DualSense (navigator.getGamepads stubbed): body.pad-on, the hint bar
+//     in glyphs (FEAT-128), the focus starting on Free ride, D-pad down moving it, Cross opening Settings, R1
 //     switching the tab, Circle closing the panel back onto its button;
 //  3. a headless session: the default buttons (R2 tuck past the trigger dead zone, Cross jump and release,
 //     D-pad right one map press, Options pause), the stick dead zone, a rebound jump, a muted held button,
@@ -126,21 +126,22 @@ const tap = async (page, b) => {
 };
 
 // ---------------------------------------------------------------- 2. the main menu
+// (FEAT-128: MenuNav owns the focus on the main and pause menus, `.nav-focus`; PadNav hands it the presses)
 console.log('---- main menu');
 {
   const { page, errors } = await newPage('');
   await page.waitForSelector('#menu .panel', { timeout: 60000 });
   await page.waitForTimeout(300);
-  const st = await page.evaluate(() => ({ on: document.body.classList.contains('pad-on'), ps: document.body.classList.contains('pad-ps'), hint: document.querySelector('#menu .pad-hint')?.innerHTML ?? '', focus: document.querySelector('.padfocus')?.textContent ?? '' }));
+  const st = await page.evaluate(() => ({ on: document.body.classList.contains('pad-on'), ps: document.body.classList.contains('pad-ps'), hint: document.querySelector('#menu .hintbar')?.innerHTML ?? '', focus: document.querySelector('#menu .nav-focus')?.textContent ?? '' }));
   check('body.pad-on and pad-ps', st.on && st.ps);
   check('menu hint in glyphs', st.hint.includes('<svg'), st.hint.slice(0, 60));
   check('focus starts on Free ride', st.focus === 'Free ride', st.focus);
   await tap(page, 13); // down
-  const f2 = await page.evaluate(() => document.querySelector('.padfocus')?.textContent ?? '');
+  const f2 = await page.evaluate(() => document.querySelector('#menu .nav-focus')?.textContent ?? '');
   check('D-pad down moves the focus', f2 === 'Drop in from the map', f2);
   // a DualSense on the Gamepad API (no rumble on Windows Chrome): the menu offers the WebHID extras; Cross on it asks for the mouse
   await tap(page, 13);
-  const offer = await page.evaluate(() => ({ shown: getComputedStyle(document.querySelector('#menu .ds-connect')).display !== 'none', focus: document.querySelector('.padfocus')?.textContent ?? '' }));
+  const offer = await page.evaluate(() => ({ shown: getComputedStyle(document.querySelector('#menu .ds-connect')).display !== 'none', focus: document.querySelector('#menu .nav-focus')?.textContent ?? '' }));
   check('the menu offers the DualSense extras', offer.shown && offer.focus.startsWith('Turn on DualSense'), JSON.stringify(offer));
   await tap(page, 0);
   const note = await page.evaluate(() => document.querySelector('#menu .ds-status')?.textContent ?? '');
@@ -149,15 +150,15 @@ console.log('---- main menu');
   await tap(page, 0); // Cross on Settings
   const open = await page.evaluate(() => !document.querySelector('#menu .settings').classList.contains('hidden'));
   check('Cross opens Settings', open);
-  // the focus is still on the Settings button; move into the panel, then R1 switches the tab
+  // the focus moves into the panel (its open tab); D-pad down stays inside it, then R1 switches the tab
   await tap(page, 13);
-  const inPanel = await page.evaluate(() => !!document.querySelector('.padfocus')?.closest('.settings'));
+  const inPanel = await page.evaluate(() => !!document.querySelector('#menu .nav-focus')?.closest('.settings'));
   check('D-pad down enters the panel', inPanel);
   await tap(page, 5);
   const tabOn = await page.evaluate(() => document.querySelector('#menu .settings .tabs button.on')?.textContent ?? '');
   check('R1 switches the tab', tabOn === 'Graphics', tabOn);
   await tap(page, 1); // Circle
-  const closed = await page.evaluate(() => ({ hidden: document.querySelector('#menu .settings').classList.contains('hidden'), focus: document.querySelector('.padfocus')?.textContent ?? '' }));
+  const closed = await page.evaluate(() => ({ hidden: document.querySelector('#menu .settings').classList.contains('hidden'), focus: document.querySelector('#menu .nav-focus')?.textContent ?? '' }));
   check('Circle closes the panel onto its button', closed.hidden && closed.focus === 'Settings', JSON.stringify(closed));
   check('no console errors (menu)', errors.length === 0, errors.slice(0, 3).join(' | '));
   await page.close();

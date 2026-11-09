@@ -72,7 +72,7 @@
 #pause button.primary:hover, #menu button.primary:hover { background-color: var(--accent); filter: brightness(1.08); }
 #menu .resort { display: flex; align-items: center; gap: 10px; margin: -8px 0 14px; font-size: var(--fs-sm); }
 #menu .resort label { color: var(--dim); }
-#menu .resort select { flex: 1; min-height: calc(36px * var(--ui-scale)); padding: 6px; border-radius: var(--r-sm); background: var(--fill-hi); color: var(--text); border: 1px solid var(--line-strong); font: 500 var(--fs-sm) var(--font-body); }
+#menu .resort select { flex: 1; min-height: calc(36px * var(--ui-scale)); padding: 6px; border-radius: var(--r-sm); background-color: var(--fill-hi); color: var(--text); border: 1px solid var(--line-strong); font: 500 var(--fs-sm) var(--font-body); }
 #menu .resort option { color: #111; }
 #menu .resort.music { margin: 12px 0 6px; } /* the resort row's negative top margin pulled it over the board/ski toggle */
 #menu .seg { display: flex; gap: 0; margin: 6px 0 2px; }
@@ -93,7 +93,7 @@
 .settings .row { display: flex; align-items: center; gap: 10px; margin: 8px 0; min-height: calc(32px * var(--ui-scale)); font-size: var(--fs-sm); }
 .settings .row label { width: calc(110px * var(--ui-scale)); color: var(--dim); flex: none; }
 .settings .row input[type=range], .settings .row select { flex: 1; min-width: 0; }
-.settings .row select { min-height: calc(30px * var(--ui-scale)); border-radius: var(--r-sm); background: var(--fill-hi); color: var(--text); border: 1px solid var(--line-strong); font: 500 var(--fs-sm) var(--font-body); }
+.settings .row select { min-height: calc(30px * var(--ui-scale)); border-radius: var(--r-sm); background-color: var(--fill-hi); color: var(--text); border: 1px solid var(--line-strong); font: 500 var(--fs-sm) var(--font-body); }
 .settings .row select option { color: #111; }
 .settings .row input[type=range] { accent-color: var(--accent); }
 .settings .row input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; }
