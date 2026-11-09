@@ -3,6 +3,7 @@ import { DEFAULT_PAD, PAUSE_BUTTONS, activePad, lastPadKind, migratePadKeys, pad
 import { DualSenseHID, dualSense } from '../sim/DualSense';
 import { padGlyph } from './PadGlyphs';
 import { padFx } from '../sim/PadFeedback';
+import { LENSES, LENS_ORDER, type LensSetting } from '../world/Lens';
 /**
  * Player settings, persisted in localStorage under one versioned key. `renderPanel` builds the
  * same settings UI for the main menu and the pause menu; `onChange` fires on every edit so the
@@ -49,6 +50,10 @@ export interface Settings {
   fpVignette: boolean;
   /** goggle frame strength 0..1 */
   goggleStrength: number;
+  /** FEAT-130: the goggle lens (first person view and the rider's goggles), or Auto by the weather and the sun */
+  goggleLens: LensSetting;
+  /** FEAT-130: how strongly the lens tints and sharpens the first-person view, 0..1 */
+  lensStrength: number;
   /** BUG-051: first-person and helmet cam shake, 0 (smooth) to 1 */
   fpShake: number;
   showMarkers: boolean;
@@ -92,6 +97,11 @@ export const OUTFIT_PRESETS: Record<string, Outfit> = {
   'Powder blue': { jacket: '#7dd3fc', pants: '#1e3a8a', helmet: '#f8fafc', board: '#0ea5e9', gloves: '#1e3a8a' },
   'Forest': { jacket: '#2f6b3a', pants: '#3b2f2f', helmet: '#d9b08c', board: '#8b5a2b', gloves: '#3b2f2f' },
   'Safety orange': { jacket: '#ff7a00', pants: '#111827', helmet: '#ffffff', board: '#111827', gloves: '#ff7a00' },
+};
+
+/** FEAT-130: the goggle lens that comes with each outfit preset */
+export const OUTFIT_LENS: Record<string, LensSetting> = {
+  'Classic red': 'rose', 'All black': 'purple', 'Neon 90s': 'yellow', 'Powder blue': 'blue', 'Forest': 'green', 'Safety orange': 'orange',
 };
 
 /**
@@ -141,7 +151,7 @@ export function migrateKeys(raw: Record<string, unknown> | undefined): { keys: R
 
 const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', snowDay: 'mid', snowDeform: true, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-  fov: 68, autoQuality: true, targetFps: 60, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, fpShake: 0.3, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, pressBalance: 'on', outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', stance: 'regular', timeOfDay: 'pack', month: 2, units: 'imperial', keys: migrateKeys(undefined).keys,
+  fov: 68, autoQuality: true, targetFps: 60, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, goggleLens: 'rose', lensStrength: 1, fpShake: 0.3, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, pressBalance: 'on', outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', stance: 'regular', timeOfDay: 'pack', month: 2, units: 'imperial', keys: migrateKeys(undefined).keys,
   outrun: { difficulty: 'normal', escape: 'base', gentle: false },
   padKeys: migratePadKeys(undefined), rumble: true, vibration: 0.8, padDead: 0.18, padTrigDead: 0.3, lookSens: 1, invertLookY: false,
   padTriggers: false, padLightbar: true, padGyro: false, gyroSens: 1,
@@ -235,6 +245,9 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>FP goggles</label><input type="checkbox" data-k="fpVignette"></div>
       <div class="row"><label>First person shake</label><input type="range" data-k="fpShake" min="0" max="1" step="0.05"></div>
       <div class="row"><label>Goggle frame</label><input type="range" data-k="goggleStrength" min="0" max="1" step="0.05"></div>
+      <div class="row"><label>Goggle lens</label><select data-k="goggleLens">${LENS_ORDER.map((l) => `<option value="${l}">${l === 'auto' ? 'Auto (weather and time of day)' : LENSES[l].label}</option>`).join('')}</select><span class="swatch" data-lens-swatch></span></div>
+      <div class="hint" data-lens-hint></div>
+      <div class="row"><label>Lens strength</label><input type="range" data-k="lensStrength" min="0" max="1" step="0.05"></div>
     </div>
     <div class="tab hidden" data-t="controls">
       <div class="row"><label>Invert steer</label><input type="checkbox" data-k="invertSteer"></div>
@@ -296,6 +309,14 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
     const vals: Record<string, string> = { fov: `${s.fov}°`, vibration: pct(s.vibration), padDead: pct(s.padDead), padTrigDead: pct(s.padTrigDead), lookSens: `${s.lookSens.toFixed(2)}x`, gyroSens: `${s.gyroSens.toFixed(2)}x` };
     for (const k in vals) { const el = host.querySelector(`[data-v="${k}"]`); if (el) el.textContent = vals[k]; }
   };
+  /** FEAT-130: the lens swatch and its one-line "best for" */
+  const fillLens = () => {
+    const sw = host.querySelector<HTMLElement>('[data-lens-swatch]'), hint = host.querySelector<HTMLElement>('[data-lens-hint]');
+    const l = s.goggleLens;
+    if (sw) sw.style.background = l === 'auto' ? 'conic-gradient(#ffd23f, #f0567e, #9b5cff, #2f7bff, #27b46a, #ffd23f)' : LENSES[l]?.swatch ?? '#888';
+    if (hint) hint.textContent = l === 'auto' ? 'Auto: yellow in a storm, rose when overcast, amber in low sun, a mirror in sunshine, clear at night. First person only; the rider wears it too.'
+      : l === 'off' ? 'No lens in first person.' : `Best for ${LENSES[l]?.bestFor ?? ''}. First person only; the rider wears it too.`;
+  };
   const fill = () => {
     cancelListen?.();
     host.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-k]').forEach((el) => {
@@ -304,6 +325,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       else el.value = String(s[k]);
     });
     showVals();
+    fillLens();
     const keys = host.querySelector('.keys')!;
     // FEAT-124: grouped by context, two slots per action, conflicts marked
     const owner = new Map<string, string[]>();
@@ -416,6 +438,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       onChange(s, k);
       if (k === 'quality') fill();
       showVals();
+      if (k === 'goggleLens') fillLens();
     });
   });
   // outfit
@@ -430,7 +453,11 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
   }));
   (host.querySelector('select[data-o="preset"]') as HTMLSelectElement).addEventListener('change', (e) => {
     const n = (e.target as HTMLSelectElement).value;
-    if (OUTFIT_PRESETS[n]) { s.outfit = { ...OUTFIT_PRESETS[n] }; saveSettings(s); fillOutfit(); onChange(s, 'outfit'); }
+    if (OUTFIT_PRESETS[n]) {
+      s.outfit = { ...OUTFIT_PRESETS[n] };
+      if (OUTFIT_LENS[n]) { s.goggleLens = OUTFIT_LENS[n]; const sel = host.querySelector<HTMLSelectElement>('select[data-k="goggleLens"]'); if (sel) sel.value = s.goggleLens; fillLens(); }
+      saveSettings(s); fillOutfit(); onChange(s, 'outfit');
+    }
   });
   host.querySelector('[data-a="keys-reset"]')!.addEventListener('click', () => {
     s.keys = migrateKeys(undefined).keys; s.keysNote = false; saveSettings(s); fill(); onChange(s, 'keys');

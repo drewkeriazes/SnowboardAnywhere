@@ -18,6 +18,7 @@ import { RunsOverlay } from './world/RunsOverlay';
 import { Environment } from './world/Sky';
 import { RiderView, BODY_LAYER } from './world/RiderView';
 import { GoggleView } from './ui/GoggleView';
+import { GoggleLens, LENSES, resolveLens, type LensId, type LensSetting } from './world/Lens';
 import { AutoQuality } from './ui/AutoQuality';
 import { RunStats } from './sim/RunStats';
 import { RunCard } from './ui/RunCard';
@@ -87,6 +88,7 @@ async function main(): Promise<void> {
   const audio = new GameAudio();
   const settings = loadSettings();
   const rp = params.get('rider'); if (rp === 'ski' || rp === 'board') settings.discipline = rp;
+  const lp = params.get('lens'); if (lp && (lp === 'auto' || lp in LENSES)) settings.goggleLens = lp as LensSetting; // FEAT-130: ?lens=yellow for render checks
   const sp = params.get('stance'); if (sp === 'regular' || sp === 'goofy') settings.stance = sp; // FEAT-139
   if (params.has('lowgfx')) { settings.quality = 'low'; settings.shadows = false; settings.treeDensity = 0.3; settings.pixelRatio = 1; }
   // before the menu, so the first song comes from the saved source and playlist
@@ -256,6 +258,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     let csmSize = 0;
     if (!params.has('noimpostors')) veg.enableImpostors(renderer, true);
     const goggles = new GoggleView();
+    const lens = new GoggleLens(); // FEAT-130: the tinted lens pass in first person
+    let lensWorn: LensId | null = null;
     // FEAT-055: run stats, the after-run card and today's totals
     const runStats = new RunStats(pack), runCard = new RunCard();
     runStats.onRunEnd = (s) => { if (!headless) runCard.show(s, settings.units === 'metric'); };
@@ -602,6 +606,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       showPrompt('');
       hud.innerHTML = '';
       goggles.destroy();
+      lens.dispose();
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
         if (m.geometry) m.geometry.dispose();
@@ -621,8 +626,14 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
 
     /** Main render, then in first person the body again over a cleared depth buffer (near 0.05 m). */
     function render(): void {
+      const lensOn = lens.active; // FEAT-130: into the lens target, then the lens pass to the screen
+      if (lensOn) lens.begin(renderer, cam.firstPerson ? 2 : 1);
       renderer.render(scene, cam.camera);
-      if (!cam.firstPerson) return;
+      if (cam.firstPerson) renderBody(lensOn);
+      if (lensOn) lens.end(renderer);
+    }
+    function renderBody(lensOn: boolean): void {
+      if (lensOn) lens.nextPass();
       for (const l of env.csm?.lights ?? []) l.layers.enable(BODY_LAYER);
       bodyCam.position.copy(cam.camera.position); bodyCam.quaternion.copy(cam.camera.quaternion);
       if (bodyCam.fov !== cam.camera.fov || bodyCam.aspect !== cam.camera.aspect) { bodyCam.fov = cam.camera.fov; bodyCam.aspect = cam.camera.aspect; bodyCam.updateProjectionMatrix(); }
@@ -884,6 +895,13 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (eat.active) { eat.cameraPose(cam.camera.position, eatLook); cam.camera.lookAt(eatLook); if (cam.camera.fov !== 60) { cam.camera.fov = 60; cam.camera.updateProjectionMatrix(); } }
       chase?.setListener(cam.camera);
       goggles.strength = settings.goggleStrength;
+      {
+        // FEAT-130: the lens follows the setting (Auto: the weather and the sun); the rider and the frame wear it
+        const worn = resolveLens(settings.goggleLens, weatherNow, env.sunDir.y);
+        if (worn !== lensWorn) { lensWorn = worn; riderView.setLens(worn); goggles.setLens(worn === 'off' ? null : LENSES[worn].swatch); }
+        lens.lens = cam.mode === 'fp' && !eat.active ? worn : 'off';
+        lens.strength = settings.lensStrength ?? 1;
+      }
       cam.fpShake = settings.fpShake ?? 0.3; // BUG-051
       goggles.update(rider, dt, cam.mode === 'fp', cam.mode === 'fp' && settings.fpVignette, onLift);
       // FEAT-045 speed feel toggles, and the speed lines (not on a lift, in free fly or the eat)
