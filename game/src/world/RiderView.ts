@@ -7,6 +7,7 @@ import { lerpPose, clonePose, copyPose, defaultMaterials, POSES, SKI_POSES, WALK
 import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, bendBoard, deckY, BONES as BONE_LIST, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
 import { Gait, type Plant } from './Gait';
 import { carveLean, LEAN_MAX } from './carveLean';
+import { Spray } from './Spray';
 
 /** FEAT-112: half the skis' length (where they pivot) and the most they tip up on a full lean (rad) */
 const BOARD_HALF = 0.72, LEAN_TIP = 18 * Math.PI / 180;
@@ -160,15 +161,6 @@ const CARRY = {
  * the direction of travel; then two-bone IK pins both boots to the bindings every frame so the
  * board and body cannot separate. Skiers also place their hands by IK and aim the poles.
  */
-/** Soft round particle: radial alpha falloff on a small canvas. */
-function sprayTexture(): THREE.Texture {
-  const c = document.createElement('canvas'); c.width = c.height = 32;
-  const ctx = c.getContext('2d')!;
-  const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.5, 'rgba(255,255,255,0.6)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, 32, 32);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
-}
 
 /** Layer the body is also drawn on, so first person can redraw it with a close near plane. */
 export const BODY_LAYER = 1;
@@ -228,10 +220,8 @@ export class RiderView {
   private readonly target: Pose = clonePose(POSES.neutral);
   /** BUG-056: the riding pose built for the hips' shorter lead; its pelvis fields go into `target` */
   private readonly hipsTarget: Pose = clonePose(POSES.neutral);
-  private readonly spray: THREE.Points;
-  private readonly sprayPos: Float32Array;
-  private readonly sprayVel: Float32Array;
-  private readonly sprayLife: Float32Array;
+  /** FEAT-044: GPU powder spray (wisps on groomers, hanging clouds in powder, a burst on landing) */
+  readonly spray = new Spray();
   private readonly tmpN = new THREE.Vector3();
   private readonly tmpF = new THREE.Vector3();
   private readonly tmpR = new THREE.Vector3();
@@ -309,20 +299,10 @@ export class RiderView {
     this.group.name = 'rider'; this.lean.name = 'rider lean';
     this.group.add(this.lean);
     this.rig = this.mount('board');
-
-    const n = 1200;
-    this.sprayPos = new Float32Array(n * 3);
-    this.sprayVel = new Float32Array(n * 3);
-    this.sprayLife = new Float32Array(n);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(this.sprayPos, 3));
-    this.spray = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.28, map: sprayTexture(), transparent: true, opacity: 0.75, depthWrite: false, alphaTest: 0.05 }));
-    this.spray.frustumCulled = false;
-    this.spray.name = 'snow spray';
   }
 
   get sprayObject(): THREE.Points {
-    return this.spray;
+    return this.spray.points;
   }
 
   private mount(d: 'board' | 'ski'): RiderRig {
@@ -903,51 +883,12 @@ export class RiderView {
   }
 
   /**
-   * Snow spray when skidding, and a sheet of it off the cutting edge when braking: thrown ahead of
-   * the board along the travel direction (downhill in a hockey stop), spread along its length.
-   * `emitting` false only moves the particles already in the air.
+   * Snow spray (FEAT-044, `Spray.ts`): wisps off the engaged edge and a sheet thrown ahead of the
+   * board when braking on a groomer, hanging clouds in powder, a burst on landing. `emitting` false
+   * only advances the clock (on foot, crashed, on a lift).
    */
   private updateSpray(r: Rider, dt: number, f: THREE.Vector3, right: THREE.Vector3, emitting: boolean): void {
-    const pos = this.sprayPos, vel = this.sprayVel, life = this.sprayLife;
-    // FEAT-053: powder throws a plume off the edge in every turn, slush a heavy spray, ice next to nothing
-    const sn = r.snow;
-    const sprayMul = 1 + 1.4 * sn.powder + 0.5 * sn.slush - 0.75 * sn.ice;
-    const plume = (sn.powder + 0.4 * sn.slush) * Math.min(1, Math.abs(r.edgeAngle)) * Math.min(1, r.speed / 8) * 7;
-    const emit = emitting && r.onGround ? Math.floor((r.skid * 10 + (r.speed > 8 ? 1 : 0)) * sprayMul + plume) : 0;
-    const sheet = emitting && r.onGround && r.speed > 1 ? Math.floor(r.scrape * 18 * sprayMul) : 0;
-    let emitted = 0, sheeted = 0;
-    const g = this.group.position;
-    const sp = Math.max(1e-3, r.speed), dirX = r.vx / sp, dirZ = -r.vy / sp; // travel direction (three.js)
-    for (let i = 0; i < life.length; i++) {
-      if (life[i] <= 0) {
-        if (sheeted < sheet) {
-          sheeted++;
-          life[i] = 0.45 + Math.random() * 0.5;
-          const along = (Math.random() - 0.5) * 1.5;
-          pos[i * 3] = g.x + f.x * along + dirX * 0.2; pos[i * 3 + 1] = g.y + 0.05; pos[i * 3 + 2] = g.z + f.z * along + dirZ * 0.2;
-          // the board's own velocity plus a throw: the spray flies on ahead as the rider slows
-          const throwV = sp * (0.9 + 0.5 * Math.random()) + 1;
-          vel[i * 3] = dirX * throwV + (Math.random() - 0.5) * 1.5;
-          vel[i * 3 + 1] = (1.2 + 2.8 * Math.random()) * (0.5 + 0.5 * r.scrape);
-          vel[i * 3 + 2] = dirZ * throwV + (Math.random() - 0.5) * 1.5;
-        } else if (emitted < emit) {
-          emitted++;
-          life[i] = 0.5 + Math.random() * 0.4;
-          pos[i * 3] = g.x + (Math.random() - 0.5) * 0.6; pos[i * 3 + 1] = g.y + 0.1; pos[i * 3 + 2] = g.z + (Math.random() - 0.5) * 0.6;
-          const side = Math.sign(this.fl * r.edgeAngle || 1) * -1; // `right` is the rig's (FEAT-139)
-          vel[i * 3] = right.x * side * (2 + Math.random() * 3) + (Math.random() - 0.5) * 2;
-          vel[i * 3 + 1] = 2 + Math.random() * 3 * r.skid;
-          vel[i * 3 + 2] = right.z * side * (2 + Math.random() * 3) + (Math.random() - 0.5) * 2;
-        } else {
-          pos[i * 3 + 1] = -10000;
-        }
-        continue;
-      }
-      life[i] -= dt;
-      vel[i * 3 + 1] -= 9.81 * dt;
-      pos[i * 3] += vel[i * 3] * dt; pos[i * 3 + 1] += vel[i * 3 + 1] * dt; pos[i * 3 + 2] += vel[i * 3 + 2] * dt;
-    }
-    (this.spray.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    this.spray.update(r, dt, this.group.position, f, right, this.fl, emitting);
   }
 
   // ---------------------------------------------------------------- on foot (FEAT-067)

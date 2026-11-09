@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from './rockShader';
+import { DEFORM_GLSL, deformUniforms } from '../world/Deform';
 
 /**
  * Snow / rock / scree / groomed material. Per-vertex class weights arrive in the color attribute
@@ -24,6 +25,12 @@ import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from './rockShader';
  * ridges and talus aprons from Terrain.build) are thresholds against multi-scale world-space noise,
  * so rock pokes through the snow in crisp patches instead of a wash; flat ledges on the rock's own
  * detail normal keep snow. Surfaces come from rockShader.ts (CC0 photo textures, triplanar).
+ *
+ * Snow deformation (FEAT-044, `world/Deform.ts`): inside the rider-local window the vertex shader
+ * lifts or sinks each vertex by the stamped lip minus depression (fading to nothing over the window's
+ * last metres), and the fragment shader takes a detail normal from the texture's slope, kills the
+ * corduroy and drift relief where the snow is packed, dulls the glints and brightens the pressed
+ * floor a little, like the ribbon tracks do. `uDeformWin.w` = 0 turns all of it off (a uniform branch).
  */
 
 /** three.js's physical direct-light function with the snow wrap/subsurface and glint terms added. */
@@ -75,6 +82,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     /** baked AO strength (1 = as baked; debug A/B with 0) */
     uAO: { value: 1.0 },
     ...rockUniforms(),
+    ...deformUniforms,
   };
   mat.userData.uniforms = uniforms;
   mat.onBeforeCompile = (shader) => {
@@ -90,7 +98,15 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         varying float vForest;
         varying vec2 vFall;
         varying vec3 vWorldPos;
-        varying vec3 vWorldNormal;`)
+        varying vec3 vWorldNormal;
+        ${DEFORM_GLSL}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        // FEAT-044: the snow moves: down into the stamped trench, up onto its lips, inside the deformation window
+        if (uDeformWin.w > 0.0) {
+          vec2 duv = deformUV((modelMatrix * vec4(transformed, 1.0)).xz);
+          float df = deformFade(duv);
+          if (df > 0.0) transformed.y += deformHSmooth(duv) * df;
+        }`)
       .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
         vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
         vWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
@@ -123,6 +139,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float gSnowW;
         vec3 gGlintN;
         float gGlintW;
+        ${DEFORM_GLSL}
         ${NOISE_GLSL}
         ${ROCK_GLSL}
         float fbm2(vec2 p) { return 0.6 * vnoise(vec3(p, 0.0)) + 0.3 * vnoise(vec3(p * 2.1, 1.7)) + 0.1 * vnoise(vec3(p * 4.3, 3.1)); }
@@ -230,6 +247,15 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float wSnow = 1.0 - rockCov - screeCov;
         vec3 base = snow * wSnow + rockAlb * rockCov + screeAlb * screeCov;
         base = mix(base, groomed, wGroom * wSnow);
+        // FEAT-044: the stamped snow here: how packed it is (0 fresh .. 1 a pressed floor) and the window fade
+        float dPacked = 0.0, dFade = 0.0; vec2 dUV = vec2(0.0);
+        if (uDeformWin.w > 0.0) {
+          dUV = deformUV(wp.xz);
+          dFade = deformFade(dUV);
+          if (dFade > 0.0) dPacked = texture2D(uDeform, dUV).b * dFade * wSnow;
+        }
+        // the pressed floor is a touch brighter and smoother than the snow around it, as the ribbon's is
+        base *= 1.0 + 0.03 * dPacked;
         // glints: about one 4 cm cell in twelve holds a crystal facet tilted at random off the surface;
         // RE_Direct_Physical lights it when it faces the half vector. Gone once cells are sub-pixel.
         vec3 gc = wp * 25.0;
@@ -253,7 +279,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         timber = mix(timber, snow * 0.8, smoothstep(0.62, 0.9, speck) * 0.6); // snowy gaps between crowns
         base = mix(base, timber, fd * 0.9);
         gSnowW = wSnow * (1.0 - fd);
-        gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd) * (1.0 - 0.6 * uSpring); // wet spring snow sparkles less
+        gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd) * (1.0 - 0.6 * uSpring) * (1.0 - 0.7 * dPacked); // wet spring snow sparkles less, pressed snow too
         diffuseColor.rgb = base;
       `)
       // snow gets a soft bump so faces lit head-on (south-facing bowls with a southern sun) still show
@@ -279,6 +305,9 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           vec3 t = normalize(cross(wn, vec3(0.0, 0.0, 1.0)));
           vec3 b = cross(wn, t);
           vec3 pn = normalize(t * bump.x + wn * bump.y + b * bump.z);
+          // FEAT-044: no drift relief or corduroy on packed snow
+          wS *= 1.0 - dPacked;
+          gW *= 1.0 - dPacked;
           vec3 nn = normalize(mix(wn, pn, 0.8 * wS));
           // corduroy ridges tilt the normal across the fall line (about 1 cm high, 30 cm apart)
           float pT, sm;
@@ -301,6 +330,17 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
             float chop = uSkied * (1.0 - 0.7 * uSpring) * wS * (1.0 - smoothstep(40.0, 120.0, length(cameraPosition - wpn)));
             vec3 cb = normalize(vec3(-(cx - c0) / ec, 1.0, -(cz - c0) / ec));
             nn = normalize(mix(nn, normalize(t * cb.x + nn * cb.y + b * cb.z), 0.6 * chop));
+          }
+          // FEAT-044: the trench's walls and lips from the deformation texture's slope (central differences one texel apart)
+          if (dFade > 0.0) {
+            float px = uDeformPx.x, tm = uDeformPx.y;
+            float h0 = deformH(texture2D(uDeform, dUV));
+            float hx = deformH(texture2D(uDeform, dUV + vec2(px, 0.0)));
+            float hz = deformH(texture2D(uDeform, dUV - vec2(0.0, px))); // v runs against z
+            float hxm = deformH(texture2D(uDeform, dUV - vec2(px, 0.0)));
+            float hzm = deformH(texture2D(uDeform, dUV + vec2(0.0, px)));
+            vec2 slope = vec2(hx - hxm, hz - hzm) / (2.0 * tm) * dFade * snowW;
+            nn = normalize(vec3(nn.x - slope.x, nn.y, nn.z - slope.y));
           }
           // rock and talus carry their own photo normals
           nn = normalize(nn * max(wSnow, 1e-3) + rockN * rockCov + screeN * screeCov);

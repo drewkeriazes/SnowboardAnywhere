@@ -1,6 +1,6 @@
 # Research: deformable snow trails and powder spray (FEAT-044, #76)
 
-Researched 2026-11-09 against `main` at 393a891 (after FEAT-053 snow conditions merged). Planning only; nothing here is built. The card asks for three things: a rider-local heightfield the near terrain deforms from, the existing ribbon tracks kept for the far trail, and GPU powder spray that scales with edge angle, speed and snow depth. This note checks that pitch against the code, records what published snow-deformation techniques do, and lays out a build order that reuses what the game already has.
+Researched 2026-11-09 against `main` at 393a891 (after FEAT-053 snow conditions merged). Built in PR for #76 (`world/Deform.ts`, `world/Spray.ts`; see `docs/developer-guide.md`), with the differences noted in section 6. The card asks for three things: a rider-local heightfield the near terrain deforms from, the existing ribbon tracks kept for the far trail, and GPU powder spray that scales with edge angle, speed and snow depth. This note checks that pitch against the code, records what published snow-deformation techniques do, and lays out a build order that reuses what the game already has.
 
 ## 1. What the game has today
 
@@ -103,3 +103,13 @@ Check each on Drew's GPU with `--headed` runs; SwiftShader is too slow for a mea
 - **Replays and ghosts** (`Replay.ts`, `TimeTrial.ts`): the trail is rebuilt from the ribbon as the rider rides, so a replay rewinding past a section shows a trail that is already there. Same as today; not worse.
 - **The groomed boundary**: a track that crosses from a groomer into powder changes depth per section; the ribbon already handles that per section, so the texture does too.
 - Open: should the window follow the camera rather than the rider in free-fly and replay cameras? Proposal: the rider, always; the camera rarely looks at the near snow from elsewhere.
+
+## 6. What was built (2026-11-09)
+
+All three steps landed in one PR, as one card:
+- The capture renders proxy meshes (the lanes' geometry under a stamp `ShaderMaterial`, a second `InstancedMesh` sharing the boot prints' instance matrices) in a dedicated scene, instead of swapping materials on the real meshes. `Lane.shape` writes `aStamp` = (height offset, packed, hide) per vertex.
+- The ribbon hides inside the window only where the section is deeper than 6 cm (fully by 12 cm), so a groomer's 5 cm groove and a knife cut stay ribbons everywhere; the terrain carries the deep powder trench.
+- In soft snow the knife-cut collapse is held back to 30 % (the board sinks, the whole base cuts) and the trench is 60 % wider than the board, so the stamp is several texels wide and does not alias.
+- No `#ifdef DEFORM`: a uniform branch on `uDeformWin.w` turns the shader work off, so no recompile when the setting changes.
+- Spray: drag and settling speed per kind in the vertex shader (`p = p0 + v0 (1 - e^-kt) / k - vt (t - e) up + wind (t - e)`), spawn records uploaded through `addUpdateRange`.
+- The capture runs every frame; the 2 Hz idle rate from section 3.2 was not needed (the pass is a few draw calls).

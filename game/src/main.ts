@@ -28,6 +28,7 @@ import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
 import { FILL_RATE, Tracks, setTrackFillRate } from './world/Tracks';
 import { Bootprints } from './world/Bootprints';
+import { Deform } from './world/Deform';
 import { Outrun } from './sim/Outrun';
 import { Monsters } from './world/Monster';
 import { Puffs } from './world/Puffs';
@@ -162,6 +163,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('puffs', puffs.points);
     const bigprints = new Bootprints(pack, 3.2);
     add('monster prints', bigprints.mesh);
+    // FEAT-044: the tracks and prints near the rider stamped into a texture the terrain deforms from
+    const deform = new Deform();
+    deform.scene.add(tracks.stampGroup, bootprints.stampMesh, bigprints.stampMesh);
     const monsters = new Monsters(pack, collider, puffs, bigprints);
     add('monsters', monsters.group);
     const eat = new Eat(pack, puffs);
@@ -308,9 +312,18 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const auto = new AutoQuality();
     const autoClouds = (q: 'high' | 'medium' | 'low'): 'high' | 'medium' | 'low' => auto.current.cloudsDown ? (q === 'high' ? 'medium' : 'low') : q;
     let lastDraw = 0;
+    /** FEAT-044: the deformation window and the spray budget from the preset, the Snow dents setting, ?nodeform and the auto level */
+    const applyDeform = (s: Settings): void => {
+      const q = auto.current;
+      deform.enabled = s.snowDeform !== false && s.quality !== 'low' && !params.has('nodeform') && q.deform > 0;
+      const small = q.deform < 1 || s.quality === 'medium';
+      deform.configure(small ? 256 : 512, small ? 48 : 64);
+      riderView.spray.setCount((s.quality === 'high' ? 8192 : s.quality === 'medium' ? 4096 : 2048) * q.snow);
+    };
     /** apply only what the auto level scales (applySettings also does this, scaled, on any settings change) */
     const applyAuto = (): void => {
       const s = settings, q = auto.current;
+      applyDeform(s);
       clouds.configure(weatherNow, autoClouds(s.quality));
       renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2) * q.res);
       if (s.quality !== 'low') setVegetationDensity(s.treeDensity * q.trees);
@@ -337,6 +350,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       snow.points.visible = storm || weather === 'flurries';
       const flakes = s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500;
       snow.setCount(Math.round((storm ? flakes : flakes / 6) * auto.current.snow));
+      applyDeform(s);
       // old tracks and boot prints fill in faster while it snows (FEAT-107)
       setTrackFillRate(storm ? FILL_RATE.storm : weather === 'flurries' ? FILL_RATE.flurries : FILL_RATE.clear);
       // limited render distance in the storm: nothing past the fog is drawn
@@ -554,7 +568,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       map.destroy();
       pause.destroy();
       labels.destroy();
-      tracks.dispose();
+      tracks.dispose(); deform.dispose();
       trialWorld.dispose();
       if (outrun.active) stopOutrun();
       outrunUI.destroy(); runCard.dispose(); speedLines.dispose(); pressMeter.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
@@ -847,10 +861,13 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       snow.update(dt, cam.camera, renderer.domElement.height, 0.45 + 0.6 * env.hemi.intensity / 1.4);
       // BUG-046: spray and puffs are unlit points; give them the light flat snow gets at the rider (dark at dusk, darker in a ridge's shade)
       const pl = particleLight.update(dt, env, (x, y) => pack.terrainHeight(x, y), rider.x, rider.y, rider.z);
-      (riderView.sprayObject.material as THREE.PointsMaterial).color.copy(pl);
+      riderView.spray.setLight(pl); riderView.spray.setViewHeight(renderer.domElement.height); riderView.spray.wind.set(snow.wind.x * 0.3, snow.wind.y * 0.3);
       (puffs.points.material as THREE.PointsMaterial).color.copy(pl);
       veg.setSun(env.sun.color, env.sun.intensity);
       const cp = cam.camera.position;
+      // FEAT-044: stamp the tracks and prints near the rider into the deformation texture; the terrain splits finer inside its window
+      deform.update(renderer, rider.x, rider.z, -rider.y, rider.vx, -rider.vy);
+      terrain.setDeformWindow(deform.enabled ? deform.packBox : null);
       terrain.update(cp.x, -cp.z, cp.y);
       const fx = detached ? cp.x : rider.x, fy = detached ? -cp.z : rider.y;
       // terrain, mask and instance tiles stream ahead along the direction of travel
@@ -953,7 +970,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
           (rider.brakeAmt > 0 ? ` &middot; brake &Psi; ${(rider.brakePsi * 180 / Math.PI).toFixed(0)}&deg; &gamma; ${(Math.abs(rider.slip) * 180 / Math.PI).toFixed(0)}&deg; ${rider.brakeAcc.toFixed(1)} m/s&sup2; mod ${rider.brakeMod.toFixed(2)}` : '') +
           // FEAT-053: the snow weights and what they set
           `<br>snow groomed ${rider.snow.groomed.toFixed(2)} powder ${rider.snow.powder.toFixed(2)} chop ${rider.snow.chop.toFixed(2)} ice ${rider.snow.ice.toFixed(2)} slush ${rider.snow.slush.toFixed(2)} rock ${rider.snow.rock.toFixed(2)} &middot; depth ${(rider.snow.depth * 100).toFixed(0)} cm &middot; grip x${rider.snow.grip.toFixed(2)} &middot; turn x${rider.snow.turn.toFixed(2)} &middot; drag ${rider.snow.drag0.toFixed(2)} + ${rider.snow.drag1.toFixed(4)}v &middot; chop ${rider.chop.toFixed(2)} &middot; sink ${rider.noseSink.toFixed(2)}</span>` : '');
-      (window as any).__sim = { rider, riderView, trialWorld, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, eyeAt, outrun, monsters, startOutrun, stopOutrun,
+      (window as any).__sim = { rider, riderView, trialWorld, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, eyeAt, outrun, monsters, startOutrun, stopOutrun,
         /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
         setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
         /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */

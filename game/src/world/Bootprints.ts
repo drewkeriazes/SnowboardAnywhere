@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Plant } from './Gait';
 import { FADE, trackFillRate } from './Tracks';
+import { printStampMaterial } from './Deform';
 
 /**
  * Bootprints (FEAT-067): one dent per foot plant, stamped where the gait put the boot down, as one
@@ -84,6 +85,9 @@ function printGeometry(HL: number, HW: number): THREE.BufferGeometry {
 
 export class Bootprints {
   readonly mesh: THREE.InstancedMesh;
+  /** FEAT-044: the same instances drawn with the stamp material, for the deformation pass (add to `Deform.scene`) */
+  readonly stampMesh: THREE.InstancedMesh;
+  private readonly stampMat: THREE.ShaderMaterial;
   private readonly pack: Pack;
   private readonly mat: THREE.MeshStandardMaterial;
   private readonly depth: THREE.InstancedBufferAttribute;
@@ -152,6 +156,13 @@ export class Bootprints {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 1;
     this.mesh.receiveShadow = true;
+    // FEAT-044: a second InstancedMesh over the same geometry and instance matrices for the deformation pass
+    this.stampMat = printStampMaterial(NOMINAL, HL);
+    this.stampMesh = new THREE.InstancedMesh(g, this.stampMat, MAX);
+    this.stampMesh.instanceMatrix = this.mesh.instanceMatrix;
+    this.stampMesh.name = 'bootprint stamps';
+    this.stampMesh.count = 0;
+    this.stampMesh.frustumCulled = false;
   }
 
   /** Stamp one print at a foot plant. `depth` (m) from how far the boot sank. */
@@ -185,7 +196,7 @@ export class Bootprints {
     this.fill.setX(s, 1);
     this.head = (s + 1) % MAX;
     this.count = Math.min(MAX, this.count + 1);
-    this.mesh.count = this.count;
+    this.mesh.count = this.count; this.stampMesh.count = this.count;
     this.mesh.instanceMatrix.needsUpdate = true;
     this.depth.needsUpdate = this.kick.needsUpdate = this.smear.needsUpdate = this.fill.needsUpdate = true;
   }
@@ -240,6 +251,6 @@ export class Bootprints {
   }
 
   get stats(): { prints: number } { return { prints: this.count }; }
-  clear(): void { this.count = 0; this.head = 0; this.mesh.count = 0; this.grid.clear(); this.cellOf.fill(null); this.lastOf[0] = this.lastOf[1] = -1; }
-  dispose(): void { this.mesh.geometry.dispose(); this.mat.dispose(); }
+  clear(): void { this.count = 0; this.head = 0; this.mesh.count = 0; this.stampMesh.count = 0; this.grid.clear(); this.cellOf.fill(null); this.lastOf[0] = this.lastOf[1] = -1; }
+  dispose(): void { this.mesh.geometry.dispose(); this.mat.dispose(); this.stampMat.dispose(); }
 }

@@ -1,12 +1,17 @@
 import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import { createTerrainMaterial } from './TerrainMaterial';
+import { NEAR_RES } from '../world/Deform';
 
 /**
  * Chunked quadtree terrain. The root covers the far height set (262 km). Each chunk is an
  * N x N quad grid built on the CPU from pack.height() at the chunk's resolution, with a skirt
  * to hide cracks between LOD levels. World axes: three.js x = east, y = up, z = south (so
  * pack y = -three.z).
+ *
+ * FEAT-044: inside the snow deformation window (`setDeformWindow`) chunks keep splitting past the
+ * data's resolution down to NEAR_RES (25 cm, 8 m chunks), so the vertex shader has enough vertices to
+ * carry a trench; the heights are the same bilinear surface. Those chunks are evicted sooner.
  */
 const N = 32; // quads per chunk side
 /** Colorado treeline (m): forest below it on the far terrain where there is no canopy mask */
@@ -35,6 +40,8 @@ function proceduralForest(x: number, y: number, h: number, slope: number): numbe
 const AO_MAX_RES = 32;
 const SPLIT_K = 2.6; // split when distance < size * SPLIT_K
 const MAX_BUILDS_PER_FRAME = 10;
+/** frames an unused chunk lives before eviction; the near (FEAT-044) chunks go sooner, the window sweeps through many */
+const EVICT_AFTER = 600, EVICT_NEAR_AFTER = 120;
 
 interface Chunk {
   key: string;
@@ -48,6 +55,8 @@ interface Chunk {
   mesh: THREE.Mesh | null;
   dataRes: number; // finest source resolution available when built
   lastUsed: number;
+  /** FEAT-044: split past the data resolution for the deformation window */
+  near: boolean;
 }
 
 export class Terrain {
@@ -63,7 +72,9 @@ export class Terrain {
   private readonly maskSample = [0, 0, 0, 0];
   /** chunks selected this frame */
   private visible: Chunk[] = [];
-  readonly stats = { chunks: 0, builds: 0, triangles: 0 };
+  readonly stats = { chunks: 0, builds: 0, triangles: 0, near: 0 };
+  /** FEAT-044: the deformation window in pack metres (null = no near split) */
+  private deformWin: { minX: number; minY: number; size: number } | null = null;
 
   constructor(pack: Pack) {
     this.pack = pack;
@@ -92,6 +103,12 @@ export class Terrain {
     const u = this.material.userData.uniforms as { uSkied: { value: number }; uSpring: { value: number } };
     u.uSkied.value = Math.max(0, Math.min(1, skied)); u.uSpring.value = Math.max(0, Math.min(1, spring));
   }
+
+  /**
+   * FEAT-044: the snow deformation window (pack metres) the near terrain splits for, or null when
+   * deformation is off. The texture and its uniforms come in through `deformUniforms` (Deform.ts).
+   */
+  setDeformWindow(win: { minX: number; minY: number; size: number } | null): void { this.deformWin = win; }
 
   /** Storm flat light: 0 = normal, 1 = overcast (snow relief and glints fade out). */
   setFlatLight(v: number): void {
@@ -139,7 +156,7 @@ export class Terrain {
     }
     this.stats.builds = builds;
     // show/hide: a chunk is drawn if selected and built; a selected but unbuilt chunk shows its built ancestor instead
-    let tris = 0;
+    let tris = 0, near = 0;
     for (const c of this.chunks.values()) {
       if (!c.mesh) continue;
       let show = want.has(c.key);
@@ -148,9 +165,9 @@ export class Terrain {
         show = this.visible.some((v) => v.level > c.level && !v.mesh && this.isAncestor(c, v));
       }
       c.mesh.visible = show;
-      if (show) tris += N * N * 2;
+      if (show) { tris += N * N * 2; if (c.near) near++; }
       // evict long-unused chunks
-      if (!show && this.frame - c.lastUsed > 600) {
+      if (!show && this.frame - c.lastUsed > (c.near ? EVICT_NEAR_AFTER : EVICT_AFTER)) {
         c.mesh.geometry.dispose();
         this.group.remove(c.mesh);
         this.chunks.delete(c.key);
@@ -158,6 +175,7 @@ export class Terrain {
     }
     this.stats.chunks = this.visible.length;
     this.stats.triangles = tris;
+    this.stats.near = near;
     this.material.userData.shader?.uniforms.uTime && (this.material.userData.shader.uniforms.uTime.value = performance.now() / 1000);
   }
 
@@ -174,8 +192,12 @@ export class Terrain {
     const dist = Math.hypot(dx, dy, dz);
     const res = size / N;
     const centreX = minX + size / 2, centreY = minY + size / 2;
-    const canSplit = res > this.minRes(centreX, centreY) && level < 14;
-    if (canSplit && dist < size * SPLIT_K) {
+    const dataSplit = res > this.minRes(centreX, centreY);
+    // FEAT-044: inside the deformation window keep splitting down to NEAR_RES whatever the data has
+    const w = this.deformWin;
+    const near = !!w && res > NEAR_RES && minX < w.minX + w.size && minX + size > w.minX && minY < w.minY + w.size && minY + size > w.minY;
+    const canSplit = (dataSplit || near) && level < 16;
+    if (canSplit && (dist < size * SPLIT_K || (near && !dataSplit))) {
       const h = size / 2;
       this.select(level + 1, x * 2, y * 2, minX, minY, h, cx, cy, cz);
       this.select(level + 1, x * 2 + 1, y * 2, minX + h, minY, h, cx, cy, cz);
@@ -187,7 +209,7 @@ export class Terrain {
     const key = `${level}/${x}/${y}`;
     let c = this.chunks.get(key);
     if (!c) {
-      c = { key, level, x, y, minX, minY, size, res, mesh: null, dataRes: Infinity, lastUsed: this.frame };
+      c = { key, level, x, y, minX, minY, size, res, mesh: null, dataRes: Infinity, lastUsed: this.frame, near: res < this.minRes(centreX, centreY) };
       this.chunks.set(key, c);
     }
     this.visible.push(c);

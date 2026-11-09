@@ -99,6 +99,12 @@ Fresh corduroy, Mid-season or Spring; New snow; Weather) and Settings > Game (Ti
 the snow under you (Groomed, Powder, Chop, Ice, Slush, Rock); on foot it also shows how deep the
 boots sink.
 
+The snow near you moves. Carving in powder cuts a real trench with walls and lips that the terrain
+itself takes (a groomer keeps its shallow groove), a hockey stop piles a ridge of pushed snow, and
+footprints press one packed hollow. Hard turns throw spray: light wisps on a groomer, clouds that hang
+and drift in powder, a burst when you land. Settings > Graphics > Snow dents turns the deformation off
+(the Low preset turns it off too).
+
 While you ride, the HUD shows the run you're on, top speed, vertical and distance. After a real
 descent (60 m or more of vertical, ended by boarding a lift, stopping for 4 s or restarting) a run
 card shows time, top speed, distance, vertical, longest air, biggest drop, max g, the named runs
