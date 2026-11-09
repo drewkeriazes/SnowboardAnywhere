@@ -48,6 +48,7 @@ import { GameAudio } from './audio/Audio';
 import { showMainMenu } from './ui/MainMenu';
 import { LoadingScreen } from './ui/Loading';
 import { PauseMenu } from './ui/PauseMenu';
+import { padRideHint } from './ui/PadMap';
 import { Labels } from './ui/Labels';
 import { TouchControls } from './ui/TouchControls';
 import { sunPosition, guessUtcOffset } from './world/Sun';
@@ -951,7 +952,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (helpEl && helpT <= 0) {
         helpT = 0.25;
         let h: string;
-        if (controls.padActive) h = 'Gamepad: left stick steer and lean &middot; A jump &middot; X squat / grab (+ steer: hard carve) &middot; RT / LT tuck / brake &middot; Y interact &middot; R3 look behind';
+        if (controls.padActive) h = 'Gamepad: ' + padRideHint(); // FEAT-128: from the pad table
         else if (liftRide.riding) h = `${k('lift')} skip &middot; ${k('tuck')} hold for 5x &middot; ${k('glance')} look behind &middot; ${k('look')} look around`;
         else if (outrun.running) h = `${k('boost')} boost &middot; ${k('glance')} look behind &middot; ${k('jump')} jump`;
         else if (rider.onFoot) h = `${k1('tuck')}${k1('left')}${k1('brake')}${k1('right')} walk &middot; ${k('grab')} sprint &middot; ${k('jump')} jump / climb &middot; ${k('lift')} strap in &middot; ${k('glance')} look behind`;

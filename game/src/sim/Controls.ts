@@ -1,4 +1,5 @@
 import type { Input } from './Rider';
+import { PAD, PAD_BUTTON_FOR } from '../ui/PadMap';
 
 /**
  * Keyboard, gamepad (and basic touch) input. FEAT-124 layout: everything you do while riding sits
@@ -15,14 +16,14 @@ import type { Input } from './Rider';
  */
 export type KeyMap = Record<string, string[]>;
 
-/** Gamepad (standard mapping) buttons */
-const PAD = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, SELECT: 8, START: 9, L3: 10, R3: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 } as const;
 const DEAD = 0.18;
 /** one-shot gamepad buttons and the action each one fires */
 const padBtn = (gp: Gamepad, i: number): boolean => !!gp.buttons[i]?.pressed;
 const padVal = (gp: Gamepad, i: number): number => gp.buttons[i]?.value ?? 0;
 const padAxis = (gp: Gamepad, i: number): number => { const a = gp.axes[i] ?? 0; return Math.abs(a) > DEAD ? a : 0; };
-const PAD_ACTIONS: [number, string][] = [[PAD.Y, 'lift'], [PAD.UP, 'camera'], [PAD.RIGHT, 'map'], [PAD.LEFT, 'piste'], [PAD.DOWN, 'track'], [PAD.SELECT, 'replay'], [PAD.START, 'pause']];
+const PAD_ACTIONS: [number, string][] = ['lift', 'camera', 'map', 'piste', 'track', 'replay', 'pause'].map((a): [number, string] => [PAD[PAD_BUTTON_FOR[a]], a]);
+/** FEAT-128: the button index of a riding action (ui/PadMap.ts) */
+const B = (a: string): number => PAD[PAD_BUTTON_FOR[a]];
 /**
  * FEAT-138: the connected gamepads, or null. Firefox (and Chrome as it phases it in) only exposes the Gamepad
  * API in a secure context (https or localhost); over plain http on the home network getGamepads is missing or throws, so the
@@ -144,15 +145,15 @@ export class Controls {
       const b = (i: number) => padBtn(gp, i), v = (i: number) => padVal(gp, i), ax = (i: number) => padAxis(gp, i);
       if (ax(0)) steer = Math.max(-1, Math.min(1, steer + ax(0)));
       padY = -ax(1);
-      if (ax(1) < -0.5 || v(PAD.RT) > 0.3) tuck = true;
-      if (ax(1) > 0.5 || v(PAD.LT) > 0.3) brake = true;
-      if (b(PAD.A)) jump = true;
-      if (!b(PAD.A) && this.padPrev[PAD.A]) this.input.jumpReleased = true;
-      if (b(PAD.X)) crouch = true;
-      if (b(PAD.B)) skate = true;
-      lean += (b(PAD.RB) ? 1 : 0) - (b(PAD.LB) ? 1 : 0);
+      if (ax(1) < -0.5 || v(B('tuck')) > 0.3) tuck = true;
+      if (ax(1) > 0.5 || v(B('brake')) > 0.3) brake = true;
+      if (b(B('jump'))) jump = true;
+      if (!b(B('jump')) && this.padPrev[B('jump')]) this.input.jumpReleased = true;
+      if (b(B('grab'))) crouch = true;
+      if (b(B('skate'))) skate = true;
+      lean += (b(B('pressNose')) ? 1 : 0) - (b(B('pressTail')) ? 1 : 0);
       this.padLookX = ax(2); this.padLookY = ax(3);
-      this.padGlance = b(PAD.R3);
+      this.padGlance = b(B('glance'));
       for (const [i, a] of PAD_ACTIONS) if (b(i) && !this.padPrev[i]) { if (a === 'pause') this.pressed.add('Escape'); else this.padPressed.add(a); }
       for (let i = 0; i < gp.buttons.length; i++) this.padPrev[i] = gp.buttons[i].pressed;
     }

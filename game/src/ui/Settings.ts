@@ -1,4 +1,5 @@
 import { PLAYLISTS, SHUFFLE_ALL } from '../audio/Audio';
+import { PAD_RIDE } from './PadMap';
 /**
  * Player settings, persisted in localStorage under one versioned key. `renderPanel` builds the
  * same settings UI for the main menu and the pause menu; `onChange` fires on every edit so the
@@ -223,7 +224,8 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Default camera</label><select data-k="camera"><option value="chase">Chase</option><option value="close">Close</option><option value="far">Far (angled)</option><option value="cine">Cinematic</option><option value="fp">First person</option><option value="helmet">Helmet cam</option></select></div>
       <div class="keys"></div>
       <div class="row"><button data-a="keys-reset">Reset keys to defaults</button></div>
-      <div class="hint">Click a slot, then press a key (or the right mouse button). Esc cancels, Delete clears the slot. A gamepad works too: left stick steer and lean, A jump, X squat / grab, RT / LT tuck / brake, RB / LB presses, B skate, Y interact, right stick look, R3 look behind, D-pad camera / map / piste / track, Start pause, Select replay.</div>
+      <div class="hint">Click a slot, then press a key (or the right mouse button). Esc cancels, Delete clears the slot.</div>
+      <div class="hint group">Gamepad</div><ul class="padmap">${PAD_RIDE.map((r) => `<li><b>${r.pad}</b>${r.what}</li>`).join('')}</ul>
     </div>
     <div class="tab hidden" data-t="rider">
       <div class="row"><label>Ride</label><select data-k="discipline"><option value="board">Snowboard</option><option value="ski">Skis</option></select></div>
