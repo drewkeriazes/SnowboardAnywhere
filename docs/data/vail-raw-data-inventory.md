@@ -4,7 +4,7 @@ Last updated 2026-11-06. Status: fetch COMPLETE for Vail.
 
 Location: `raw/` at the repo root (gitignored). On Drew's PC that is `C:\Users\Drew\git\SnowboardAnywhere\raw\`. Stage files from there into a cloud session with the remote-devices tools; the data hosts are not reachable from the sandbox.
 
-## raw/vail/ (686 manifest items, all downloaded)
+## raw/vail/ (691 manifest items, all downloaded)
 
 | Folder | Files | What | Notes for processing |
 |---|---|---|---|
@@ -13,7 +13,8 @@ Location: `raw/` at the repo root (gitignored). On Drew's PC that is `C:\Users\D
 | `naip1m/` | 16 x `{item}_{i}_{j}.tif` | NAIP 4-band (R,G,B,NIR) 1 m crops from Planetary Computer (2023 collection), EPSG:26913 | Band 4 is NIR for NDVI. |
 | `ept/` | `ept.json` + 388 x `{node}.laz` | 3DEP lidar Entwine Point Tiles (`USGS_LPC_CO_Central_Western_2016_LAS_2018`), pre-selected nodes covering the resort | SRS is EPSG:3857, see `docs/research/vegetation-and-landcover.md` for the scale trap. Read with laspy[lazrs]. |
 | `mapterhorn/{z}/` | 210 x `{x}_{y}.webp` | Terrarium-encoded 512 px WebP terrain tiles, far ring to ~100 km | Decode: `h = (R*256 + G + B/256) - 32768` metres. |
-| `osm/` | `ski.json`, `built.json`, `natural.json`, `peaks_far.json`, `places_far.json` | OpenStreetMap, Overpass `out geom` JSON format | Elements carry `type`, `id`, `tags`, plus `lat/lon` (nodes), `geometry[]` + `bounds` + `nodes[]` (ways), `members[]` with per-member `geometry` (relations). |
+| `osm/` | `ski.json`, `built.json`, `natural.json`, `peaks_far.json`, `places_far.json`, `pistes_wide.json` | OpenStreetMap, Overpass `out geom` JSON format | Elements carry `type`, `id`, `tags`, plus `lat/lon` (nodes), `geometry[]` + `bounds` + `nodes[]` (ways), `members[]` with per-member `geometry` (relations). |
+| `landcover/` | `worldcover/N36W108.tif`, `N39W108.tif` (90 MB each), `eth_canopy/` same names (285 MB each) | DATA-019: ESA WorldCover 2021 v200 classes (AWS open data) and the ETH Global Sentinel-2 10 m canopy height 2020 (ETH libdrive), whole 3 x 3 degree COG tiles named by their south-west corner, covering the far ring | uint8, EPSG:4326, 1/12000 degree, 1024 px tiles, 6 overviews. WorldCover nodata 0, ETH nodata 255 (heights in m). `pipeline/cover.py` decodes only the tiles a level needs (`read_window`). Fetched in 40 s on Drew's PC (2026-11-09). |
 | `landfire/` | LANDFIRE EVT clip (`*.tif` + `.tif.vat.dbf` class table) | Existing vegetation type, from `fetch_landfire.mjs` | Drives tree species and forest extent. A build without it falls back to NAIP-colour species and logs "no LANDFIRE clip". |
 | `grooming/` | 39 x `{wayback timestamp}.json` (Apr 2022 to Apr 2026) | Vail's own nightly grooming report: every trail with name, area, difficulty, open and groomed, from `FR.TerrainStatusFeed` on vail.com's terrain status page, via Internet Archive snapshots | From `fetch_grooming.py`. `build_pack.py` marks a run groomed if Vail groomed it on any saved night (plus OSM `piste:grooming` tags); nothing is inferred from difficulty. Names are joined to OSM ignoring case and punctuation, then by run base ("Simba - Lower" to "Simba"); `grooming_aliases` in the resort config covers spelling differences. vail.com itself returns 403 to scripted requests, so the live page is only saved by hand. |
 | `names/` | `gnis.json` | USGS GNIS official names: 1750 features in the far box (1174 Summits, 413 Populated Places, 118 Ridges, 22 Ranges), 34 inside the resort box | No elevations in the current GNIS format; sample from the DEM. Use for horizon labels. |
@@ -25,6 +26,7 @@ Also `raw/static/`: `colorado-latest.osm.pbf` (369 MB Geofabrik extract, 2026-11
 - `built.json`: 3923 elements (395 nodes, 3519 ways, 9 relations). building, highway, man_made, amenity, tourism, parking.
 - `natural.json`: 1441 elements (4 nodes, 1423 ways, 14 relations). natural, landuse, waterway, peak and saddle nodes.
 - `peaks_far.json`: 1374 peak nodes with `ele` in the ~200 km far box.
+- `pistes_wide.json` (DATA-019): 2,477 downhill piste ways and relations in a 140 km box (Vail, Beaver Creek, Copper, Breckenridge, Keystone, Arapahoe Basin, Ski Cooper, ...), 3 MB.
 - `places_far.json`: 74 town/city/village nodes in the far box (Vail, Avon, Edwards, Eagle, Minturn, Leadville, Frisco, Breckenridge, Silverthorne, Aspen, Glenwood Springs, Steamboat Springs, ...).
 
 ## Fetch lessons (so nobody repeats them)

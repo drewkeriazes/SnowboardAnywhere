@@ -1,5 +1,6 @@
 import { HeightSet } from './HeightSet';
 import { MaskSet } from './MaskSet';
+import { CoverSet } from './CoverSet';
 import type { Features, PackMeta } from './types';
 import { downhillFrom, mogulHeight, MOGUL_FALL_D } from '../terrain/Moguls';
 
@@ -30,6 +31,8 @@ export class Pack {
   readonly dir: MaskSet | null;
   /** FEAT-059: mogul amplitude 0..1 m in channel 0; null in older packs */
   readonly moguls: MaskSet | null;
+  /** FEAT-153: forest cover levels for the terrain at a distance; null in older packs */
+  readonly cover: CoverSet | null;
   /** amplitude multiplier (new snow softens the bumps) and uphill creep in metres (season date) */
   mogulScale = 1;
   mogulCreep = 0;
@@ -45,6 +48,7 @@ export class Pack {
     this.ao = meta.ao ? new MaskSet(`${baseUrl}/ao`, meta.ao) : null;
     this.dir = meta.dir ? new MaskSet(`${baseUrl}/dir`, meta.dir) : null;
     this.moguls = meta.moguls ? new MaskSet(`${baseUrl}/moguls`, meta.moguls) : null;
+    this.cover = meta.cover && meta.cover.levels.length ? new CoverSet(baseUrl, meta.cover) : null;
   }
 
   static async load(baseUrl: string): Promise<Pack> {
