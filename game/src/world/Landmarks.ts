@@ -289,7 +289,10 @@ export class Landmarks {
     const left40 = -beamLen / 2 + 0.4 * beamLen;
     drape(-beamLen / 2 - 0.02, left40, 0.27, 1, 0.4, (t) => (t < 0.35 ? 1 : Math.max(0, 1 - (t - 0.35) / 0.65) ** 0.8));
     drape(-beamLen / 2 - 0.02, boardL, 0.16, -1, 1.9, () => 1);
-    const bank = snowBank(1.1, 0.72, 2.2); bank.translate(-half, 0, 0); snow.push(bank);
+    // its own mesh so seat() can centre it on the left post's ground, whichever post is lower
+    const bankMesh = new THREE.Mesh(snowBank(1.1, 0.72, 2.2), this.snow);
+    bankMesh.name = 'snow bank'; bankMesh.position.x = -half; bankMesh.castShadow = true; bankMesh.receiveShadow = true;
+    root.add(bankMesh);
     const parts: [THREE.BufferGeometry[], THREE.Material, string][] = [[wood, this.wood, 'timber'], [conc, this.concrete, 'footings'], [snow, this.snow, 'snow']];
     for (const [gs, m, name] of parts) {
       const mesh = new THREE.Mesh(mergeGeometries(gs), m);
@@ -315,7 +318,12 @@ export class Landmarks {
     const zs = s.posts.map(([x, y]) => this.pack.terrainHeight(x, y)).filter(Number.isFinite);
     if (!zs.length) return;
     s.res = Math.max(...s.posts.map(([x, y]) => this.pack.finestRes(x, y)));
-    s.obj.position.set(l.x, Math.min(...zs), -l.y);
+    const base = Math.min(...zs);
+    s.obj.position.set(l.x, base, -l.y);
+    // the snow bank is centred on the left post's own ground so its footing stays buried on a cross-slope
+    const bank = s.obj.getObjectByName('snow bank');
+    const left = zs.length === s.posts.length ? zs[0] : base;
+    if (bank) bank.position.y = left - base;
   }
 
   /** Re-seat once finer terrain arrives; returns a landmark the rider just passed through (once per session). */
