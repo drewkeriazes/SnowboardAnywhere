@@ -82,7 +82,7 @@ export class Eat {
     this.sideDir.set(lx * s, 0, -ly * s);
     // the split clones take the live outfit and pose
     for (const c of [this.top, this.legs]) {
-      c.setDiscipline(discipline); c.setOutfit(outfit);
+      c.setDiscipline(discipline); c.setOutfit(outfit); c.setLens(riderView.lensId);
       c.setPack(this.pack); c.update(rider, 1, false);
     }
     this.top.splitPart('top'); this.legs.splitPart('legs');

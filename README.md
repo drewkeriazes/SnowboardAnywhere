@@ -113,6 +113,13 @@ pushed snow. Hard turns throw spray: light wisps on a groomer, clouds that hang 
 burst when you land. Settings > Graphics > Snow dents turns the sag off (the Low preset turns it off
 too).
 
+In first person you look through goggle lenses (Settings > Graphics > Goggle lens). In flat light
+(a storm, overcast, deep shade) the snow's bumps, rollers and dips are hard to see; a warm lens (Rose,
+Orange, Yellow) cuts the blue and brings their shape back, Yellow most of all in a storm. The mirrored
+lenses (Green, Blue, Purple) darken the view for sunny days, Clear is for night, and Auto picks one for
+the weather and the time of day. Lens strength scales the effect. Your rider wears the same lens, the
+outfit presets each come with one, and the helmet cam stays untinted.
+
 While you ride, the HUD shows the run you're on, top speed, vertical and distance. After a real
 descent (60 m or more of vertical, ended by boarding a lift, stopping for 4 s or restarting) a run
 card shows time, top speed, distance, vertical, longest air, biggest drop, max g, the named runs
