@@ -18,6 +18,9 @@ interface Pulse { t: number; dur: number; strong: number; weak: number }
 /** How often a continuing rumble is renewed through the Gamepad API (each effect lasts a little longer). */
 const RENEW_S = 0.08;
 const EFFECT_MS = 140;
+/** Trigger effects built once (no per-frame allocation): R2 click, and L2 resistance for each of the 8 quantised dig levels (index 0 is off). */
+const RIGHT_CLICK = triggerWeapon(2, 4, 3);
+const LEFT_FX = Array.from({ length: 8 }, (_, i) => triggerFeedback(1, 1 + i));
 
 export interface PadFxFrame {
   rider: Rider;
@@ -42,6 +45,7 @@ export class PadFeedback {
   private mogulPhase = 0;
   private flashT = 0; private t = 0;
   private pad: PadState | null = null;
+  private readonly rgb: [number, number, number] = [0, 0, 0];
 
   /** One-shot effect, magnitudes 0..1. */
   pulse(durS: number, strong: number, weak: number): void {
@@ -139,15 +143,15 @@ export class PadFeedback {
         const on = Math.floor(this.flashT * 8) % 2 === 0;
         if (on) { cr = 20; cg = 255; cb = 60; }
       }
-      dualSense.setLight([Math.round(cr), Math.round(cg), Math.round(cb)]);
+      const rgb = this.rgb;
+      rgb[0] = Math.round(cr); rgb[1] = Math.round(cg); rgb[2] = Math.round(cb);
+      dualSense.setLight(rgb); // setLight copies the values
     }
     // adaptive triggers: quantised so a report goes out only when the feel changes
     if (!this.triggers || !f.riding || r.onFoot) dualSense.setTriggers(triggerOff(), triggerOff());
     else {
       const dig = r.onGround ? Math.min(1, Math.max(r.scrape * 1.4, r.brakeAmt * 0.35)) : 0;
-      const left = triggerFeedback(1, 1 + Math.round(7 * dig));
-      const right = triggerWeapon(2, 4, 3);
-      dualSense.setTriggers(left, right);
+      dualSense.setTriggers(LEFT_FX[Math.round(7 * dig)], RIGHT_CLICK);
     }
     dualSense.flush();
   }
