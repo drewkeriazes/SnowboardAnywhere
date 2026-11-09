@@ -111,11 +111,11 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         attribute float forest;
         attribute vec2 fall;
         attribute float ao;
-        attribute vec2 mogul;
+        attribute vec4 mogul;
         varying float vAO;
         varying float vForest;
         varying vec2 vFall;
-        varying vec2 vMogul;
+        varying vec4 vMogul;
         varying vec3 vWorldPos;
         varying vec3 vWorldNormal;
         ${DEFORM_GLSL}`)
@@ -142,7 +142,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         varying float vForest;
         varying float vAO;
         varying vec2 vFall;
-        varying vec2 vMogul;
+        varying vec4 vMogul;
         uniform float uMogulScale, uMogulCreep, uDebugMoguls;
         uniform vec3 uSunDir;
         uniform float uTime;
@@ -174,7 +174,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         ${ROCK_GLSL}
         ${MOGUL_GLSL}
         // BUG-062: the mogul field at a point as vec3(height, dh/dx, dh/dy), pack frame and metres: the
-        // one place the shader samples it, height and slope in a single evaluation (FEAT-147 swaps it)
+        // one place the shader samples it, height and slope in a single evaluation (FEAT-147: rider lines)
         vec3 mogulField(vec2 pxy, vec2 fall, float amp, float creep) { return mogulHG(pxy, fall, amp, creep); }
         float fbm2(vec2 p) { return 0.6 * vnoise(vec3(p, 0.0)) + 0.3 * vnoise(vec3(p * 2.1, 1.7)) + 0.1 * vnoise(vec3(p * 4.3, 3.1)); }
         // corduroy across the fall line. Returns x = ridge profile (-1..1, already faded by distance),
@@ -282,7 +282,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         vec3 base = snow * wSnow + rockAlb * rockCov + screeAlb * screeCov;
         base = mix(base, groomed, wGroom * wSnow);
         // BUG-062: the mogul field, once per pixel (pack frame: x east, y = -world z north), fading out
-        // where the 5.7 m pattern would shimmer; the colouring rule below, the normal pass reuses it
+        // where the 4 to 7 m pattern would shimmer; the colouring rule below, the normal pass reuses it
         gMogA = vMogul.x * uMogulScale * wSnow * (1.0 - smoothstep(900.0, 1600.0, dist));
         gMogN = vec3(0.0, 1.0, 0.0);
         gMogT = 0.5;
@@ -290,18 +290,19 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         gWrap = uWrap;
         if (gMogA > 0.005) {
           vec2 pxy = vec2(wp.x, -wp.z);
-          vec2 pf = vec2(vFall.x, -vFall.y);
+          // FEAT-147: the field's own 30 m downhill vector (pack frame), the slope as its length
+          vec2 pf = vMogul.zw;
           vec3 mf = mogulField(pxy, pf, gMogA, uMogulCreep);
           // pack +y is world -z, so the z slope is the negative of the y slope
           gMogN = normalize(vec3(-mf.y, 1.0, mf.z));
-          // 0 trough .. 1 crest; clamped because FEAT-147's slope-sized, varied bumps can exceed the
-          // amplitude passed in (pass the local maximum height there)
-          gMogT = clamp(mf.x / gMogA, 0.0, 1.0);
+          // 0 trough .. 1 crest of a typical bump here (FEAT-147: sized by the slope, the vertex fall's
+          // length); the tallest of the +-30% spread clamp
+          gMogT = clamp(mf.x / (gMogA * mogulSize(length(pf))), 0.0, 1.0);
           // colouring from the bump's own shape, no shadow pass: the sun term is the bump normal's tilt
           // toward the sun's ground direction (already scaled by cos(elevation), gone in flat light); the
           // downhill term darkens the face that tilts uphill, the front a rider coming down rides into
           float sunK = dot(gMogN.xz, uSunDir.xz) * (1.0 - uFlat);
-          float frontK = -dot(gMogN.xz, fallDown(vFall));
+          float frontK = -dot(gMogN.xz, fallDown(vec2(pf.x, -pf.y)));
           float lum = 1.0 + gMogK * (0.14 * (gMogT - 0.5) + 0.22 * sunK - 0.06 * frontK);
           // troughs and the shaded sides go a little blue (snow in its own shade), crests a touch warm
           float warmth = saturate(0.5 + (gMogT - 0.5) + 0.8 * sunK);

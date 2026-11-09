@@ -259,8 +259,10 @@ export class Terrain {
     // 0 none, 1 shader only, 2 bumps in the geometry too). Every chunk up to MOGUL_SHADE_MAX_RES is
     // shaded per pixel; the finest ones also carry the bumps in their positions, with their vertex
     // normals from the base surface so the shader's analytic bump normal is not doubled (and not the
-    // aliased one a 2 m grid makes of a 5.7 m wave).
-    const mogul = new Float32Array(vertCount * 2);
+    // aliased one a 2 m grid makes of a 5.7 m wave). z, w: the field's own downhill vector (pack east,
+    // north) from the same 30 m difference as Pack.bumpAt, its length the slope that sizes the bumps
+    // (FEAT-147), kept apart from `fall` so the corduroy's 6 m line and run axis never size them.
+    const mogul = new Float32Array(vertCount * 4);
     const shadeMoguls = !!pack.moguls && res <= MOGUL_SHADE_MAX_RES;
     const geoMoguls = !!pack.moguls && res <= MOGUL_MAX_RES;
     const mogPath = geoMoguls ? 2 : shadeMoguls ? 1 : 0;
@@ -338,13 +340,21 @@ export class Terrain {
         }
         col[v * 3] = rock; col[v * 3 + 1] = scree * (1 - rock); col[v * 3 + 2] = groom * (1 - rock);
         const mog = shadeMoguls ? pack.mogulAmp(x, y, true) * (1 - rock) : 0;
-        mogul[v * 2] = mog; mogul[v * 2 + 1] = mogPath;
+        mogul[v * 4] = mog; mogul[v * 4 + 1] = mogPath;
+        // moguls take the same wide fall line as Pack.bumpAt (BUG-064), so the shaded field matches the
+        // bumps in the geometry and the physics
+        let mgx = 0, mgy = 0;
+        if (mog > 0.01) {
+          const d = MOGUL_FALL_D;
+          mgx = (pack.height(x + d, y, resB) - pack.height(x - d, y, resB)) / (2 * d);
+          mgy = (pack.height(x, y + d, resB) - pack.height(x, y - d, resB)) / (2 * d);
+          mogul[v * 4 + 2] = -mgx; mogul[v * 4 + 3] = -mgy;
+        }
         if (groom > 0.02 || mog > 0.01) {
-          // moguls take the same wide fall line as Pack.bumpAt (BUG-064), so the shaded field matches the
-          // bumps in the geometry and the physics; corduroy keeps the 6 m one
-          const fr = mog > 0.01 && groom <= 0.02 ? MOGUL_FALL_D : FR;
-          const gx = (pack.height(x + fr, y, resB) - pack.height(x - fr, y, resB)) / (2 * fr);
-          const gy = (pack.height(x, y + fr, resB) - pack.height(x, y - fr, resB)) / (2 * fr);
+          // corduroy keeps a 6 m line; a bump field's own vertices reuse the mogul one (the snow tracks read it)
+          const own = mog > 0.01 && groom <= 0.02;
+          const gx = own ? mgx : (pack.height(x + FR, y, resB) - pack.height(x - FR, y, resB)) / (2 * FR);
+          const gy = own ? mgy : (pack.height(x, y + FR, resB) - pack.height(x, y - FR, resB)) / (2 * FR);
           const b = groom > 0.02 && dirSet && dirSet.has(x, y) ? Math.round(dirSet.sample(x, y, this.maskSample)[0] * 255) : 0;
           if (b > 0) {
             // run axis (pack east, north), undirected; take the sense that points downhill. A groomer
@@ -373,7 +383,7 @@ export class Terrain {
       pos[v * 3] = pos[e * 3]; pos[v * 3 + 1] = pos[e * 3 + 1] - skirt; pos[v * 3 + 2] = pos[e * 3 + 2];
       nor[v * 3] = nor[e * 3]; nor[v * 3 + 1] = nor[e * 3 + 1]; nor[v * 3 + 2] = nor[e * 3 + 2];
       col[v * 3] = col[e * 3]; col[v * 3 + 1] = col[e * 3 + 1]; col[v * 3 + 2] = col[e * 3 + 2]; forest[v] = forest[e]; ao[v] = ao[e];
-      fall[v * 2] = fall[e * 2]; fall[v * 2 + 1] = fall[e * 2 + 1]; mogul[v * 2] = mogul[e * 2]; mogul[v * 2 + 1] = mogul[e * 2 + 1];
+      fall[v * 2] = fall[e * 2]; fall[v * 2 + 1] = fall[e * 2 + 1]; for (let q = 0; q < 4; q++) mogul[v * 4 + q] = mogul[e * 4 + q];
       v++;
     }
     const idx: number[] = [];
@@ -399,7 +409,7 @@ export class Terrain {
     geo.setAttribute('forest', new THREE.BufferAttribute(forest, 1));
     geo.setAttribute('ao', new THREE.BufferAttribute(ao, 1));
     geo.setAttribute('fall', new THREE.BufferAttribute(fall, 2));
-    geo.setAttribute('mogul', new THREE.BufferAttribute(mogul, 2));
+    geo.setAttribute('mogul', new THREE.BufferAttribute(mogul, 4));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
     if (c.mesh) {
