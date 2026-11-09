@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Pack } from '../pack/Pack';
+import { type Pack, MOGUL_MAX_RES } from '../pack/Pack';
 import { createTerrainMaterial } from './TerrainMaterial';
 
 /**
@@ -77,6 +77,7 @@ export class Terrain {
     }
     if (pack.mask) pack.mask.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.mask!.meta.minX + tx * pack.mask!.size, pack.mask!.meta.minY + ty * pack.mask!.size, pack.mask!.size, 0);
     if (pack.ao) pack.ao.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.ao!.meta.minX + tx * pack.ao!.size, pack.ao!.meta.minY + ty * pack.ao!.size, pack.ao!.size, 0);
+    if (pack.moguls) pack.moguls.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.moguls!.meta.minX + tx * pack.moguls!.size, pack.moguls!.meta.minY + ty * pack.moguls!.size, pack.moguls!.size, 0);
   }
 
   /** FEAT-105: new snow on the rock (0 = today's look, 1 = a powder day) and the downwind direction (three.js x, z). */
@@ -131,6 +132,7 @@ export class Terrain {
       else if (this.pack.far) this.pack.far.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if (c.res <= 8 && this.pack.mask) this.pack.mask.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if (c.res <= AO_MAX_RES && this.pack.ao) this.pack.ao.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
+      if (c.res <= MOGUL_MAX_RES && this.pack.moguls) this.pack.moguls.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size); // FEAT-059: bumps only on the finest chunks
       if ((!c.mesh || this.dirty.has(c.key)) && builds < MAX_BUILDS_PER_FRAME) {
         this.build(c);
         this.dirty.delete(c.key);
@@ -222,6 +224,7 @@ export class Terrain {
       }
     }
     dataRes = pack.finestRes(c.minX + c.size / 2, c.minY + c.size / 2);
+    const resB = Math.max(res, MOGUL_MAX_RES * 2); // auxiliary samples (ridges, talus, fall line) without the mogul bumps
     const useMask = !!pack.mask && res <= 8;
     let v = 0;
     const H = (i: number, j: number) => heights[(j + 1) * (n + 2) + (i + 1)];
@@ -262,21 +265,21 @@ export class Terrain {
         const steep = THREE.MathUtils.smoothstep(slope, steepLo, steepLo + 0.2);
         // wind-scoured convex ridges above about 3,250 m: relief over the mean of four neighbours d away
         const d = Math.max(12, res);
-        const relief = h - 0.25 * (pack.height(x + d, y, res) + pack.height(x - d, y, res) + pack.height(x, y + d, res) + pack.height(x, y - d, res));
+        const relief = h - 0.25 * (pack.height(x + d, y, resB) + pack.height(x - d, y, resB) + pack.height(x, y + d, resB) + pack.height(x, y - d, resB));
         const scour = THREE.MathUtils.smoothstep(relief / d, 0.06, 0.2) * THREE.MathUtils.smoothstep(h, 3250, 3550) * (1 - fo);
         rock = Math.max(rock, steep, scour * 0.8);
         // talus apron at the foot of steep faces: the line to a point 15 m uphill is steeper than about
         // 48 deg while the ground here is gentler
         if (res <= 8 && slope > 0.2) {
           const du = 15, gl = Math.hypot(nxp, nyp);
-          const up = pack.height(x - (nxp / gl) * du, y - (nyp / gl) * du, res);
+          const up = pack.height(x - (nxp / gl) * du, y - (nyp / gl) * du, resB);
           const talus = THREE.MathUtils.smoothstep((up - h) / du, 0.95, 1.4) * (1 - steep);
           scree = Math.max(scree, talus * 0.9);
         }
         col[v * 3] = rock; col[v * 3 + 1] = scree * (1 - rock); col[v * 3 + 2] = groom * (1 - rock);
         if (groom > 0.02) {
-          const gx = (pack.height(x + FR, y, res) - pack.height(x - FR, y, res)) / (2 * FR);
-          const gy = (pack.height(x, y + FR, res) - pack.height(x, y - FR, res)) / (2 * FR);
+          const gx = (pack.height(x + FR, y, resB) - pack.height(x - FR, y, resB)) / (2 * FR);
+          const gy = (pack.height(x, y + FR, resB) - pack.height(x, y - FR, resB)) / (2 * FR);
           fall[v * 2] = -gx; fall[v * 2 + 1] = gy; // downhill east, and z = -north
         }
         v++;
