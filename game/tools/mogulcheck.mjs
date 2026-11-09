@@ -16,7 +16,7 @@ const bundle = async (entry, name) => {
   await build({ entryPoints: [path.join(GAME, 'src', ...entry)], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error' });
   return import(pathToFileURL(out).href);
 };
-const { mogulHeight, fallFrom, MOGUL_SPACING, MOGUL_MAX_AMP } = await bundle(['terrain', 'Moguls.ts'], 'moguls.mjs');
+const { mogulHeight, mogulHeightGrad, fallFrom, MOGUL_SPACING, MOGUL_MAX_AMP, MOGUL_CELL } = await bundle(['terrain', 'Moguls.ts'], 'moguls.mjs');
 const { Rider } = await bundle(['sim', 'Rider.ts'], 'rider.mjs');
 
 let fails = 0;
@@ -49,6 +49,42 @@ const check = (name, ok, detail = '') => { console.log(`${ok ? 'ok  ' : 'FAIL'} 
   for (let i = 0; i < a.length; i++) { num += (a[i] - ma) * (b[i] - mb); da += (a[i] - ma) ** 2; db += (b[i] - mb) ** 2; }
   const corr = num / Math.sqrt(da * db);
   check('half a spacing of creep inverts the profile', corr < -0.5, corr.toFixed(2));
+  // BUG-064: the grid is anchored to local cells, so a small change in the fall direction moves the
+  // bumps by the same small amount anywhere on the map (it used to scale with the distance from the
+  // pack origin and scramble the field). Same 57 m path down the fall line, only the direction changes,
+  // at every 7.5 degrees of heading and at 0 m, 700 m and 3 km from the origin.
+  const corrOf = (p, q) => { const mp = mean(p), mq = mean(q); let n = 0, dp = 0, dq = 0; for (let i = 0; i < p.length; i++) { n += (p[i] - mp) * (q[i] - mq); dp += (p[i] - mp) ** 2; dq += (q[i] - mq) ** 2; } return n / Math.sqrt(dp * dq); };
+  const path = (ox, oy, deg, wob) => { const r = deg * Math.PI / 180, r2 = (deg + wob) * Math.PI / 180, p = []; for (let s = 0; s < 57; s += 0.1) p.push(mogulHeight(ox + Math.cos(r) * s, oy + Math.sin(r) * s, 0.8, Math.cos(r2), Math.sin(r2), 0)); return p; };
+  // contrast over a 12 m square patch (a line down the fall line can sit on a flat row of the pattern)
+  const patchSd = (cx, cy, deg) => { const r = deg * Math.PI / 180, v = []; for (let i = -12; i <= 12; i++) for (let j = -12; j <= 12; j++) v.push(mogulHeight(cx + i * 0.5, cy + j * 0.5, 0.8, Math.cos(r), Math.sin(r), 0)); const m = mean(v); return Math.sqrt(v.reduce((t, x) => t + (x - m) ** 2, 0) / v.length); };
+  for (const [ox, oy] of [[3, 7], [700, -700], [-2900, 1100]]) {
+    let worst = 1, ratio = Infinity;
+    // a cell corner (four cells blend equally) and the nearest cell centre (one cell alone)
+    const kx = Math.round(ox / MOGUL_CELL) * MOGUL_CELL, ky = Math.round(oy / MOGUL_CELL) * MOGUL_CELL;
+    for (let deg = 0; deg < 360; deg += 7.5) {
+      worst = Math.min(worst, corrOf(path(ox, oy, deg, 0), path(ox, oy, deg, 0.3)));
+      ratio = Math.min(ratio, patchSd(kx, ky, deg) / patchSd(kx + MOGUL_CELL / 2, ky + MOGUL_CELL / 2, deg));
+    }
+    const d = Math.round(Math.hypot(ox, oy));
+    check(`${d} m from the origin: a 0.3 deg turn of the fall line keeps the same bumps at every heading`, worst > 0.95, worst.toFixed(3));
+    check(`${d} m from the origin: bumps where four cells blend keep at least 75% of a lone cell's relief at every heading`, ratio > 0.75, ratio.toFixed(2));
+  }
+  // the analytic slope the shader shades with matches the height's own slope (central differences),
+  // including inside the cell blend bands; the slow phase jitter is left out of it, so allow a little
+  {
+    const o = [0, 0, 0];
+    let worst = 0, scale = 0;
+    for (let i = 0; i < 4000; i++) {
+      const x = -900 + (i * 7.31) % 1800, y = -900 + (i * 13.7) % 1800, r = i * 0.37, e = 1e-3;
+      const h = mogulHeightGrad(x, y, 0.8, Math.cos(r), Math.sin(r), 0.4, o);
+      const gx = (mogulHeight(x + e, y, 0.8, Math.cos(r), Math.sin(r), 0.4) - mogulHeight(x - e, y, 0.8, Math.cos(r), Math.sin(r), 0.4)) / (2 * e);
+      const gy = (mogulHeight(x, y + e, 0.8, Math.cos(r), Math.sin(r), 0.4) - mogulHeight(x, y - e, 0.8, Math.cos(r), Math.sin(r), 0.4)) / (2 * e);
+      if (Math.abs(h - mogulHeight(x, y, 0.8, Math.cos(r), Math.sin(r), 0.4)) > 1e-12) worst = Infinity;
+      worst = Math.max(worst, Math.hypot(o[1] - gx, o[2] - gy));
+      scale = Math.max(scale, Math.hypot(gx, gy));
+    }
+    check('analytic slope matches the height within 6% of the steepest bump face', worst < 0.06 * scale, `${worst.toFixed(3)} of ${scale.toFixed(2)}`);
+  }
   const f = [0, 0];
   fallFrom((x, y) => 0.4 * y, 10, 10, f);
   check('fallFrom on a plane falling to -y', Math.abs(f[0]) < 1e-3 && Math.abs(f[1] + 1) < 1e-3, `${f[0].toFixed(3)}, ${f[1].toFixed(3)}`);

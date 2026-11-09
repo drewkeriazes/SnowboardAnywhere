@@ -23,7 +23,7 @@ import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from './rockShader';
  * `uFlat` (storm, overcast) flattens the snow relief, turns the glints off and roughens the snow: flat light.
  *
  * Moguls (FEAT-059, BUG-062): every chunk up to MOGUL_SHADE_MAX_RES evaluates the mogul field once per
- * pixel (`mogulField`: height and slope; BUG-064 / FEAT-147 swap its body). The slope bends the normal on all of them (the
+ * pixel (`mogulField`: height and slope in one analytic evaluation). The slope bends the normal on all of them (the
  * finest chunks carry the bumps in their positions too, with base-surface vertex normals), and the
  * snow is coloured from the bump's own shape so the field reads without a shadow pass: troughs a
  * little darker and bluer, crests brighter and warmer, the side facing away from the sun cooler and
@@ -157,16 +157,9 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         ${NOISE_GLSL}
         ${ROCK_GLSL}
         ${MOGUL_GLSL}
-        // BUG-062: the mogul field at a point as vec3(height, dh/dx, dh/dy), pack frame and metres. The one
-        // place the shader samples the field: BUG-064 / FEAT-147 replace the body (ideally with an
-        // analytic gradient) when they rewrite MOGUL_GLSL. Today: three mogulH taps, 0.5 m differences.
-        vec3 mogulField(vec2 pxy, vec2 fall, float amp, float creep) {
-          float em = 0.5;
-          float m0 = mogulH(pxy, fall, amp, creep);
-          float mx = mogulH(pxy + vec2(em, 0.0), fall, amp, creep);
-          float my = mogulH(pxy + vec2(0.0, em), fall, amp, creep);
-          return vec3(m0, (mx - m0) / em, (my - m0) / em);
-        }
+        // BUG-062: the mogul field at a point as vec3(height, dh/dx, dh/dy), pack frame and metres: the
+        // one place the shader samples it, height and slope in a single evaluation (FEAT-147 swaps it)
+        vec3 mogulField(vec2 pxy, vec2 fall, float amp, float creep) { return mogulHG(pxy, fall, amp, creep); }
         float fbm2(vec2 p) { return 0.6 * vnoise(vec3(p, 0.0)) + 0.3 * vnoise(vec3(p * 2.1, 1.7)) + 0.1 * vnoise(vec3(p * 4.3, 3.1)); }
         // corduroy across the fall line. Returns x = ridge profile (-1..1, already faded by distance),
         // y = ridge slope for the bump, zw = the across-slope direction in world xz. Also outputs the

@@ -1,7 +1,7 @@
 import { HeightSet } from './HeightSet';
 import { MaskSet } from './MaskSet';
 import type { Features, PackMeta } from './types';
-import { fallFrom, mogulHeight } from '../terrain/Moguls';
+import { fallFrom, mogulHeight, MOGUL_FALL_D } from '../terrain/Moguls';
 
 /** chunks at this resolution or finer carry the mogul bumps in their geometry */
 export const MOGUL_MAX_RES = 2;
@@ -116,7 +116,7 @@ export class Pack {
   bumpAt(x: number, y: number): number {
     const amp = this.mogulAmp(x, y);
     if (amp < 0.005) return 0;
-    const f = fallFrom(this.baseFn, x, y, this.fallTmp);
+    const f = fallFrom(this.baseFn, x, y, this.fallTmp, MOGUL_FALL_D); // BUG-064: a wide difference so the rows hold their direction
     return mogulHeight(x, y, amp, f[0], f[1], this.mogulCreep);
   }
 

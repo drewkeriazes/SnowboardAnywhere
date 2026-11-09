@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { type Pack, MOGUL_MAX_RES, MOGUL_SHADE_MAX_RES } from '../pack/Pack';
+import { MOGUL_FALL_D } from './Moguls';
 import { createTerrainMaterial } from './TerrainMaterial';
 
 /**
@@ -325,8 +326,11 @@ export class Terrain {
         const mog = shadeMoguls ? pack.mogulAmp(x, y, true) * (1 - rock) : 0;
         mogul[v * 2] = mog; mogul[v * 2 + 1] = mogPath;
         if (groom > 0.02 || mog > 0.01) {
-          const gx = (pack.height(x + FR, y, resB) - pack.height(x - FR, y, resB)) / (2 * FR);
-          const gy = (pack.height(x, y + FR, resB) - pack.height(x, y - FR, resB)) / (2 * FR);
+          // moguls take the same wide fall line as Pack.bumpAt (BUG-064), so the shaded field matches the
+          // bumps in the geometry and the physics; corduroy keeps the 6 m one
+          const fr = mog > 0.01 && groom <= 0.02 ? MOGUL_FALL_D : FR;
+          const gx = (pack.height(x + fr, y, resB) - pack.height(x - fr, y, resB)) / (2 * fr);
+          const gy = (pack.height(x, y + fr, resB) - pack.height(x, y - fr, resB)) / (2 * fr);
           const b = groom > 0.02 && dirSet && dirSet.has(x, y) ? Math.round(dirSet.sample(x, y, this.maskSample)[0] * 255) : 0;
           if (b > 0) {
             // run axis (pack east, north), undirected; take the sense that points downhill. A groomer
