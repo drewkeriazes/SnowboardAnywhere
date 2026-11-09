@@ -48,6 +48,16 @@ Planar slopes and ridges are 255; gullies, couloirs, cirques and cliff feet are 
 outside the data is 255. The terrain uses it for chunks at 32 m or finer; packs without it render
 with open sky everywhere.
 
+## Mogul tiles (optional, FEAT-059)
+
+Greyscale PNG on the mask grid: mogul amplitude 0..255 = 0..1 m from `pipeline/moguls.py`. Each run's
+`mogulScore` is painted along its corridor (fading over the outer 3 m, where real bumps shrink; closed
+`area` runs are filled), times a slope window (none below 15 degrees, full 20 to 35, none above 40),
+and removed under canopy, on groomed corduroy, built-up ground and rock. Padding outside the data is 0.
+The client turns the amplitude into a fall-line-aligned staggered bump field (`game/src/terrain/Moguls.ts`,
+5.7 m spacing) in both the physics height and the near terrain mesh (chunks at 2 m or finer). Packs
+without the set have no bumps.
+
 ## Instances
 
 `trees/<tx>_<ty>.bin`: little-endian Float32 records of 6:
@@ -68,7 +78,8 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
   "lifts":     [{ "name", "type", "stations": [[x,y,z],...], "towers": [[x,y,zGround,height],...],
                  "cable": [[x,y,z],...], "capacity" }],
   "runs":      [{ "name", "difficulty": "easy|intermediate|advanced|expert|freeride",
-                 "groomed": bool, "gladed": bool, "points": [[x,y,z],...], "osmId" }],
+                 "groomed": bool, "gladed": bool, "points": [[x,y,z],...], "osmId",
+                 "groomNights", "mogulScore" }],  // groomNights: nights the resort's reports groomed it (absent when never); mogulScore: 0..1 from pipeline/moguls.py (absent in packs before FEAT-059)
   "buildings": [{ "name", "points": [[x,y],...], "zBase", "zMax", "height", "heightDefault", "kind" }],  // zMax: highest ground under the footprint, absent in packs before BUG-024; heightDefault: true when OSM had no height or levels and the pipeline used its 5.5 / 9 m fallback (absent in older packs, where the client guesses from those values)
   "roads":     [{ "name", "kind", "points": [[x,y,z],...], "width" }],
   "water":     [{ "name", "points": [[x,y],...], "z" }],
@@ -88,6 +99,7 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
   "terrain": { "fine": {...}, "mid": {...}, "far": {...} },
   "mask": { "res": 2, "tileSize": 512, "minX", "minY", "tilesX", "tilesY" },
   "ao": { same fields as mask },                           // optional
+  "moguls": { same fields as mask },                       // optional, FEAT-059
   "instances": { "cellSize": 1000, "minX", "minY", "cellsX", "cellsY", "treeCount", "rockCount", "treeCells", "rockCells" },
   "start": { "x", "y", "heading" },                       // default drop-in
   "sun": { "azimuth": 160, "elevation": 32 },             // degrees, default lighting
