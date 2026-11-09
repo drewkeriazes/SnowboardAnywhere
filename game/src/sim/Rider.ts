@@ -26,6 +26,8 @@ export interface SurfaceInfo {
   scree: number;
   groomed: number;
   canopy: number;
+  /** FEAT-059: mogul amplitude under the rider, metres (0 off the bump fields) */
+  moguls: number;
 }
 
 const G = 9.81;
@@ -320,7 +322,7 @@ export class Rider {
   crashed = 0; // seconds remaining in a crash
   /** FEAT-140: which way the crash throws the body, +1 forward along the heading, -1 back, 0 either (a press slam falls over its loaded end) */
   crashFall = 0;
-  surface: SurfaceInfo = { rock: 0, scree: 0, groomed: 0, canopy: 0 };
+  surface: SurfaceInfo = { rock: 0, scree: 0, groomed: 0, canopy: 0, moguls: 0 };
   /** FEAT-053: the snow here (groomed / powder / chop / ice / slush weights and the physics they set) */
   readonly snow: SnowState = newSnowState();
   /** FEAT-053: the day's conditions (main.ts sets the hour, weather, new snow and the setting) */
@@ -651,6 +653,7 @@ export class Rider {
       const cov = rockCover(m[0], m[1], this.x, this.z, -this.y, n[2], this.coverTmp);
       this.surface.rock = cov.rock; this.surface.scree = cov.scree; this.surface.groomed = m[2]; this.surface.canopy = m[3];
     }
+    this.surface.moguls = pack.mogulAmp?.(this.x, this.y) ?? 0; // FEAT-059 (test planes may lack the method)
     snowAt(this.surface, n, this.z, this.snowWorld, this.snow); // FEAT-053
     this.chop *= Math.exp(-dt * 6);
     if (this.strapState !== 'none') { this.strapStep(dt, ground); return; }
@@ -925,7 +928,10 @@ export class Rider {
     // vertical velocity implied by following the surface
     const vzSurf = -(this.vx * n2[0] + this.vy * n2[1]) / Math.max(0.2, n2[2]);
     const ballistic = this.vz - G * dt;
-    if (ballistic > vzSurf + 1.5 && spd > 6) {
+    // FEAT-059: the 1.5 m/s margin absorbs 1 m DEM noise on open snow, but it also swallows every mogul
+    // (a 0.7 m bump at 20 m/s drops away at about 10 g). On a bump field the legs absorb only about 2 g.
+    const lift = 1.5 - 1.3 * Math.min(1, this.surface.moguls / 0.4);
+    if (ballistic > vzSurf + lift && spd > 6) {
       // the ground drops away faster than we fall: airborne
       this.onGround = false; this.airTime = 0; this.spin = 0; this.flip = 0; this.flipRate = 0;
       this.z = Math.max(this.z, g2 + 0.02);

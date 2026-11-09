@@ -22,6 +22,7 @@ from scipy import ndimage
 from pyproj import Transformer
 from packwriter import (write_height_set, write_mask_set, write_instances, write_meta, write_features, decode_terrarium)
 from terrain_ao import sky_visibility
+from moguls import run_mogul_score, slope_window, paint_field, paint_polygon
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 slug = sys.argv[1]
@@ -214,7 +215,7 @@ bright2 = ((red2 + grn2 + blu2) / 3).astype(np.float32)
 # slope at 2 m
 gy, gx = np.gradient(dem2, R2)
 slope2 = np.degrees(np.arctan(np.hypot(gx, gy))).astype(np.float32)
-del gx, gy
+# gx, gy stay alive for the mogul aspect term (freed after scoring)
 
 # classes
 # canopy needs (a) height above ground AND (b) vegetation in NAIP AND (c) a lidar return nearby. (b) and (c)
@@ -362,6 +363,7 @@ for el in ski["elements"]:
            "points": [[x, y, ground(x, y)] for x, y in pts]}
     if t.get("bridge", "no") != "no":
         rec["bridge"] = True   # bare-earth DEM has no bridge; the client builds a deck
+    rec["mogulTag"] = grooming == "mogul"   # FEAT-059: popped before writing
     runs.append(rec)
 log(f"  runs {len(runs)}")
 
@@ -507,6 +509,47 @@ labels = [{"name": el["tags"]["name"], "kind": el["tags"].get("place", "place"),
 for l in labels:
     l["z"] = ground(l["x"], l["y"])
 log(f"  buildings {len(buildings)} roads {len(roads)} water {len(water)} peaks {len(peaks)} labels {len(labels)}")
+def line_cells(pts):
+    """distinct 2 m grid cells along a polyline, as (rows, cols) index arrays, clipped to the grid"""
+    cells = set()
+    for (ax, ay), (bx, by) in zip(pts[:-1], pts[1:]):
+        steps = max(1, int(math.hypot(bx - ax, by - ay) / (R2 * 0.7)))
+        for s_ in range(steps + 1):
+            t = s_ / steps
+            c = int((ax + (bx - ax) * t + OX - X0) / R2); r = int((Y1 - (ay + (by - ay) * t + OY)) / R2)
+            if 0 <= r < H2 and 0 <= c < W2:
+                cells.add((r, c))
+    if not cells:
+        return np.array([], int), np.array([], int)
+    rc = np.array(sorted(cells))
+    return rc[:, 0], rc[:, 1]
+
+
+# ------------------------------------------------------------------ 6b. mogul score per run (FEAT-059)
+# Grooming reports, difficulty, slope and aspect along the centre line, and lift-top traffic; see moguls.py.
+report_nights = len(reports)
+lift_tops = [(s[0], s[1]) for l in lifts for s in l["stations"]]
+for r in runs:
+    tag = r.pop("mogulTag", False)
+    pts = [(p[0], p[1]) for p in r["points"]]
+    rows, cols = line_cells(pts) if len(pts) >= 2 else (np.array([], int), np.array([], int))
+    if len(rows):
+        slope_med = float(np.percentile(slope2[rows, cols], 75))   # the steep pitch, not the run-out
+        dx, dy = float(np.mean(-gx[rows, cols])), float(np.mean(gy[rows, cols]))   # downhill (row 0 = north)
+        aspect = math.degrees(math.atan2(dx, dy)) % 360.0 if math.hypot(dx, dy) > 1e-4 else None
+    else:
+        slope_med, aspect = 0.0, None
+    if report_nights:
+        groom_frac = r.get("groomNights", 0) / report_nights
+    else:
+        groom_frac = None
+    top = max(r["points"], key=lambda p: p[2])
+    near_top = any(math.hypot(top[0] - lx, top[1] - ly) < 150.0 for lx, ly in lift_tops)
+    r["mogulScore"] = round(run_mogul_score(r, slope_med, aspect, groom_frac, tag, near_top), 2)
+del gx, gy
+scored = sorted((r for r in runs if r["mogulScore"] > 0), key=lambda r: -r["mogulScore"])
+log(f"  mogul runs: {sum(1 for r in runs if r['mogulScore'] >= 0.3)} of {len(runs)} score 0.3 or more; top: "
+    + ", ".join(f"{r['name'] or 'unnamed'} {r['mogulScore']:.2f}" for r in scored[:15]))
 write_features(out, {"lifts": lifts, "runs": runs, "buildings": buildings, "roads": roads, "water": water, "peaks": peaks, "labels": labels})
 Z_MIN, Z_MAX = float(np.nanmin(dem)), float(np.nanmax(dem))
 del dem   # 540 MB; everything from here works on the 2 m grid
@@ -577,20 +620,6 @@ def never_groomed_share(groomed, never):
     return out
 
 
-def line_cells(pts):
-    """distinct 2 m grid cells along a polyline, as (rows, cols) index arrays, clipped to the grid"""
-    cells = set()
-    for (ax, ay), (bx, by) in zip(pts[:-1], pts[1:]):
-        steps = max(1, int(math.hypot(bx - ax, by - ay) / (R2 * 0.7)))
-        for s_ in range(steps + 1):
-            t = s_ / steps
-            c = int((ax + (bx - ax) * t + OX - X0) / R2); r = int((Y1 - (ay + (by - ay) * t + OY)) / R2)
-            if 0 <= r < H2 and 0 <= c < W2:
-                cells.add((r, c))
-    if not cells:
-        return np.array([], int), np.array([], int)
-    rc = np.array(sorted(cells))
-    return rc[:, 0], rc[:, 1]
 
 
 piste_f = np.zeros((H2, W2), np.float32)
@@ -630,6 +659,27 @@ ao = sky_visibility(ndimage.gaussian_filter(dem2, 1.0), R2, log=log)
 log(f"  ao mean {ao.mean():.3f}, p5 {np.percentile(ao, 5):.3f}")
 ao_meta = write_mask_set(out, (np.clip(ao, 0, 1) * 255 + 0.5).astype(np.uint8), R2, X0 - OX, Y0 - OY, kind="ao")
 del ao
+
+# mogul amplitude (FEAT-059): each scoring run's corridor, fading over the outer 3 m, times the slope
+# window; none under canopy, on groomed corduroy, built-up ground or rock. 0..1 m in the greyscale set.
+log("  moguls")
+mog = np.zeros((H2, W2), np.float32)
+for run in runs:
+    sc = run.get("mogulScore", 0.0)
+    if sc <= 0.05 or len(run["points"]) < 2:
+        continue
+    pts = [(p[0], p[1]) for p in run["points"]]
+    if run.get("area"):
+        paint_polygon(mog, pts, sc, R2, X0 - OX, Y1 - OY)
+    else:
+        hw = {"novice": 22, "easy": 20, "intermediate": 18, "advanced": 14, "expert": 10}.get(run["difficulty"] or "", 12)
+        paint_field(mog, pts, hw - 2, sc, R2, X0 - OX, Y1 - OY)
+mog *= slope_window(slope2) * (~canopy).astype(np.float32) * (1 - np.clip(groomed, 0, 1)) * (~built_any).astype(np.float32) * (1 - rock_w) * (1 - scree_w)
+mog = np.clip(mog, 0, 1)
+cells = mog > 0.05
+log(f"  mogul fields {cells.sum() * R2 * R2 / 1e4:.1f} ha, mean amplitude {mog[cells].mean() if cells.any() else 0:.2f} m")
+mog_meta = write_mask_set(out, (mog * 255 + 0.5).astype(np.uint8), R2, X0 - OX, Y0 - OY, kind="moguls", pad=0)
+del mog, cells
 
 # ------------------------------------------------------------------ 8. trees and rocks
 log("trees")
@@ -728,7 +778,7 @@ if seg is not None:
 meta = {"version": 1, "slug": slug, "name": cfg["name"], "crs": crs, "origin": [OX, OY], "lonlat": [lon_c, lat_c],
         "bounds": {"minX": X0 - OX, "minY": Y0 - OY, "maxX": X1 - OX, "maxY": Y1 - OY},
         "zRange": [float(np.floor(Z_MIN / 100) * 100 - 100), float(np.ceil(Z_MAX / 100) * 100 + 100)],
-        "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "instances": inst,
+        "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "moguls": mog_meta, "instances": inst,
         "start": start, "sun": {"azimuth": 160, "elevation": 30}, "attribution": cfg["attribution"]}
 write_meta(out, meta)
 log("done")

@@ -7,6 +7,7 @@ import os, sys, json, math
 import numpy as np
 from packwriter import (write_height_set, write_mask_set, write_instances, write_meta, write_features)
 from terrain_ao import sky_visibility
+from moguls import paint_field, slope_window
 
 out = sys.argv[1] if len(sys.argv) > 1 else "client/public/packs/synth"
 os.makedirs(out, exist_ok=True)
@@ -95,13 +96,14 @@ def polyline_down(x_start, y_start, y_end, wobble, seed):
     return np.stack([xs, ys], axis=1)
 
 runs = []
-specs = [("Ridge Run", "easy", True, 800, 0.6), ("Blue Streak", "intermediate", True, -300, 1.0),
-         ("Fall Line", "advanced", False, 300, 1.4), ("Chute", "expert", False, -900, 0.5)]
-for name, diff, groomed, x0, wob in specs:
+# FEAT-059: mogul score per run (Fall Line is a full bump run, Chute a partial one, groomers none)
+specs = [("Ridge Run", "easy", True, 800, 0.6, 0.0), ("Blue Streak", "intermediate", True, -300, 1.0, 0.0),
+         ("Fall Line", "advanced", False, 300, 1.4, 1.0), ("Chute", "expert", False, -900, 0.5, 0.6)]
+for name, diff, groomed, x0, wob, mogul in specs:
     pts = polyline_down(x0, -1400, 2400, wob, 1)
     pts = pts[(pts[:, 0] > FX0 + 50) & (pts[:, 0] < FX0 + FS - 50)]
     z = height(pts[:, 0], pts[:, 1])
-    runs.append({"name": name, "difficulty": diff, "groomed": groomed, "gladed": False, "osmId": None,
+    runs.append({"name": name, "difficulty": diff, "groomed": groomed, "gladed": False, "osmId": None, "mogulScore": mogul,
                  "points": [[float(a), float(b), float(c)] for a, b, c in zip(pts[:, 0], pts[:, 1], z)]})
 
 lift_pts = np.array([[0.0, 2300.0], [0.0, -1350.0]])
@@ -162,6 +164,14 @@ rgba = np.stack([rock * 255, scree * 255, groomed * 255, forest * 255], axis=-1)
 meta["mask"] = write_mask_set(out, rgba, R, FX0, FY0)
 ao = sky_visibility(H.astype(np.float32), R, log=None)
 meta["ao"] = write_mask_set(out, (np.clip(ao, 0, 1) * 255 + 0.5).astype(np.uint8), R, FX0, FY0, kind="ao")
+# FEAT-059: mogul amplitude along the bump runs, times the slope window, none on groomed corduroy
+mog = np.zeros((N, N), np.float32)
+for r in runs:
+    if r["mogulScore"] > 0:
+        paint_field(mog, [(p[0], p[1]) for p in r["points"]], 12.0, r["mogulScore"], R, FX0, FY0 + N * R)
+mog = np.clip(mog * slope_window(slope) * (1 - groomed), 0, 1)
+meta["moguls"] = write_mask_set(out, (mog * 255 + 0.5).astype(np.uint8), R, FX0, FY0, kind="moguls", pad=0)
+print(f"moguls: {(mog > 0.05).sum() * R * R / 1e4:.1f} ha, mean amplitude {mog[mog > 0.05].mean():.2f} m")
 
 # trees: jittered 5 m grid, keep where forest density beats a random draw
 print("trees ...")
