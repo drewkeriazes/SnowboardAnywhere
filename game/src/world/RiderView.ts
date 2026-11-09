@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { EDGE_FULL, PRESS_RANGE, type Rider } from '../sim/Rider';
+import { EDGE_FULL, PLANE_SPEED, PRESS_RANGE, type Rider } from '../sim/Rider';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
 import { Ragdoll, RAGDOLL_RECOVER } from './Ragdoll';
@@ -9,6 +9,7 @@ import { Gait, type Plant } from './Gait';
 import { carveLean, LEAN_HARD, LEAN_MAX } from './carveLean';
 import { Spray } from './Spray';
 import { LENSES, type LensId } from './Lens';
+import { addSnowCover, buryGate, snowCoverUniforms } from './SnowCover';
 
 /** FEAT-112: half the skis' length (where they pivot) and the most they tip up on a full lean (rad) */
 const BOARD_HALF = 0.72, LEAN_TIP = 18 * Math.PI / 180;
@@ -83,6 +84,15 @@ const HAND_DRAG_FROM = 0.95, HAND_DRAG_FULL = 1.15, HAND_DRAG_Y = 0.02, HAND_DRA
  *  reach over it, and where along the shin (from the ankle) and the thigh (from the knee) it is tested */
 const DECK_CLEAR = 0.115, DECK_HALF_W = 0.13 + 0.05, DECK_HALF_L = 0.8;
 const SHIN_TS = [0.35, 0.55, 0.75, 1], THIGH_TS = [0.25, 0.5, 0.75];
+/** FEAT-152: in deep powder (SnowCover's buryGate) the board is drawn this share of the loose depth down
+ *  into it when slow, BURY_PLANED of it by PLANE_SPEED (planing in from BURY_PLANE_FROM m/s), and no more
+ *  than BURY_FAST m by BURY_FAST_SPEED m/s; the tail never deeper than BURY_TAIL of the depth */
+const BURY_SLOW = 0.7, BURY_PLANED = 0.35, BURY_PLANE_FROM = 3, BURY_FAST = 0.04, BURY_FAST_SPEED = 22, BURY_TAIL = 0.9;
+/** FEAT-152: the nose-up pitch in deep powder when slow and when planing (rad), and the nose-down dig of
+ *  slow powder at full `noseSink` (rad); the sink and pitch ease with this time constant (s, settled in about 3x) */
+const BURY_PITCH_SLOW = 8 * Math.PI / 180, BURY_PITCH_FAST = 4 * Math.PI / 180, NOSE_DIG = 3 * Math.PI / 180, BURY_TAU = 0.1;
+/** FEAT-152: the snow cover is all in by this sink (m), and the sag is held ahead of the board by this sink */
+const COVER_FULL = 0.03, HOLD_FULL = 0.05;
 
 const d2r = Math.PI / 180;
 const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -284,6 +294,21 @@ export class RiderView {
   private readonly restQ = new THREE.Quaternion();
   private readonly flipQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI);
   private readonly up = new THREE.Vector3(0, 1, 0);
+  private readonly xAxis = new THREE.Vector3(1, 0, 0);
+  /** FEAT-152: how far the board is drawn down into deep powder (m, along the snow normal) and its
+   *  nose-up pitch (rad), both eased; the snow cover's surface and strength for this rider's materials;
+   *  the untouched snow surface under the board (three.js) the spray leaves from */
+  private bury = 0; private buryPitch = 0; private footCover = 0;
+  readonly snowCover = snowCoverUniforms();
+  private readonly surf = new THREE.Vector3();
+  /** FEAT-152: the sag held ahead of the buried board (`Deform.setDeformHold`): centre and travel
+   *  direction (three.js x, z) and strength 0..1. Only the player's view passes it on (main.ts). */
+  readonly powderHold = { x: 0, z: 0, fx: 0, fz: -1, k: 0 };
+
+  /** FEAT-152: how deep the board is drawn into the snow (m), for checks */
+  get buryState(): { sink: number; pitch: number; cover: number } {
+    return { sink: this.bury, pitch: this.buryPitch, cover: this.snowCover.uSnowCoverK.value };
+  }
 
   /** Terrain for foot placement (on foot). */
   setPack(pack: Pack, collider: Collider | null = null): void {
@@ -308,6 +333,7 @@ export class RiderView {
 
   constructor() {
     this.mats = defaultMaterials();
+    for (const m of Object.values(this.mats)) addSnowCover(m, this.snowCover); // FEAT-152
     this.group.name = 'rider'; this.lean.name = 'rider lean';
     this.group.add(this.lean);
     this.rig = this.mount('board');
@@ -666,6 +692,7 @@ export class RiderView {
     this.q.setFromRotationMatrix(this.rot);
     this.baseQ.slerp(this.q, Math.min(1, dt * 30)); // only smooths the ground normal now; the yaw lag is the follow above
     this.group.quaternion.copy(this.baseQ);
+    this.setDown(r, dt, seated, fl, n, f);
     // FEAT-110: the flip pitches the rider and board about the board's own side axis, through a point
     // 0.7 m up (about the hips); a front flip (+) puts the nose down
     if (!r.onGround && r.flip !== 0) {
@@ -937,6 +964,65 @@ export class RiderView {
     this.updateSpray(r, dt, f, right, true);
   }
 
+  /**
+   * FEAT-152: in deep powder (6 in or more of loose snow) the rider is drawn set down into it: the board,
+   * the bindings and the boots lowered by `bury` along the snow normal (0.7 of the depth when slow, about
+   * half that by PLANE_SPEED, a few cm at high speed) and pitched nose-up, tail low (sitting back), more
+   * when slow; slower still the nose dig (`noseSink`) brings the nose back down. The whole rider moves, so
+   * the legs stay on the bindings. Visual only: the physics, the tracks and the cameras keep the snow
+   * surface. Also sets the snow cover over what is under the surface and the sag held ahead of the board.
+   * `n` the drawn snow normal and `f` the rig's forward (three.js).
+   */
+  private setDown(r: Rider, dt: number, seated: boolean, fl: number, n: THREE.Vector3, f: THREE.Vector3): void {
+    let sink = 0, pitch = 0;
+    // (the time-trial ghost's stand-in rider carries no snow: it is drawn on the surface)
+    const d = r.snow?.depth ?? 0, gate = r.onGround && !seated && r.crashed <= 0 ? buryGate(d) : 0;
+    if (gate > 0) {
+      const planing = smooth(BURY_PLANE_FROM, PLANE_SPEED, r.speed), dig = r.noseSink ?? 0;
+      pitch = gate * ((BURY_PITCH_SLOW + (BURY_PITCH_FAST - BURY_PITCH_SLOW) * planing) * (1 - dig) - NOSE_DIG * dig);
+      sink = d * (BURY_SLOW + (BURY_PLANED - BURY_SLOW) * planing);
+      sink += (Math.min(sink, BURY_FAST) - sink) * smooth(PLANE_SPEED, BURY_FAST_SPEED, r.speed);
+      // the tail, BOARD_HALF behind the middle, never goes deeper than the loose snow
+      sink = gate * Math.max(0, Math.min(sink, BURY_TAIL * d - BOARD_HALF * Math.sin(Math.max(0, pitch))));
+    }
+    if (seated || r.crashed > 0) { this.bury = sink; this.buryPitch = pitch; } // the chair and the ragdoll start from the snow surface
+    else { const e = 1 - Math.exp(-dt / BURY_TAU); this.bury += (sink - this.bury) * e; this.buryPitch += (pitch - this.buryPitch) * e; }
+    this.footCover = 0;
+    // the untouched snow under the rider: the cover's surface and where the spray leaves the snow
+    this.surf.copy(this.group.position);
+    if (!r.onGround && this.pack) { const g = this.pack.groundHeight(r.x, r.y); if (!Number.isNaN(g)) this.surf.y = g; }
+    // nose-up about the rig's side axis: the travel end is the rig's nose, or its tail drawn turned round (fl)
+    if (Math.abs(this.buryPitch) > 1e-5) this.group.quaternion.multiply(this.q2.setFromAxisAngle(this.xAxis, fl * this.buryPitch));
+    if (this.bury > 1e-5) this.group.position.addScaledVector(n, -this.bury);
+    const sc = this.snowCover;
+    sc.uSnowCoverK.value = Math.min(1, this.bury / COVER_FULL);
+    sc.uSnowOrigin.value.copy(this.surf);
+    sc.uSnowN.value.set(r.normal[0], r.normal[2], -r.normal[1]).normalize();
+    // the sag held ahead of the board along the travel direction (the travel end of the board when slow)
+    const h = this.powderHold, sp = Math.hypot(r.vx, r.vy);
+    h.k = Math.min(1, this.bury / HOLD_FULL);
+    h.x = r.x; h.z = -r.y;
+    if (sp > 0.5) { h.fx = r.vx / sp; h.fz = -r.vy / sp; }
+    else { const l = Math.hypot(f.x, f.z) || 1; h.fx = fl * f.x / l; h.fz = fl * f.z / l; }
+  }
+
+  /** FEAT-152 on foot: the boots sit down by the whole boot sink in deep powder and the snow covers them (the shins in deep snow) */
+  private footSnow(r: Rider, dt: number): number {
+    const gate = r.onGround ? buryGate(r.snow?.depth ?? 0) : 0;
+    this.footCover += (gate - this.footCover) * (1 - Math.exp(-dt / BURY_TAU));
+    this.bury = 0; this.buryPitch = 0; this.powderHold.k = 0;
+    const sc = this.snowCover;
+    sc.uSnowCoverK.value = this.footCover;
+    if (this.footCover > 0 && this.pack) {
+      const g = this.pack.groundHeight(r.x, r.y);
+      sc.uSnowOrigin.value.set(r.x, Number.isNaN(g) ? r.z : g, -r.y);
+      const gn = this.pack.groundNormal(r.x, r.y) as number[];
+      sc.uSnowN.value.set(gn[0], gn[2], -gn[1]).normalize();
+    }
+    this.surf.copy(this.group.position);
+    return gate;
+  }
+
   /** FEAT-127: roll each ski by `ex` past the body's lean, about its own edge on the turn's side (`side` -1..1) */
   private rollSkis(ex: number, side: number): void {
     for (const c of this.rig.carriers) {
@@ -952,7 +1038,7 @@ export class RiderView {
    * only advances the clock (on foot, crashed, on a lift).
    */
   private updateSpray(r: Rider, dt: number, f: THREE.Vector3, right: THREE.Vector3, emitting: boolean): void {
-    this.spray.update(r, dt, this.group.position, f, right, this.fl, emitting);
+    this.spray.update(r, dt, this.surf, f, right, this.fl, emitting); // FEAT-152: from the snow surface, not the buried board
   }
 
   // ---------------------------------------------------------------- on foot (FEAT-067)
@@ -1006,6 +1092,7 @@ export class RiderView {
     const ski = this.discipline === 'ski';
     if (!this.footActive) { this.footActive = true; this.gaitLive = false; this.prevStep[0] = this.prevStep[1] = u >= 1 ? 1 : 0; }
     this.group.position.set(r.x, r.z, -r.y);
+    const deep = this.footSnow(r, dt);
     // stands upright when walking; on the board's slope frame until the gear leaves the snow
     const lift = smooth(0.72, 1, u);
     const n = this.tmpN.set(r.normal[0], r.normal[2], -r.normal[1]).lerp(this.up, lift).normalize();
@@ -1027,7 +1114,9 @@ export class RiderView {
     const fall = Math.hypot(r.normal[0], r.normal[1]);
     // slipping or kicking up steep snow smears the print downhill
     const smearAmt = fall > 0.02 ? 0.12 * smooth(25, 40, r.slopeDeg) + 0.15 * Math.min(1, r.slideSpeed / 2) : 0;
-    const gin = { x: r.x, y: r.y, z: r.z, heading: r.heading, vx: r.vx, vy: r.vy, onGround: r.onGround, sink: r.sink, sliding: r.slipping,
+    // FEAT-152: in deep powder the soles sit down by the whole boot sink (0.6 of it in shallower snow)
+    const soleShare = 0.6 + 0.4 * deep;
+    const gin = { x: r.x, y: r.y, z: r.z, heading: r.heading, vx: r.vx, vy: r.vy, onGround: r.onGround, sink: r.sink, soleShare, sliding: r.slipping,
       smearX: fall > 0.02 ? (r.normal[0] / fall) * smearAmt : 0, smearY: fall > 0.02 ? (r.normal[1] / fall) * smearAmt : 0 };
     if (u >= 1) {
       if (!this.gaitLive) { gait.reset(gin); this.gaitLive = true; }
@@ -1046,7 +1135,7 @@ export class RiderView {
     if (this.crawl > 0.001) lerpPose(walk, walk, WALK_POSES.crawl, this.crawl);
     lerpPose(t, t, walk, stand);
     const crouch = u > 0.08 && u < 0.78 ? Math.sin(Math.PI * (u - 0.08) / 0.7) : 0;
-    t.hipsY -= 0.3 * crouch + 0.6 * r.sink * stand + 0.12 * this.slip; // sitting into a slip
+    t.hipsY -= 0.3 * crouch + soleShare * r.sink * stand + 0.12 * this.slip; // sitting into a slip
     if (r.squat > 0) { t.hipsY -= 0.45 * r.squat; t.hipsRot = [t.hipsRot[0] + 0.3 * r.squat, t.hipsRot[1], t.hipsRot[2]]; t.torso = [t.torso[0] + 0.35 * r.squat, t.torso[1], t.torso[2]]; } // on foot: hunker down (FEAT-111)
     // BUG-045 mantle: reach up to the edge, pull the knees up through the middle, then stand
     if (r.mantle > 0) {

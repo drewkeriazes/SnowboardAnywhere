@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Rider } from '../sim/Rider';
+import { buryGate } from './SnowCover';
 
 /**
  * FEAT-044: powder spray on the GPU. The CPU only writes a spawn record per particle (where it left
@@ -67,6 +68,9 @@ void main() {
 }`;
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+/** FEAT-152 deep powder: the bow wave starts at BOW_FROM m/s and is full by BOW_FULL, BOW_RATE particles a
+ *  second at full; the spill over the tail when slow is SPILL_RATE a second */
+const BOW_FROM = 3, BOW_FULL = 10, BOW_RATE = 140, SPILL_RATE = 30;
 
 export class Spray {
   readonly points: THREE.Points;
@@ -182,7 +186,7 @@ export class Spray {
     const sheetRate = r.scrape * 350 * (0.5 + soft) * Math.min(1, sp / 4) * (1 - 0.5 * hard);
     this.acc += (rate + sheetRate) * dt;
     let n = Math.min(budget, Math.floor(this.acc));
-    this.acc -= n;
+    this.acc -= n; budget -= n;
     if (this.acc > PER_FRAME_CAP) this.acc = PER_FRAME_CAP; // never bank a burst
     const sheetShare = sheetRate / Math.max(1e-3, rate + sheetRate);
     const side = Math.sign(fl * r.edgeAngle) || 1; // the engaged edge in the rig's frame (FEAT-139)
@@ -206,8 +210,44 @@ export class Spray {
           right.x * side * out + dirX * sp * 0.3 + (Math.random() - 0.5) * 1.5, up, right.z * side * out + dirZ * sp * 0.3 + (Math.random() - 0.5) * 1.5, life, size, kind);
       }
     }
+    this.deepPowder(r, dt, g, right, sp, dirX, dirZ, budget);
     this.flush();
   }
+
+  /**
+   * FEAT-152: with the board set down in deep powder (SnowCover's buryGate), a bow wave off the nose at
+   * speed, thrown up and back over the front foot (slower than the board, so the rider runs into it),
+   * and when slow, snow spilling over the tail. `g` the snow surface under the board (three.js).
+   */
+  private deepPowder(r: Rider, dt: number, g: THREE.Vector3, right: THREE.Vector3, sp: number, dirX: number, dirZ: number, budget: number): void {
+    const deep = buryGate(r.snow.depth);
+    if (deep <= 0 || budget <= 0) { this.deepAcc = 0; return; }
+    const bow = deep * clamp01((sp - BOW_FROM) / (BOW_FULL - BOW_FROM)) * (0.6 + 0.4 * Math.min(1, sp / 20));
+    const spill = deep * clamp01(sp / 1.5) * (1 - clamp01((sp - 2) / 4));
+    const bowRate = BOW_RATE * bow, rate = bowRate + SPILL_RATE * spill;
+    this.deepAcc = Math.min(PER_FRAME_CAP, this.deepAcc + rate * dt);
+    let n = Math.min(budget, Math.floor(this.deepAcc));
+    this.deepAcc -= n;
+    const bowShare = bowRate / Math.max(1e-3, rate);
+    for (; n > 0; n--) {
+      const across = (Math.random() - 0.5) * 0.32;
+      const ox = right.x * across, oz = right.z * across;
+      if (Math.random() < bowShare) {
+        // off the nose, out to its sides, up over the front foot
+        const at = 0.6 + 0.2 * Math.random(), keep = 0.45 + 0.3 * Math.random();
+        const up = (1.4 + 2.2 * Math.random()) * (0.6 + 0.4 * Math.min(1, sp / 15));
+        this.pick(0.75);
+        this.spawn(g.x + dirX * at + ox, g.y + 0.04, g.z + dirZ * at + oz,
+          dirX * sp * keep + ox * 6, up * (this.pk[0] ? 0.7 : 1), dirZ * sp * keep + oz * 6, this.pk[1], this.pk[2], this.pk[0]);
+      } else {
+        // over the tail: small, low, falling back onto it
+        const at = 0.5 + 0.25 * Math.random();
+        this.spawn(g.x - dirX * at + ox, g.y + 0.03, g.z - dirZ * at + oz,
+          dirX * sp * 0.85 + ox * 2, 0.4 + 0.6 * Math.random(), dirZ * sp * 0.85 + oz * 2, 0.35 + 0.3 * Math.random(), 0.07 + 0.05 * Math.random(), 0);
+      }
+    }
+  }
+  private deepAcc = 0;
 
   /** upload only the slots written this frame (one range, or two when the ring wrapped); no allocation */
   private flush(): void {
