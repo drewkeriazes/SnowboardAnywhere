@@ -85,6 +85,15 @@ under-detected lidar canopy (0.08 to 0.45) and then box-averaged, with the pack'
 cleared strips (areas filled, lines at 0.6 of their corridor width; gladed runs keep their trees), the
 mask's rock, and the mean tree height per 16 m from the tree instances.
 
+The `mid` (16 m over the mid height grid, 40 km) and `far` (100 m over the far ring's data, 200 km) levels
+come from the land cover (DATA-019): ESA WorldCover 2021 classes and the ETH 2020 canopy height, read on a
+4 x 4 (mid) or 3 x 3 (far) sub-grid per cell. R is the share of sub-samples that are WorldCover tree cover
+(class 10) and at least 3 m tall in ETH; G the mean ETH height of those, averaged over about 3 cells; B the
+bare / sparse share (class 60) times 0.6, since snow covers the gentler part; A from built-up (class 50).
+The downhill pistes of every resort in view (`osm/pistes_wide.json`) are burned in as cleared sub-samples,
+so Beaver Creek's and Copper's trails show. G, B and A are quantised (2.5 m, 1/8, 1/4) to keep the files
+small. Without `raw/<slug>/landcover/` the build skips these two levels.
+
 The terrain shader samples R per pixel from a mipmapped GPU texture past about 300 m, so a trail
 narrower than a far chunk's vertex spacing still shows as a white cut; chunks coarser than 8 m take all
 four channels per vertex (forest, rock, and the canopy lift past the instanced trees). Finer levels fade
@@ -135,7 +144,8 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
   "dir": { same fields as mask },                          // optional, DATA-002
   "moguls": { same fields as mask },                       // optional, FEAT-059
   "cover": { "heightMax": 40, "blend": 500,                 // optional, FEAT-153
-             "levels": [{ "name": "pack", "res": 4, "minX", "minY", "w", "h", "file": "cover/pack.png" }] },
+             "levels": [{ "name": "pack", "res": 4, "minX", "minY", "w", "h", "file": "cover/pack.png" },
+                        { "name": "mid", "res": 16, ... }, { "name": "far", "res": 100, ... }] },
   "instances": { "cellSize": 1000, "minX", "minY", "cellsX", "cellsY", "treeCount", "rockCount", "treeCells", "rockCells" },
   "start": { "x", "y", "heading" },                       // default drop-in
   "sun": { "azimuth": 160, "elevation": 32 },             // degrees, default lighting

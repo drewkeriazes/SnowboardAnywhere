@@ -12,6 +12,8 @@ Researched 2026-11-05. This decides what text goes in `meta.json.attributions` a
 | OpenStreetMap (via Geofabrik extract and Overpass) | pistes, lifts, towers, buildings, roads, water, peaks, places | ODbL 1.0 | MUST show "© OpenStreetMap contributors" wherever OSM-derived content is visible (in-game credits and the resort picker). Derived databases: our `features.json` is a "derivative database" if we redistribute it; a game pack is arguably a "produced work" but include the credit regardless. If we ever publish the packs separately, the ODbL share-alike applies to the OSM-derived parts. |
 | OpenSkiData / OpenSkiMap (russellporter) | runs, lifts, resort polygon, difficulty, grooming | Data is OSM-derived, so ODbL; the format library is MIT | Same OSM credit plus "Ski area data: OpenSkiMap.org". Skimap.org-sourced attributes (resort status, some names) are under skimap.org's terms; we only use OSM-sourced run/lift attributes. |
 | Mapterhorn terrain tiles | far-ring background terrain | Code BSD-3; tile data inherits each source's licence; for the USA all 34 sources are USGS 3DEP, public domain | Credit "Terrain tiles: Mapterhorn (USGS 3DEP)". No stated usage limits or terms on the public tile endpoint; hosted on Cloudflare. Be a good citizen: cache tiles in the pack rather than hitting `tiles.mapterhorn.com` at runtime. |
+| ESA WorldCover 2021 v200 (AWS open data) | forest, bare ground and built-up for the far terrain (DATA-019) | CC BY 4.0 (worldcover2021.esa.int/download: free, without restriction of use) | Credit "© ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium". Cite the dataset, doi 10.5281/zenodo.7254221. |
+| ETH Global Sentinel-2 10 m Canopy Height 2020 (ETH libdrive) | canopy height for the far forest's silhouette (DATA-019) | CC BY 4.0 | Credit Lang, Jetz, Schindler, Wegner, "A high-resolution canopy height model of the Earth", Nature Ecology & Evolution 7, 1778-1789 (2023). Cite the dataset and the paper. |
 | Open-Meteo | live weather | CC BY 4.0 for the API data; free for non-commercial use without a key | Credit "Weather data by Open-Meteo.com". Commercial use needs a paid key. |
 | Three.js, Vite, @three.ez/*, meshoptimizer | engine | MIT | Licence files ship with the bundle. |
 | ambientCG Rock030, Gravel040 (`game/public/textures/`, made by `pipeline/prep_textures.py`) | rock and talus albedo, normal, roughness | CC0 1.0 | None required; credit "Rock textures: ambientCG.com (CC0)" anyway. Chosen in DATA-005 (#18): Google Maps / Street View imagery may not be used as textures (Google Maps Platform terms forbid extracting imagery), so photo detail comes from CC0 PBR sets. Poly Haven (also CC0) is the fallback source. |
@@ -25,6 +27,8 @@ Researched 2026-11-05. This decides what text goes in `meta.json.attributions` a
   "Vegetation type: LANDFIRE, USGS and U.S. Forest Service (public domain)",
   "Geographic names: USGS GNIS (public domain)",
   "Map data © OpenStreetMap contributors, ODbL; ski area data: OpenSkiMap.org",
+  "Land cover: ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium (CC BY 4.0)",
+  "Canopy height: Lang et al. 2023, ETH Global Sentinel-2 10m Canopy Height 2020 (CC BY 4.0)",
   "Weather data by Open-Meteo.com (CC BY 4.0)",
   "Rock textures: ambientCG.com (CC0)"
 ]
