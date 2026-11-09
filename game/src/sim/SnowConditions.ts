@@ -60,15 +60,18 @@ export function newSnowState(): SnowState {
 
 export const DEFAULT_SNOW_WORLD: SnowWorld = { hour: 13, storm: 0, newSnow: 0, day: 'mid', zLow: 0, zHigh: 3000 };
 
-/** per-kind physics: grip, drag0 (m/s^2), drag1 (per m/s), turn, jolt, skid scrub, loose depth (m) */
-const K: Record<SnowKind, [number, number, number, number, number, number, number]> = {
-  groomed: [1.0, 0.07, 0.000, 1.0, 0, 1.0, 0.025],
-  powder: [0.85, 0.15, 0.000, 0.7, 0, 1.3, 0.3],
-  chop: [0.9, 0.18, 0.003, 0.9, 1, 1.1, 0.08],
-  ice: [0.5, 0.04, 0.000, 1.0, 0, 0.4, 0.004],
-  slush: [0.9, 0.5, 0.01, 0.85, 0, 1.2, 0.06],
-  rock: [1.0, 0.2, 0.000, 1.0, 0, 1.0, 0.008],
+/** per-kind physics: grip, drag0 (m/s^2), drag1 (per m/s), turn, skid scrub, loose depth (m) */
+const K: Record<SnowKind, [number, number, number, number, number, number]> = {
+  groomed: [1.0, 0.07, 0.000, 1.0, 1.0, 0.025],
+  powder: [0.85, 0.15, 0.000, 0.7, 1.3, 0.3],
+  chop: [0.9, 0.18, 0.003, 0.9, 1.1, 0.08],
+  ice: [0.5, 0.04, 0.000, 1.0, 0.4, 0.004],
+  slush: [0.9, 0.5, 0.01, 0.85, 1.2, 0.06],
+  rock: [1.0, 0.2, 0.000, 1.0, 1.0, 0.008],
 };
+/** the jolts start once the chop weight passes JOLT_FROM and are full by JOLT_FROM + JOLT_RANGE: a
+ *  third of chop mixed into powder rides smooth */
+const JOLT_FROM = 0.3, JOLT_RANGE = 0.5;
 const KINDS: SnowKind[] = ['groomed', 'powder', 'chop', 'ice', 'slush', 'rock'];
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -127,16 +130,15 @@ export function snowAt(s: SurfaceInfo, n: ArrayLike<number>, z: number, w: SnowW
   // depth: powder deeper in the shade, under the trees and with new snow
   const powDepth = 0.12 + 0.08 * shade + 0.1 * trees + 0.2 * fresh;
   let kind: SnowKind = 'groomed', best = -1;
-  let grip = 0, drag0 = 0, drag1 = 0, turn = 0, jolt = 0, scrub = 0, depth = 0;
+  let grip = 0, drag0 = 0, drag1 = 0, turn = 0, scrub = 0, depth = 0;
   for (const k of KINDS) {
     const wk = out[k];
     if (wk > best) { best = wk; kind = k; }
     const p = K[k];
-    grip += wk * p[0]; drag0 += wk * p[1]; drag1 += wk * p[2]; turn += wk * p[3]; jolt += wk * p[4]; scrub += wk * p[5];
-    depth += wk * (k === 'powder' ? powDepth : p[6]);
+    grip += wk * p[0]; drag0 += wk * p[1]; drag1 += wk * p[2]; turn += wk * p[3]; scrub += wk * p[4];
+    depth += wk * (k === 'powder' ? powDepth : p[5]);
   }
-  // the jolts only once the chop is most of what is here: a third of chop mixed into powder rides smooth
-  jolt = clamp01((out.chop - 0.3) / 0.5);
+  const jolt = clamp01((out.chop - JOLT_FROM) / JOLT_RANGE);
   out.kind = kind; out.grip = grip; out.drag0 = drag0; out.drag1 = drag1; out.turn = turn; out.jolt = jolt; out.skidScrub = scrub; out.depth = depth;
   return out;
 }
