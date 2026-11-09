@@ -58,7 +58,9 @@ const SKIED_BASE: Record<string, number> = { fresh: 0.15, mid: 0.9, spring: 0.7 
 const params = new URLSearchParams(location.search);
 let packSlug = params.get('pack') ?? '';
 const headless = params.has('headless');
-const debugHud = params.has('debug'); // BUG-053: extra HUD line with the edge model numbers
+/** FEAT-138: `npm run host` builds for other computers on the home network; dev-only tools stay off there */
+const hosted = !!import.meta.env.VITE_HOST_NAME;
+const debugHud = params.has('debug') && !hosted; // BUG-053: extra HUD line with the edge model numbers
 
 async function main(): Promise<void> {
   const status = document.getElementById('status')!;
@@ -462,7 +464,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         a.href = dataUrl; a.download = `${pack.meta.slug}_${pose.x}_${pose.y}_${pose.h.toFixed(0)}.png`; a.click();
         showToast('Saved the shot to Downloads');
       };
-      if (!spotName) { download(); return; }
+      if (!spotName || hosted) { download(); return; } // the compare-shot endpoint is dev server only
       fetch('/__compare/save', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack: pack.meta.slug, spot: spotName, pose, weather: currentWeather(), link: u.toString(), png: dataUrl, jpg: jpgUrl }) })
         .then(async (r) => {
           if (!r.ok) throw new Error(await r.text());

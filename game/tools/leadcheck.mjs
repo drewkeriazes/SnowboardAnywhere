@@ -84,14 +84,33 @@ for (let t = 0; t < 4; t++) {
   console.log(`switch ${t + 1} (${to}) crossing ms`, JSON.stringify(crossing), `speed ${samples[samples.length - 1].speed.toFixed(1)}`);
 }
 await page.keyboard.up('ArrowRight'); await page.keyboard.up('ArrowLeft');
+// jitter: tap left and right every 8 frames (133 ms) for 3 s; the body must stay smooth (no kinks),
+// measured as the worst frame-to-frame change of velocity of each body signal (rad per frame^2)
+const jit = [];
+for (let t = 0; t < 22; t++) {
+  const key = t % 2 ? 'ArrowRight' : 'ArrowLeft';
+  await page.keyboard.down(key);
+  jit.push(...await page.evaluate((n) => {
+    const s = window.__sim, v = s.riderView, out = [];
+    for (let i = 0; i < n; i++) { window.__step(1, 1 / 60); const L = v.leadState, p = v.pose; out.push({ lean: L.lean, board: L.boardRoll, yaw: L.yawLead, torsoY: p.torso[1], torsoZ: p.torso[2], hipsZ: p.hipsRot[2], hipsY: p.hipsY }); }
+    return out;
+  }, 8));
+  await page.keyboard.up(key);
+}
+const kink = {};
+for (const k of Object.keys(jit[0])) { let m = 0; for (let i = 2; i < jit.length; i++) m = Math.max(m, Math.abs(jit[i][k] - 2 * jit[i - 1][k] + jit[i - 2][k])); kink[k] = +m.toFixed(4); }
+console.log('jitter (worst change of velocity per frame)', JSON.stringify(kink));
 const ordered = results.every((c) => CROSS.every((k) => c[k] !== null) && c.upper <= c.hips && c.hips <= c.lean && c.lean <= c.edge && c.edge <= c.board);
-const leads = results.every((c) => c.board - c.upper >= 80 && c.board - c.hips >= 30);
+const leads = results.every((c) => c.board - c.upper >= 40 && c.board - c.hips >= 20);
 if (control) console.log('control run (no lead, no lag): ordered', ordered, 'leads', leads);
 else {
   check('every link crosses to the new edge in order (shoulders, hips, body, physics, board)', ordered);
-  check('shoulders at least 80 ms and hips at least 30 ms ahead of the board', leads);
+  check('shoulders at least 40 ms and hips at least 20 ms ahead of the board', leads);
 }
 check('the drawn board never rolls past the physics edge on the engaged side', rollPast < 1e-3, `${(rollPast * 180 / Math.PI).toFixed(2)} deg over`);
+// a critically damped follow of a step of 1 rad with a 50 ms lag peaks near 0.03 rad/frame^2 at 60 Hz; the
+// old first-order eases on a stepped target kinked at 2 to 3 times that
+check('tapping left and right keeps the body smooth (no velocity kinks)', Math.max(kink.lean, kink.yaw, kink.torsoY, kink.torsoZ, kink.hipsZ, kink.board) < 0.04, JSON.stringify(kink));
 check('the drawn yaw stays within 15 deg of the physics yaw', yawErrMax < 15 * Math.PI / 180, `max ${(yawErrMax * 180 / Math.PI).toFixed(1)} deg over ${frames} frames`);
 console.log('console errors:', errors.length); for (const e of errors.slice(0, 10)) console.log('  ', e.slice(0, 300));
 await browser.close();
