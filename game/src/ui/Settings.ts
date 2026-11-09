@@ -58,6 +58,8 @@ export interface Settings {
   keysNote?: boolean;
   outfit: Outfit;
   discipline: 'board' | 'ski';
+  /** FEAT-139: the snowboarder's normal stance, left foot forward (regular) or right (goofy) */
+  stance: 'regular' | 'goofy';
   /** Outrun mode (FEAT-097): the last picked difficulty, escape rule and the Gentle eat */
   outrun: { difficulty: 'chill' | 'normal' | 'skifree'; escape: 'endless' | 'base'; gentle: boolean };
 }
@@ -115,7 +117,7 @@ export function migrateKeys(raw: Record<string, unknown> | undefined): { keys: R
 
 const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', snowDay: 'mid', treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-  fov: 68, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: migrateKeys(undefined).keys,
+  fov: 68, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', stance: 'regular', timeOfDay: 'pack', month: 2, units: 'imperial', keys: migrateKeys(undefined).keys,
   outrun: { difficulty: 'normal', escape: 'base', gentle: false },
 };
 const KEY = 'settings';
@@ -213,6 +215,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
     </div>
     <div class="tab hidden" data-t="rider">
       <div class="row"><label>Ride</label><select data-k="discipline"><option value="board">Snowboard</option><option value="ski">Skis</option></select></div>
+      <div class="row"><label>Stance</label><select data-k="stance"><option value="regular">Regular (left foot forward)</option><option value="goofy">Goofy (right foot forward)</option></select></div>
       <div class="row"><label>Preset</label><select data-o="preset"><option value="">Custom</option>${Object.keys(OUTFIT_PRESETS).map((n) => `<option value="${n}">${n}</option>`).join('')}</select></div>
       ${(['jacket', 'pants', 'helmet', 'gloves', 'board'] as (keyof Outfit)[]).map((k) => `<div class="row"><label>${k[0].toUpperCase() + k.slice(1)}</label><input type="color" data-o="${k}"><span class="val" data-ov="${k}"></span></div>`).join('')}
     </div>

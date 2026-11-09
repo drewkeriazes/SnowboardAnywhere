@@ -74,6 +74,12 @@ A jumps, X squats and grabs, B skates, bumpers press, right stick looks around, 
 the d-pad cycles camera / map / piste lines / track, Select opens the replay and Start pauses.
 The replay viewer lists its own keys on screen.
 
+You can ride switch (the other foot forward, the tail leading). Land a 180, or slide back down the
+hill tail first, and you carry on switch until you turn round again with another 180 or by stopping
+and sliding off the other way. The HUD shows SWITCH while you do, and spins are named on landing
+("Backside 180", "Switch frontside 360"). Pick your normal stance in Settings > Rider > Stance:
+Regular (left foot forward) or Goofy (right foot forward).
+
 While you ride, the HUD shows the run you're on, top speed, vertical and distance. After a real
 descent (60 m or more of vertical, ended by boarding a lift, stopping for 4 s or restarting) a run
 card shows time, top speed, distance, vertical, longest air, biggest drop, max g, the named runs

@@ -9,7 +9,9 @@ import { nearestOnCourse, type Course } from './Courses';
  * starts on the one whose route the rider actually follows out of the gate.
  * The best run per course is saved to localStorage with its splits and a 10 Hz ghost track.
  */
-export interface GhostSample { t: number; x: number; y: number; z: number; h: number; lg: number; e: number; f: number } // f bits: 1 onGround, 2 tuck, 4 crashed
+export interface GhostSample { t: number; x: number; y: number; z: number; h: number; lg: number; e: number; f: number } // f bits: 1 onGround, 2 tuck, 4 crashed, 8 riding switch, 16 goofy (FEAT-139)
+/** FEAT-139: add the stance bits (8 riding switch, 16 goofy) to a sample's flags */
+export function stanceFlags(r: { switch: boolean; goofy: boolean }, f: number): number { return f | (r.switch ? 8 : 0) | (r.goofy ? 16 : 0); }
 export interface Best { time: number; splits: number[]; samples: GhostSample[]; date: string }
 
 const START_R = 14; // m around the start point that arms the gate
@@ -113,7 +115,7 @@ export class TimeTrial {
     this.sampleAcc += dt;
     if (this.sampleAcc >= SAMPLE_DT) {
       this.sampleAcc = 0;
-      const f = (r.onGround ? 1 : 0) | (tuck ? 2 : 0) | (r.crashed > 0 ? 4 : 0);
+      const f = stanceFlags(r, (r.onGround ? 1 : 0) | (tuck ? 2 : 0) | (r.crashed > 0 ? 4 : 0));
       this.samples.push({ t: +this.time.toFixed(2), x: +r.x.toFixed(2), y: +r.y.toFixed(2), z: +r.z.toFixed(2), h: +r.boardYaw.toFixed(3), lg: +r.lateralG.toFixed(2), e: +r.edgeAngle.toFixed(2), f });
     }
     const n = nearestOnCourse(c, r.x, r.y);
@@ -149,6 +151,8 @@ export class TimeTrial {
     while (hi - lo > 1) { const m = (lo + hi) >> 1; if (s[m].t <= t) lo = m; else hi = m; }
     const a = s[lo], b = s[hi], k = (t - a.t) / Math.max(1e-6, b.t - a.t);
     let dh = b.h - a.h; if (dh > Math.PI) dh -= 2 * Math.PI; if (dh < -Math.PI) dh += 2 * Math.PI;
-    return { t, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k, h: a.h + dh * k, lg: a.lg + (b.lg - a.lg) * k, e: a.e + (b.e - a.e) * k, f: k < 0.5 ? a.f : b.f };
+    // FEAT-139: the heading turning round with the stance (riding switch) is a jump, not a spin: hold it with the flags
+    const h = Math.abs(dh) < 1 ? a.h + dh * k : k < 0.5 ? a.h : b.h;
+    return { t, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k, h, lg: a.lg + (b.lg - a.lg) * k, e: a.e + (b.e - a.e) * k, f: k < 0.5 ? a.f : b.f };
   }
 }

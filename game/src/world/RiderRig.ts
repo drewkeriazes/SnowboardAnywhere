@@ -226,7 +226,12 @@ function rigid(g: THREE.BufferGeometry, bone: BoneName, at: [number, number, num
 
 const d2r = Math.PI / 180;
 
-export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): RiderRig {
+/**
+ * Build the rider. FEAT-139 `goofy`: the same body (left foot at -Z, chest +X) on a board turned
+ * round, nose at +Z with the +15 binding under the right foot, so drawn turned round (RiderView
+ * does that riding goofy) it is a true goofy stance: right foot forward, nose leading.
+ */
+export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski', goofy = false): RiderRig {
   const body = new THREE.Group(); body.name = 'rider body';
   const bones = {} as Record<BoneName, THREE.Bone>;
   for (const n of BONES) {
@@ -333,9 +338,9 @@ export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): Rid
     const deck = new THREE.Group(); deck.name = 'deck'; board.add(deck);
     // FEAT-118: built as bendable strips (a row of vertices every 4 cm) instead of a rigid extrusion.
     // Outline: 0.13 m half-width at the nose tapering to 0.92 of that at the tail, rounded tips.
-    const L = FLEX_HALF, Wd = 0.13, tip = 0.12;
+    const L = FLEX_HALF, Wd = 0.13, tip = 0.12, nz = goofy ? -1 : 1; // FEAT-139: goofy's nose is at +Z
     const outline = (z: number): number => {
-      const w = Wd * (1 - 0.08 * Math.max(0, Math.min(1, (z + L - tip) / (2 * (L - tip)))));
+      const w = Wd * (1 - 0.08 * Math.max(0, Math.min(1, (nz * z + L - tip) / (2 * (L - tip)))));
       const e = Math.abs(z) - (L - tip);
       return e <= 0 ? w : w * Math.sqrt(Math.max(0, 1 - (e / tip) * (e / tip)));
     };
@@ -349,9 +354,12 @@ export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): Rid
     strip(flexStrip(() => 0.03, 0.022, 0.026, -0.65, 0.65, 34), mats.jacket, 'topsheet stripe');
     const flexBindings: BoardFlex['bindings'] = [];
     // bindings across the board, highback on the heel edge (-X); duck stance front +15, back -6.
-    // Front (nose, -Z) is the left foot in a regular stance.
+    // Front (nose, -Z) is the left foot in a regular stance. FEAT-139 goofy: the nose is +Z, the right
+    // foot's binding is the front one (toes turned 15 toward +Z) and the left the back (6 toward -Z).
+    // The left foot's binding comes first either way (anchors.l).
     const an: THREE.Object3D[] = [];
-    for (const [z, ang, which] of [[-0.28, 15, 'front'], [0.3, -6, 'back']] as const) {
+    const stance = goofy ? [[-0.3, 6, 'back'], [0.28, -15, 'front']] as const : [[-0.28, 15, 'front'], [0.3, -6, 'back']] as const;
+    for (const [z, ang, which] of stance) {
       const b = new THREE.Group(); b.name = `binding ${which}`; b.position.set(0, 0.025, z); b.rotation.y = ang * d2r;
       b.add(mesh(new THREE.BoxGeometry(0.3, 0.02, 0.2), mats.boots, 0, 0, 0, 'baseplate')); // top at 0.035
       b.add(mesh(new THREE.BoxGeometry(0.03, 0.26, 0.2), mats.boots, -0.13, 0.13, 0, 'highback'));

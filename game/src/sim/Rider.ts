@@ -174,6 +174,25 @@ export function trickName(flip: number, spin: number, rotations: number): string
   if (turns >= 360) return flip < 0 ? `${n}Rodeo ${turns}` : `${n}Front flip ${turns}`;
   return `${n}${flip > 0 ? 'front flip' : 'backflip'}`.replace(/^./, (c) => c.toUpperCase());
 }
+/**
+ * FEAT-139: a spin with no flip ("Frontside 180", "Backside 360"), or '' under a half turn. `toe` is
+ * the side the toe edge is on (+1 the heading's right): frontside turns the chest toward the
+ * direction of travel first, which is counterclockwise (spin < 0) for a rider facing right.
+ */
+export function spinName(spin: number, toe: number): string {
+  const turns = Math.round(Math.abs(spin) / Math.PI) * 180;
+  return turns < 180 ? '' : `${spin * toe < 0 ? 'Frontside' : 'Backside'} ${turns}`;
+}
+/** FEAT-139: "Switch backside 180", "Switch backflip": a trick taken off riding switch */
+export function switchName(name: string, sw: boolean): string {
+  return sw && name ? `Switch ${name[0].toLowerCase()}${name.slice(1)}` : name;
+}
+
+/** FEAT-139: riding backwards faster than this (m/s) the steering axis turns round and the stance
+ *  toggles to switch (or back); was 4 m/s when it spun the drawn rider round, which is now invisible */
+const FAKIE_SPEED = 2.5;
+/** FEAT-139: share of the sideways grip lost riding switch (most riders are weaker switch); 0 turns it off */
+const SWITCH_GRIP = 0.04;
 
 /** FEAT-085 skating: mean push (m/s^2) from a standstill, top skating speed (m/s), steepest slope it works on (deg), stroke period (s) */
 const SKATE_ACC = 4.2, SKATE_MAX = 5.5, SKATE_SLOPE = 10, SKATE_PERIOD = 0.6;
@@ -186,6 +205,12 @@ export class Rider {
   x = 0; y = 0; z = 0; // position, local metres (z up)
   vx = 0; vy = 0; vz = 0;
   heading = 0; // radians, 0 = north (+y), increasing clockwise (toward +x)
+  /** FEAT-139: riding switch (the other foot forward, the tail leading). `heading` stays the steering
+   *  axis along the direction of travel and every physics value stays in its frame; the view draws
+   *  the board and the body turned round (see toeSign). Snowboard only. */
+  switch = false;
+  /** FEAT-139: the rider's normal stance has the right foot forward (Settings > Rider > Stance) */
+  goofy = false;
   onGround = true;
   airTime = 0;
   jumpCharge = 0;
@@ -194,7 +219,7 @@ export class Rider {
   /** s since the squat was let go from deep; a jump right then pops higher */
   private squatUp = 9;
   speed = 0;
-  /** FEAT-127: the board's edge angle to the snow (rad), + = the right-hand (toe) edge, rolled toward the steer at a limited rate */
+  /** FEAT-127: the board's edge angle to the snow (rad), + = the heading's right-hand edge (the toe edge riding regular; see toeSign), rolled toward the steer at a limited rate */
   edge = 0;
   /** the edge as a share of EDGE_FULL (sound, poses, replays and ghosts) */
   get edgeAngle(): number { return this.edge / EDGE_FULL; }
@@ -312,10 +337,26 @@ export class Rider {
     this.collider = collider;
   }
 
+  /** FEAT-139: which side of the heading the toe edge is on: +1 the right (regular, or goofy riding
+   *  switch), -1 the left (goofy, or regular riding switch; the board and body are drawn turned round) */
+  get toeSign(): number { return this.discipline === 'board' && this.switch !== this.goofy ? -1 : 1; }
+
+  /**
+   * FEAT-139: turn the steering axis round to the direction of travel and toggle the stance, so the
+   * rider as drawn (the board at heading + PI while switch) does not move. The edge, the lean and the
+   * lateral g keep their side of the board, which is the other side of the new heading.
+   */
+  private turnRound(): void {
+    this.heading += Math.PI; this.boardYaw += Math.PI; // the board was already posed this step
+    this.edge = -this.edge; this.edgeTarget = -this.edgeTarget;
+    this.lateralG = -this.lateralG; this.lean = -this.lean;
+    if (this.discipline === 'board') this.switch = !this.switch;
+  }
+
   reset(x: number, y: number, heading: number, seed = 1): void {
     this.x = x; this.y = y; this.z = this.pack.groundHeight(x, y) + 0.5;
     this.vx = this.vy = this.vz = 0;
-    this.heading = heading; this.onGround = true; this.airTime = 0; this.jumpCharge = 0;
+    this.heading = heading; this.switch = false; this.onGround = true; this.airTime = 0; this.jumpCharge = 0;
     this.crashed = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
     this.edge = 0; this.edgeTarget = 0; this.leanTarget = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.landingShock = 0;
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
@@ -349,6 +390,10 @@ export class Rider {
     if (!this.onFoot) {
       if (!this.canUnstrap) return 'fast';
       this.strapState = 'off'; this.strapT = 0;
+      // FEAT-139: on foot the body is drawn along the heading, so a rider drawn turned round (switch,
+      // or goofy) takes the heading the way they face; nearly stopped, so nothing else moves
+      if (this.toeSign < 0) this.heading += Math.PI;
+      this.switch = false;
       return '';
     }
     if (!this.canStrapIn) return 'moving';
@@ -513,7 +558,8 @@ export class Rider {
     const groomed = this.surface.groomed;
     const rock = this.surface.rock;
     const powder = Math.max(0, 1 - groomed) * (this.surface.canopy > 0.3 ? 1 : 0.6);
-    const gripBase = (1.0 + 0.4 * groomed - 0.5 * rock) * (1 + SQUAT_GRIP * this.squat) * (1 - PRESS_GRIP * Math.abs(this.lean)); // low centre of mass bites a little more; on a press you can't carve
+    const gripBase = (1.0 + 0.4 * groomed - 0.5 * rock) * (1 + SQUAT_GRIP * this.squat) * (1 - PRESS_GRIP * Math.abs(this.lean)) // low centre of mass bites a little more; on a press you can't carve
+      * (this.switch ? 1 - SWITCH_GRIP : 1); // FEAT-139: a touch weaker switch
 
     // ---- FEAT-127 edge and carve. Steer sets a target edge angle up to what can be held here; the
     // edge rolls toward it at F.roll, quicker through the flat while it changes sides (BUG-053), so
@@ -554,14 +600,15 @@ export class Rider {
     this.heading += dHeading;
 
     // brake: swing the board across the direction of travel (a hockey stop). Steer picks the
-    // stance (right = toeside, left = heelside); otherwise the edge already engaged, else heelside.
-    // Toeside rotates the board clockwise from the travel direction, which leaves the heel edge
-    // leading and the toe edge trailing (the uphill edge, cutting the snow); heelside the reverse.
+    // side (right = the heading's right-hand edge: toeside riding regular, heelside switch or goofy);
+    // otherwise the edge already engaged, else heelside (FEAT-139: whichever side the heel is on).
+    // brakeSide +1 rotates the board clockwise from the travel direction, which leaves the left-hand
+    // edge leading and the right-hand edge trailing (the uphill edge, cutting the snow); -1 the reverse.
     if (spd > 0.5) this.travelYaw = Math.atan2(this.vx, this.vy);
     else this.travelYaw += dHeading; // stopped: steering turns the board where it stands
     if (input.brake) {
       if (this.brakeSide === 0) {
-        this.brakeSide = input.steer > 0.1 ? 1 : input.steer < -0.1 ? -1 : this.edgeAngle > 0.3 ? 1 : -1;
+        this.brakeSide = input.steer > 0.1 ? 1 : input.steer < -0.1 ? -1 : this.edgeAngle * this.toeSign > 0.3 ? this.toeSign : -this.toeSign;
         this.brakeGamma = this.discipline === 'ski' && spd < PLOUGH_SPEED ? 0 : STOP_GAMMA;
         this.brakeMod = 0;
       }
@@ -668,8 +715,9 @@ export class Rider {
       const across = Math.abs(Math.sin(this.boardYaw - Math.atan2(n[0], n[1])));
       if (across > 0.75) { this.vx = this.vy = 0; ax = ay = 0; }
     }
-    // backwards riding is unstable: if moving against heading fast, flip heading (fakie)
-    if (F.fakie && vAlong < -4) { this.heading += Math.PI; this.edge = -this.edge; } // the same edge is now on the other side of the heading
+    // FEAT-139: going backwards along the heading, the steering axis turns round to the direction of
+    // travel and the rider is riding switch (or back to the normal stance): drawn the same, tail leading
+    if (F.fakie && vAlong < -FAKIE_SPEED && this.brakeAmt === 0) this.turnRound();
     else if (!F.fakie && vAlong < -1 && spd > 2) { this.vx *= 0.97; this.vy *= 0.97; } // skis sliding backwards scrub speed
 
     this.vx += ax * dt; this.vy += ay * dt;
@@ -769,6 +817,10 @@ export class Rider {
     } else if (this.strapState === 'on' && this.strapT >= STRAP_TIME) {
       this.strapState = 'none'; this.onFoot = false; this.strapT = 0;
       this.vx = this.vy = 0; this.speed = 0;
+      // FEAT-139: strapped in the normal stance; goofy is drawn turned round, so the heading turns
+      // round under it and the rider on screen stays put
+      this.switch = false;
+      if (this.toeSign < 0) { this.heading += Math.PI; this.squareBoard(); }
     }
   }
 
@@ -1035,8 +1087,15 @@ export class Rider {
     if (impact > 16 || (!clean && !sketchy && impact > 8 && !input.grab)) this.crashed = 1.3;
     if (flipOff > FLIP_CRASH) this.crashed = 1.3; // landed on the head or the back
     else if (sketchy) this.landingShock = Math.max(this.landingShock, 0.6); // a wobble
-    if (flipped > 0 && this.crashed <= 0) this.onTrick?.(trickName(this.flip, this.spin, flipped));
-    if (!clean) this.heading = Math.atan2(this.vx, this.vy); // the board snaps to the direction of travel
+    // FEAT-139: a spin on its own is a trick too, and either is "Switch ..." taken off riding switch
+    // (the stance cannot change in the air, so it is still the takeoff's here)
+    if (this.crashed <= 0) {
+      const name = flipped > 0 ? trickName(this.flip, this.spin, flipped) : clean && this.discipline === 'board' ? spinName(this.spin, this.toeSign) : '';
+      if (name) this.onTrick?.(switchName(name, this.switch));
+    }
+    // FEAT-139: landed with the board backwards (a 180, a 540): ride away switch, tail leading
+    if (this.discipline === 'board' && spd > 0.5 && this.vx * hx + this.vy * hy < 0) this.turnRound();
+    if (!clean) this.heading = Math.atan2(this.vx, this.vy); // the board snaps to the direction of travel (the nearer end leading)
     this.spin = 0; this.flip = 0; this.flipRate = 0;
     this.airTime = 0;
   }

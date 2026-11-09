@@ -427,8 +427,9 @@ export class GameAudio {
     // carve: toe vs heel by edge sign; skid chatter
     const edge = Math.abs(r.edgeAngle);
     const carveG = onSnow ? Math.min(0.5, (0.03 + 0.5 * edge * v) * (0.5 + 0.5 * groomed + 0.6 * hard)) : 0;
-    lerp(this.carveToe.gain, r.edgeAngle > 0 ? carveG : 0);
-    lerp(this.carveHeel.gain, r.edgeAngle < 0 ? carveG : 0);
+    const toe = r.edgeAngle * r.toeSign; // FEAT-139: the toe edge is the heading's left riding switch or goofy
+    lerp(this.carveToe.gain, toe > 0 ? carveG : 0);
+    lerp(this.carveHeel.gain, toe < 0 ? carveG : 0);
     this.carveToe.filter.frequency.value = 2600 + 1200 * edge + 30 * spd;
     this.carveHeel.filter.frequency.value = 1700 + 900 * edge + 30 * spd;
     // skid chatter, and the edge scraping through a brake (louder and higher on hard snow)

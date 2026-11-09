@@ -77,6 +77,7 @@ async function main(): Promise<void> {
   const audio = new GameAudio();
   const settings = loadSettings();
   const rp = params.get('rider'); if (rp === 'ski' || rp === 'board') settings.discipline = rp;
+  const sp = params.get('stance'); if (sp === 'regular' || sp === 'goofy') settings.stance = sp; // FEAT-139
   if (params.has('lowgfx')) { settings.quality = 'low'; settings.shadows = false; settings.treeDensity = 0.3; settings.pixelRatio = 1; }
   // before the menu, so the first song comes from the saved source and playlist
   audio.source = settings.musicSource;
@@ -261,7 +262,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     /** back on the snow at a recorded moment; the recording carries on from there */
     const rewindTo = (s: ReplaySample) => {
       rider.x = s.x; rider.y = s.y; rider.z = pack.groundHeight(s.x, s.y, s.z); rider.vx = s.vx; rider.vy = s.vy; rider.vz = 0;
-      rider.heading = s.hd; rider.boardYaw = s.h; rider.onGround = true; rider.onFoot = !!s.on; rider.crashed = 0;
+      rider.heading = s.hd; rider.boardYaw = s.h; rider.switch = !!(s.f & 8); rider.onGround = true; rider.onFoot = !!s.on; rider.crashed = 0;
       rider.flip = 0; rider.flipRate = 0; rider.spin = 0; rider.airTime = 0; rider.jumpCharge = 0; rider.landingShock = 0;
       replay.truncate(s.t); trial.cancel('Rewound');
     };
@@ -345,6 +346,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (!s.timeTrials) trial.cancel('Time trials off');
       refreshCourseFlags();
       rider.discipline = s.discipline;
+      rider.goofy = s.stance === 'goofy'; // FEAT-139 (the rider view follows it)
       labels.visible = s.showLabels && !storm; // peaks are hidden in the storm
       map.metric = s.units === 'metric';
       if (what === 'camera' || what === 'reset') cam.mode = s.camera;
@@ -480,7 +482,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const toast = document.getElementById('toast')!;
     let toastTimer = 0;
     const showToast = (text: string, ms = 4000) => { toast.textContent = text; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => toast.classList.remove('show'), ms); };
-    rider.onTrick = (name) => showToast(name, 1800); // FEAT-110: flips
+    rider.onTrick = (name) => showToast(name, 1800); // FEAT-110: flips; FEAT-139: spins and switch tricks
     if (params.get('cam') === 'eye' && !headless) showToast('Eye camera: click, then mouse to look · WASD move · Q/E height · [ ] zoom · P save shot · ` free fly', 10000);
     audio.onTrack = (name) => showToast(`\u266B ${name}`);
     // the menu may already have started a song before onTrack was set (BUG-033): announce it now
@@ -877,6 +879,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       hud.innerHTML =
         `<b>${speedStr(rider.speed)} &nbsp; ${altStr(rider.z)} &nbsp; slope ${rider.slopeDeg.toFixed(0)}&deg;` +
         (rider.onFoot ? ` &nbsp; ${rider.crawling ? 'SCRAMBLING' : 'ON FOOT'} &nbsp; <span class="dim">sprint</span> ${'&#9646;'.repeat(Math.ceil(rider.stamina / STAMINA * 5))}${'&#9647;'.repeat(5 - Math.ceil(rider.stamina / STAMINA * 5))}` : '') +
+        (rider.switch && !rider.unstrapped ? ' &nbsp; SWITCH' : '') + // FEAT-139
         (rider.onGround || rider.onFoot ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') +
         // FEAT-055: the run so far
         (runStats.active ? `</b><br><span class="dim">${runStats.current ? runStats.current + ' &middot; ' : ''}top ${fmtSpeed(runStats.topSpeed, settings.units === 'metric')} &middot; ${altStr(runStats.vertical)} vert &middot; ${fmtDistance(runStats.distance, settings.units === 'metric')}</span><b>` : '') +
@@ -885,7 +888,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         // BUG-053 ?debug: the edge model's numbers for tuning (edge angle, the lateral acceleration it balances, turn radius and rate, the brake's cut and swing)
         (debugHud ? `<br><span class="dim">edge ${(rider.edge * 180 / Math.PI).toFixed(0)}&deg; &middot; aLat ${rider.carveAcc.toFixed(1)} m/s&sup2; (${rider.lateralG.toFixed(2)} g) &middot; R ${Number.isFinite(rider.turnRadius) ? rider.turnRadius.toFixed(0) + ' m' : '&infin;'} &middot; ${(rider.turnRate * 180 / Math.PI).toFixed(0)}&deg;/s` +
           (rider.brakeAmt > 0 ? ` &middot; brake &Psi; ${(rider.brakePsi * 180 / Math.PI).toFixed(0)}&deg; &gamma; ${(Math.abs(rider.slip) * 180 / Math.PI).toFixed(0)}&deg; ${rider.brakeAcc.toFixed(1)} m/s&sup2; mod ${rider.brakeMod.toFixed(2)}` : '') + '</span>' : '');
-      (window as any).__sim = { rider, riderView, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, eyeAt, outrun, monsters, startOutrun, stopOutrun,
+      (window as any).__sim = { rider, riderView, trialWorld, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, eyeAt, outrun, monsters, startOutrun, stopOutrun,
         /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
         setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); } };
       if (!headless) requestAnimationFrame(frame);
