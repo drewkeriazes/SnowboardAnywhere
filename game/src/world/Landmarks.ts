@@ -34,11 +34,13 @@ export const LANDMARKS: Record<string, Landmark[]> = {
   vail: [
     {
       id: 'back-bowls-gateway', kind: 'gateway', name: 'The Legendary Back Bowls',
-      // On Forever just below the summit hub (the tops of Mountaintop, Northwoods and High Noon at
-      // 3,429 m, the "ELEV 11,250" on the sign), where the ridge drops south into the bowls.
-      x: -736.4, y: 487.8, heading: 162, span: 7.1, clearance: 3.55,
+      // At the top of Forever just below the summit hub (the tops of Mountaintop, Northwoods and High
+      // Noon at 3,429 m, the "ELEV 11,250" on the sign), where the ridge drops south into the bowls.
+      // Moved 20 m left of Forever's OSM line so the tall spruce stands 11 m to its right, open slope
+      // to its left, as in Drew's photo.
+      x: -718.0, y: 495.9, heading: 162, span: 7.1, clearance: 3.55,
       text: 'THE LEGENDARY BACK BOWLS', sub: ['ELEV.', '11,250'],
-      source: "Drew's photo; position from the summit lift tops at 3,429 m and the run Forever",
+      source: "Drew's photo; height from the summit lift tops at 3,429 m, placed against the spruce on its right",
       start: true,
     },
   ],
