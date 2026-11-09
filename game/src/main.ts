@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Pack } from './pack/Pack';
 import { Terrain } from './terrain/Terrain';
+import { MOGUL_CREEP_M_PER_DAY } from './terrain/Moguls';
 import { Rider } from './sim/Rider';
 import { snowLabel } from './sim/SnowConditions';
 import { Collider } from './sim/Collider';
@@ -388,6 +389,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       history.replaceState(null, '', u.toString());
     };
     const map = new ResortMap(pack);
+    map.setDebug(debugHud); // FEAT-059: mogul runs under-stroked on the map
     map.spawnPos = [sx, sy];
     const pickHandler = (x: number, y: number) => {
       trial.cancel('Moved');
@@ -874,6 +876,13 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         sw.hour = hour; sw.storm = weatherNow === 'storm' ? 1 : weatherNow === 'flurries' ? 0.3 : 0; sw.newSnow = snowCover; sw.day = settings.snowDay ?? 'mid';
         // "high up" is judged against the resort's own top (the highest lift top), not the pack's far terrain
         sw.zLow = zr[0]; sw.zHigh = resortTop;
+        // FEAT-059: mogul fields creep uphill about 8 cm a day from mid-November; new snow softens them
+        const live = settings.timeOfDay === 'now' || timeParam === 'now';
+        const d = live ? new Date() : new Date(Date.UTC(new Date().getFullYear(), settings.month - 1, 15));
+        const seasonStart = Date.UTC(d.getUTCMonth() >= 10 ? d.getUTCFullYear() : d.getUTCFullYear() - 1, 10, 15);
+        const seasonDays = Math.max(0, Math.min(150, (d.getTime() - seasonStart) / 86400000));
+        pack.setMoguls(params.has('nomoguls') ? 0 : 1 - 0.6 * snowCover, MOGUL_CREEP_M_PER_DAY * seasonDays);
+        terrain.setMoguls(pack.mogulScale, pack.mogulCreep);
       }
       rocks.setSnow(Math.min(1, snowCover * 3), snow.wind.x, snow.wind.y); // boulder tops fill three times faster than the slopes
       roads.update(fx, fy);

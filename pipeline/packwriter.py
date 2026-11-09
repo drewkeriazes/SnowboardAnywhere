@@ -43,8 +43,8 @@ def write_height_set(out_dir: str, name: str, grid: np.ndarray, res: float, min_
             "maxX": float(min_x + tiles_x * TILE * res), "maxY": float(min_y + tiles_y * TILE * res)}
 
 def write_mask_set(out_dir: str, rgba: np.ndarray, res: float, min_x: float, min_y: float, kind: str = "mask", pad: int = 255) -> dict:
-    """rgba: (H, W, 4) uint8 RGBA, or (H, W) uint8 greyscale (the AO and dir sets); row 0 = north.
-    `pad` fills a greyscale set outside the data (255 = open sky for AO, 0 = no direction for dir)."""
+    """rgba: (H, W, 4) uint8 RGBA, or (H, W) uint8 greyscale (the AO, dir and moguls sets); row 0 = north.
+    pad: value of greyscale cells outside the data (255 = open sky for AO, 0 = no direction / no bumps)."""
     H, W = rgba.shape[:2]
     grey = rgba.ndim == 2
     tiles_x = int(np.ceil(W / TILE)); tiles_y = int(np.ceil(H / TILE))

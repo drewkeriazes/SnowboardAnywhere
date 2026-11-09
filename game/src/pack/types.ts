@@ -46,6 +46,8 @@ export interface PackMeta {
   ao?: MaskMeta;
   /** piste direction (DATA-002): greyscale tiles on the mask grid, byte 0 = none, 1..255 = groomed run axis (byte - 1) / 254 * 180 deg from east toward north */
   dir?: MaskMeta;
+  /** mogul amplitude 0..1 m (greyscale PNG tiles, same layout as the mask), FEAT-059; absent in older packs */
+  moguls?: MaskMeta;
   instances?: InstancesMeta;
   start: { x: number; y: number; heading: number; run?: string };
   sun: { azimuth: number; elevation: number };
@@ -63,6 +65,10 @@ export interface RunFeature {
   area?: boolean;
   /** OSM bridge=*: the way spans a gap the bare-earth DEM does not show */
   bridge?: boolean;
+  /** nights the resort's grooming reports groomed this run; absent when never or no reports */
+  groomNights?: number;
+  /** FEAT-059: how likely the run carries a mogul field, 0..1; absent in older packs */
+  mogulScore?: number;
   points: [number, number, number][];
 }
 

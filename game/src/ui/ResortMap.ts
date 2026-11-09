@@ -1,6 +1,6 @@
 import { LANDMARKS } from '../world/Landmarks';
 import type { Pack } from '../pack/Pack';
-import type { Difficulty } from '../pack/types';
+import type { Difficulty, RunFeature } from '../pack/types';
 
 /**
  * 2D map of the resort drawn once to an offscreen canvas (hillshade from the mid height set,
@@ -29,6 +29,9 @@ export class ResortMap {
   /** called with pack x, y when the player clicks the full map */
   onPick: ((x: number, y: number) => void) | null = null;
   private hover: [number, number] | null = null;
+
+  /** FEAT-059: with ?debug, runs that score 0.3 or more for moguls get an orange under-stroke */
+  private debug = false;
 
   constructor(pack: Pack) {
     this.pack = pack;
@@ -184,6 +187,12 @@ export class ResortMap {
     return true;
   }
 
+  setDebug(v: boolean): void {
+    if (v === this.debug) return;
+    this.debug = v;
+    this.drawFeatures();
+  }
+
   private drawFeatures(): void {
     const ctx = this.base.getContext('2d')!;
     if (!this.shaded) { ctx.fillStyle = '#dfe7f2'; ctx.fillRect(0, 0, this.base.width, this.base.height); }
@@ -198,7 +207,16 @@ export class ResortMap {
     // buildings
     ctx.fillStyle = '#6b5e4f';
     for (const bld of f.buildings) this.poly(ctx, bld.points, true);
-    // runs
+    // runs (FEAT-059 debug: mogul runs under-stroked in orange, wider for a higher score)
+    if (this.debug) {
+      ctx.strokeStyle = '#f97316';
+      for (const run of f.runs) {
+        const sc = run.mogulScore ?? 0;
+        if (sc < 0.3) continue;
+        ctx.lineWidth = (run.difficulty === 'advanced' || run.difficulty === 'expert' ? 1.6 : 2.2) + 2 + 3 * sc;
+        this.path(ctx, run.points);
+      }
+    }
     for (const run of f.runs) {
       ctx.strokeStyle = RUN_COLORS[(run.difficulty ?? 'intermediate') as Difficulty] ?? '#888';
       ctx.lineWidth = run.difficulty === 'advanced' || run.difficulty === 'expert' ? 1.6 : 2.2;
@@ -415,21 +433,22 @@ export class ResortMap {
       const h = this.pack.groundHeight(this.hover[0], this.hover[1]);
       const near = this.nearestRun(this.hover[0], this.hover[1]);
       this.fullInfo.innerHTML = `<b>${this.pack.meta.name}</b> &middot; click to drop in &middot; scroll to zoom (${this.zoom.toFixed(1)}x) &middot; drag to pan &middot; Home resets &middot; M or Esc to close<br>` +
-        `${this.hover[0].toFixed(0)}, ${this.hover[1].toFixed(0)} m &middot; ${this.metric ? `${h.toFixed(0)} m` : `${(h * 3.28084).toFixed(0)} ft`}` + (near ? ` &middot; ${near}` : '');
+        `${this.hover[0].toFixed(0)}, ${this.hover[1].toFixed(0)} m &middot; ${this.metric ? `${h.toFixed(0)} m` : `${(h * 3.28084).toFixed(0)} ft`}` + (near ? ` &middot; ${near.name}` : '') +
+        (near && (near.mogulScore ?? 0) > 0 ? ` &middot; moguls ${near.mogulScore!.toFixed(2)}` : '');
     } else {
       this.fullInfo.innerHTML = `<b>${this.pack.meta.name}</b> &middot; click to drop in &middot; scroll to zoom (${this.zoom.toFixed(1)}x) &middot; drag to pan &middot; Home resets &middot; M or Esc to close`;
     }
   }
 
-  private nearestRun(x: number, y: number): string | null {
-    let best = 60, name: string | null = null;
+  private nearestRun(x: number, y: number): RunFeature | null {
+    let best = 60, run: RunFeature | null = null;
     for (const r of this.pack.features.runs) {
       if (!r.name) continue;
       for (let i = 0; i < r.points.length; i += 2) {
         const d = Math.hypot(r.points[i][0] - x, r.points[i][1] - y);
-        if (d < best) { best = d; name = r.name; }
+        if (d < best) { best = d; run = r; }
       }
     }
-    return name;
+    return run;
   }
 }
