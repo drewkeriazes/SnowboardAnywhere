@@ -784,4 +784,10 @@ meta = {"version": 1, "slug": slug, "name": cfg["name"], "crs": crs, "origin": [
         "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "dir": dir_meta, "moguls": mog_meta, "instances": inst,
         "start": start, "sun": {"azimuth": 160, "elevation": 30}, "attribution": cfg["attribution"]}
 write_meta(out, meta)
+
+# ------------------------------------------------------------------ 10. forest cover levels for the far terrain (FEAT-153)
+log("cover")
+from cover import build_cover
+meta["cover"] = build_cover(out, raw, cfg, log=log)
+write_meta(out, meta)
 log("done")

@@ -18,6 +18,26 @@ export interface MaskMeta {
   tilesY: number;
 }
 
+/** FEAT-153: one forest cover level, a single RGBA PNG over a rectangle (pack-format.md) */
+export interface CoverLevelMeta {
+  name: string;
+  res: number;
+  /** lower-left corner (pack metres); the image's row 0 is the north edge */
+  minX: number;
+  minY: number;
+  w: number;
+  h: number;
+  file: string;
+}
+
+export interface CoverMeta {
+  /** canopy height at G = 255 (m) */
+  heightMax: number;
+  /** a finer level fades in over this many metres inside its edges */
+  blend: number;
+  levels: CoverLevelMeta[];
+}
+
 export interface InstancesMeta {
   cellSize: number;
   minX: number;
@@ -48,6 +68,8 @@ export interface PackMeta {
   dir?: MaskMeta;
   /** mogul amplitude 0..1 m (greyscale PNG tiles, same layout as the mask), FEAT-059; absent in older packs */
   moguls?: MaskMeta;
+  /** FEAT-153: forest cover levels for the terrain at a distance; absent in older packs */
+  cover?: CoverMeta;
   instances?: InstancesMeta;
   start: { x: number; y: number; heading: number; run?: string };
   sun: { azimuth: number; elevation: number };

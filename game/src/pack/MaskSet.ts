@@ -116,7 +116,7 @@ export class MaskSet {
  * groomed on all open ground. WebGL with premultiplication off returns the bytes unchanged.
  */
 let gl: WebGL2RenderingContext | null | undefined;
-function decodeRGBA(bmp: ImageBitmap, n: number): Uint8ClampedArray {
+export function decodeRGBA(bmp: ImageBitmap, n: number, h = n): Uint8ClampedArray {
   if (gl === undefined) gl = new OffscreenCanvas(1, 1).getContext('webgl2', { premultipliedAlpha: false, antialias: false });
   if (gl) {
     const tex = gl.createTexture();
@@ -128,17 +128,17 @@ function decodeRGBA(bmp: ImageBitmap, n: number): Uint8ClampedArray {
     const fb = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-    const px = new Uint8Array(n * n * 4);
+    const px = new Uint8Array(n * h * 4);
     // texture row 0 is the image's top row and readPixels starts at framebuffer row 0, so rows keep image order
-    gl.readPixels(0, 0, n, n, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.readPixels(0, 0, n, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
     const out = new Uint8ClampedArray(px.buffer);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.deleteFramebuffer(fb); gl.deleteTexture(tex);
     return out;
   }
   // fallback: 2D canvas (loses RGB where alpha is 0)
-  const canvas = new OffscreenCanvas(n, n);
+  const canvas = new OffscreenCanvas(n, h);
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   ctx.drawImage(bmp, 0, 0);
-  return ctx.getImageData(0, 0, n, n).data;
+  return ctx.getImageData(0, 0, n, h).data;
 }
