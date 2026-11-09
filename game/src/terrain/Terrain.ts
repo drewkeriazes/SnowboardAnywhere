@@ -341,7 +341,8 @@ export class Terrain {
         mogul[v * 2] = mog; mogul[v * 2 + 1] = mogPath;
         if (groom > 0.02 || mog > 0.01) {
           // moguls take the same wide fall line as Pack.bumpAt (BUG-064), so the shaded field matches the
-          // bumps in the geometry and the physics; corduroy keeps the 6 m one
+          // bumps in the geometry and the physics; its length is the slope that sizes the bumps (FEAT-147).
+          // Corduroy keeps the 6 m one
           const fr = mog > 0.01 && groom <= 0.02 ? MOGUL_FALL_D : FR;
           const gx = (pack.height(x + fr, y, resB) - pack.height(x - fr, y, resB)) / (2 * fr);
           const gy = (pack.height(x, y + fr, resB) - pack.height(x, y - fr, resB)) / (2 * fr);

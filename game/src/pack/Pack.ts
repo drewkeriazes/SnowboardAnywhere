@@ -1,7 +1,7 @@
 import { HeightSet } from './HeightSet';
 import { MaskSet } from './MaskSet';
 import type { Features, PackMeta } from './types';
-import { fallFrom, mogulHeight, MOGUL_FALL_D } from '../terrain/Moguls';
+import { downhillFrom, mogulHeight, MOGUL_FALL_D } from '../terrain/Moguls';
 
 /** chunks at this resolution or finer carry the mogul bumps in their geometry */
 export const MOGUL_MAX_RES = 2;
@@ -112,11 +112,13 @@ export class Pack {
     return this.moguls.sampleBilinear(x, y, this.mogTmp)[0] * (raw ? 1 : this.mogulScale);
   }
 
-  /** FEAT-059: the bump height at a point: the field's amplitude here, aligned to the local fall line. */
+  /** FEAT-059: the bump height at a point: the field's amplitude here, aligned to the local fall line and
+   *  sized by its slope (FEAT-147). */
   bumpAt(x: number, y: number): number {
     const amp = this.mogulAmp(x, y);
     if (amp < 0.005) return 0;
-    const f = fallFrom(this.baseFn, x, y, this.fallTmp, MOGUL_FALL_D); // BUG-064: a wide difference so the rows hold their direction
+    // BUG-064: a wide difference so the rows hold their direction; its length is the slope (FEAT-147)
+    const f = downhillFrom(this.baseFn, x, y, this.fallTmp, MOGUL_FALL_D);
     return mogulHeight(x, y, amp, f[0], f[1], this.mogulCreep);
   }
 

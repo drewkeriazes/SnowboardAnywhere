@@ -61,12 +61,15 @@ Padding and everything else is 0. Packs built before DATA-002 lack it; add it wi
 `python pipeline/piste_dir.py packs/<slug>` (reads `features.json` and the mask tiles).
 ## Mogul tiles (optional, FEAT-059)
 
-Greyscale PNG on the mask grid: mogul amplitude 0..255 = 0..1 m from `pipeline/moguls.py`. Each run's
+Greyscale PNG on the mask grid: mogul field strength 0..255 = 0..1 from `pipeline/moguls.py` (read as metres
+of amplitude before FEAT-147; the client now sizes the bumps from the slope, see below). Each run's
 `mogulScore` is painted along its corridor (fading over the outer 3 m, where real bumps shrink; closed
 `area` runs are filled), times a slope window (none below 15 degrees, full 20 to 35, none above 40),
 and removed under canopy, on groomed corduroy, built-up ground and rock. Padding outside the data is 0.
-The client turns the amplitude into a fall-line-aligned staggered bump field (`game/src/terrain/Moguls.ts`,
-5.7 m spacing) in both the physics height and the near terrain mesh (chunks at 2 m or finer), and shades
+The client turns the strength into bumps cut by rider lines down the fall line (`game/src/terrain/Moguls.ts`,
+FEAT-147: 4 to 7 m apart along a line, about 0.55 m per unit strength at 16 degrees up to 1.38 m at 32 degrees
+and steeper, each bump +-30%, at most 1.8 m; the pattern changes every 80 m) in both the physics height and
+the near terrain mesh (chunks at 2 m or finer), and shades
 the same field per pixel in the terrain shader on every chunk up to 16 m (BUG-062: the bump normal and a
 relief colouring from the bump's own height and slope). Packs without the set have no bumps.
 
