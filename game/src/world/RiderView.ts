@@ -28,9 +28,10 @@ const FLAIL_BASE = 0.04, FLAIL_HOLD = 0.13, FLAIL_RAMP = 2.5, CORR_W = 11, CORR_
 /** FEAT-125 wobble growth: share added per m/s of speed (up to FLAIL_VMAX m/s), share added at full
  *  bumps, and the vertical acceleration counted as full bumps (m/s^2, about 1.5 g) */
 const FLAIL_SPEED = 0.04, FLAIL_VMAX = 15, FLAIL_BUMP = 1.5, BUMP_ACC = 15;
-/** FEAT-140: the wobble added as the press balance runs out to either end (share at the end), and
- *  the extra pelvis roll toward the end it runs to (rad at the end) */
-const FLAIL_BAL = 1.6, BAL_ROLL = 0.17;
+/** FEAT-140: the wobble added as the press balance runs out to either end (share at the end), the
+ *  extra pelvis roll toward the end it runs to (rad at the end, about 23 deg; the head takes most of
+ *  it back out), and how far the hips slide along the board toward that end (m at the end) */
+const FLAIL_BAL = 1.6, BAL_ROLL = 0.4, BAL_SHIFT = 0.14;
 /** FEAT-125 wobble shape: the fore-aft swing as a share of the up-down wave, and the elbow's bend
  *  (deg) per rad of wave (each elbow follows the other arm's wave, so the two never move in step) */
 const FLAIL_SWING = 0.6, FLAIL_ELBOW = 40;
@@ -191,6 +192,8 @@ export class RiderView {
   private readonly edgeUpperF: Follow = { x: 0, v: 0 };
   private readonly edgeHipsF: Follow = { x: 0, v: 0 };
   private readonly hipZF: Follow = { x: 0, v: 0 };
+  /** FEAT-140: the press balance in the rig's frame, followed at body speed, for the hips' slide */
+  private readonly balF: Follow = { x: 0, v: 0 };
   private get leanAngle(): number { return this.leanF.x; }
   private get yawLead(): number { return this.yawLeadF.x; }
   private get edgeUpper(): number { return this.edgeUpperF.x; }
@@ -791,6 +794,9 @@ export class RiderView {
       const ahead = Math.sign(leanH) === this.flexDir ? 0.6 * Math.abs(leanH) : 0;
       follow(this.hipZF, Math.max(0, Math.min(1, Math.max(this.flex, ahead) / PRESS_FLEX)), BODY_RESPONSE, dt);
       hipZ = -this.flexDir * HIP_SHIFT * this.hipZF.x;
+      // FEAT-140: the hips slide on toward the end the press balance is running to (+ balance: the nose, -z)
+      follow(this.balF, free && r.pressing ? fl * r.pressBalance : 0, BODY_RESPONSE, dt);
+      hipZ -= BAL_SHIFT * this.balF.x;
       const floor = deckY(this.rig, hipZ) + 0.022 + HIP_CLEAR;
       if (p.hipsY < floor) p.hipsY = floor;
     }
@@ -972,7 +978,7 @@ export class RiderView {
     this.q.setFromRotationMatrix(this.rot);
     this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
     this.baseQ.copy(this.group.quaternion); // FEAT-110: keep the riding base in step, no swing when strapping back in
-    for (const f of [this.leanF, this.rollF, this.yawLeadF, this.edgeUpperF, this.edgeHipsF, this.hipZF]) { f.x = 0; f.v = 0; }
+    for (const f of [this.leanF, this.rollF, this.yawLeadF, this.edgeUpperF, this.edgeHipsF, this.hipZF, this.balF]) { f.x = 0; f.v = 0; }
     this.twist = 0; this.visLive = false; // BUG-056: the follows snap when strapping back in
     this.lean.position.set(0, 0, 0); this.lean.rotation.set(0, 0, 0);
 
