@@ -3,7 +3,8 @@ import type { Rider } from '../sim/Rider';
 /**
  * First-person goggle lens, drawn over the canvas as DOM:
  *  - frame: a soft, mostly translucent goggle outline around the screen edge with a nose bridge
- *    at the bottom, and a slight amber lens tint toward the edges (SVG, scaled to the window)
+ *    at the bottom, and a slight lens tint toward the edges in the lens colour (SVG, scaled to the window;
+ *    the lens itself, which filters the view, is the shader pass in world/Lens.ts)
  *  - lens canvas: snow spray drifting past at speed, frost creeping in from the corners in deep
  *    powder, and a short darken pulse on hard landings (the camera shakes at the same time)
  * `strength` (0..1) scales the frame and tint; the effects follow the rider state.
@@ -56,6 +57,13 @@ export class GoggleView {
   }
 
   destroy(): void { this.frame.remove(); this.lens.remove(); }
+
+  /** FEAT-130: the edge tint takes the lens colour (a hex string); null = no lens, no tint */
+  setLens(color: string | null): void {
+    const stops = this.frame.querySelectorAll('#gTint stop');
+    stops.forEach((st) => { if (color) st.setAttribute('stop-color', color); });
+    stops[stops.length - 1]?.setAttribute('stop-opacity', color ? '0.16' : '0');
+  }
 
   /** Per frame. `show` = first person with the goggle setting on; `fp` = first person at all (effects). */
   update(r: Rider, dt: number, fp: boolean, show: boolean, riding: boolean): void {

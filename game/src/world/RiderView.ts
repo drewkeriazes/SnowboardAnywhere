@@ -8,6 +8,7 @@ import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFe
 import { Gait, type Plant } from './Gait';
 import { carveLean, LEAN_HARD, LEAN_MAX } from './carveLean';
 import { Spray } from './Spray';
+import { LENSES, type LensId } from './Lens';
 
 /** FEAT-112: half the skis' length (where they pivot) and the most they tip up on a full lean (rad) */
 const BOARD_HALF = 0.72, LEAN_TIP = 18 * Math.PI / 180;
@@ -355,6 +356,17 @@ export class RiderView {
   setOutfit(o: { jacket: string; pants: string; helmet: string; board: string; gloves: string }): void {
     this.mats.jacket.color.set(o.jacket); this.mats.pants.color.set(o.pants); this.mats.helmet.color.set(o.helmet);
     this.mats.board.color.set(o.board); this.mats.gloves.color.set(o.gloves);
+  }
+
+  /** FEAT-130: the goggle lens the rider wears (matches the first-person lens) */
+  lensId: LensId = 'off';
+  setLens(id: LensId): void {
+    this.lensId = id;
+    const L = LENSES[id], g = this.mats.goggles;
+    g.color.set(L.swatch);
+    // mirrors shine; plain tints show their colour; Off keeps the classic orange mirror
+    g.metalness = id === 'off' ? 0.4 : id === 'clear' ? 0.1 : L.mirror ? 0.6 : 0.3;
+    g.roughness = id === 'off' ? 0.2 : L.mirror ? 0.12 : 0.18;
   }
 
   /**
