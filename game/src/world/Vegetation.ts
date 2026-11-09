@@ -128,6 +128,10 @@ export class Vegetation {
     krummholz: new THREE.MeshStandardMaterial({ color: 0x33503a, roughness: 1.0, flatShading: true }),
   };
   readonly stats = { cells: 0, instances: 0 };
+  /** BUG-063: stop building cell meshes after this many ms per update (0 = no limit; headless keeps 0) */
+  budgetMs = 0;
+  /** BUG-063: cells in range still downloading or waiting for their meshes after the last update */
+  pending = 0;
   private readonly tmpM = new THREE.Matrix4();
   private readonly tmpQ = new THREE.Quaternion();
   private readonly tmpP = new THREE.Vector3();
@@ -173,7 +177,8 @@ export class Vegetation {
     const cx0 = Math.max(0, Math.floor((Math.min(x, ax) - r - inst.minX) / cs)), cx1 = Math.min(inst.cellsX - 1, Math.floor((Math.max(x, ax) + r - inst.minX) / cs));
     const cy0 = Math.max(0, Math.floor((Math.min(y, ay) - r - inst.minY) / cs)), cy1 = Math.min(inst.cellsY - 1, Math.floor((Math.max(y, ay) + r - inst.minY) / cs));
     const keep = new Set<string>();
-    let count = 0;
+    let count = 0, pending = 0, built = 0;
+    const t0 = performance.now();
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         const ccx = inst.minX + (cx + 0.5) * cs, ccy = inst.minY + (cy + 0.5) * cs;
@@ -187,8 +192,13 @@ export class Vegetation {
           this.cells.set(key, cell);
         }
         if (!cell.data && !cell.loading && !cell.missing) this.load(cell);
+        if (cell.loading) pending++;
         const wantNear = d < NEAR_RADIUS;
-        if (cell.data && cell.near !== wantNear) this.buildMeshes(cell, wantNear);
+        if (cell.data && cell.near !== wantNear) {
+          // BUG-063: at least one build per update, then only while inside the time budget
+          if (this.budgetMs <= 0 || built === 0 || performance.now() - t0 < this.budgetMs) { this.buildMeshes(cell, wantNear); built++; }
+          else pending++;
+        }
         if (cell.data) count += cell.data.length / 6;
       }
     }
@@ -201,6 +211,7 @@ export class Vegetation {
       }
       this.cells.delete(key);
     }
+    this.pending = pending;
     this.stats.cells = this.cells.size;
     this.stats.instances = count;
   }

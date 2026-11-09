@@ -44,6 +44,7 @@ import { LiftRide } from './sim/LiftRide';
 import { Prefetch } from './sim/Prefetch';
 import { GameAudio } from './audio/Audio';
 import { showMainMenu } from './ui/MainMenu';
+import { LoadingScreen } from './ui/Loading';
 import { PauseMenu } from './ui/PauseMenu';
 import { Labels } from './ui/Labels';
 import { TouchControls } from './ui/TouchControls';
@@ -104,15 +105,18 @@ async function main(): Promise<void> {
       const choice = await showMainMenu(pack.meta.name, audio, settings, () => undefined, resorts, packSlug, startInfo);
       openMapAtStart = choice.action === 'map';
     }
-    status.textContent = `Loading ${packSlug}...`;
     skipMenu = false;
-    await runSession(pack, renderer, canvas, audio, settings, openMapAtStart);
+    // BUG-063: show the loading screen and let it paint before the session's heavy setup runs behind it
+    let loading: LoadingScreen | null = null;
+    if (headless) status.textContent = `Loading ${packSlug}...`;
+    else { status.textContent = ''; loading = new LoadingScreen(pack.meta.name); await loading.painted(); }
+    await runSession(pack, renderer, canvas, audio, settings, openMapAtStart, loading);
     if (headless) break;
   }
 }
 
 /** Resolves when the player quits to the main menu. */
-function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanvasElement, audio: GameAudio, settings: Settings, openMapAtStart: boolean): Promise<void> {
+function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanvasElement, audio: GameAudio, settings: Settings, openMapAtStart: boolean, loading: LoadingScreen | null = null): Promise<void> {
   return new Promise<void>((resolveQuit) => {
     const hud = document.getElementById('hud')!;
     const status = document.getElementById('status')!;
@@ -599,8 +603,12 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
 
     /** headless only: exact frame dt for __step, so scripted runs replay step for step */
     let fixedDt: number | null = null;
+    /** BUG-063: the loading screen, hidden once the first real frames have run behind it */
+    let hideLoading: LoadingScreen | null = null, loadFrames = 0;
+    const HIDE_AFTER_FRAMES = 3;
     function frame(): void {
       if (!alive) return;
+      if (hideLoading && ++loadFrames >= HIDE_AFTER_FRAMES) { hideLoading.hide(); hideLoading = null; }
       const now = performance.now();
       // FEAT-062: a 30 fps target skips display frames (a millisecond of slack for timer jitter)
       // against a running deadline so the average hits 30 even when the refresh rate does not divide evenly (75, 100 Hz)
@@ -970,13 +978,49 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (!headless) requestAnimationFrame(frame);
     }
 
-    // wait briefly for the fine tiles under the start point, then go
+    /**
+     * BUG-063: build the world around the start behind the loading screen, without drawing: stream terrain,
+     * trees and rocks with a large per-frame budget (frames stay short, so the page never locks up), then
+     * compile every shader in the background. Ends when nothing near the start is still downloading or
+     * building, or after 20 s. The screen then stays up for the first few real frames (HIDE_AFTER_FRAMES),
+     * so whatever only the full frame draws (clouds, the body pass, GPU uploads) is paid behind it.
+     */
+    async function warmUp(ls: LoadingScreen): Promise<void> {
+      const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+      terrain.budgetMs = 12; terrain.maxBuilds = 64; veg.budgetMs = 12;
+      const tiles = () => [pack.fine, pack.mid, pack.far, pack.mask, pack.ao, pack.dir, pack.moguls].reduce((n, t) => n + (t?.inFlight ?? 0), 0);
+      const t0 = performance.now();
+      let peak = 1, settled = 0;
+      while (performance.now() - t0 < 20000) {
+        cam.camera.updateMatrixWorld();
+        const cp = cam.camera.position;
+        terrain.update(cp.x, -cp.z, cp.y);
+        veg.update(rider.x, rider.y);
+        rocks.update(rider.x, rider.y);
+        const tl = tiles();
+        const left = terrain.pending + tl + veg.pending + rocks.pending;
+        peak = Math.max(peak, left);
+        ls.set(0.85 * (1 - left / peak), `Terrain ${terrain.pending + tl} · trees ${veg.pending} · rocks ${rocks.pending}`);
+        settled = left === 0 ? settled + 1 : 0;
+        if (settled >= 3) break; // three quiet frames: late tile arrivals have had a chance to mark rebuilds
+        await nextFrame();
+      }
+      ls.set(0.9, 'Compiling shaders...');
+      await renderer.compileAsync(scene, cam.camera).catch((e) => console.warn('compileAsync failed', e));
+      ls.set(0.97, 'Almost there...');
+      // riding: small budgets so streaming never spikes a frame; built parent chunks cover any gaps
+      terrain.budgetMs = 4; terrain.maxBuilds = 10; veg.budgetMs = 3;
+    }
+
+    // wait briefly for the fine tiles under the start point, then warm up and go
     (async () => {
       const t0 = performance.now();
       while (Number.isNaN(pack.fine?.sample(sx, sy) ?? 0) && performance.now() - t0 < 8000) await new Promise((r) => setTimeout(r, 50));
       rider.reset(sx, sy, sh);
       lifts.buildMarkers(pack);
       cam.snapTo(rider);
+      if (loading && alive) { await warmUp(loading); hideLoading = loading; }
+      if (!alive) return;
       status.textContent = '';
       if (openMapAtStart) map.open();
       last = performance.now();
