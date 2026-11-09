@@ -56,7 +56,8 @@ Greyscale PNG on the mask grid: mogul amplitude 0..255 = 0..1 m from `pipeline/m
 and removed under canopy, on groomed corduroy, built-up ground and rock. Padding outside the data is 0.
 The client turns the amplitude into a fall-line-aligned staggered bump field (`game/src/terrain/Moguls.ts`,
 5.7 m spacing) in both the physics height and the near terrain mesh (chunks at 2 m or finer), and shades
-the same field in the terrain shader on chunks from 4 to 16 m. Packs without the set have no bumps.
+the same field per pixel in the terrain shader on every chunk up to 16 m (BUG-062: the bump normal and a
+relief colouring from the bump's own height and slope). Packs without the set have no bumps.
 
 ## Instances
 

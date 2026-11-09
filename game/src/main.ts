@@ -126,6 +126,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const snow = new Snow();
     add('snowfall', snow.points);
     const terrain = new Terrain(pack);
+    if (debugHud && params.get('debug') === 'moguls') terrain.setMogulDebug(true); // BUG-062
     add('terrain', terrain.group);
     const collider = new Collider();
     const veg = new Vegetation(pack, collider);
@@ -852,6 +853,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       (riderView.sprayObject.material as THREE.PointsMaterial).color.copy(pl);
       (puffs.points.material as THREE.PointsMaterial).color.copy(pl);
       veg.setSun(env.sun.color, env.sun.intensity);
+      terrain.setSun(env.sunDir); // BUG-062: the mogul colouring's sun term
       const cp = cam.camera.position;
       terrain.update(cp.x, -cp.z, cp.y);
       const fx = detached ? cp.x : rider.x, fy = detached ? -cp.z : rider.y;

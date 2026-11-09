@@ -49,6 +49,15 @@ const check = (name, ok, detail = '') => { console.log(`${ok ? 'ok  ' : 'FAIL'} 
   for (let i = 0; i < a.length; i++) { num += (a[i] - ma) * (b[i] - mb); da += (a[i] - ma) ** 2; db += (b[i] - mb) ** 2; }
   const corr = num / Math.sqrt(da * db);
   check('half a spacing of creep inverts the profile', corr < -0.5, corr.toFixed(2));
+  // BUG-062: the field must stay coherent far from the origin when the fall direction wobbles by a
+  // degree (noise in a DEM gradient), so the downhill profile 700 m out barely changes
+  const far = (fx) => { const p = []; for (let y = -700; y >= -757; y -= 0.1) p.push(mogulHeight(700, y, 0.8, fx, -1, 0)); return p; };
+  const c0 = far(0), c1 = far(Math.tan(Math.PI / 180));
+  const mc0 = mean(c0), mc1 = mean(c1);
+  let n2 = 0, d0 = 0, d1 = 0;
+  for (let i = 0; i < c0.length; i++) { n2 += (c0[i] - mc0) * (c1[i] - mc1); d0 += (c0[i] - mc0) ** 2; d1 += (c1[i] - mc1) ** 2; }
+  const corrFar = n2 / Math.sqrt(d0 * d1);
+  check('a 1 degree wobble in the fall line 700 m out keeps the same bumps', corrFar > 0.9, corrFar.toFixed(2));
   const f = [0, 0];
   fallFrom((x, y) => 0.4 * y, 10, 10, f);
   check('fallFrom on a plane falling to -y', Math.abs(f[0]) < 1e-3 && Math.abs(f[1] + 1) < 1e-3, `${f[0].toFixed(3)}, ${f[1].toFixed(3)}`);

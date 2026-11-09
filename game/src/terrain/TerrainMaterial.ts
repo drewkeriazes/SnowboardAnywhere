@@ -21,6 +21,16 @@ import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from './rockShader';
  * attribute) darkens gullies, couloirs and cliff feet, and the canopy darkens the snow under trees.
  * `uFlat` (storm, overcast) flattens the snow relief, turns the glints off and roughens the snow: flat light.
  *
+ * Moguls (FEAT-059, BUG-062): every chunk up to MOGUL_SHADE_MAX_RES evaluates the mogul field once per
+ * pixel (`mogulH`, its slope by two extra samples). The slope bends the normal on all of them (the
+ * finest chunks carry the bumps in their positions too, with base-surface vertex normals), and the
+ * snow is coloured from the bump's own shape so the field reads without a shadow pass: troughs a
+ * little darker and bluer, crests brighter and warmer, the side facing away from the sun cooler and
+ * darker (a dot of the bump normal with the sun's ground direction), and the face a rider coming
+ * downhill rides into slightly darker than the back so the pattern reads under an overhead sun or in
+ * flat light. The wrap light and the flat-light normal pull drop 60% on moguls so they keep shape.
+ * All of it scales with the bump amplitude, so smooth snow and groomers are untouched.
+ *
  * Rock and talus (FEAT-020): the vertex weights (imagery mask unioned with steep faces, wind-scoured
  * ridges and talus aprons from Terrain.build) are thresholds against multi-scale world-space noise,
  * so rock pokes through the snow in crisp patches instead of a wash; flat ledges on the rock's own
@@ -39,7 +49,7 @@ function snowLightsChunk(): string {
 	float dotNL = saturate( dotNLr );
 	vec3 irradiance = dotNL * directLight.color;
 	// snow: light wraps past the terminator, blue from scattering inside the snowpack
-	float wrapNL = saturate( ( dotNLr + uWrap ) / ( 1.0 + uWrap ) );
+	float wrapNL = saturate( ( dotNLr + gWrap ) / ( 1.0 + gWrap ) );
 	vec3 snowIrr = irradiance + max( wrapNL - dotNL, 0.0 ) * gSnowW * uSSS * directLight.color;
 	// crystal glints: this pixel's facet catches the sun when it lines up with the half vector
 	float glint = pow( saturate( dot( gGlintN, normalize( directLight.direction + geometryViewDir ) ) ), 700.0 );
@@ -76,6 +86,9 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     /** FEAT-059: mogul field amplitude multiplier and uphill creep (m) for the shaded coarse chunks */
     uMogulScale: { value: 1.0 },
     uMogulCreep: { value: 0.0 },
+    /** BUG-062: direction toward the sun (three.js world frame) for the mogul colouring; `?debug=moguls` */
+    uSunDir: { value: new THREE.Vector3(0.3, 0.6, 0.74) },
+    uDebugMoguls: { value: 0.0 },
     /** baked AO strength (1 = as baked; debug A/B with 0) */
     uAO: { value: 1.0 },
     ...rockUniforms(),
@@ -90,11 +103,11 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         attribute float forest;
         attribute vec2 fall;
         attribute float ao;
-        attribute float mogul;
+        attribute vec2 mogul;
         varying float vAO;
         varying float vForest;
         varying vec2 vFall;
-        varying float vMogul;
+        varying vec2 vMogul;
         varying vec3 vWorldPos;
         varying vec3 vWorldNormal;`)
       .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
@@ -113,8 +126,9 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         varying float vForest;
         varying float vAO;
         varying vec2 vFall;
-        varying float vMogul;
-        uniform float uMogulScale, uMogulCreep;
+        varying vec2 vMogul;
+        uniform float uMogulScale, uMogulCreep, uDebugMoguls;
+        uniform vec3 uSunDir;
         uniform float uTime;
         uniform vec3 uSnow, uSnowShade, uGroomed, uShadeTint, uSSS;
         uniform float uWrap, uGlint, uFlat, uAO;
@@ -132,6 +146,13 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float gSnowW;
         vec3 gGlintN;
         float gGlintW;
+        float gWrap;
+        // BUG-062: the mogul field at this pixel (amplitude in m after the snow weight and distance fade,
+        // bump normal in the world frame, height 0 trough .. 1 crest), set in main() before the normal pass
+        float gMogA;
+        vec3 gMogN;
+        float gMogT;
+        float gMogK; // 0..1 mask of the field's strength for the colouring and the lighting tweaks
         ${NOISE_GLSL}
         ${ROCK_GLSL}
         ${MOGUL_GLSL}
@@ -240,6 +261,36 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float wSnow = 1.0 - rockCov - screeCov;
         vec3 base = snow * wSnow + rockAlb * rockCov + screeAlb * screeCov;
         base = mix(base, groomed, wGroom * wSnow);
+        // BUG-062: the mogul field, once per pixel (pack frame: x east, y = -world z north), fading out
+        // where the 5.7 m pattern would shimmer; the colouring rule below, the normal pass reuses it
+        gMogA = vMogul.x * uMogulScale * wSnow * (1.0 - smoothstep(900.0, 1600.0, dist));
+        gMogN = vec3(0.0, 1.0, 0.0);
+        gMogT = 0.5;
+        gMogK = smoothstep(0.05, 0.5, gMogA);
+        gWrap = uWrap;
+        if (gMogA > 0.005) {
+          vec2 pxy = vec2(wp.x, -wp.z);
+          vec2 pf = vec2(vFall.x, -vFall.y);
+          float em = 0.5;
+          float m0 = mogulH(pxy, pf, gMogA, uMogulCreep);
+          float mx = mogulH(pxy + vec2(em, 0.0), pf, gMogA, uMogulCreep);
+          float my = mogulH(pxy + vec2(0.0, em), pf, gMogA, uMogulCreep);
+          // pack +y is world -z, so the z slope is the negative of the y slope
+          gMogN = normalize(vec3(-(mx - m0) / em, 1.0, (my - m0) / em));
+          gMogT = m0 / gMogA;
+          // colouring from the bump's own shape, no shadow pass: the sun term is the bump normal's tilt
+          // toward the sun's ground direction (already scaled by cos(elevation), gone in flat light); the
+          // downhill term darkens the face that tilts uphill, the front a rider coming down rides into
+          float sunK = dot(gMogN.xz, uSunDir.xz) * (1.0 - uFlat);
+          float frontK = -dot(gMogN.xz, fallDown(vFall));
+          float lum = 1.0 + gMogK * (0.14 * (gMogT - 0.5) + 0.22 * sunK - 0.06 * frontK);
+          // troughs and the shaded sides go a little blue (snow in its own shade), crests a touch warm
+          float warmth = saturate(0.5 + (gMogT - 0.5) + 0.8 * sunK);
+          vec3 hue = mix(vec3(0.955, 0.98, 1.035), vec3(1.015, 1.0, 0.985), warmth);
+          base *= lum * mix(vec3(1.0), hue, gMogK);
+          // the wrapped sunlight lifts the dark sides; let moguls keep their shade
+          gWrap = uWrap * (1.0 - 0.6 * gMogK);
+        }
         // glints: about one 4 cm cell in twelve holds a crystal facet tilted at random off the surface;
         // RE_Direct_Physical lights it when it faces the half vector. Gone once cells are sub-pixel.
         vec3 gc = wp * 25.0;
@@ -265,6 +316,14 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         gSnowW = wSnow * (1.0 - fd);
         gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd) * (1.0 - 0.6 * uSpring); // wet spring snow sparkles less
         diffuseColor.rgb = base;
+        // BUG-062 ?debug=moguls: amplitude as a tint, green where the bumps are in the geometry, red where
+        // the shader alone draws them, faint magenta on chunks too coarse for either
+        if (uDebugMoguls > 0.5) {
+          float ampRaw = vMogul.x * uMogulScale;
+          vec3 pathCol = vMogul.y > 1.5 ? vec3(0.1, 0.9, 0.2) : vec3(1.0, 0.25, 0.1);
+          diffuseColor.rgb = mix(diffuseColor.rgb, pathCol, 0.8 * smoothstep(0.0, 0.5, ampRaw));
+          if (vMogul.y < 0.5) diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9, 0.3, 0.9), 0.2);
+        }
       `)
       // snow gets a soft bump so faces lit head-on (south-facing bowls with a southern sun) still show
       // drifts and relief instead of a flat white sheet
@@ -312,25 +371,14 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
             vec3 cb = normalize(vec3(-(cx - c0) / ec, 1.0, -(cz - c0) / ec));
             nn = normalize(mix(nn, normalize(t * cb.x + nn * cb.y + b * cb.z), 0.6 * chop));
           }
-          // FEAT-059: on chunks too coarse to carry the bumps as geometry, shade the same mogul field
-          // (pack frame: x east, y = -world z north) so a bump run reads from the lift; fades out where
-          // the 5.7 m pattern would shimmer
-          float mogA = vMogul * uMogulScale * snowW * (1.0 - smoothstep(900.0, 1600.0, length(cameraPosition - wpn)));
-          if (mogA > 0.005) {
-            vec2 pxy = vec2(wpn.x, -wpn.z);
-            vec2 pf = vec2(vFall.x, -vFall.y);
-            float em = 0.5;
-            float m0 = mogulH(pxy, pf, mogA, uMogulCreep);
-            float mx = mogulH(pxy + vec2(em, 0.0), pf, mogA, uMogulCreep);
-            float my = mogulH(pxy + vec2(0.0, em), pf, mogA, uMogulCreep);
-            // pack +y is world -z, so the z slope is the negative of the y slope
-            vec3 mb = normalize(vec3(-(mx - m0) / em, 1.0, (my - m0) / em));
-            nn = normalize(t * mb.x + nn * mb.y + b * mb.z);
-          }
+          // FEAT-059 / BUG-062: the mogul bump normal from the colour pass, on every shaded chunk (the
+          // finest ones carry the bumps as geometry too, with base-surface vertex normals)
+          if (gMogA > 0.005) nn = normalize(t * gMogN.x + nn * gMogN.y + b * gMogN.z);
           // rock and talus carry their own photo normals
           nn = normalize(nn * max(wSnow, 1e-3) + rockN * rockCov + screeN * screeCov);
           // flat light: under overcast the eye loses the snow's shape; pull snow normals toward up
-          nn = normalize(mix(nn, vec3(0.0, 1.0, 0.0), 0.6 * uFlat * snowW));
+          // (much less on moguls, BUG-062, so the bumps keep some shape to ride by)
+          nn = normalize(mix(nn, vec3(0.0, 1.0, 0.0), 0.6 * uFlat * snowW * (1.0 - 0.6 * gMogK)));
           normal = normalize((viewMatrix * vec4(nn, 0.0)).xyz);
         }`)
       .replace('#include <aomap_fragment>', `#include <aomap_fragment>
