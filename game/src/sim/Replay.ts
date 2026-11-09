@@ -6,13 +6,13 @@ import { stanceFlags, type GhostSample } from './TimeTrial';
  * FEAT-043: the session recording behind the replay viewer and the practice rewind. The rider is
  * sampled at 20 Hz in the time-trial ghost format (t, x, y, z, board yaw, lateral g, edge angle,
  * flags: 1 on the ground, 2 tuck, 4 crashed, 8 riding switch, 16 goofy) plus what the pose needs (heading, velocity, lean,
- * flip, squat, jump charge, the FEAT-148 hard carve). The last 20 minutes are kept.
+ * flip, squat, jump charge, the FEAT-148 hard carve, and which way a crash falls). The last 20 minutes are kept.
  */
-export interface ReplaySample extends GhostSample { hd: number; vx: number; vy: number; vz: number; ln: number; fl: number; sq: number; jc: number; on: number; hc: number }
+export interface ReplaySample extends GhostSample { hd: number; vx: number; vy: number; vz: number; ln: number; fl: number; sq: number; jc: number; on: number; hc: number; cf: number; cs: number }
 
 const DT = 0.05, MAX = 24000;
 /** the rider fields a sample drives (saved and put back around a replay or rewind frame) */
-const FIELDS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'boardYaw', 'onGround', 'lateralG', 'edgeAngle', 'lean', 'flip', 'squat', 'jumpCharge', 'crashed', 'speed', 'onFoot', 'turnRate', 'switch', 'goofy', 'pressBalance', 'pressing', 'hardCarve'] as const;
+const FIELDS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'boardYaw', 'onGround', 'lateralG', 'edgeAngle', 'lean', 'flip', 'squat', 'jumpCharge', 'crashed', 'speed', 'onFoot', 'turnRate', 'switch', 'goofy', 'pressBalance', 'pressing', 'hardCarve', 'crashFall', 'crashSide'] as const;
 type Field = typeof FIELDS[number];
 
 export class Replay {
@@ -23,14 +23,14 @@ export class Replay {
   private readonly saved: Partial<Record<Field, number | boolean>> = {};
   private readonly savedN: [number, number, number] = [0, 0, 1];
   private overlaid = false;
-  private readonly cur: ReplaySample = { t: 0, x: 0, y: 0, z: 0, h: 0, lg: 0, e: 0, f: 0, hd: 0, vx: 0, vy: 0, vz: 0, ln: 0, fl: 0, sq: 0, jc: 0, on: 0, hc: 0 };
+  private readonly cur: ReplaySample = { t: 0, x: 0, y: 0, z: 0, h: 0, lg: 0, e: 0, f: 0, hd: 0, vx: 0, vy: 0, vz: 0, ln: 0, fl: 0, sq: 0, jc: 0, on: 0, hc: 0, cf: 0, cs: 0 };
 
   record(dt: number, r: Rider, tuck: boolean): void {
     this.t += dt; this.acc += dt;
     if (this.acc < DT) return;
     this.acc = 0;
     const f = stanceFlags(r, (r.onGround ? 1 : 0) | (tuck ? 2 : 0) | (r.crashed > 0 ? 4 : 0));
-    this.samples.push({ t: this.t, x: r.x, y: r.y, z: r.z, h: r.boardYaw, lg: r.lateralG, e: r.edgeAngle, f, hd: r.heading, vx: r.vx, vy: r.vy, vz: r.vz, ln: r.lean, fl: r.flip, sq: r.squat, jc: r.jumpCharge, on: r.onFoot ? 1 : 0, hc: r.hardCarve });
+    this.samples.push({ t: this.t, x: r.x, y: r.y, z: r.z, h: r.boardYaw, lg: r.lateralG, e: r.edgeAngle, f, hd: r.heading, vx: r.vx, vy: r.vy, vz: r.vz, ln: r.lean, fl: r.flip, sq: r.squat, jc: r.jumpCharge, on: r.onFoot ? 1 : 0, hc: r.hardCarve, cf: r.crashFall, cs: r.crashSide });
     if (this.samples.length > MAX + 1200) this.samples.splice(0, 1200);
   }
 
@@ -55,7 +55,7 @@ export class Replay {
     const c = this.cur;
     c.t = t; c.x = L(a.x, b.x); c.y = L(a.y, b.y); c.z = L(a.z, b.z); c.h = A(a.h, b.h); c.hd = A(a.hd, b.hd);
     c.lg = L(a.lg, b.lg); c.e = L(a.e, b.e); c.vx = L(a.vx, b.vx); c.vy = L(a.vy, b.vy); c.vz = L(a.vz, b.vz);
-    c.ln = L(a.ln, b.ln); c.fl = L(a.fl, b.fl); c.sq = L(a.sq, b.sq); c.jc = L(a.jc, b.jc); c.hc = L(a.hc, b.hc); c.f = k < 0.5 ? a.f : b.f; c.on = k < 0.5 ? a.on : b.on;
+    c.ln = L(a.ln, b.ln); c.fl = L(a.fl, b.fl); c.sq = L(a.sq, b.sq); c.jc = L(a.jc, b.jc); c.hc = L(a.hc, b.hc); c.cf = k < 0.5 ? a.cf : b.cf; c.cs = k < 0.5 ? a.cs : b.cs; c.f = k < 0.5 ? a.f : b.f; c.on = k < 0.5 ? a.on : b.on;
     return c;
   }
 
@@ -81,7 +81,8 @@ export class Replay {
     r.edgeTarget = r.edge; r.leanTarget = r.lean; r.turnRate = 0; // BUG-056: the steer target and turn rate are not recorded, so a replay draws no body lead
     r.switch = !!(s.f & 8); r.goofy = !!(s.f & 16); // FEAT-139: drawn the way round it was ridden
     r.pressBalance = 0; r.pressing = false; // FEAT-140: the balance is not recorded, so a replay draws no balance wobble
-    r.crashed = s.f & 4 ? 0.5 : 0; r.speed = Math.hypot(s.vx, s.vy); r.onFoot = !!s.on;
+    r.crashed = s.f & 4 ? 0.5 : 0; r.crashFall = s.cf; r.crashSide = s.cs; // FEAT-148: the ragdoll falls the way it did live
+    r.speed = Math.hypot(s.vx, s.vy); r.onFoot = !!s.on;
     const n = pack.groundNormal(s.x, s.y);
     r.normal[0] = n[0]; r.normal[1] = n[1]; r.normal[2] = n[2];
   }

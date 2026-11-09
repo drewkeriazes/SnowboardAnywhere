@@ -158,6 +158,8 @@ const HARD_IN = 0.12, HARD_PSI = 80 * D2R, HARD_ROLL = 1.5, HARD_ROLL_V = 10, HA
  * WASH_DRAIN per s.
  */
 const HARD_DRIVE_T = 0.15, WASH_SHORT = 0.6, WASH_V0 = 8, WASH_SPAN = 12, WASH_RATE = 8, WASH_DRAIN = 3;
+/** extra sideways grip on groomed corduroy (gripBase is GROOMED_GRIP there): HARD_G is in g on corduroy */
+const GROOMED_BONUS = 0.4, GROOMED_GRIP = 1 + GROOMED_BONUS;
 /** FEAT-148: a committed edge holds this much over the turn it balances, so it bites clean instead of riding the grip limit */
 const HARD_SLACK = 1.2;
 /** FEAT-148: a hard carve's deep edge plows snow: a drag of HARD_DRAG times the lateral acceleration */
@@ -761,7 +763,7 @@ export class Rider {
     const rock = this.surface.rock;
     const snow = this.snow;
     const powder = Math.min(1, snow.powder + 0.5 * snow.chop + 0.5 * snow.slush); // soft snow the board planes in, so the edge cap is lower
-    const gripBase = (1.0 + 0.4 * groomed - 0.5 * rock) * snow.grip * (1 + SQUAT_GRIP * this.squat) * (1 - PRESS_GRIP * Math.abs(this.lean)) // low centre of mass bites a little more; on a press you can't carve
+    const gripBase = (1.0 + GROOMED_BONUS * groomed - 0.5 * rock) * snow.grip * (1 + SQUAT_GRIP * this.squat) * (1 - PRESS_GRIP * Math.abs(this.lean)) // low centre of mass bites a little more; on a press you can't carve
       * (this.switch ? 1 - SWITCH_GRIP : 1); // FEAT-139: a touch weaker switch
 
     // ---- FEAT-148 hard carve: the squat key held while steering drives the edge in (eased over HARD_IN)
@@ -788,19 +790,18 @@ export class Rider {
     const gInRaw = (ax * lx + ay * ly) * Math.sign(this.edge);
     const gIn = gInRaw < 0 ? gInRaw * GIN_FIGHT : gInRaw;
     // FEAT-053: soft snow does not hold the sidecut's arc, so the turns come round wider and slower (snow.turn < 1)
-    const balance = (p: number) => Math.min((spd * spd * snow.turn) / (F.sidecut * Math.cos(p)), Math.max(0, G * n[2] * Math.tan(Math.min(phiMax, p * (1 - F.angulation))) * snow.turn + gIn));
-    let aLat = balance(psi);
+    let aLat = this.balance(psi, spd, snow.turn, F, phiMax, n[2], gIn);
     // FEAT-148: the press asks for the turn of the target edge, driven in over HARD_DRIVE_T once the edge
     // is on the steer's side; the edge only holds the turn its real angle balances (aLat above), and the
-    // snow no more than HARD_G g times its grip (gripBase is 1.4 on groomed corduroy, plus the squat's bite).
+    // snow no more than HARD_G g times its grip (gripBase is GROOMED_GRIP on groomed corduroy, plus the squat's bite).
     // Asking more than it holds slides the tail out (a skid); far more at speed, for long, washes out.
     let hardHold = 0;
     this.carveShort = 0;
     if (H > 0) {
       this.hardDrive = this.edge * want > 0 ? Math.min(1, this.hardDrive + dt / HARD_DRIVE_T) : 0;
       const psiAsk = psi + Math.max(0, Math.abs(want) - psi) * this.hardDrive;
-      const aAsk = Math.min(HARD_G * G, balance(psiAsk));
-      hardHold = Math.min(aLat, HARD_G * G * gripBase / (1.4 * (1 + SQUAT_GRIP * this.squat)));
+      const aAsk = Math.min(HARD_G * G, this.balance(psiAsk, spd, snow.turn, F, phiMax, n[2], gIn));
+      hardHold = Math.min(aLat, HARD_G * G * gripBase / (GROOMED_GRIP * (1 + SQUAT_GRIP * this.squat)));
       this.carveShort = H * Math.max(0, aAsk - hardHold) / G;
       aLat += (aAsk - aLat) * H;
       // the washout meter: soft snow lets the board plane instead (a deep surfy turn)
@@ -814,6 +815,10 @@ export class Rider {
         this.onWashout?.(side * this.toeSign);
         this.hardCarve = this.hardDrive = this.carveShort = this.washout = 0;
         this.edge *= 0.3; this.edgeTarget = 0;
+        // the tumble starts sliding at once (as the crash branch does from the next step)
+        this.x += this.vx * dt; this.y += this.vy * dt;
+        this.z = this.groundAt(this.x, this.y, this.z); this.vz = 0;
+        this.speed = Math.hypot(this.vx, this.vy);
         return;
       }
     } else { this.hardDrive = 0; this.washout = Math.max(0, this.washout - WASH_DRAIN * dt); }
@@ -1286,6 +1291,15 @@ export class Rider {
     const phi = Math.min(PHI_MAX + (HARD_PHI - PHI_MAX) * this.hardCarve, psi * (1 - F.angulation));
     const aLat = Math.min((spd * spd) / (F.sidecut * Math.cos(psi)), G * this.normal[2] * Math.tan(phi));
     return Math.sign(e) * Math.atan(aLat / G);
+  }
+
+  /**
+   * FEAT-127: the lateral acceleration (m/s^2) a board on edge angle p carves: the sidecut's arc,
+   * R = Rsc cos(p), opened out to what the lean (capped at phiMax) balances, scaled by the snow's turn
+   * factor, plus the fall line's pull into the turn (gIn); nz is the ground normal's up component.
+   */
+  private balance(p: number, spd: number, turn: number, F: Feel, phiMax: number, nz: number, gIn: number): number {
+    return Math.min((spd * spd * turn) / (F.sidecut * Math.cos(p)), Math.max(0, G * nz * Math.tan(Math.min(phiMax, p * (1 - F.angulation))) * turn + gIn));
   }
 
   /** FEAT-148: how fast the edge rolls (rad/s): HARD_ROLL times quicker in a hard carve, slowing past HARD_ROLL_V m/s */
