@@ -34,6 +34,10 @@ const SAG_K = 1;
 /** units of the R and G channels: metres per 1.0 */
 export const HEIGHT_SCALE = 0.5;
 
+/** bumped by the tracks and prints whenever their stamp geometry changes (add, fill-in tick, clear) */
+let stampVersion = 0;
+export function markStampDirty(): void { stampVersion++; }
+
 export const deformUniforms = {
   uDeform: { value: null as THREE.Texture | null },
   /** window origin x, z (three.js), 1 / size, strength (0 = off) */
@@ -124,6 +128,12 @@ export class Deform {
   readonly origin = new THREE.Vector2();
   enabled = true;
   private readonly clear = new THREE.Color();
+  /** called with the window (three.js x0, z0, size) before each capture, so stamp owners can hide what is outside it */
+  readonly cullers: ((x0: number, z0: number, size: number) => void)[] = [];
+  /** the window and stamp version of the last capture: an unchanged window over unchanged stamps is not re-rendered */
+  private lastX = NaN; private lastZ = NaN; private lastVersion = -1;
+  /** captures rendered (for checks) */
+  renders = 0;
 
   constructor() {
     this.camera.up.set(0, 0, -1);
@@ -139,6 +149,7 @@ export class Deform {
     this.res = res;
     this.target = new THREE.WebGLRenderTarget(res, res, { format: THREE.RGBAFormat, type: THREE.UnsignedByteType, depthBuffer: false, stencilBuffer: false, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
     this.target.texture.name = 'snow deformation';
+    this.lastVersion = -1; // a new target starts empty
     deformUniforms.uDeform.value = this.target.texture;
     deformUniforms.uDeformPx.value.set(1 / res, size / res, lod);
   }
@@ -152,7 +163,7 @@ export class Deform {
    */
   update(renderer: THREE.WebGLRenderer, x: number, y: number, z: number, vx: number, vz: number): void {
     const win = deformUniforms.uDeformWin.value;
-    if (!this.enabled || !this.target) { win.w = 0; return; }
+    if (!this.enabled || !this.target) { win.w = 0; this.lastVersion = -1; return; }
     const h = this.size / 2, texel = this.size / this.res;
     const sp = Math.hypot(vx, vz);
     const lead = (this.size / 3) * Math.min(1, sp / 10);
@@ -161,6 +172,11 @@ export class Deform {
     const ox = Math.floor((cx - h) / texel) * texel, oz = Math.floor((cz - h) / texel) * texel;
     this.origin.set(ox, oz);
     win.set(ox, oz, 1 / this.size, 1);
+    // review (PR #324): nothing moved and nothing was stamped, so the texture is still right
+    if (ox === this.lastX && oz === this.lastZ && stampVersion === this.lastVersion) return;
+    this.lastX = ox; this.lastZ = oz; this.lastVersion = stampVersion;
+    for (const c of this.cullers) c(ox, oz, this.size);
+    this.renders++;
     const cam = this.camera;
     cam.left = -h; cam.right = h; cam.top = h; cam.bottom = -h;
     cam.position.set(ox + h, y + 5000, oz + h);

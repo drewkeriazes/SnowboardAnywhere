@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Rider } from '../sim/Rider';
 import { rockCover } from '../terrain/rockCover';
-import { DEFORM_GLSL, deformUniforms, laneStampMaterial } from './Deform';
+import { DEFORM_GLSL, deformUniforms, laneStampMaterial, markStampDirty } from './Deform';
 
 /**
  * Tracks in the snow as real 3D grooves. Every STEP metres on the snow a cross-section is laid
@@ -69,6 +69,9 @@ const PROFILE: { sx: number; dx: number; h: number; a: number }[] = [
   { sx: 1, dx: 0.09, h: 0.0, a: 0 },
 ];
 const P = PROFILE.length;
+/** sections per stamp block: the deformation pass draws each block as its own culled mesh (review, PR #324) */
+const BLOCK = 250;
+const BLOCKS = Math.ceil(MAX / BLOCK);
 const UP = [0, 1, 0];
 /** BUG-021: the terrain's typical snow albedo: mix(uSnowShade, uSnow, 0.72) times its 0.95 grain tone */
 const SNOW_RGB = [0.83, 0.86, 0.94];
@@ -116,6 +119,9 @@ class Lane {
   private count = 0;
   private lastSlot = -1;
   private readonly geo: THREE.BufferGeometry;
+  /** FEAT-044: the stamp copy in blocks of BLOCK sections, each with bounds so the top-down camera culls it; and the bounds (min xyz, max xyz) */
+  private blocks: THREE.Mesh[] = [];
+  private readonly bounds = new Float32Array(BLOCKS * 6);
 
   constructor(material: THREE.Material) {
     this.pos = new Float32Array(MAX * P * 3);
@@ -142,11 +148,44 @@ class Lane {
 
   gap(): void { this.lastSlot = -1; }
 
-  /** FEAT-044: the same geometry drawn with the stamp material for the deformation pass */
-  proxy(material: THREE.Material): THREE.Mesh {
-    const m = new THREE.Mesh(this.geo, material);
-    m.name = 'track stamp'; m.frustumCulled = false;
-    return m;
+  /**
+   * FEAT-044: the same sections drawn with the stamp material for the deformation pass, as BLOCKS
+   * meshes over shared attributes, each drawing BLOCK sections' quads with its own bounding sphere, so
+   * the window's orthographic camera only draws the blocks near the rider (not the whole 3 km ring).
+   */
+  proxy(material: THREE.Material): THREE.Group {
+    const g = new THREE.Group();
+    g.name = 'track stamp';
+    const quads = BLOCK * (P - 1) * 6;
+    this.blocks = [];
+    for (let b = 0; b < BLOCKS; b++) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', this.geo.getAttribute('position'));
+      geo.setAttribute('aStamp', this.geo.getAttribute('aStamp'));
+      geo.setIndex(this.geo.index);
+      geo.setDrawRange(b * quads, quads);
+      geo.boundingSphere = new THREE.Sphere();
+      const m = new THREE.Mesh(geo, material);
+      m.frustumCulled = true; m.visible = false; m.matrixAutoUpdate = false;
+      this.blocks.push(m); g.add(m);
+    }
+    return g;
+  }
+
+  /** grow block b's bounds by section s's vertices and refit its sphere (a fresh block starts empty) */
+  private bound(s: number): void {
+    const b = Math.floor(s / BLOCK), o = b * 6, bd = this.bounds;
+    if (s % BLOCK === 0) { bd.fill(Infinity, o, o + 3); bd.fill(-Infinity, o + 3, o + 6); }
+    for (let k = 0; k < P; k++) {
+      const v = (s * P + k) * 3;
+      for (let i = 0; i < 3; i++) { const p = this.pos[v + i]; if (p < bd[o + i]) bd[o + i] = p; if (p > bd[o + 3 + i]) bd[o + 3 + i] = p; }
+    }
+    const m = this.blocks[b];
+    if (!m) return;
+    const sp = m.geometry.boundingSphere!;
+    sp.center.set((bd[o] + bd[o + 3]) / 2, (bd[o + 1] + bd[o + 4]) / 2, (bd[o + 2] + bd[o + 5]) / 2);
+    sp.radius = Math.hypot(bd[o + 3] - bd[o], bd[o + 4] - bd[o + 1], bd[o + 5] - bd[o + 2]) / 2 + 1; // + the joining quad and the fill-in reshapes
+    m.visible = true;
   }
 
   /**
@@ -170,6 +209,7 @@ class Lane {
       this.ground[s * P + k] = surface(cx + ax * off, cz + az * off);
     }
     this.shape(s);
+    this.bound(s);
     // quads to the previous section of this stroke
     const q = s * (P - 1) * 6;
     if (this.lastSlot >= 0) {
@@ -274,17 +314,19 @@ class Lane {
     (this.geo.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('aSpread') as THREE.BufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('aStamp') as THREE.BufferAttribute).needsUpdate = true;
+    markStampDirty();
   }
 
   /** Age and re-shape (called a couple of times a second). */
   tick(dt: number): void {
     const aged = dt * fillRate;
+    if (!this.count) return;
     for (let s = 0; s < this.count; s++) { this.age[s] += aged; this.shape(s); }
     this.flag();
   }
 
-  clear(): void { this.idx.fill(0); this.count = 0; this.head = 0; this.lastSlot = -1; this.geo.index!.needsUpdate = true; }
-  dispose(): void { this.geo.dispose(); }
+  clear(): void { this.idx.fill(0); this.count = 0; this.head = 0; this.lastSlot = -1; this.geo.index!.needsUpdate = true; for (const m of this.blocks) m.visible = false; markStampDirty(); }
+  dispose(): void { this.geo.dispose(); for (const m of this.blocks) m.geometry.dispose(); }
 }
 
 export class Tracks {
@@ -312,7 +354,7 @@ export class Tracks {
   discipline: 'board' | 'ski' = 'board';
   /** on foot: one skid groove per boot when slipping down the snow (FEAT-068) */
   private readonly bootLanes: Lane[];
-  private laneProxies: THREE.Mesh[] = [];
+  private laneProxies: THREE.Group[] = [];
   private bootX = NaN;
   private bootY = NaN;
 
@@ -385,6 +427,7 @@ export class Tracks {
     for (const l of this.lanes) this.group.add(l.mesh);
     this.laneProxies = this.lanes.map((l) => l.proxy(this.stampMat));
     for (const p of this.laneProxies) this.stampGroup.add(p);
+    markStampDirty();
     this.lastX = NaN;
   }
 

@@ -171,6 +171,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     // FEAT-044: the tracks and prints near the rider stamped into a texture the terrain deforms from
     const deform = new Deform();
     deform.scene.add(tracks.stampGroup, bootprints.stampMesh, bigprints.stampMesh);
+    deform.cullers.push((x, z, s) => bootprints.cullStamp(x, z, s), (x, z, s) => bigprints.cullStamp(x, z, s));
     const monsters = new Monsters(pack, collider, puffs, bigprints);
     add('monsters', monsters.group);
     const eat = new Eat(pack, puffs);

@@ -80,6 +80,8 @@ export class Spray {
   private readonly aV0: THREE.BufferAttribute;
   private readonly aT: THREE.BufferAttribute;
   private readonly aSeed: THREE.BufferAttribute;
+  /** the spawn-record attributes flush uploads */
+  private readonly attrs: THREE.BufferAttribute[];
   private n = MAX;
   private head = 0;
   private time = 0;
@@ -99,6 +101,7 @@ export class Spray {
     this.aSeed = new THREE.BufferAttribute(this.seed, 1).setUsage(THREE.DynamicDrawUsage);
     this.geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX * 3), 3)); // the draw count; positions come from the shader
     this.geo.setAttribute('aP0', this.aP0); this.geo.setAttribute('aV0', this.aV0); this.geo.setAttribute('aT', this.aT); this.geo.setAttribute('aSeed', this.aSeed);
+    this.attrs = [this.aP0, this.aV0, this.aT, this.aSeed];
     this.mat = new THREE.ShaderMaterial({
       vertexShader: vert, fragmentShader: frag, transparent: true, depthWrite: false,
       uniforms: { uTime: { value: 0 }, uWind: { value: new THREE.Vector2(0.6, 0.2) }, uViewH: { value: 720 }, uColor: { value: new THREE.Color(1, 1, 1) } },
@@ -128,15 +131,14 @@ export class Spray {
     this.spawned++;
   }
 
-  /** a wisp or a cloud by the snow's softness; returns [kind, life, size] */
-  private pick(soft: number, out: number[]): number[] {
-    const cloud = Math.random() < soft;
+  /** a wisp or a cloud by the snow's softness: writes kind, life and size into `pk` (no allocation) */
+  private pick(soft: number): void {
+    const cloud = Math.random() < soft, out = this.pk;
     out[0] = cloud ? 1 : 0;
     out[1] = cloud ? 1.5 + Math.random() * 1.5 : 0.3 + Math.random() * 0.3;
     out[2] = cloud ? 0.14 + Math.random() * 0.12 : 0.1 + Math.random() * 0.08;
-    return out;
   }
-  private readonly pk = [0, 0, 0];
+  private readonly pk = new Float32Array(3);
 
   /**
    * Per frame. `g` the board's position (three.js), `f` and `right` the rig's forward and right
@@ -164,7 +166,8 @@ export class Spray {
       for (let i = 0; i < n; i++) {
         const along = (Math.random() - 0.5) * 1.6, side = (Math.random() - 0.5) * 0.5;
         const ang = Math.random() * Math.PI * 2, out = 1 + Math.random() * 3;
-        const [kind, life, size] = this.pick(Math.min(1, soft + 0.3), this.pk);
+        this.pick(Math.min(1, soft + 0.3));
+        const kind = this.pk[0], life = this.pk[1], size = this.pk[2];
         this.spawn(g.x + f.x * along + right.x * side, g.y + 0.05, g.z + f.z * along + right.z * side,
           Math.cos(ang) * out + dirX * sp * 0.2, (1 + Math.random() * 2.5) * (kind ? 0.6 : 1), Math.sin(ang) * out + dirZ * sp * 0.2, life * 1.2, size * 1.3, kind);
       }
@@ -184,7 +187,8 @@ export class Spray {
     const side = Math.sign(fl * r.edgeAngle) || 1; // the engaged edge in the rig's frame (FEAT-139)
     const skid = Math.min(1, r.skid);
     for (; n > 0; n--) {
-      const [kind, life, size] = this.pick(soft, this.pk);
+      this.pick(soft);
+      const kind = this.pk[0], life = this.pk[1], size = this.pk[2];
       if (Math.random() < sheetShare) {
         // a low sheet: on ahead of the board and out along it, not up
         const along = (Math.random() - 0.5) * 1.5;
@@ -204,14 +208,15 @@ export class Spray {
     this.flush();
   }
 
-  /** upload only the slots written this frame */
+  /** upload only the slots written this frame (one range, or two when the ring wrapped); no allocation */
   private flush(): void {
     if (this.start < 0) return;
-    const end = this.start + this.written;
-    const ranges: [number, number][] = end <= this.n ? [[this.start, this.written]] : [[this.start, this.n - this.start], [0, end - this.n]];
-    for (const [a, w] of [[this.aP0, 3], [this.aV0, 3], [this.aT, 4], [this.aSeed, 1]] as [THREE.BufferAttribute, number][]) {
+    const end = this.start + this.written, wrapped = end > this.n;
+    for (const a of this.attrs) {
+      const w = a.itemSize;
       a.clearUpdateRanges();
-      for (const [s, c] of ranges) a.addUpdateRange(s * w, c * w);
+      if (!wrapped) a.addUpdateRange(this.start * w, this.written * w);
+      else { a.addUpdateRange(this.start * w, (this.n - this.start) * w); a.addUpdateRange(0, (end - this.n) * w); }
       a.needsUpdate = true;
     }
   }

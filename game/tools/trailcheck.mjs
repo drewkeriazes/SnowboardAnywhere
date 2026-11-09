@@ -129,6 +129,8 @@ await page.keyboard.up('ArrowDown');
 await shot('05_stop', 4, 2, 1.5);
 const chunksOn = (await state()).chunks;
 const stop = await probe(2);
+// standing still with nothing new stamped, the capture runs only on the fill-in ticks (2 a second)
+const idle = await page.evaluate(() => { const d = window.__sim.deform, r0 = d.renders; for (let i = 0; i < 120; i++) window.__step(1, 1 / 60); return d.renders - r0; });
 console.log('texture behind the board, after the stop:', JSON.stringify(stop));
 // the same views without the deformation (the ribbon alone)
 await page.evaluate(() => { const s = window.__sim; s.settings.snowDeform = false; s.applySettings('snowDeform'); });
@@ -142,6 +144,7 @@ check('deformation texture holds the trench behind the board', !!carve && carve.
 check('a powder trench is deeper than a groomer groove', !!carve && carve.maxDepCm >= 8, carve ? `max ${carve.maxDepCm} cm, ${carve.filled} texels stamped` : '');
 check('the stop leaves a pushed-up ridge', !!stop && stop.maxLipCm >= 1, stop ? `max lip ${stop.maxLipCm} cm` : '');
 check('no extra terrain chunks for the deformation', Math.abs(chunksOn - chunksOff) <= 20, `${chunksOn} on, ${chunksOff} off`);
+check('the capture is skipped while nothing changes', idle <= 8, `${idle} captures in 2 s standing still`);
 check('spray spawned in the carves', spawned > 50, `${spawned} particles`);
 check('spray sheet in the stop', stopSpawned > 50, `${stopSpawned} particles`);
 check('no console errors', errors.length === 0, errors.slice(0, 3).map((e) => e.slice(0, 200)).join(' | ') || (missing.length ? `${missing.length} missing resource(s) ignored` : ''));

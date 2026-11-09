@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Plant } from './Gait';
 import { FADE, trackFillRate } from './Tracks';
-import { DEFORM_GLSL, deformUniforms, printStampMaterial } from './Deform';
+import { DEFORM_GLSL, deformUniforms, markStampDirty, printStampMaterial } from './Deform';
 
 /**
  * Bootprints (FEAT-067): one dent per foot plant, stamped where the gait put the boot down, as one
@@ -165,7 +165,7 @@ export class Bootprints {
     this.stampMesh.instanceMatrix = this.mesh.instanceMatrix;
     this.stampMesh.name = 'bootprint stamps';
     this.stampMesh.count = 0;
-    this.stampMesh.frustumCulled = false;
+    this.stampMesh.frustumCulled = false; // cullStamp hides it instead (InstancedMesh culls as a whole)
   }
 
   /** Stamp one print at a foot plant. `depth` (m) from how far the boot sank. */
@@ -202,6 +202,23 @@ export class Bootprints {
     this.mesh.count = this.count; this.stampMesh.count = this.count;
     this.mesh.instanceMatrix.needsUpdate = true;
     this.depth.needsUpdate = this.kick.needsUpdate = this.smear.needsUpdate = this.fill.needsUpdate = true;
+    markStampDirty();
+  }
+
+  /**
+   * FEAT-044 (review, PR #324): draw the stamp copy only when a live print is inside the deformation
+   * window (three.js x0, z0, size), so a long walk's prints elsewhere cost the capture nothing.
+   */
+  cullStamp(x0: number, z0: number, size: number): void {
+    const m = SOLE_HL * this.scale * 1.6;
+    const xa = x0 - m, xb = x0 + size + m, ya = -(z0 + size) - m, yb = -z0 + m; // pack y = -z
+    let any = false;
+    for (let s = 0; s < this.count && !any; s++) {
+      if (this.cellOf[s] === null) continue;
+      const x = this.px[s], y = this.py[s];
+      any = x > xa && x < xb && y > ya && y < yb;
+    }
+    this.stampMesh.visible = any;
   }
 
   /** a print that is still a visible dent (not filled back in or overwritten) */
@@ -227,6 +244,7 @@ export class Bootprints {
     this.depth.setX(s, Math.min(this.depth0[s] * DEEPEN_CAP, this.depth.getX(s) * DEEPEN));
     this.age[s] = 0; this.fill.setX(s, 1);
     this.depth.needsUpdate = this.fill.needsUpdate = true;
+    markStampDirty();
   }
 
   /** file slot s under its grid cell, taking it out of the cell of the print it overwrites */
@@ -250,10 +268,11 @@ export class Bootprints {
       this.fill.setX(s, Math.max(0, 1 - this.age[s] / FADE) * (1 - ringAge * ringAge));
     }
     this.fill.needsUpdate = true;
+    if (this.count) markStampDirty();
     this.tickAcc = 0;
   }
 
   get stats(): { prints: number } { return { prints: this.count }; }
-  clear(): void { this.count = 0; this.head = 0; this.mesh.count = 0; this.stampMesh.count = 0; this.grid.clear(); this.cellOf.fill(null); this.lastOf[0] = this.lastOf[1] = -1; }
+  clear(): void { this.count = 0; this.head = 0; this.mesh.count = 0; this.stampMesh.count = 0; this.grid.clear(); this.cellOf.fill(null); this.lastOf[0] = this.lastOf[1] = -1; markStampDirty(); }
   dispose(): void { this.mesh.geometry.dispose(); this.mat.dispose(); this.stampMat.dispose(); }
 }
