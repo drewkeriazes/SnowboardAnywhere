@@ -384,7 +384,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       // FEAT-137: controller buttons, stick and trigger dead zones, look speed, the DualSense extras
       controls.padKeys = { ...s.padKeys };
       controls.padCfg = { dead: s.padDead, trigDead: s.padTrigDead, lookSens: s.lookSens, invertY: s.invertLookY, gyro: s.padGyro, gyroSens: s.gyroSens };
-      padFx.strength = s.vibration; padFx.triggers = s.padTriggers; padFx.lightbar = s.padLightbar;
+      padFx.strength = s.rumble ? s.vibration : 0; padFx.triggers = s.padTriggers; padFx.lightbar = s.padLightbar;
       lifts.markers.visible = s.showMarkers;
       roads.setOnSnow(s.roadsOnSnow);
       liftLines.setEnabled(s.liftLines);

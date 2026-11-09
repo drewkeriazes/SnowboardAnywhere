@@ -71,6 +71,8 @@ export interface Settings {
   /** FEAT-137: controller buttons per action (standard-mapping indices, two slots), rumble strength 0..1 (0 off),
    *  stick and trigger dead zones, right stick look rate and invert Y */
   padKeys: Record<string, number[]>;
+  /** rumble on or off (the strength is kept for when it comes back on), and its strength */
+  rumble: boolean;
   vibration: number;
   padDead: number; padTrigDead: number; lookSens: number; invertLookY: boolean;
   /** FEAT-137 DualSense extras (WebHID): adaptive triggers, the lightbar, gyro look and its rate */
@@ -141,7 +143,7 @@ const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', snowDay: 'mid', snowDeform: true, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
   fov: 68, autoQuality: true, targetFps: 60, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, fpShake: 0.3, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, pressBalance: 'on', outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', stance: 'regular', timeOfDay: 'pack', month: 2, units: 'imperial', keys: migrateKeys(undefined).keys,
   outrun: { difficulty: 'normal', escape: 'base', gentle: false },
-  padKeys: migratePadKeys(undefined), vibration: 0.8, padDead: 0.18, padTrigDead: 0.3, lookSens: 1, invertLookY: false,
+  padKeys: migratePadKeys(undefined), rumble: true, vibration: 0.8, padDead: 0.18, padTrigDead: 0.3, lookSens: 1, invertLookY: false,
   padTriggers: false, padLightbar: true, padGyro: false, gyroSens: 1,
 };
 const KEY = 'settings';
@@ -242,7 +244,8 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="hint">Click a slot, then press a key (or the right mouse button). Esc cancels, Delete clears the slot.</div>
       <div class="hint" style="margin-top:14px;font-weight:600;opacity:.9">Controller</div>
       <div class="hint">The left stick steers and leans (up / down tuck and brake), the right stick looks, Options / Start or the PS button pauses. In menus: D-pad or stick to move, Cross / A to pick, Circle / B to go back, L1 / R1 for the tabs.</div>
-      <div class="row"><label>Vibration</label><input type="range" data-k="vibration" min="0" max="1" step="0.05"><span class="val" data-v="vibration"></span></div>
+      <div class="row"><label>Vibration</label><input type="checkbox" data-k="rumble"></div>
+      <div class="row"><label>Vibration strength</label><input type="range" data-k="vibration" min="0.05" max="1" step="0.05"><span class="val" data-v="vibration"></span></div>
       <div class="row"><button data-a="rumble-test">Test vibration</button></div>
       <div class="hint" data-rumble-status></div>
       <div class="row"><label>Stick dead zone</label><input type="range" data-k="padDead" min="0.05" max="0.4" step="0.01"><span class="val" data-v="padDead"></span></div>
@@ -290,7 +293,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
   let cancelListen: (() => void) | null = null; // the one key slot waiting for a press, if any
   const pct = (v: number) => `${Math.round(v * 100)}%`;
   const showVals = () => {
-    const vals: Record<string, string> = { fov: `${s.fov}°`, vibration: s.vibration > 0 ? pct(s.vibration) : 'off', padDead: pct(s.padDead), padTrigDead: pct(s.padTrigDead), lookSens: `${s.lookSens.toFixed(2)}x`, gyroSens: `${s.gyroSens.toFixed(2)}x` };
+    const vals: Record<string, string> = { fov: `${s.fov}°`, vibration: pct(s.vibration), padDead: pct(s.padDead), padTrigDead: pct(s.padTrigDead), lookSens: `${s.lookSens.toFixed(2)}x`, gyroSens: `${s.gyroSens.toFixed(2)}x` };
     for (const k in vals) { const el = host.querySelector(`[data-v="${k}"]`); if (el) el.textContent = vals[k]; }
   };
   const fill = () => {

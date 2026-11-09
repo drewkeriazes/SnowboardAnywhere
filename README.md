@@ -94,8 +94,8 @@ shapes on a DualSense or DualShock); press a key and they switch back to the key
 | Options (Start) or PS | pause |
 
 In menus the D-pad or left stick moves, ✕ picks, ○ goes back (resumes from the pause menu), L1 / R1 switch
-the settings tabs, and left / right change a slider or a list. Settings > Controls > Controller has the
-vibration strength (0 is off), the stick and trigger dead zones, the look speed, invert look Y, and two
+the settings tabs, and left / right change a slider or a list. Settings > Controls > Controller has
+vibration on / off and its strength, the stick and trigger dead zones, the look speed, invert look Y, and two
 slots per action to rebind the buttons (click a slot or press ✕ on it, then press the button).
 
 Rumble: crashes, landings (harder the harder you land), time trial checkpoints, and the Outrun

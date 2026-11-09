@@ -198,15 +198,16 @@ console.log('---- session');
     s.rider.crashed = 1;
     window.__step(1);
     const crash = p.effects.filter((e) => e.t === 'dual-rumble').map((e) => e.strongMagnitude);
-    s.settings.vibration = 0; s.padFx.strength = 0;
+    s.settings.rumble = false; s.applySettings('rumble'); // Settings > Controller > Vibration off
     p.effects.length = 0; s.rider.crashed = 0; window.__step(1); s.rider.crashed = 1; window.__step(1);
     const off = p.effects.filter((e) => e.t === 'dual-rumble' && e.strongMagnitude > 0.02).length;
+    s.settings.rumble = true; s.applySettings('rumble');
     return { help, land, crash, off };
   });
   check('corner hints in PlayStation glyphs', fx.help.includes('<svg') && fx.help.includes('R2') && fx.help.includes('L stick') && !fx.help.includes('<kbd>'), fx.help.replace(/<svg.*?<\/svg>/g, '[svg]').slice(0, 160));
   check('a landing rumbles', fx.land.length > 0 && Math.max(...fx.land) > 0.5, JSON.stringify(fx.land));
   check('a crash rumbles hard', fx.crash.length > 0 && Math.max(...fx.crash) > 0.7, JSON.stringify(fx.crash));
-  check('vibration 0 is off', fx.off === 0, String(fx.off));
+  check('Vibration off: no rumble on a crash', fx.off === 0, String(fx.off));
   // press balance and bumps, on a scripted rider (deterministic)
   const pb = await page.evaluate(() => {
     const fx = window.__sim.padFx;
