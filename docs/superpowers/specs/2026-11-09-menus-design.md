@@ -93,7 +93,7 @@ Today the menu runs before the session, so there is no scene to show. The menu b
 ## Navigation (all screens)
 
 - **Keyboard:** arrows move focus, Enter or Space selects, Esc goes back (resumes from pause), Tab and Shift+Tab also move, Q / E switch categories in settings (the LB / RB of the keyboard). *Builder's call:* the menu keys are a fixed table, not part of the rebindable riding keymap (`DEFAULT_KEYS`), so a rebind can never lock you out of the menus: Q / E categories, hold V peek, R reset section, B Snowboard / Skis on the main menu. The hint bar reads that table and the riding keymap; nothing is typed by hand.
-- **Pad map:** `sim/Controls.ts` hard-codes most pad buttons in `update`; PR 1 moves them into one table (like `PAD_ACTIONS`) so the Controls category and the hints read the same source.
+- **Pad map:** FEAT-137 (merged during PR 1) made the controller buttons rebindable (`DEFAULT_PAD` in `sim/Pad.ts`) with per-controller glyphs (`ui/PadGlyphs.ts`) and its own menu loop (`ui/PadNav.ts`). The menus read those; on MenuNav screens PadNav hands its presses to MenuNav, so there is still one focus.
 - **Gamepad:** D-pad or left stick moves focus (with repeat), A selects, B goes back, LB / RB switch categories, Y peeks, X resets the section or toggles Snowboard / Skis on the main menu, Start opens and closes pause.
 - **Mouse and touch:** hover sets focus, click or tap selects; rows are 44 px or taller.
 - One small focus manager module owns this for all three screens, so the behaviour is the same everywhere. Focus is always somewhere visible; opening a screen focuses its primary item; closing one returns focus to what opened it.

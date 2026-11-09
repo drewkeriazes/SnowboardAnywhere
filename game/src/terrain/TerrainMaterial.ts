@@ -42,6 +42,12 @@ import { DEFORM_GLSL, deformUniforms } from '../world/Deform';
  * vertex by the soft sag around the tracks and prints (the stamp averaged over about 1 m, fading out
  * over the window's last metres) and the fragment shader tilts the normal by its slope; the sharp
  * trench itself is the ribbon (`Tracks.ts`). `uDeformWin.w` = 0 turns it off (a uniform branch).
+ *
+ * Distant forest (FEAT-153): past a few hundred metres the forest share comes per pixel from the pack's
+ * cover levels (`uCov0..2`, mipmapped, so trails narrower than a far chunk's vertices still show as white
+ * cuts), not from the per-vertex value; conifer timber is a dark mass with a crown-scale texture that fades
+ * to an even tone once a pixel is wider than a crown. Beyond the instanced trees (`uLiftNear`) the coarse
+ * chunks raise forested ground by the `lift` attribute (canopy height x cover) so ridges read as treed.
  */
 
 /** three.js's physical direct-light function with the snow wrap/subsurface and glint terms added. */
@@ -62,6 +68,23 @@ function snowLightsChunk(): string {
 	float glint = pow( saturate( dot( gGlintN, normalize( directLight.direction + geometryViewDir ) ) ), 700.0 );
 	reflectedLight.directSpecular += directLight.color * ( gGlintW * glint * 9.0 * dotNL );`)
     .replace(b, `reflectedLight.directDiffuse += snowIrr * BRDF_Lambert( material.diffuseColor );`);
+}
+
+/** FEAT-153: the canopy lift fades in from the impostors' reach (Vegetation FAR_RADIUS) to full here (m) */
+/** FEAT-153: the canopy lift fades in over this many metres from `uLiftNear`, the impostors' reach (Vegetation FAR_RADIUS, set by Terrain.update) */
+export const LIFT_RAMP = 2000;
+/** FEAT-153: cover level slots in the shader (coarsest first) */
+export const COVER_SLOTS = 3;
+const EMPTY_RECT = new THREE.Vector4(-1e7, -1e7, -1e7 + 1000, -1e7 + 1000); // weight 0 everywhere, finite uv
+function coverUniforms() {
+  const blank = new THREE.DataTexture(new Uint8Array(1), 1, 1, THREE.RedFormat, THREE.UnsignedByteType);
+  blank.needsUpdate = true;
+  return {
+    uCov0: { value: blank as THREE.Texture }, uCov1: { value: blank as THREE.Texture }, uCov2: { value: blank as THREE.Texture },
+    uCovRect: { value: [EMPTY_RECT.clone(), EMPTY_RECT.clone(), EMPTY_RECT.clone()] },
+    uCovBlend: { value: 500 },
+    uLiftNear: { value: 4500 },
+  };
 }
 
 export function createTerrainMaterial(): THREE.MeshStandardMaterial {
@@ -100,6 +123,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     uAO: { value: 1.0 },
     ...rockUniforms(),
     ...deformUniforms,
+    ...coverUniforms(),
   };
   mat.userData.uniforms = uniforms;
   mat.onBeforeCompile = (shader) => {
@@ -112,6 +136,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         attribute vec2 fall;
         attribute float ao;
         attribute vec4 mogul;
+        attribute float lift;
+        uniform float uLiftNear;
         varying float vAO;
         varying float vForest;
         varying vec2 vFall;
@@ -120,6 +146,11 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         varying vec3 vWorldNormal;
         ${DEFORM_GLSL}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
+        // FEAT-153: forested ground stands up by its canopy past the instanced trees, so ridges read as treed
+        if (lift > 0.0) {
+          vec3 wl = (modelMatrix * vec4(transformed, 1.0)).xyz;
+          transformed.y += lift * smoothstep(uLiftNear, uLiftNear + ${LIFT_RAMP.toFixed(1)}, distance(cameraPosition, wl));
+        }
         // FEAT-044: the snow sags softly around the tracks and prints inside the deformation window
         if (uDeformWin.w > 0.0) {
           vec2 duv = deformUV((modelMatrix * vec4(transformed, 1.0)).xz);
@@ -158,6 +189,26 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         uniform float uSnowCover;
         uniform float uSkied, uSpring;
         uniform vec2 uSnowLee;
+        // FEAT-153: forest cover levels, coarsest first (rect = minX, minY, maxX, maxY in pack metres)
+        uniform sampler2D uCov0, uCov1, uCov2;
+        uniform vec4 uCovRect[3];
+        uniform float uCovBlend;
+        #define COVER_NEAR 300.0
+        #define COVER_FULL 600.0
+        float covW(vec2 p, vec4 r) { vec2 d = min(p - r.xy, r.zw - p); return smoothstep(0.0, uCovBlend, min(d.x, d.y)); }
+        vec2 covUV(vec2 p, vec4 r) { return vec2((p.x - r.x) / (r.z - r.x), (r.w - p.y) / (r.w - r.y)); }
+        // forest share (x) blended finest over coarsest, and how much of it is data (y). All three are
+        // sampled unconditionally so the mip selection never sits in non-uniform control flow.
+        vec2 coverForest(vec2 p) {
+          float f0 = texture2D(uCov0, covUV(p, uCovRect[0])).r;
+          float f1 = texture2D(uCov1, covUV(p, uCovRect[1])).r;
+          float f2 = texture2D(uCov2, covUV(p, uCovRect[2])).r;
+          float w0 = covW(p, uCovRect[0]), w1 = covW(p, uCovRect[1]), w2 = covW(p, uCovRect[2]);
+          float f = f0 * w0, c = w0;
+          f = mix(f, f1, w1); c = mix(c, 1.0, w1);
+          f = mix(f, f2, w2); c = mix(c, 1.0, w2);
+          return vec2(c > 1e-4 ? f / c : 0.0, c);
+        }
         // set in main() before lighting, read by the snow terms in RE_Direct_Physical
         float gSnowW;
         vec3 gGlintN;
@@ -329,12 +380,22 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         // FEAT-075: forested ground goes dark from just past the instanced trees' detail (350 m, full by
         // 1 km), not only beyond 2.5 km, so valley forest reads as a dark mass like the photos. The canopy
         // cover is low in the data (BUG-028), so it is lifted; runs and bowls (no canopy) stay white.
-        float forestK = smoothstep(FOREST_LO, FOREST_HI, vForest);
-        float fd = max(smoothstep(FOREST_NEAR, FOREST_FULL, dist) * forestK, smoothstep(2500.0, 6000.0, dist) * vForest);
-        float speck = vnoise(wp * 0.02) * 0.6 + vnoise(wp * 0.11) * 0.4;
-        // FEAT-075: conifer canopy in sun is dark (shaded needles and crowns), dark green-black in the photos
-        vec3 timber = mix(vec3(0.03, 0.045, 0.035), vec3(0.08, 0.1, 0.075), speck);
-        timber = mix(timber, snow * 0.8, smoothstep(0.62, 0.9, speck) * 0.6); // snowy gaps between crowns
+        // FEAT-153: past COVER_NEAR the forest comes per pixel from the cover levels (already a share of
+        // ground under closed canopy, so only a mild S curve keeps mip-averaged trail edges from greying)
+        vec2 cov = coverForest(vec2(wp.x, -wp.z));
+        float covK = cov.y * smoothstep(COVER_NEAR, COVER_FULL, dist);
+        float forestV = mix(vForest, cov.x, covK);
+        float forestK = mix(smoothstep(FOREST_LO, FOREST_HI, vForest), smoothstep(0.1, 0.9, cov.x), covK);
+        float fd = max(smoothstep(FOREST_NEAR, FOREST_FULL, dist) * forestK, smoothstep(2500.0, 6000.0, dist) * forestV);
+        // FEAT-075: conifer canopy in sun is dark (shaded needles and crowns), dark green-black in the photos.
+        // FEAT-153: crowns (about 6 m) texture it while a pixel is smaller than a crown and fade to an even
+        // tone beyond, with a faint stand-scale variation; no 50 m snow blotches at a distance
+        float pixM = length(fwidth(wp));
+        float crownK = 1.0 - smoothstep(1.0, 5.0, pixM);
+        float crown = vnoise(wp * 0.17) * 0.65 + vnoise(wp * 0.47 + 2.3) * 0.35;
+        float stand = vnoise(wp * 0.007 + 5.1);
+        vec3 timber = mix(vec3(0.03, 0.045, 0.035), vec3(0.08, 0.1, 0.075), mix(0.4, crown, crownK) * 0.75 + stand * 0.25);
+        timber = mix(timber, snow * 0.8, smoothstep(0.62, 0.9, crown) * crownK * 0.6); // snowy gaps between crowns
         base = mix(base, timber, fd * 0.9);
         gSnowW = wSnow * (1.0 - fd);
         gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd) * (1.0 - 0.6 * uSpring); // wet spring snow sparkles less
@@ -416,7 +477,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           // (coarser than 32 m, beyond ~5 km); plus shade under the canopy (tree wells) near the trees
           float aoK = uAO * (1.0 - smoothstep(3500.0, 5000.0, dist));
           // FEAT-092: a steeper curve so gullies read in depth (was pow 1.8)
-          float aoT = mix(1.0, pow(vAO, AO_POW), aoK) * (1.0 - 0.28 * vForest * (1.0 - fd));
+          float aoT = mix(1.0, pow(vAO, AO_POW), aoK) * (1.0 - 0.28 * forestV * (1.0 - fd));
           reflectedLight.indirectDiffuse *= aoT * mix(vec3(1.0), uShadeTint, wSnow * (1.0 - 0.6 * uFlat));
           reflectedLight.indirectSpecular *= aoT;
           // gullies and couloirs read in depth in sun too, and it stands in for self-shadowing past the shadow maps

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { type Pack, MOGUL_MAX_RES, MOGUL_SHADE_MAX_RES } from '../pack/Pack';
 import { MOGUL_FALL_D } from './Moguls';
-import { createTerrainMaterial } from './TerrainMaterial';
+import { createTerrainMaterial, COVER_SLOTS } from './TerrainMaterial';
+import { vegetationFarRadius } from '../world/Vegetation';
 
 /**
  * Chunked quadtree terrain. The root covers the far height set (262 km). Each chunk is an
@@ -20,7 +21,8 @@ function vnoise2(x: number, y: number): number {
   return (a + (b - a) * fx) * (1 - fy) + (c + (d - c) * fx) * fy;
 }
 /**
- * Forest cover 0..1 where there is no canopy mask (beyond the pack, coarse chunks): conifers
+ * Forest cover 0..1 where there is neither canopy mask nor a cover level (FEAT-153: only before the cover
+ * has loaded, or beyond its levels; older packs everywhere past the fine chunks): conifers
  * below a noisy treeline, thinning on steep ground and in open patches (meadows, ski runs).
  */
 function proceduralForest(x: number, y: number, h: number, slope: number): number {
@@ -32,6 +34,12 @@ function proceduralForest(x: number, y: number, h: number, slope: number): numbe
   const valley = THREE.MathUtils.smoothstep(h, 2450, 2650); // towns and the I-70 corridor are open
   return below * open * flatOK * valley;
 }
+/** share of the canopy height the surface rises by (crowns are cones; the gaps let light through) */
+const LIFT_K = 0.7;
+/** m: a cover canopy height below this is blur from neighbouring open cells (G is bilinear and box-averaged), not a stand */
+const MIN_CANOPY_H = 2;
+/** canopy height (m) where the cover has forest but no height (and the procedural treeline) */
+const CANOPY_DEFAULT = 16;
 /** chunks at or below this vertex spacing (m) take baked AO from the pack; coarser ones are open sky */
 const AO_MAX_RES = 32;
 /** DATA-002: slope (rise/run) the piste direction counts as at least, so corduroy stays on flat groomed cat tracks */
@@ -64,6 +72,7 @@ export class Terrain {
   private readonly dirty = new Set<string>();
   private frame = 0;
   private readonly maskSample = [0, 0, 0, 0];
+  private readonly coverSample = [0, 0, 0, 0];
   /** chunks selected this frame */
   private visible: Chunk[] = [];
   readonly stats = { chunks: 0, builds: 0, triangles: 0 };
@@ -91,6 +100,23 @@ export class Terrain {
     if (pack.ao) pack.ao.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.ao!.meta.minX + tx * pack.ao!.size, pack.ao!.meta.minY + ty * pack.ao!.size, pack.ao!.size, 0);
     if (pack.dir) pack.dir.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.dir!.meta.minX + tx * pack.dir!.size, pack.dir!.meta.minY + ty * pack.dir!.size, pack.dir!.size, 0);
     if (pack.moguls) pack.moguls.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.moguls!.meta.minX + tx * pack.moguls!.size, pack.moguls!.meta.minY + ty * pack.moguls!.size, pack.moguls!.size, 0);
+    if (pack.cover) pack.cover.onLevelLoaded = () => this.applyCover();
+  }
+
+  /**
+   * FEAT-153: a cover level arrived. Hand the loaded levels to the shader (the finest COVER_SLOTS, coarsest
+   * first) and rebuild the coarse chunks, which take their forest, rock and canopy lift from it.
+   */
+  private applyCover(): void {
+    const cover = this.pack.cover!;
+    const u = this.material.userData.uniforms as { uCovRect: { value: THREE.Vector4[] }; uCovBlend: { value: number } } & Record<string, { value: THREE.Texture }>;
+    const loaded = cover.levels.filter((l) => l.loaded && l.texture).slice(-COVER_SLOTS);
+    for (let i = 0; i < loaded.length; i++) {
+      u[`uCov${i}`].value = loaded[i].texture!;
+      u.uCovRect.value[i].set(...loaded[i].rect);
+    }
+    u.uCovBlend.value = cover.meta.blend;
+    for (const c of this.chunks.values()) if (c.mesh && c.res > 8) this.dirty.add(c.key);
   }
 
   /** FEAT-105: new snow on the rock (0 = today's look, 1 = a powder day) and the downwind direction (three.js x, z). */
@@ -210,6 +236,8 @@ export class Terrain {
     this.stats.chunks = this.visible.length;
     this.stats.triangles = tris;
     this.material.userData.shader?.uniforms.uTime && (this.material.userData.shader.uniforms.uTime.value = performance.now() / 1000);
+    // FEAT-153: the canopy lift starts where the tree impostors end, which moves with the tree density setting
+    (this.material.userData.uniforms as { uLiftNear: { value: number } }).uLiftNear.value = vegetationFarRadius();
   }
 
   private isAncestor(a: Chunk, d: Chunk): boolean {
@@ -254,6 +282,7 @@ export class Terrain {
     const nor = new Float32Array(vertCount * 3);
     const col = new Float32Array(vertCount * 3);
     const forest = new Float32Array(vertCount);
+    const lift = new Float32Array(vertCount); // FEAT-153: canopy lift (m), applied by the shader past the trees
     const ao = new Float32Array(vertCount);
     // FEAT-059 / BUG-062: mogul amplitude for the shader (x) and which path draws the field here (y:
     // 0 none, 1 shader only, 2 bumps in the geometry too). Every chunk up to MOGUL_SHADE_MAX_RES is
@@ -288,6 +317,9 @@ export class Terrain {
     dataRes = pack.finestRes(c.minX + c.size / 2, c.minY + c.size / 2);
     const resB = Math.max(res, MOGUL_MAX_RES * 2); // auxiliary samples (ridges, talus, fall line) without the mogul bumps
     const useMask = !!pack.mask && res <= 8;
+    // FEAT-153: coarser chunks take forest, rock and canopy height from the cover levels where they have
+    // loaded, else the procedural treeline
+    const cover = !useMask && pack.cover ? pack.cover : null;
     let v = 0;
     const H = (i: number, j: number) => heights[(j + 1) * (n + 2) + (i + 1)];
     for (let j = 0; j < n; j++) {
@@ -307,7 +339,20 @@ export class Terrain {
         if (useMask) {
           const m = pack.mask!.sampleBilinear(x, y, this.maskSample);
           rock = m[0]; scree = m[1]; groom = m[2]; fo = m[3];
-        } else fo = proceduralForest(x, y, h, slope);
+        } else {
+          fo = proceduralForest(x, y, h, slope);
+          let canopyH = CANOPY_DEFAULT;
+          if (cover) {
+            const cs = this.coverSample;
+            const cw = cover.sample(x, y, cs);
+            if (cw > 0) {
+              fo += (cs[0] - fo) * cw;
+              rock = cs[2] * cw; // the mask's rock weight (the shader thresholds it; 0.5 is where patches start)
+              canopyH += ((cs[1] > MIN_CANOPY_H ? cs[1] : CANOPY_DEFAULT) - canopyH) * cw;
+            }
+          }
+          lift[v] = fo * canopyH * LIFT_K; // the shader holds it at 0 inside the trees' reach
+        }
         forest[v] = fo;
         let a = 1;
         if (aoSet && aoSet.has(x, y)) {
@@ -382,7 +427,7 @@ export class Terrain {
       const e = edge[k];
       pos[v * 3] = pos[e * 3]; pos[v * 3 + 1] = pos[e * 3 + 1] - skirt; pos[v * 3 + 2] = pos[e * 3 + 2];
       nor[v * 3] = nor[e * 3]; nor[v * 3 + 1] = nor[e * 3 + 1]; nor[v * 3 + 2] = nor[e * 3 + 2];
-      col[v * 3] = col[e * 3]; col[v * 3 + 1] = col[e * 3 + 1]; col[v * 3 + 2] = col[e * 3 + 2]; forest[v] = forest[e]; ao[v] = ao[e];
+      col[v * 3] = col[e * 3]; col[v * 3 + 1] = col[e * 3 + 1]; col[v * 3 + 2] = col[e * 3 + 2]; forest[v] = forest[e]; ao[v] = ao[e]; lift[v] = lift[e];
       fall[v * 2] = fall[e * 2]; fall[v * 2 + 1] = fall[e * 2 + 1]; for (let q = 0; q < 4; q++) mogul[v * 4 + q] = mogul[e * 4 + q];
       v++;
     }
@@ -407,6 +452,7 @@ export class Terrain {
     geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setAttribute('forest', new THREE.BufferAttribute(forest, 1));
+    geo.setAttribute('lift', new THREE.BufferAttribute(lift, 1));
     geo.setAttribute('ao', new THREE.BufferAttribute(ao, 1));
     geo.setAttribute('fall', new THREE.BufferAttribute(fall, 2));
     geo.setAttribute('mogul', new THREE.BufferAttribute(mogul, 4));

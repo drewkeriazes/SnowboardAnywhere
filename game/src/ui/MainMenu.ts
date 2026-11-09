@@ -36,6 +36,7 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
         <button data-a="ride" class="primary">Free ride</button>
         ${start ? `<div class="start"><span class="where"></span><button class="ghost" data-reset="1">Reset to resort start</button></div>` : ''}
         <button data-a="map">Drop in from the map</button>
+        <div class="ds-connect" style="display:none"><button data-ds-connect>Turn on DualSense rumble and lightbar</button><div class="hint ds-status">Click it with the mouse and pick the controller (once: it reconnects by itself after that).</div></div>
         <button data-a="settings">Settings</button>
         <button data-a="controls" class="ghost">Controls</button>
         <div class="settings hidden"></div>

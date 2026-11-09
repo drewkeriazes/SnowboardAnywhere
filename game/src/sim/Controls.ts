@@ -1,5 +1,6 @@
 import type { Input } from './Rider';
-import { PAD, PAD_BUTTON_FOR } from '../ui/PadMap';
+import { DEFAULT_PAD, PAD, PAUSE_BUTTONS, activePad, padTouched, padUi, type PadKind, type PadState } from './Pad';
+import { dualSense } from './DualSense';
 
 /**
  * Keyboard, gamepad (and basic touch) input. FEAT-124 layout: everything you do while riding sits
@@ -16,24 +17,21 @@ import { PAD, PAD_BUTTON_FOR } from '../ui/PadMap';
  */
 export type KeyMap = Record<string, string[]>;
 
-const DEAD = 0.18;
-/** one-shot gamepad buttons and the action each one fires */
-const padBtn = (gp: Gamepad, i: number): boolean => !!gp.buttons[i]?.pressed;
-const padVal = (gp: Gamepad, i: number): number => gp.buttons[i]?.value ?? 0;
-const padAxis = (gp: Gamepad, i: number): number => { const a = gp.axes[i] ?? 0; return Math.abs(a) > DEAD ? a : 0; };
-const PAD_ACTIONS: [number, string][] = ['lift', 'camera', 'map', 'piste', 'track', 'replay', 'pause'].map((a): [number, string] => [PAD[PAD_BUTTON_FOR[a]], a]);
-/** FEAT-128: the button index of a riding action (ui/PadMap.ts) */
-const B = (a: string): number => PAD[PAD_BUTTON_FOR[a]];
-/**
- * FEAT-138: the connected gamepads, or null. Firefox (and Chrome as it phases it in) only exposes the Gamepad
- * API in a secure context (https or localhost); over plain http on the home network getGamepads is missing or throws, so the
- * game plays on keyboard instead of failing every frame. After the first throw it stops asking.
- */
-let padsBlocked = false;
-function readPads(): ArrayLike<Gamepad | null> | null {
-  if (padsBlocked || typeof navigator === 'undefined' || !navigator.getGamepads) return null;
-  try { return navigator.getGamepads(); } catch { padsBlocked = true; return null; }
+/** FEAT-137: controller settings (Settings > Controls > Controller) */
+export interface PadConfig {
+  /** stick dead zone 0..1 */
+  dead: number;
+  /** trigger travel (0..1) before R2 / L2 count as held */
+  trigDead: number;
+  /** right stick look rate multiplier, and its Y inverted */
+  lookSens: number; invertY: boolean;
+  /** DualSense extras: tilt to look, and its rate multiplier */
+  gyro: boolean; gyroSens: number;
 }
+/** gyro look: the turn in px of mouse movement per radian (the cameras turn about 0.003 rad per px) */
+const GYRO_PX_PER_RAD = 1 / 0.003;
+/** gyro: degrees a second below which it is noise, and the touchpad swipe (of 1920 across) that cycles the camera */
+const GYRO_DEAD = 1.5, SWIPE = 550, SWIPE_S = 0.6;
 
 export class Controls {
   readonly input: Input = { steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false, squat: false, skate: false, lean: 0, balance: 0 };
@@ -49,16 +47,31 @@ export class Controls {
   private readonly docListeners: [string, EventListener][] = [];
   readonly keys = new Set<string>();
   private readonly pressed = new Set<string>(); // one-shot codes
-  private readonly padPressed = new Set<string>(); // one-shot actions from the gamepad
-  private padPrev: boolean[] = [];
-  /** FEAT-128: pad buttons ignored until released (A pressed on Resume must not jump); 'next' = take whatever is down at the next update */
-  private padHold: Set<number> | 'next' = 'next';
-  /** Ignore the pad buttons that are down now until each is released (closing a menu with A or B). */
-  holdPadUntilRelease(): void { this.padHold = 'next'; }
-  /** right stick (free look), -1..1, read by main as mouse movement */
-  padLookX = 0; padLookY = 0;
-  /** a gamepad is connected (for the hints) */
+  private readonly padPressed = new Set<string>(); // one-shot actions from the controller (touchpad swipe)
+  /** FEAT-137: action -> up to two controller buttons (remappable in Settings > Controls) */
+  padKeys: Record<string, number[]> = { ...DEFAULT_PAD };
+  padCfg: PadConfig = { dead: 0.18, trigDead: 0.3, lookSens: 1, invertY: false, gyro: false, gyroSens: 1 };
+  /** the controller read this frame (null on keyboard) */
+  pad: PadState | null = null;
+  /** controller buttons down this frame (triggers past their dead zone, muted ones not), and last frame */
+  private readonly padDown: boolean[] = [];
+  private readonly padPrev: boolean[] = [];
+  /** buttons ignored until let go (held through a menu press, so Cross on Resume does not jump) */
+  private readonly padMuted = new Set<number>();
+  /** one-shot actions already taken from the controller this frame */
+  private readonly padUsed = new Set<string>();
+  private padJumpPrev = false;
+  /** right stick (free look) -1..1 times the look rate, and the gyro turn this frame (px of mouse movement), read by main */
+  padLookX = 0; padLookY = 0; gyroDx = 0; gyroDy = 0;
+  private readonly gyroBias = [0, 0, 0];
+  private readonly gyroRate = [0, 0, 0];
+  private gyroT = 0;
+  private swipe: { x0: number; t: number } | null = null;
+  /** a controller is connected, and what kind */
   padActive = false;
+  /** FEAT-137: a controller is connected and was used more recently than the keyboard or mouse (the hints show its buttons) */
+  get usingPad(): boolean { return this.padActive && padUi.lastWasPad; }
+  padKind: PadKind = 'xbox';
   touchSteer = 0;
   touchTuck = false;
   touchBrake = false;
@@ -69,6 +82,7 @@ export class Controls {
       if ((e.target as HTMLElement | null)?.tagName === 'INPUT' || (e.target as HTMLElement | null)?.tagName === 'SELECT') return; // typing in a menu
       this.keys.add(e.code);
       this.pressed.add(e.code);
+      padUi.lastWasPad = false; // FEAT-137: the hints follow the keyboard again
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'AltLeft', 'AltRight', 'Backspace', 'Backquote'].includes(e.code)) e.preventDefault();
       // anyone who binds Ctrl: block the browser shortcuts a page can block while it is held
       // (only when Ctrl itself is bound to an action, so Ctrl+R etc. keep working for everyone else)
@@ -81,7 +95,7 @@ export class Controls {
     };
     const bl = () => this.keys.clear();
     // FEAT-124: the right mouse button is a binding too (free look)
-    const md = (e: MouseEvent) => { if (e.button === 2) { this.keys.add('Mouse2'); this.pressed.add('Mouse2'); } };
+    const md = (e: MouseEvent) => { padUi.lastWasPad = false; if (e.button === 2) { this.keys.add('Mouse2'); this.pressed.add('Mouse2'); } };
     const mu = (e: MouseEvent) => { if (e.button === 2) this.keys.delete('Mouse2'); };
     const cm = (e: Event) => e.preventDefault();
     window.addEventListener('keydown', kd); window.addEventListener('keyup', ku); window.addEventListener('blur', bl);
@@ -98,6 +112,7 @@ export class Controls {
     if (!navigator.webdriver) { window.addEventListener('beforeunload', unload); this.listeners.push(['beforeunload', unload as EventListener]); } // not under Playwright (tools reload pages)
     document.addEventListener('fullscreenchange', fs);
     this.docListeners.push(['fullscreenchange', fs]);
+    this.padMute(); // the button that started the session (Cross on Free ride) is still down
   }
   private touchJump = false;
   touchJumpDown(): void { this.touchJump = true; }
@@ -106,8 +121,21 @@ export class Controls {
   /** Is `code` one of `action`'s bindings? */
   is(action: string, code: string): boolean { return !!this.keymap[action]?.includes(code); }
   private bound(code: string): boolean { if (!code) return false; for (const a in this.keymap) if (this.keymap[a].includes(code)) return true; return false; }
-  /** Is any binding of `action` held? */
-  held(action: string): boolean { const b = this.keymap[action]; if (b) for (const c of b) if (this.keys.has(c)) return true; return false; }
+  /** Is any binding of `action` held (keys or controller buttons)? */
+  held(action: string): boolean {
+    const b = this.keymap[action]; if (b) for (const c of b) if (this.keys.has(c)) return true;
+    return this.padKeyHeld(action);
+  }
+  private padKeyHeld(action: string): boolean { const p = this.padKeys[action]; if (p) for (const i of p) if (this.padDown[i]) return true; return false; }
+  /** FEAT-137: a controller button went down this frame (raw, for the map and the replay viewer) */
+  padOnce(i: number): boolean { return !!this.padDown[i] && !this.padPrev[i]; }
+  /** a controller button is down */
+  padHeld(i: number): boolean { return !!this.padDown[i]; }
+  /** Ignore every controller button held now until it is let go (after a menu, the map, a drop in). */
+  padMute(): void {
+    const p = activePad();
+    if (p) for (let i = 0; i < p.buttons.length; i++) if (p.buttons[i].pressed || p.buttons[i].value > 0.05) { this.padMuted.add(i); this.padDown[i] = false; }
+  }
 
   /** Consume a one-shot key press by code. */
   once(code: string): boolean {
@@ -119,51 +147,82 @@ export class Controls {
     let hit = false;
     for (const c of this.keymap[name] ?? []) if (this.once(c)) hit = true;
     if (this.padPressed.delete(name)) hit = true;
+    if (!this.padUsed.has(name)) for (const i of this.padKeys[name] ?? []) if (this.padOnce(i)) { this.padUsed.add(name); hit = true; }
     return hit;
   }
 
-  /** Free look held (the mapped keys, either Alt, or the right stick). */
-  get looking(): boolean { return this.held('look') || this.keys.has('AltLeft') || this.keys.has('AltRight') || Math.hypot(this.padLookX, this.padLookY) > DEAD; }
+  /** Free look held (the mapped keys, either Alt, the right stick, or the controller tilted just now). */
+  get looking(): boolean { return this.held('look') || this.keys.has('AltLeft') || this.keys.has('AltRight') || this.padLookX !== 0 || this.padLookY !== 0 || this.gyroT > 0; }
 
-  /** Look behind held (G, or the right stick click). */
-  get glancing(): boolean { return this.held('glance') || this.padGlance; }
-  private padGlance = false;
+  /** Look behind held (G, or its controller button: R3). */
+  get glancing(): boolean { return this.held('glance'); }
 
   /** Remove the window listeners (quit to menu). */
   dispose(): void { for (const [t, f] of this.listeners) window.removeEventListener(t, f); for (const [t, f] of this.docListeners) document.removeEventListener(t, f); }
 
-  update(): Input {
+  /** Read the controller into padDown (with the trigger dead zone and muted buttons), the pause buttons to Esc, the DualSense extras' gyro and swipe. */
+  private readPad(dt: number): PadState | null {
+    for (let i = 0; i < this.padDown.length; i++) this.padPrev[i] = this.padDown[i];
+    const gp = activePad();
+    this.pad = gp; this.padActive = !!gp;
+    this.padLookX = this.padLookY = 0; this.gyroDx = this.gyroDy = 0;
+    if (!gp) { this.padDown.fill(false); this.padMuted.clear(); this.gyroT = 0; return null; }
+    this.padKind = gp.kind;
+    if (padTouched(gp)) padUi.lastWasPad = true;
+    for (let i = 0; i < gp.buttons.length; i++) {
+      const btn = gp.buttons[i];
+      let down = i === PAD.LT || i === PAD.RT ? btn.value > this.padCfg.trigDead || (btn.pressed && btn.value === 0) : btn.pressed;
+      if (this.padMuted.has(i)) { if (!btn.pressed && btn.value < 0.05) this.padMuted.delete(i); down = false; }
+      this.padDown[i] = down;
+    }
+    for (const i of PAUSE_BUTTONS) if (this.padOnce(i)) this.pressed.add('Escape');
+    // DualSense extras over WebHID: tilt to look (the drift learnt while it is still), swipe the touchpad to cycle the camera
+    this.gyroT = Math.max(0, this.gyroT - dt);
+    if (gp.source === 'hid') {
+      if (this.padCfg.gyro) {
+        const g = dualSense.gyro, b = this.gyroBias, rate = this.gyroRate;
+        for (let i = 0; i < 3; i++) {
+          const r = g[i] - b[i];
+          if (Math.abs(r) < 4) b[i] += r * Math.min(1, dt * 0.5);
+          rate[i] = Math.abs(r) > GYRO_DEAD ? r - Math.sign(r) * GYRO_DEAD : 0;
+        }
+        // y is yaw, x is pitch; the signs are a first guess to confirm on a DualSense (turn it left: the view should turn left)
+        const k = GYRO_PX_PER_RAD * this.padCfg.gyroSens * dt * Math.PI / 180;
+        this.gyroDx = -rate[1] * k; this.gyroDy = -rate[0] * k * (this.padCfg.invertY ? -1 : 1);
+        if (Math.hypot(this.gyroDx, this.gyroDy) > 0.2) this.gyroT = 0.4;
+      }
+      const t = dualSense.touch;
+      if (t.active && !this.swipe) this.swipe = { x0: t.x, t: 0 };
+      else if (t.active && this.swipe) { this.swipe.t += dt; if (Math.abs(t.x - this.swipe.x0) > SWIPE && this.swipe.t < SWIPE_S) { this.padPressed.add('camera'); this.swipe.t = SWIPE_S; } }
+      else if (!t.active) this.swipe = null;
+    }
+    return gp;
+  }
+
+  update(dt = 1 / 60): Input {
+    // ---- FEAT-124 / FEAT-137 controller (one source: sim/Pad.ts), read first so held() sees this frame's buttons
+    const gp = this.readPad(dt);
     let steer = (this.held('right') ? 1 : 0) - (this.held('left') ? 1 : 0);
     let tuck = this.held('tuck'), brake = this.held('brake'), jump = this.held('jump');
     let crouch = this.held('grab'), squatOnly = this.held('squat'), skate = this.held('skate');
-    let lean = (this.held('pressNose') ? 1 : 0) - (this.held('pressTail') ? 1 : 0);
     let padY = 0; // FEAT-140: the left stick's fore-aft, analog (+ up)
-    // ---- FEAT-124 gamepad (the standard mapping)
-    // (no per-frame allocations beyond getGamepads itself: a plain loop over the list, module-level helpers, padPrev reused)
-    const pads = readPads();
-    let gp: Gamepad | null = null;
-    if (pads) for (let i = 0; i < pads.length; i++) { const p = pads[i]; if (p && p.connected && p.mapping === 'standard') { gp = p; break; } }
-    this.padActive = !!gp;
-    this.padLookX = this.padLookY = 0; this.padGlance = false;
+    // the buttons feed held() / action() through padKeys; the left stick steers and leans, the right stick looks
+    // (no per-frame allocations beyond getGamepads itself: plain loops, padDown / padPrev reused)
     if (gp) {
-      if (this.padHold === 'next') { const h = new Set<number>(); for (let i = 0; i < gp.buttons.length; i++) if (gp.buttons[i].pressed) h.add(i); this.padHold = h; }
-      const hold = this.padHold;
-      for (const i of hold) if (!gp.buttons[i]?.pressed) hold.delete(i);
-      const b = (i: number) => padBtn(gp, i) && !hold.has(i), v = (i: number) => (hold.has(i) ? 0 : padVal(gp, i)), ax = (i: number) => padAxis(gp, i);
+      const c = this.padCfg, dead = c.dead;
+      const ax = (i: number) => { const a = gp.axes[i] ?? 0; return Math.abs(a) > dead ? (a - Math.sign(a) * dead) / (1 - dead) : 0; };
       if (ax(0)) steer = Math.max(-1, Math.min(1, steer + ax(0)));
       padY = -ax(1);
-      if (ax(1) < -0.5 || v(B('tuck')) > 0.3) tuck = true;
-      if (ax(1) > 0.5 || v(B('brake')) > 0.3) brake = true;
-      if (b(B('jump'))) jump = true;
-      if (!b(B('jump')) && this.padPrev[B('jump')]) this.input.jumpReleased = true;
-      if (b(B('grab'))) crouch = true;
-      if (b(B('skate'))) skate = true;
-      lean += (b(B('pressNose')) ? 1 : 0) - (b(B('pressTail')) ? 1 : 0);
-      this.padLookX = ax(2); this.padLookY = ax(3);
-      this.padGlance = b(B('glance'));
-      for (const [i, a] of PAD_ACTIONS) if (b(i) && !this.padPrev[i]) { if (a === 'pause') this.pressed.add('Escape'); else this.padPressed.add(a); }
-      for (let i = 0; i < gp.buttons.length; i++) this.padPrev[i] = b(i);
+      // the stick's up / down tuck and brake too; the triggers do through padKeys (held past trigDead)
+      if (ax(1) < -0.5) tuck = true;
+      if (ax(1) > 0.5) brake = true;
+      this.padLookX = ax(2) * c.lookSens; this.padLookY = ax(3) * c.lookSens * (c.invertY ? -1 : 1);
     }
+    // jump releases on the controller like the key does
+    const padJump = gp ? this.padKeyHeld('jump') : false;
+    if (!padJump && this.padJumpPrev) this.input.jumpReleased = true;
+    this.padJumpPrev = padJump;
+    let lean = (this.held('pressNose') ? 1 : 0) - (this.held('pressTail') ? 1 : 0);
     if (this.invertSteer) steer = -steer;
     if (steer === 0) steer = this.touchSteer;
     this.input.steer = steer;
@@ -195,5 +254,6 @@ export class Controls {
   endFrame(): void {
     this.pressed.clear();
     this.padPressed.clear();
+    this.padUsed.clear();
   }
 }

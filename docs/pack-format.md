@@ -12,6 +12,7 @@ pack/<slug>/
   mask/<tx>_<ty>.png        2 m RGBA surface classes, 512 x 512 per tile, resort area
   ao/<tx>_<ty>.png          2 m greyscale sky visibility (baked AO), same grid as mask (optional)
   dir/<tx>_<ty>.png         2 m greyscale piste direction (groomed run axis), same grid as mask (optional)
+  cover/<level>.png         RGBA forest cover for the terrain at a distance, one image per level (optional)
   trees/<tx>_<ty>.bin       tree instances per 1 km cell
   rocks/<tx>_<ty>.bin       rock instances per 1 km cell
   features.json             lifts, runs, buildings, roads, water, peaks, labels
@@ -73,6 +74,32 @@ the near terrain mesh (chunks at 2 m or finer), and shades
 the same field per pixel in the terrain shader on every chunk up to 16 m (BUG-062: the bump normal and a
 relief colouring from the bump's own height and slope). Packs without the set have no bumps.
 
+## Cover levels (optional, FEAT-153)
+
+One RGBA PNG per level from `pipeline/cover.py`, each over its own rectangle (image row 0 = north):
+R = forest, the share of the cell under closed canopy 0..255 = 0..1; G = canopy height of the forested
+part, 0..255 = 0..`heightMax` m; B = rock / bare ground, the mask's rock weight (0.5 is where patches
+start); A = 255 minus built-up (inverted so a decoder that premultiplies alpha keeps RGB). The `pack`
+level is 4 m over the pack bounds: the 2 m mask's canopy, contrast-lifted as the shader lifts the
+under-detected lidar canopy (0.08 to 0.45) and then box-averaged, with the pack's OSM runs burned in as
+cleared strips (areas filled, lines at 0.6 of their corridor width; gladed runs keep their trees), the
+mask's rock, and the mean tree height per 16 m from the tree instances.
+
+The `mid` (16 m over the mid height grid, 40 km) and `far` (100 m over the far ring's data, 200 km) levels
+come from the land cover (DATA-019): ESA WorldCover 2021 classes and the ETH 2020 canopy height, read on a
+4 x 4 (mid) or 3 x 3 (far) sub-grid per cell. R is the share of sub-samples that are WorldCover tree cover
+(class 10) and at least 3 m tall in ETH; G the mean ETH height of those, averaged over about 3 cells; B the
+bare / sparse share (class 60) times 0.6, since snow covers the gentler part; A from built-up (class 50).
+The downhill pistes of every resort in view (`osm/pistes_wide.json`) are burned in as cleared sub-samples,
+so Beaver Creek's and Copper's trails show. G, B and A are quantised (2.5 m, 1/8, 1/4) to keep the files
+small. Without `raw/<slug>/landcover/` the build skips these two levels.
+
+The terrain shader samples R per pixel from a mipmapped GPU texture past about 300 m, so a trail
+narrower than a far chunk's vertex spacing still shows as a white cut; chunks coarser than 8 m take all
+four channels per vertex (forest, rock, and the canopy lift past the instanced trees). Finer levels fade
+in over `blend` metres inside their edges; outside every level the terrain keeps the procedural
+treeline. Add it to a built pack without a rebuild: `python pipeline/cover.py <slug> <raw_dir> packs/<slug>`.
+
 ## Instances
 
 `trees/<tx>_<ty>.bin`: little-endian Float32 records of 6:
@@ -116,6 +143,9 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
   "ao": { same fields as mask },                           // optional
   "dir": { same fields as mask },                          // optional, DATA-002
   "moguls": { same fields as mask },                       // optional, FEAT-059
+  "cover": { "heightMax": 40, "blend": 500,                 // optional, FEAT-153
+             "levels": [{ "name": "pack", "res": 4, "minX", "minY", "w", "h", "file": "cover/pack.png" },
+                        { "name": "mid", "res": 16, ... }, { "name": "far", "res": 100, ... }] },
   "instances": { "cellSize": 1000, "minX", "minY", "cellsX", "cellsY", "treeCount", "rockCount", "treeCells", "rockCells" },
   "start": { "x", "y", "heading" },                       // default drop-in
   "sun": { "azimuth": 160, "elevation": 32 },             // degrees, default lighting

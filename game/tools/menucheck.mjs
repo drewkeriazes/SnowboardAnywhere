@@ -46,7 +46,7 @@ await page.waitForTimeout(300);
 const active = () => page.evaluate(() => { const a = document.activeElement; return a ? (a.dataset.a ?? a.dataset.t ?? a.dataset.k ?? a.dataset.d ?? a.tagName) : null; });
 const key = async (k) => { await page.keyboard.press(k); await page.waitForTimeout(60); };
 const pad = async (i, holdMs = 90) => { await page.evaluate((i) => { window.__pad.buttons[i].pressed = true; window.__pad.buttons[i].value = 1; }, i); await page.waitForTimeout(holdMs); await page.evaluate((i) => { window.__pad.buttons[i].pressed = false; window.__pad.buttons[i].value = 0; }, i); await page.waitForTimeout(80); };
-const hints = () => page.evaluate(() => [...document.querySelectorAll('.hintbar')].filter((e) => e.offsetParent).map((e) => [...e.querySelectorAll('span')].map((x) => `[${x.querySelector('kbd')?.textContent}] ${x.lastChild?.textContent}`).join(' ')).join(' | '));
+const hints = () => page.evaluate(() => [...document.querySelectorAll('.hintbar')].filter((e) => e.offsetParent).map((e) => [...e.querySelectorAll(':scope > span')].map((x) => `[${x.querySelector('kbd')?.textContent}] ${x.lastChild?.textContent}`).join(' ')).join(' | '));
 
 // ---- main menu
 check('focus starts on primary', (await active()) === 'ride', `focused ${await active()}`);

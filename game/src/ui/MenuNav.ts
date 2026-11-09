@@ -1,11 +1,11 @@
-import { intentForKey, LETTER_INTENTS, MENU_PAD, type NavIntent } from './MenuKeys';
-import { PAD } from './PadMap';
+import { intentForKey, LETTER_INTENTS, type NavIntent } from './MenuKeys';
 
 /**
  * FEAT-128: one focus manager for every menu. Open screens form a stack and only the top one takes
  * input: the keyboard through one capture-phase listener (a handled key never reaches `Controls`, which
- * is what keeps Esc from toggling pause twice), the gamepad through its own poll while any screen is
- * open (nothing runs while all menus are closed), the mouse and touch through hover and click.
+ * is what keeps Esc from toggling pause twice), the controller through `PadNav.ts` (FEAT-137's loop,
+ * which hands its presses here with `padIntent` while a screen is open), the mouse and touch through
+ * hover and click.
  * Focus is always on something visible: opening a screen focuses its primary item, closing it gives
  * focus back to whatever had it before.
  */
@@ -177,51 +177,20 @@ function onKeyUp(e: KeyboardEvent): void {
 window.addEventListener('keydown', onKeyDown, true);
 window.addEventListener('keyup', onKeyUp, true);
 
-// ---- gamepad: edges, with repeat on the D-pad and the left stick
-const REPEAT_FIRST = 400, REPEAT_EVERY = 120, STICK = 0.5;
-let raf = 0;
-let prev: boolean[] = [];
-const held: Partial<Record<NavIntent, number>> = {}; // intent -> next repeat time
-const BUTTONS: [number, NavIntent][] = (Object.entries(MENU_PAD) as [NavIntent, keyof typeof PAD][])
-  .filter(([i]) => i !== 'discipline') // X is reset first, then Snowboard / Skis (see below)
-  .map(([i, b]) => [PAD[b], i]);
-let padsBlocked = false;
-function firstPad(): Gamepad | null {
-  if (padsBlocked || !navigator.getGamepads) return null;
-  let pads: ArrayLike<Gamepad | null>;
-  try { pads = navigator.getGamepads(); } catch { padsBlocked = true; return null; }
-  for (let i = 0; i < pads.length; i++) { const p = pads[i]; if (p && p.connected && p.mapping === 'standard') return p; }
-  return null;
-}
+/** A menu screen is open (PadNav then hands its presses to `padIntent` instead of moving focus itself). */
+export function hasScreen(): boolean { return stack.length > 0; }
 
-function poll(now: number): void {
-  raf = stack.length ? requestAnimationFrame(poll) : 0;
+/**
+ * A controller press for the top screen (from PadNav, with its own repeat on the D-pad and stick).
+ * X is Reset section where a screen has one, else Snowboard / Skis. True when a screen took it.
+ */
+export function padIntent(i: NavIntent, down = true): boolean {
   const s = top();
-  const gp = firstPad();
-  if (!s || !gp) { prev = []; return; }
-  const pressed = gp.buttons.map((b) => b.pressed);
-  const stickX = gp.axes[0] ?? 0, stickY = gp.axes[1] ?? 0;
-  const dirOn: Partial<Record<NavIntent, boolean>> = {
-    up: pressed[PAD.UP] || stickY < -STICK, down: pressed[PAD.DOWN] || stickY > STICK,
-    left: pressed[PAD.LEFT] || stickX < -STICK, right: pressed[PAD.RIGHT] || stickX > STICK,
-  };
-  if (suspended) { prev = pressed; return; }
-  const fire = (i: NavIntent, down: boolean) => { setKind('pad'); if (!s.root.contains(document.activeElement)) s.refresh(); s.handle(i, down); };
-  // direction intents repeat while held
-  for (const d of ['up', 'down', 'left', 'right'] as NavIntent[]) {
-    if (dirOn[d]) {
-      if (held[d] === undefined) { held[d] = now + REPEAT_FIRST; fire(d, true); }
-      else if (now >= held[d]!) { held[d] = now + REPEAT_EVERY; fire(d, true); }
-    } else delete held[d];
-  }
-  for (const [b, i] of BUTTONS) {
-    if (i === 'up' || i === 'down' || i === 'left' || i === 'right') continue;
-    if (pressed[b] && !prev[b]) {
-      if (i === 'reset') { setKind('pad'); if (!s.handle('reset', true)) s.handle('discipline', true); }
-      else fire(i, true);
-    } else if (!pressed[b] && prev[b]) s.handle(i, false);
-  }
-  prev = pressed;
+  if (!s || suspended) return false;
+  setKind('pad');
+  if (!s.root.contains(document.activeElement) || !s.focused) s.refresh();
+  if (i === 'reset') return s.handle('reset', down) || s.handle('discipline', down);
+  return s.handle(i, down);
 }
 
 /** Put a screen on top and focus its primary item. */
@@ -231,10 +200,6 @@ export function openScreen(s: Screen): void {
   s.returnTo = a instanceof HTMLElement && a !== document.body ? a : null;
   stack.push(s);
   s.focusPrimary();
-  // a pad button already down when the screen opens doesn't count as a press
-  const gp = firstPad();
-  prev = gp ? gp.buttons.map((b) => b.pressed) : [];
-  if (!raf) raf = requestAnimationFrame(poll);
 }
 
 /** Take a screen off the stack and give focus back to what had it before. */
@@ -248,5 +213,4 @@ export function closeScreen(s: Screen): void {
   const t = top();
   if (r && r.isConnected && visible(r)) { if (t) t.focus(r); else r.focus({ preventScroll: true }); }
   else t?.refresh();
-  if (!stack.length && raf) { cancelAnimationFrame(raf); raf = 0; }
 }

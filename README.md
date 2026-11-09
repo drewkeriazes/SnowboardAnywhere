@@ -69,15 +69,58 @@ e.g. `http://192.168.1.42:5173/?pack=vail`. The packs stream from the PC, and th
 | Esc | pause and settings |
 
 Every action has two slots in Settings > Controls (click a slot, press a key or the right mouse button; Delete clears it).
-A gamepad with the standard mapping works too: left stick steers, up / down or the triggers tuck and brake,
-A jumps, X squats and grabs (hard carves while steering), B skates, bumpers press, right stick looks around, R3 looks behind, Y interacts,
-the d-pad cycles camera / map / piste lines / track, Select opens the replay and Start pauses.
 The replay viewer lists its own keys on screen.
 
-Menus work with the keyboard, a gamepad, the mouse or touch: arrows or the D-pad move, Enter / Space or A select, Esc or B go back
-(Esc or B resumes from pause), Q / E or LB / RB switch settings tabs, B on the keyboard or X on the pad switches Snowboard / Skis
-on the main menu. The hint bar at the bottom of each menu shows the keys or buttons for whichever you used last.
+Menus work with the keyboard, a gamepad, the mouse or touch: arrows or the D-pad move, Enter / Space or Cross / A select, Esc or Circle / B go back
+(Esc or Circle / B resumes from pause), Q / E or L1 / R1 (LB / RB) switch settings tabs, B on the keyboard or Square / X on the pad
+switches Snowboard / Skis on the main menu. The hint bar at the bottom of each menu shows the keys or buttons for whichever you used last.
 The main menu's Controls button opens your current bindings.
+
+### Controllers
+
+A PS5 DualSense, an Xbox pad or any controller the browser maps the standard way plays the whole game,
+menus included. The hints, prompts and settings show the buttons of the controller in use (PlayStation
+shapes on a DualSense or DualShock); press a key and they switch back to the keyboard.
+
+| DualSense (Xbox) | Action |
+| --- | --- |
+| left stick | steer; up / down tuck and brake, and balance a press |
+| R2 / L2 (RT / LT) | tuck / brake (analog, past the trigger dead zone) |
+| ✕ (A) hold, release | jump (with the stick up / down: nollie / ollie) |
+| □ (X) | squat (with steer: hard carve), grab in the air, sprint on foot |
+| ○ (B) | skate on the flat |
+| △ (Y) | interact: ride a lift, skip, strap in or out |
+| R1 / L1 (RB / LB) | nose / tail press |
+| right stick, R3 | look around, look behind |
+| L3 | boost (Outrun) |
+| D-pad up / left / down | camera / piste lines / next song |
+| D-pad right or touchpad click | map: left stick moves the crosshair, R2 / L2 zoom, ✕ drops in, ○ closes |
+| Create (Select) | replay viewer |
+| Options (Start) or PS | pause |
+
+In menus the D-pad or left stick moves, ✕ picks, ○ goes back (resumes from the pause menu), L1 / R1 switch
+the settings tabs, and left / right change a slider or a list. Settings > Controls > Controller has
+vibration on / off and its strength, the stick and trigger dead zones, the look speed, invert look Y, and two
+slots per action to rebind the buttons (click a slot or press ✕ on it, then press the button).
+
+Rumble: crashes, landings (harder the harder you land), time trial checkpoints, and the Outrun
+monster's footsteps as it closes in; under that, a light background rumble while riding over bumps,
+chop and rock at speed off the groomers (none on groomed snow, softer at a crawl). Holding a nose or tail press hums, then beats faster and harder as the
+balance needle nears either end: a heavy rumble when it is about to catch the loaded end (ease off), a
+light buzz when the board is about to drop flat (lean in more).
+
+**DualSense extras** (Chrome or Edge, USB or Bluetooth): Settings > Controls > Connect DualSense extras,
+clicked with the mouse, opens the browser's device picker; pick the controller. After that it reconnects
+by itself. Chrome on Windows gives a DualSense no rumble on its own, so its rumble comes through the
+extras: the main and pause menus show a "Turn on DualSense rumble and lightbar" button while one is
+plugged in without them (Settings > Controls > Test vibration says which way rumble goes). It adds the lightbar (the goggle lens colour, pulsing red as the Outrun monster closes in,
+flashing green on a time trial best), adaptive triggers (L2 pushes back harder the more the edge digs in
+a brake, R2 clicks near the top; off by default), gyro look (tilt the controller to look around; off by
+default, with a speed slider) and touchpad swipes to change the camera.
+
+If a controller is not seen, press a button with the game in front (browsers hide controllers until
+then), and over the home network use `npm run host -- --https` (see above). `?debug=pad` shows what each
+connected controller reports.
 
 Holding a nose or tail press is a balancing act. A small meter shows above the rider with a needle
 that drifts toward the nose or the tail, faster the longer you hold, the faster you go and the
@@ -117,6 +160,13 @@ shallow groove), the snow around your tracks and footprints sags, and a hockey s
 pushed snow. Hard turns throw spray: light wisps on a groomer, clouds that hang and drift in powder, a
 burst when you land. Settings > Graphics > Snow dents turns the sag off (the Low preset turns it off
 too).
+
+In first person you look through goggle lenses (Settings > Graphics > Goggle lens). In flat light
+(a storm, overcast, deep shade) the snow's bumps, rollers and dips are hard to see; a warm lens (Rose,
+Orange, Yellow) cuts the blue and brings their shape back, Yellow most of all in a storm. The mirrored
+lenses (Green, Blue, Purple) darken the view for sunny days, Clear is for night, and Auto picks one for
+the weather and the time of day. Lens strength scales the effect. Your rider wears the same lens, the
+outfit presets each come with one, and the helmet cam stays untinted.
 
 While you ride, the HUD shows the run you're on, top speed, vertical and distance. After a real
 descent (60 m or more of vertical, ended by boarding a lift, stopping for 4 s or restarting) a run

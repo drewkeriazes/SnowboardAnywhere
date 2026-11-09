@@ -1,4 +1,4 @@
-import type { PadButton } from './PadMap';
+import { PAD } from '../sim/Pad';
 
 /**
  * FEAT-128: the fixed menu keys. They are not part of the rebindable riding keymap (`DEFAULT_KEYS`),
@@ -12,9 +12,10 @@ export const MENU_KEYS: Record<NavIntent, string[]> = {
   prevCat: ['KeyQ'], nextCat: ['KeyE'], peek: ['KeyV'], reset: ['KeyR'], discipline: ['KeyB'],
 };
 
-export const MENU_PAD: Partial<Record<NavIntent, PadButton>> = {
-  up: 'UP', down: 'DOWN', left: 'LEFT', right: 'RIGHT',
-  select: 'A', back: 'B', prevCat: 'LB', nextCat: 'RB', peek: 'Y', reset: 'X', discipline: 'X',
+/** the controller button behind each menu intent (standard-mapping indices, sim/Pad.ts); PadNav reads them */
+export const MENU_PAD: Partial<Record<NavIntent, number>> = {
+  up: PAD.UP, down: PAD.DOWN, left: PAD.LEFT, right: PAD.RIGHT,
+  select: PAD.A, back: PAD.B, prevCat: PAD.LB, nextCat: PAD.RB, peek: PAD.Y, reset: PAD.X, discipline: PAD.X,
 };
 
 /** letter keys: menu shortcuts that must not fire while typing in a field or a select */
