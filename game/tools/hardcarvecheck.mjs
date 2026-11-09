@@ -2,7 +2,7 @@
 // checks the issue's "done when": holding the squat key while steering on a groomer carves a much
 // tighter turn than normal steering; committed (already on edge when the press goes in) it bites
 // clean; pressed from flat at speed the edge lags, the board skids and bleeds more speed, and badly
-// overdone (from flat at 45 mph on a groomer, or 34 mph on ice) it washes out onto the butt or the hip; every hard carve slows you;
+// overdone (from flat at 45 mph on a groomer or in tracked-out chop, 34 mph on ice) it washes out onto the butt or the hip; every hard carve slows you;
 // deep powder planes instead of washing out; and the squat without steer is just a squat. Normal
 // steering is tools/carvecheck.mjs (unchanged).
 // node tools/hardcarvecheck.mjs        (exit code 1 if a check fails)
@@ -38,12 +38,15 @@ function check(label, ok, detail) { console.log(`${ok ? 'ok  ' : 'FAIL'} ${label
  * 'committed' (steer 0.35 s onto the edge, then press), 'flat' (press and steer at once). `snow`:
  * 'groomed', 'ice' (a spring refreeze at 7 am) or 'powder' (off-piste after a storm). Returns the path
  * radius over the 90 degrees, the time, the speed lost, the peak skid and lateral g, and any washout.
+ * 'offpiste' is tracked-out snow high up at 1 pm (about half powder, a third chop, a fifth ice, 10 cm
+ * deep), like the Back Bowls in the play-test video.
  */
 function arc(v, mode, { snow = 'groomed', steer = 1 } = {}) {
   const r = new Rider(plane(0), null);
   r.surface.groomed = snow === 'powder' ? 0 : 1;
   if (snow === 'ice') { r.snowWorld.day = 'spring'; r.snowWorld.hour = 7; }
   if (snow === 'powder') { r.snowWorld.day = 'fresh'; r.snowWorld.newSnow = 1; }
+  if (snow === 'offpiste') { r.surface.groomed = 0; r.snowWorld.zLow = -2500; r.snowWorld.zHigh = 500; }
   r.reset(0, 0, 0); r.vy = v;
   let washed = 0; r.onWashout = (s) => { washed = s; };
   const inp = Object.assign(input(), { steer });
@@ -86,7 +89,14 @@ show(`15 m/s (34 mph) ${i20.snowKind}, from flat`, i20); show(`20 m/s ${ic20.sno
 check('pressed from flat at 20 m/s (45 mph) it washes out', !!f25.washed && !!f25l.washed, `${f25.washed} / ${f25l.washed}`);
 check('a washout goes down on the inside: toeside onto the hip turning right, heelside onto the butt turning left (regular)', f25.washed === 1 && f25.crashSide === 1 && f25l.washed === -1 && f25l.crashSide === -1, `right ${f25.washed} side ${f25.crashSide}, left ${f25l.washed} side ${f25l.crashSide}`);
 check('committed at 25 m/s on a groomer still holds', !c25.washed, c25.washed ? 'washed out' : `R ${c25.R.toFixed(1)} m`);
-check('ice washes out easily: from flat at 15 m/s (34 mph), even committed at 20 m/s', i20.snowKind === 'ice' && !!i20.washed && !!ic20.washed, `${i20.washed} / ${ic20.washed}`);
+check('ice washes out easily from flat, at 15 m/s (34 mph)', i20.snowKind === 'ice' && !!i20.washed, `${i20.washed}`);
+check('committed on ice at 20 m/s holds but skids hard (far more than on a groomer)', !ic20.washed && ic20.skid > 0.6 && ic20.skid > 2 * c25.skid, `${ic20.washed ? 'washed out' : 'held'}, skid ${ic20.skid.toFixed(2)} vs ${c25.skid.toFixed(2)}`);
+
+console.log('tracked-out off-piste (powder, chop and some ice, 10 cm deep; only deep powder planes):');
+const o15 = arc(15, 'flat', { snow: 'offpiste' }), o20 = arc(20, 'flat', { snow: 'offpiste' }), oc20 = arc(20, 'committed', { snow: 'offpiste' });
+show(`15 m/s (34 mph) ${o15.snowKind}, from flat`, o15); show(`20 m/s (45 mph) ${o20.snowKind}, from flat`, o20); show(`20 m/s (45 mph) ${oc20.snowKind}, committed`, oc20);
+check('off-piste chop washes out from flat at 20 m/s (45 mph) but not at 15 m/s', !!o20.washed && !o15.washed, `${o20.washed ? 'washout' : 'held'} / ${o15.washed ? 'washout' : 'held'}`);
+check('committed in off-piste chop holds', !oc20.washed, oc20.washed ? 'washed out' : `skid ${oc20.skid.toFixed(2)}`);
 
 console.log('deep powder:');
 const p25 = arc(25, 'flat', { snow: 'powder' });
