@@ -76,12 +76,12 @@ const DEEP_FROM = 0.3;
 const CLEAR_KNEE = 0.06, CLEAR_HIP = 0.17, CLEAR_HAND = 0.05;
 /** FEAT-148: in a hard carve the inside hand reaches down and drags on the snow once the lean passes
  *  HAND_DRAG_FROM (rad), all the way by HAND_DRAG_FULL, this high (m), a little out toward the inside */
+const HAND_DRAG_FROM = 0.95, HAND_DRAG_FULL = 1.15, HAND_DRAG_Y = 0.02, HAND_DRAG_OUT = 0.08;
 /** BUG-066: the leg bones' least distance above the deck (m) where they pass over the board (the knee is
  *  about 6.5 cm round the bone, so about 5 cm of skin clear), the board's half width plus a limb's
  *  reach over it, and where along the shin (from the ankle) and the thigh (from the knee) it is tested */
 const DECK_CLEAR = 0.115, DECK_HALF_W = 0.13 + 0.05, DECK_HALF_L = 0.8;
 const SHIN_TS = [0.35, 0.55, 0.75, 1], THIGH_TS = [0.25, 0.5, 0.75];
-const HAND_DRAG_FROM = 0.95, HAND_DRAG_FULL = 1.15, HAND_DRAG_Y = 0.02, HAND_DRAG_OUT = 0.08;
 
 const d2r = Math.PI / 180;
 const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
