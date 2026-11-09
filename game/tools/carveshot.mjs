@@ -1,7 +1,10 @@
 // Carve track render check (FEAT-109): tucks to speed, links hard carves left and right, and saves
 // shots of the knife-cut line close up, overhead, and looking back up the run from a distance;
-// prints the edge amount and the track half width laid down at each turn.
-// node tools/carveshot.mjs [pack] [outDir] [--headed] [--ski]   (run after `npx vite build`)
+// prints the edge amount and the track half width laid down at each turn. --hard holds the squat key
+// (Shift) through each carve once it is on edge: the FEAT-148 hard carve, body laid over, hand dragging.
+// --groomed pins the rider's snow to groomed corduroy wherever the spawn is (the physics only; the
+// ground is drawn as it is), so a spawn off-piste still carves on a firm edge.
+// node tools/carveshot.mjs [pack] [outDir] [--headed] [--ski] [--hard] [--groomed]   (run after `npx vite build`)
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -11,6 +14,8 @@ import { DIST, PACKS } from './paths.mjs';
 const args = process.argv.slice(2);
 const headed = args.includes('--headed') || process.env.SHOT_HEADED === '1';
 const ski = args.includes('--ski');
+const hard = args.includes('--hard');
+const groomed = args.includes('--groomed');
 const positional = args.filter((a) => !a.startsWith('--'));
 const pack = positional[0] ?? 'synth';
 const outDir = positional[1] ?? 'shots-carve';
@@ -42,7 +47,7 @@ const state = () => page.evaluate(() => {
   // `radius` is the turn the heading is actually following (speed over the heading rate, BUG-053), so
   // it includes the steer yaw and any slip wash-out, not just the arc the edge and lean balance
   const edgeDeg = Math.abs(r.edge) * 180 / Math.PI;
-  return { speed: +r.speed.toFixed(2), lateralG: +r.lateralG.toFixed(2), edgeDeg: +edgeDeg.toFixed(0), edge: +Math.min(1, edgeDeg / 55).toFixed(2), radius: +Math.min(999, r.turnRadius).toFixed(1), skid: +r.skid.toFixed(2), slipDeg: +(r.slip * 180 / Math.PI).toFixed(0) };
+  return { speed: +r.speed.toFixed(2), lateralG: +r.lateralG.toFixed(2), edgeDeg: +edgeDeg.toFixed(0), edge: +Math.min(1, edgeDeg / 55).toFixed(2), radius: +Math.min(999, r.turnRadius).toFixed(1), skid: +r.skid.toFixed(2), slipDeg: +(r.slip * 180 / Math.PI).toFixed(0), hard: +r.hardCarve.toFixed(2), snow: r.snow.kind, groomed: +r.surface.groomed.toFixed(2), powder: +r.snow.powder.toFixed(2), chop: +r.snow.chop.toFixed(2), short: +r.carveShort.toFixed(2), lean: +(window.__sim.riderView.leadState.lean * 180 / Math.PI).toFixed(0), crashed: r.crashed > 0 };
 });
 /** camera `back` m behind the rider along travel (negative = ahead), `side` m right, `up` m above, looking at a point `ahead` m along travel */
 async function shot(label, back, side, up, ahead = 0) {
@@ -67,6 +72,8 @@ async function shot(label, back, side, up, ahead = 0) {
 
 if (ski) await page.evaluate(() => { const s = window.__sim; s.rider.discipline = 'ski'; s.riderView.setDiscipline('ski'); s.tracks.setDiscipline('ski'); });
 await ride(30); await page.waitForTimeout(1500); await ride(30);
+// the physics reads the snow from the pack's mask each step: without it the surface stays as set
+if (groomed) await page.evaluate(() => { const r = window.__sim.rider; r.pack.mask = null; Object.assign(r.surface, { groomed: 1, rock: 0, scree: 0, canopy: 0 }); });
 await page.keyboard.down('ArrowUp');
 for (let i = 0; i < 40; i++) { await ride(15); if ((await state()).speed > 10) break; }
 await page.keyboard.up('ArrowUp');
@@ -76,8 +83,22 @@ let maxEdge = 0;
 for (let t = 0; t < 6; t++) {
   const key = t % 2 ? 'ArrowRight' : 'ArrowLeft';
   await page.keyboard.down(key);
-  for (let i = 0; i < 8; i++) { await ride(6); maxEdge = Math.max(maxEdge, (await state()).edge); }
+  for (let i = 0; i < 8; i++) {
+    if (hard && i === 1) await page.keyboard.down('ShiftLeft'); // on edge first, then drive it in
+    await ride(6); maxEdge = Math.max(maxEdge, (await state()).edge);
+    if (t === 0 && i === 4 && hard) {
+      // FEAT-148: the game's own chase camera, then side, front and inside views of the hard carve
+      const url = await page.evaluate(() => window.__shot());
+      fs.writeFileSync(path.join(outDir, '02b_mid_carve_chase.png'), Buffer.from(url.split(',')[1], 'base64'));
+      console.log('02b_mid_carve_chase', JSON.stringify(await state()));
+      // the free camera flies with the arrow keys and stays 1.5 m above the snow: let go of the steer for the shot frames
+      await page.keyboard.up(key);
+      await shot('02c_mid_carve_side', 0, -4.5, 1.8, 0); await shot('02d_mid_carve_front', -4.5, 0.5, 1.8, 0); await shot('02e_mid_carve_inside', 0, 4.5, 1.8, 0);
+      await page.keyboard.down(key);
+    }
+  }
   if (t === 3) await shot('02_mid_carve_close', -1.5, 1.2, 0.8, -3);
+  if (hard) await page.keyboard.up('ShiftLeft');
   await page.keyboard.up(key);
 }
 console.log('max edge seen', maxEdge);
