@@ -111,11 +111,11 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         attribute float forest;
         attribute vec2 fall;
         attribute float ao;
-        attribute vec2 mogul;
+        attribute vec4 mogul;
         varying float vAO;
         varying float vForest;
         varying vec2 vFall;
-        varying vec2 vMogul;
+        varying vec4 vMogul;
         varying vec3 vWorldPos;
         varying vec3 vWorldNormal;
         ${DEFORM_GLSL}`)
@@ -142,7 +142,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         varying float vForest;
         varying float vAO;
         varying vec2 vFall;
-        varying vec2 vMogul;
+        varying vec4 vMogul;
         uniform float uMogulScale, uMogulCreep, uDebugMoguls;
         uniform vec3 uSunDir;
         uniform float uTime;
@@ -290,7 +290,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         gWrap = uWrap;
         if (gMogA > 0.005) {
           vec2 pxy = vec2(wp.x, -wp.z);
-          vec2 pf = vec2(vFall.x, -vFall.y);
+          // FEAT-147: the field's own 30 m downhill vector (pack frame), the slope as its length
+          vec2 pf = vMogul.zw;
           vec3 mf = mogulField(pxy, pf, gMogA, uMogulCreep);
           // pack +y is world -z, so the z slope is the negative of the y slope
           gMogN = normalize(vec3(-mf.y, 1.0, mf.z));
@@ -301,7 +302,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           // toward the sun's ground direction (already scaled by cos(elevation), gone in flat light); the
           // downhill term darkens the face that tilts uphill, the front a rider coming down rides into
           float sunK = dot(gMogN.xz, uSunDir.xz) * (1.0 - uFlat);
-          float frontK = -dot(gMogN.xz, fallDown(vFall));
+          float frontK = -dot(gMogN.xz, fallDown(vec2(pf.x, -pf.y)));
           float lum = 1.0 + gMogK * (0.14 * (gMogT - 0.5) + 0.22 * sunK - 0.06 * frontK);
           // troughs and the shaded sides go a little blue (snow in its own shade), crests a touch warm
           float warmth = saturate(0.5 + (gMogT - 0.5) + 0.8 * sunK);
