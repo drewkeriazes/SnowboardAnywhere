@@ -3,8 +3,9 @@
 // correction it is lost within a few seconds (a slam off the loaded end, or the board dropping
 // flat off the other), and W / S played like a person (a reaction delay, a dead band) holds it longer.
 // The drift grows with speed and bumps, Easy lasts longer, a lost press stays flat until the key is
-// let go, an over-press below 3 m/s stalls instead of slamming, and an ollie out of a press reports
-// it clean. Prints the median press time for each case.
+// let go, an over-press below 3 m/s stalls instead of slamming, an ollie out of a press reports it
+// clean and a short hop rides through, a quick player never loses one (no time limit, even on Hard),
+// and holding the press key through a trick lands into the press. Prints the median press times.
 // node tools/presscheck.mjs        (exit code 1 if a check fails)
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -125,10 +126,46 @@ check('Easy lasts longer with no correction', T.easy > T.none * 1.5, `${T.easy.t
   const held = r.pressing;
   for (let k = 0; k < 20; k++) r.update(1 / 60, inp({ lean: -1, balance: ctl(r), jumpHeld: true }));
   r.update(1 / 60, inp({ lean: -1, jumpReleased: true }));
-  const early = reports.length;
-  for (let k = 0; k < 30; k++) r.update(1 / 60, inp({ lean: -1 }));
-  check('the press rides through the first 0.3 s of air (a roller or a mogul)', early === 0, `${early} reports on takeoff`);
-  check('an ollie out of a 1.3 s tail press reports it clean', held && !r.onGround && reports.length === 1 && reports[0].how === 'clean' && reports[0].d === -1, JSON.stringify(reports));
+  check('an ollie out of a 1.3 s tail press reports it clean on takeoff', held && !r.onGround && !r.pressing && reports.length === 1 && reports[0].how === 'clean' && reports[0].d === -1, JSON.stringify(reports));
+}
+// ---- a short hop (a roller) rides through
+{
+  const r = new Rider(plane(12), null);
+  const reports = []; r.onPress = (how) => reports.push(how);
+  r.reset(0, 0, Math.PI, 5);
+  for (let k = 0; k < 180; k++) r.update(1 / 60, inp());
+  const ctl = player(0.15, 0.1);
+  for (let k = 0; k < 40; k++) r.update(1 / 60, inp({ lean: -1, balance: ctl(r) }));
+  r.onGround = false; r.vz += 1.2; r.z += 0.05; r.airTime = 0; // bucked off a roller
+  let air = 0;
+  for (let k = 0; k < 60; k++) { r.update(1 / 60, inp({ lean: -1, balance: ctl(r) })); if (!r.onGround) air++; }
+  check('the press rides through a short hop', air > 3 && air < 18 && r.pressing && reports.length === 0, `${(air / 60).toFixed(2)} s of air, ${reports.join('/') || 'no report'}`);
+}
+// ---- no press is ever past saving: a quick analog player on Hard, fast and on moguls
+{
+  // reads where the needle is and how fast it moves (a person watching it does both), no reaction delay
+  const quick = () => { let prev = 0; return (r) => { const b = r.pressing ? r.pressBalance : 0, v = (b - prev) * 60; prev = b; return Math.max(-1, Math.min(1, -(4 * b + 0.8 * v))); }; };
+  const ends = SEEDS.slice(0, 15).map((seed) => press({ seed, mode: 'hard', speed: 20, mogul: 0.5, max: 60, ctl: quick() }).end);
+  console.log('quick on Hard:', ends.map((e) => e ? `${e.how} ${e.t.toFixed(1)}` : 'held').join(', '));
+  const lost = ends.filter((e) => e && e.how !== 'clean');
+  check('a quick player never loses a press on Hard at 20 m/s on moguls in 60 s (no time limit)', lost.length === 0, lost.length ? `lost ${lost.map((e) => `${e.how} at ${e.t.toFixed(1)} s`).join(', ')}` : `${ends.filter((e) => !e).length} held 60 s, the rest bucked into the air`);
+}
+// ---- land into a press from a trick
+{
+  const r = new Rider(plane(12), null);
+  const reports = []; r.onPress = (how, d, t, dist, sw, from) => reports.push({ how, from });
+  const tricks = []; r.onTrick = (n) => tricks.push(n);
+  r.reset(0, 0, Math.PI, 9);
+  for (let k = 0; k < 180; k++) r.update(1 / 60, inp());
+  r.onGround = false; r.vz = 9; r.z += 0.1; r.airTime = 0; r.spin = 0; r.flip = 0; r.flipRate = 0;
+  for (let k = 0; k < 108; k++) r.update(1 / 60, inp({ steer: 1, lean: 1 })); // a 360 with the nose press held
+  let k = 0;
+  while (!r.onGround && k++ < 600) r.update(1 / 60, inp({ lean: 1 }));
+  const ctl = player(0.15, 0.1);
+  for (let j = 0; j < 90; j++) r.update(1 / 60, inp({ lean: 1, balance: ctl(r) }));
+  const lean = r.lean;
+  for (let j = 0; j < 30; j++) r.update(1 / 60, inp());
+  check('holding the press key through a trick lands into the press, named after the trick', tricks.length === 1 && lean > 0.5 && reports.length === 1 && reports[0].from === tricks[0], `trick ${tricks.join('/')}, lean on the snow ${lean.toFixed(2)}, ${JSON.stringify(reports)}`);
 }
 
 console.log(fails ? `${fails} check(s) failed` : 'all checks passed');

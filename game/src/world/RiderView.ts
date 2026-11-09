@@ -694,7 +694,9 @@ export class RiderView {
       bendBoard(this.rig, this.flex, this.flexDir);
       // FEAT-140: deep in a press the whole board tips up about its loaded tip, which stays on the snow
       const deep = Math.max(0, Math.min(1, 0.5 + 0.5 * r.pressBalance * r.pressDir));
-      follow(this.tipF, r.pressing && r.onGround && !seated ? Math.abs(L) * PRESS_TIP * deep : 0, TIP_RESPONSE, dt);
+      // (in the air, a held press key tips it half way: set up to land into the press)
+      const tipTo = seated ? 0 : r.pressing && r.onGround ? Math.abs(L) * PRESS_TIP * deep : !r.onGround && r.crashed <= 0 ? Math.abs(L) * PRESS_TIP * 0.5 : 0;
+      follow(this.tipF, tipTo, TIP_RESPONSE, dt);
       if (this.tipF.x > 1e-3) {
         const sz = this.flexDir < 0 ? 1 : -1, end = sz * BOARD_HALF; // the loaded end's local z (+z the tail)
         this.rig.board.rotation.set(sz * this.tipF.x, 0, -ex); // +x lifts the nose (-z)
@@ -711,7 +713,7 @@ export class RiderView {
     // ---- FEAT-046: a crash is a ragdoll tumble; the body is pulled toward the sim's slide so it
     // gets up where the rider is, then blends back to the animated pose over RAGDOLL_RECOVER
     if (this.ragdoll && r.crashed > 0 && !seated) {
-      if (!this.ragdoll.active) { this.group.updateMatrixWorld(true); this.ragdoll.start(this.rig, this.v1.set(r.vx, r.vz, -r.vy)); }
+      if (!this.ragdoll.active) { this.group.updateMatrixWorld(true); this.ragdoll.start(this.rig, this.v1.set(r.vx, r.vz, -r.vy), r.crashFall ? this.v2.set(Math.sin(r.heading) * r.crashFall, 0, -Math.cos(r.heading) * r.crashFall) : null); } // FEAT-140: a press slam falls over its loaded end
       this.group.updateMatrixWorld(true);
       this.ragdoll.step(dt, this.v2.set(r.x, r.z, -r.y));
       this.ragdoll.apply(this.rig);

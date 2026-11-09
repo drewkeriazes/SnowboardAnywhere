@@ -49,7 +49,7 @@ export interface Settings {
   /** time trials: start/finish gates on real runs, timer, ghost of your best run (off by default) */
   timeTrials: boolean;
   /** FEAT-140: holding a nose or tail press is a balancing act (Easy: slower drift; Off: the press holds as long as the key) */
-  pressBalance: 'on' | 'easy' | 'off';
+  pressBalance: 'on' | 'easy' | 'hard' | 'off';
   /** 'pack' = the pack's fixed sun, 'now' = real clock at the resort, or a fixed hour 6..20 */
   timeOfDay: 'pack' | 'now' | number;
   /** month 1..12 used with a fixed hour (season changes the sun's height) */
@@ -228,7 +228,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Roads and trails on snow</label><input type="checkbox" data-k="roadsOnSnow"></div>
       <div class="row"><label>Lift-line mazes</label><input type="checkbox" data-k="liftLines"></div>
       <div class="row"><label>Time trials</label><input type="checkbox" data-k="timeTrials"></div>
-      <div class="row"><label>Press balance</label><select data-k="pressBalance"><option value="on">On</option><option value="easy">Easy (slow drift)</option><option value="off">Off (hold as long as you like)</option></select></div>
+      <div class="row"><label>Press balance</label><select data-k="pressBalance"><option value="easy">Easy (slow drift)</option><option value="on">Normal</option><option value="hard">Hard (fast drift)</option><option value="off">Off (hold as long as you like)</option></select></div>
       <div class="row"><label>Time of day</label><select data-k="timeOfDay"><option value="pack">Resort default</option><option value="now">Now (real time)</option><option value="7">7 am</option><option value="9">9 am</option><option value="11">11 am</option><option value="13">1 pm</option><option value="15">3 pm</option><option value="16.5">4:30 pm</option><option value="17.5">5:30 pm</option></select></div>
       <div class="row"><label>Month</label><select data-k="month"><option value="12">December</option><option value="1">January</option><option value="2">February</option><option value="3">March</option><option value="4">April</option><option value="7">July</option></select></div>
       <button data-a="reset" class="ghost">Reset to defaults</button>

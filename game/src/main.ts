@@ -490,11 +490,12 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const pressHead = new THREE.Vector3();
     const pressBestKey = `pressBest:${pack.meta.slug}`;
     const PRESS_HOW: Record<PressEnd, string> = { clean: '', flat: ' · dropped flat', slam: ' · slammed', stall: ' · stalled' };
-    rider.onPress = (how, dir, t, dist, sw) => {
+    rider.onPress = (how, dir, t, dist, sw, from) => {
       let best = 0; try { best = Number(localStorage.getItem(pressBestKey)) || 0; } catch { /* private mode */ }
       const isBest = t > best;
       if (isBest) try { localStorage.setItem(pressBestKey, t.toFixed(2)); } catch { /* private mode */ }
-      const name = switchName(dir > 0 ? 'Nose press' : 'Tail press', sw);
+      const press = switchName(dir > 0 ? 'Nose press' : 'Tail press', sw);
+      const name = from ? `${from} to ${press[0].toLowerCase()}${press.slice(1)}` : press; // landed into it from a trick
       const tail = isBest ? (best > 0 ? ' · new best!' : '') : ` · best ${best.toFixed(1)} s`;
       showToast(`${name} ${t.toFixed(1)} s, ${fmtDistance(dist, settings.units === 'metric')}${PRESS_HOW[how]}${tail}`, 2600);
     };

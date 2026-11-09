@@ -77,9 +77,11 @@ The replay viewer lists its own keys on screen.
 Holding a nose or tail press is a balancing act. A small meter shows above the rider with a needle
 that drifts toward the nose or the tail, faster the longer you hold, the faster you go and the
 bumpier the snow. Keep it in the green with W / S (or the left stick up / down, which is analog).
-Off the loaded end (the cross) the board catches and you slam, or stall when slow; off the other end
-(the bar) the board drops flat. Let go any time to end it cleanly. A toast gives the press time and
-distance, with your best for the resort. Settings > Game > Press balance makes it Easy or turns it off.
+Off the loaded end (the cross) the board catches and you fall over that end, or stall when slow; off
+the other end (the bar) the board drops flat. There is no time limit: a long press only needs quicker,
+finer corrections. Let go any time to end it cleanly. Hold the press key through a trick to land
+straight into the press ("Backside 360 to nose press"). A toast gives the press time and distance,
+with your best for the resort. Settings > Game > Press balance: Easy, Normal, Hard or Off.
 
 You can ride switch (the other foot forward, the tail leading). Land a 180, or slide back down the
 hill tail first, and you carry on switch until you turn round again with another 180 or by stopping
