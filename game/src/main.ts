@@ -16,6 +16,7 @@ import { RunsOverlay } from './world/RunsOverlay';
 import { Environment } from './world/Sky';
 import { RiderView, BODY_LAYER } from './world/RiderView';
 import { GoggleView } from './ui/GoggleView';
+import { AutoQuality } from './ui/AutoQuality';
 import { RunStats } from './sim/RunStats';
 import { RunCard } from './ui/RunCard';
 import { fmtSpeed, fmtHeight, fmtDistance } from './ui/Units';
@@ -300,6 +301,19 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     /** FEAT-105: new snow, 0..1, shared by the terrain rock and the boulder caps (FEAT-106): a storm adds
      *  1 per 10 min, flurries a fifth of that, it never melts in a session; the New snow setting sets it */
     let snowCover = 0;
+    // FEAT-062: adaptive quality; its level scales resolution, cloud steps, trees and snowfall in applySettings
+    const auto = new AutoQuality();
+    const autoClouds = (q: 'high' | 'medium' | 'low'): 'high' | 'medium' | 'low' => auto.current.cloudsDown ? (q === 'high' ? 'medium' : 'low') : q;
+    let lastDraw = 0;
+    /** apply only what the auto level scales (applySettings also does this, scaled, on any settings change) */
+    const applyAuto = (): void => {
+      const s = settings, q = auto.current;
+      clouds.configure(weatherNow, autoClouds(s.quality));
+      renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2) * q.res);
+      if (s.quality !== 'low') setVegetationDensity(s.treeDensity * q.trees);
+      const flakes = s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500;
+      snow.setCount(Math.round((weatherNow === 'storm' ? flakes : flakes / 6) * q.snow));
+    };
     const applySettings = (s: Settings, what: string): void => {
       applySun(s);
       if (what === 'clouds') weatherOverride = null;
@@ -307,7 +321,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       const weather = weatherOverride ?? s.clouds ?? 'scattered';
       weatherNow = weather;
       if (what === 'newSnow' || what === 'init' || what === 'reset') snowCover = NEW_SNOW[s.newSnow ?? 'none'] ?? 0; // FEAT-105: pick a look without waiting
-      clouds.configure(weather, s.quality);
+      clouds.configure(weather, autoClouds(s.quality));
       const storm = weather === 'storm', overcast = isOvercast(weather);
       env.setBluebird(!storm && !overcast); // deep blue sky behind the clouds too; storm and overcast are grey
       env.setStorm(storm);
@@ -319,7 +333,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       // falling snow: the storm, or light flurries under overcast (a sixth of the flakes, no visibility cut)
       snow.points.visible = storm || weather === 'flurries';
       const flakes = s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500;
-      snow.setCount(storm ? flakes : Math.round(flakes / 6));
+      snow.setCount(Math.round((storm ? flakes : flakes / 6) * auto.current.snow));
       // old tracks and boot prints fill in faster while it snows (FEAT-107)
       setTrackFillRate(storm ? FILL_RATE.storm : weather === 'flurries' ? FILL_RATE.flurries : FILL_RATE.clear);
       // limited render distance in the storm: nothing past the fog is drawn
@@ -327,14 +341,14 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music);
       audio.setSource(s.musicSource);
       audio.setPlaylist(s.playlist);
-      renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2));
+      renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2) * auto.current.res); // FEAT-062: auto quality scales it
       if (renderer.shadowMap.enabled !== s.shadows) { renderer.shadowMap.enabled = s.shadows; renderer.shadowMap.needsUpdate = true; scene.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) m.needsUpdate = true; }); }
       const wantSize = (s.csmExperimental || params.has('csm')) && !params.has('nocsm') ? (s.quality === 'high' ? 2048 : 1024) : 0;
       if (csmSize !== wantSize) { csmSize = wantSize; if (wantSize) env.enableCSM(cam.camera, wantSize, 3); else env.disableCSM(); }
       env.sun.visible = wantSize === 0;
       env.sun.shadow.mapSize.set(s.quality === 'high' ? 4096 : 2048, s.quality === 'high' ? 4096 : 2048);
       env.setShadows(s.shadows);
-      if (s.quality === 'low') setVegetationBudget(250, 600); else setVegetationDensity(s.treeDensity);
+      if (s.quality === 'low') setVegetationBudget(250, 600); else setVegetationDensity(s.treeDensity * auto.current.trees);
       cam.baseFov = s.fov;
       controls.keymap = { ...s.keys };
       controls.invertSteer = s.invertSteer;
@@ -583,8 +597,16 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     function frame(): void {
       if (!alive) return;
       const now = performance.now();
+      // FEAT-062: a 30 fps target skips display frames (a millisecond of slack for timer jitter)
+      // against a running deadline so the average hits 30 even when the refresh rate does not divide evenly (75, 100 Hz)
+      const capped = !headless && !fixedDt && settings.targetFps === 30;
+      if (capped && now < lastDraw - 1) { requestAnimationFrame(frame); return; }
+      // lastDraw holds the next deadline; reset it to now if we fell more than a frame behind
+      lastDraw = capped ? (now - lastDraw > 1000 / 30 ? now : lastDraw) + 1000 / 30 : now;
       const dt = fixedDt ?? Math.min(0.1, (now - last) / 1000);
       last = now;
+      // FEAT-062: feed the frame time; a level change re-applies the scaled settings
+      if (!headless && !fixedDt && !paused && auto.frame(dt, settings.autoQuality ? (settings.targetFps || 60) : 0)) applyAuto();
       // FEAT-140: on the snow on the board, W / S and the stick balance a held press instead of tucking and braking
       controls.balancing = rider.pressMode !== 'off' && rider.discipline === 'board' && (rider.onGround || rider.pressing) && !rider.unstrapped && rider.crashed <= 0;
       const input = controls.update();
@@ -914,7 +936,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         // FEAT-055: the run so far
         (runStats.active ? `</b><br><span class="dim">${runStats.current ? runStats.current + ' &middot; ' : ''}top ${fmtSpeed(runStats.topSpeed, settings.units === 'metric')} &middot; ${altStr(runStats.vertical)} vert &middot; ${fmtDistance(runStats.distance, settings.units === 'metric')}</span><b>` : '') +
         `<br><span class="dim">${fps.toFixed(0)} fps &middot; ${terrain.stats.chunks} chunks &middot; ${(terrain.stats.triangles / 1000).toFixed(0)}k tris &middot; trees ${veg.stats.instances} &middot; cam ${cam.mode}` +
-        ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}</span>` +
+        ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}${auto.level ? ' &middot; ' + auto.describe() : ''}</span>` +
         // BUG-053 ?debug: the edge model's numbers for tuning (edge angle, the lateral acceleration it balances, turn radius and rate, the brake's cut and swing)
         (debugHud ? `<br><span class="dim">edge ${(rider.edge * 180 / Math.PI).toFixed(0)}&deg; &middot; aLat ${rider.carveAcc.toFixed(1)} m/s&sup2; (${rider.lateralG.toFixed(2)} g) &middot; R ${Number.isFinite(rider.turnRadius) ? rider.turnRadius.toFixed(0) + ' m' : '&infin;'} &middot; ${(rider.turnRate * 180 / Math.PI).toFixed(0)}&deg;/s` +
           (rider.brakeAmt > 0 ? ` &middot; brake &Psi; ${(rider.brakePsi * 180 / Math.PI).toFixed(0)}&deg; &gamma; ${(Math.abs(rider.slip) * 180 / Math.PI).toFixed(0)}&deg; ${rider.brakeAcc.toFixed(1)} m/s&sup2; mod ${rider.brakeMod.toFixed(2)}` : '') + '</span>' : '');
