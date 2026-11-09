@@ -73,18 +73,12 @@ const STAMINA_RESUME = 1.5;
 const CLIMB_MAX = 35, CRAWL_MAX = 45, CRAWL = 0.45, BODY_L = 2.5;
 
 /**
- * How far a boot sinks (m): about 2.5 cm on a groomer, 10 to 16 cm in open powder, up to about
- * 22 cm in deep powder off-piste under trees, almost nothing on rock. Drives the walking speed,
- * the boot height and the print depth. With the snow state (FEAT-053) it follows the day's
- * conditions: deeper after a storm, a few cm in chop and slush, nothing on ice.
+ * How far a boot sinks (m): 70% of the snow depth under the rider (FEAT-053), at least 4 mm. It
+ * follows the day's conditions: deeper after a storm, a few cm in chop and slush, almost nothing
+ * on ice or rock. Drives the walking speed, the boot height and the print depth.
  */
-export function bootSink(s: SurfaceInfo, snow?: SnowState): number {
-  if (snow) return Math.max(0.004, snow.depth * 0.7);
-  const hard = Math.min(1, s.rock + s.scree);
-  const groomed = Math.min(1, s.groomed) * (1 - hard);
-  const powder = Math.max(0, 1 - groomed - hard);
-  const deep = powder * (s.canopy > 0.3 ? 1 : 0.5);
-  return 0.025 * groomed + 0.1 * powder + 0.12 * deep + 0.008 * hard;
+export function bootSink(snow: SnowState): number {
+  return Math.max(0.004, snow.depth * 0.7);
 }
 /** FEAT-053 powder: speed (m/s) by which the board planes and the speed-scaled drag stops growing,
  *  the drag per m/s before that (per unit powder), and the nose-sink drag (g) at a standstill that
@@ -993,7 +987,7 @@ export class Rider {
     this.z = ground; this.vz = 0; this.onGround = true;
     this.speed = Math.hypot(this.vx, this.vy);
     this.edge = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.skid = 0; this.jumpCharge = 0; this.landingShock = 0;
-    this.sink = bootSink(this.surface, this.snow);
+    this.sink = bootSink(this.snow);
     this.squareBoard();
     this.strapT += dt;
     if (this.strapState === 'off' && this.strapT >= UNSTRAP_TIME) {
@@ -1017,7 +1011,7 @@ export class Rider {
    * SLIP_SLOPE you slip down whatever you do. Same colliders as riding.
    */
   private walkStep(dt: number, input: Input, n: [number, number, number], ground: number): void {
-    this.sink = bootSink(this.surface, this.snow);
+    this.sink = bootSink(this.snow);
     this.edge = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.skid = 0; this.jumpCharge = 0;
     this.landingShock = Math.max(0, this.landingShock - dt * 3);
     this.squareBoard();
