@@ -90,6 +90,13 @@ uniform vec4 uAtmo[10];
 uniform vec3 uSunDisc;
 uniform vec2 uSunCos;
 uniform vec4 uDeck; // overcast: horizon grey (display), w = 1 when on
+uniform float uCirrus; // FEAT-084: thin high cloud, 0 or 1
+float cHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float cNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(cHash(i), cHash(i + vec2(1.0, 0.0)), f.x), mix(cHash(i + vec2(0.0, 1.0)), cHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float cFbm(vec2 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 5; i++) { s += a * cNoise(p); p = p * 2.03 + 17.1; a *= 0.5; } return s; }
 varying vec3 vDir;
 ${ATMO_GLSL}
 void main() {
@@ -114,6 +121,29 @@ void main() {
     vec3 deck = uDeck.rgb * mix(1.0, 0.95, smoothstep(0.0, 0.8, up));
     deck += uDeck.rgb * 0.07 * pow(max(dot(rd, s), 0.0), 4.0) * smoothstep(0.0, 0.25, up);
     gl_FragColor.rgb = deck;
+  } else if (uCirrus > 0.5 && rd.y > 0.0) {
+    // FEAT-084 thin high cloud: the sky goes a touch milky, with streaky cirrus on a layer far above
+    // (mapped onto a plane, so streaks converge toward the horizon) and two faint straight contrails
+    float up = rd.y;
+    vec2 p = rd.xz / max(up, 0.06);
+    gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.86, 0.9, 0.95), 0.1 * (1.0 - smoothstep(0.0, 0.9, up)));
+    vec2 w = vec2(0.82, 0.57); // streaks run along the high wind
+    vec2 q = vec2(dot(p, w), dot(p, vec2(-w.y, w.x)));
+    // wisps: stretched about 3:1 along the wind and bent by a slow warp, in a few patches
+    float warp = cFbm(q * vec2(0.5, 0.8) + 3.0);
+    float streak = cFbm(q * vec2(0.9, 2.8) + vec2(warp * 3.0, warp * 1.5));
+    float patchy = smoothstep(0.45, 0.68, cFbm(q * 0.3 + 11.0));
+    float cir = smoothstep(0.52, 0.8, streak) * patchy;
+    // contrails: thin straight lines on the layer, softened and broken along their length
+    float con = 0.0;
+    vec2 n1 = normalize(vec2(-0.3, 1.0)), n2 = normalize(vec2(1.0, 0.45));
+    float d1 = abs(dot(p - vec2(0.4, -0.6), n1)), d2 = abs(dot(p - vec2(-1.2, 0.9), n2));
+    con += exp(-d1 * d1 / 0.0016) * smoothstep(0.35, 0.6, cNoise(vec2(dot(p, vec2(n1.y, -n1.x)) * 1.5, 1.0)));
+    con += 0.7 * exp(-d2 * d2 / 0.003) * smoothstep(0.3, 0.6, cNoise(vec2(dot(p, vec2(n2.y, -n2.x)) * 1.2, 7.0)));
+    float a = clamp(cir * 0.45 + con * 0.45, 0.0, 0.6) * smoothstep(0.02, 0.15, up);
+    float sunGlow = pow(max(dot(rd, s), 0.0), 8.0);
+    vec3 cc = vec3(0.97, 0.98, 1.0) + vec3(0.25, 0.2, 0.1) * sunGlow;
+    gl_FragColor.rgb = mix(gl_FragColor.rgb, cc, a);
   }
   gl_FragColor.rgb += (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 255.0;
 }`;
@@ -137,6 +167,8 @@ export interface AtmoState {
   overcast: boolean;
   /** overcast deck colour at the horizon (display) */
   deckColor: THREE.Color;
+  /** FEAT-084: thin high cloud (cirrus and contrails) over a bluebird sky */
+  cirrus?: boolean;
 }
 
 export class Atmosphere {
@@ -165,7 +197,7 @@ export class Atmosphere {
     this.lut.colorSpace = THREE.NoColorSpace;
     this.mat = new THREE.ShaderMaterial({
       vertexShader: skyVert, fragmentShader: skyFrag,
-      uniforms: { uSkyView: { value: this.lut }, uAtmo: ATMO_UNIFORM, uSunDisc: { value: new THREE.Vector3() }, uSunCos: { value: new THREE.Vector2(Math.cos(0.0085), Math.cos(0.0072)) }, uDeck: { value: new THREE.Vector4() } },
+      uniforms: { uSkyView: { value: this.lut }, uAtmo: ATMO_UNIFORM, uSunDisc: { value: new THREE.Vector3() }, uSunCos: { value: new THREE.Vector2(Math.cos(0.0085), Math.cos(0.0072)) }, uDeck: { value: new THREE.Vector4() }, uCirrus: { value: 0 } },
       side: THREE.BackSide, depthWrite: false,
     });
     this.sky = new THREE.Mesh(new THREE.BoxGeometry(1000, 1000, 1000), this.mat);
@@ -231,6 +263,7 @@ export class Atmosphere {
     ATMO[36] = hz[0]; ATMO[37] = hz[1]; ATMO[38] = hz[2]; ATMO[39] = 0.6;
 
     (this.mat.uniforms.uDeck.value as THREE.Vector4).set(st.deckColor.r, st.deckColor.g, st.deckColor.b, st.overcast ? 1 : 0);
+    this.mat.uniforms.uCirrus.value = st.cirrus && !st.overcast && !st.storm ? 1 : 0;
     if (st.storm) {
       // whiteout: uniform dense fog, visibility about 400 m, no air layer or valley structure
       ATMO[0] = 0.0103; ATMO[1] = 0; ATMO[2] = 0; ATMO[3] = 0;

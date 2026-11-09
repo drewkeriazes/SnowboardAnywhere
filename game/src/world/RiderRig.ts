@@ -53,6 +53,112 @@ export interface RiderRig {
   /** ski pole grips (children of the hand bones); the shaft runs down local -Y */
   lPole?: THREE.Group; rPole?: THREE.Group;
   discipline: 'board' | 'ski';
+  /** FEAT-118: the snowboard's bendable parts (deck strips and bindings); undefined for skis */
+  flex?: BoardFlex;
+}
+
+/** FEAT-118: a bendable strip's rest vertices, and the bindings that ride the bend */
+interface FlexMesh { geo: THREE.BufferGeometry; rest: Float32Array; restN: Float32Array }
+interface BoardFlex { meshes: FlexMesh[]; bindings: { obj: THREE.Object3D; y: number; z: number; ang: number }[]; amount: number; dir: number; zs: Float32Array; ys: Float32Array }
+
+/** FEAT-118: half the board's length (m), stations walked along it, the back (loaded) foot's place
+ *  from the loaded end (t0, 0..1) and the nose (or tail) rise on a full load (m) */
+const FLEX_HALF = 0.78, FLEX_N = 41, FLEX_T0 = 0.3, FLEX_RISE = 0.28;
+const _bz = new Float32Array(FLEX_N), _by = new Float32Array(FLEX_N), _ba = new Float32Array(FLEX_N);
+/** BUG-049: bendBoard's per-point lookup result (bent z, height, bend angle), reused */
+let _oz = 0, _oy = 0, _oa = 0;
+const _qx = new THREE.Quaternion(), _qy = new THREE.Quaternion(), _ax = new THREE.Vector3(1, 0, 0), _ay = new THREE.Vector3(0, 1, 0);
+
+/**
+ * FEAT-118: a closed strip along the board (top, base, both edges) with one row of vertices per
+ * station, so it can bend. Half-width w(z), from y0 to y1, over z in [z0, z1] (local -Z is the nose).
+ */
+function flexStrip(w: (z: number) => number, y0: number, y1: number, z0: number, z1: number, rows: number): THREE.BufferGeometry {
+  const pos: number[] = [], nrm: number[] = [], idx: number[] = [];
+  const face = (x0: number, ya: number, x1: number, yb: number, n: [number, number, number], flip: boolean): void => {
+    const base = pos.length / 3;
+    for (let i = 0; i < rows; i++) {
+      const z = z0 + (z1 - z0) * i / (rows - 1), ww = w(z);
+      pos.push(x0 * ww, ya, z, x1 * ww, yb, z); nrm.push(...n, ...n);
+      if (i === 0) continue;
+      const a = base + 2 * (i - 1), b = a + 1, c = a + 2, d = a + 3; // a,b at z_{i-1}; c,d at z_i
+      if (flip) idx.push(a, b, c, b, d, c); else idx.push(a, c, b, b, c, d);
+    }
+  };
+  face(-1, y1, 1, y1, [0, 1, 0], false); // top: -x then +x
+  face(-1, y0, 1, y0, [0, -1, 0], true); // base
+  face(1, y0, 1, y1, [1, 0, 0], true); // toe edge: bottom then top
+  face(-1, y0, -1, y1, [-1, 0, 0], false); // heel edge
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setIndex(idx);
+  g.computeBoundingSphere();
+  g.boundingSphere!.radius += FLEX_RISE + 0.05; // room for the bend
+  return g;
+}
+
+/**
+ * FEAT-118: bend the snowboard. `amount` 0 (flat) to 1 (full load), may dip a little below 0 on the
+ * pop; `dir` -1 = loaded on the tail (nose up: ollie, tail press), +1 = loaded on the nose (tail up).
+ * The loaded end stays flat on the snow up to the back foot (t0); past it the board rises as
+ * u^3 (2 - u), which has zero height and zero slope at the foot (no kink) and steepens to the tip.
+ * The curve is used as a bend angle walked along the board, so its length stays the same.
+ */
+/** BUG-047: height of the board's base (board local, m) at local z, on the current bend; 0 when flat or for skis */
+export function deckY(rig: RiderRig, z: number): number {
+  const fx = rig.flex;
+  if (!fx || fx.amount === 0) return 0;
+  const zs = fx.zs, ys = fx.ys;
+  for (let i = 0; i < FLEX_N - 1; i++) {
+    const a = zs[i], b = zs[i + 1];
+    if ((z - a) * (z - b) <= 0 && a !== b) return ys[i] + (ys[i + 1] - ys[i]) * (z - a) / (b - a);
+  }
+  return 0; // past the tips
+}
+
+export function bendBoard(rig: RiderRig, amount: number, dir: number): void {
+  const fx = rig.flex;
+  if (!fx) return;
+  if (Math.abs(amount) < 1e-4) amount = 0;
+  if (amount === fx.amount && (amount === 0 || dir === fx.dir)) return;
+  fx.amount = amount; fx.dir = dir;
+  const s = dir < 0 ? 1 : -1; // the loaded end's local z sign: tail (+z) for an ollie
+  const len = 2 * FLEX_HALF, ds = len / (FLEX_N - 1);
+  // walk from the loaded tip toward the other end; station i is the rest point z = s*(HALF - i*ds)
+  let x = 0, y = 0;
+  for (let i = 0; i < FLEX_N; i++) {
+    const t = i / (FLEX_N - 1);
+    let slope = 0;
+    if (t > FLEX_T0) { const u = (t - FLEX_T0) / (1 - FLEX_T0); slope = amount * FLEX_RISE * (6 * u * u - 4 * u * u * u) / (1 - FLEX_T0) / len; }
+    const th = Math.atan(slope);
+    if (i > 0) { x += ds * Math.cos(th); y += ds * Math.sin(th); }
+    _bz[i] = s * (FLEX_HALF - x); _by[i] = y; _ba[i] = th * s; // +angle about X lifts the nose (-z)
+  }
+  fx.zs.set(_bz); fx.ys.set(_by);
+  // a rest z -> its bent station (linear between stations)
+  // BUG-049: writes the bent point into _oz / _oy / _oa instead of returning a new array per vertex
+  const at = (z: number): void => {
+    const f = Math.max(0, Math.min(FLEX_N - 1, (FLEX_HALF - s * z) / ds)), i = Math.min(FLEX_N - 2, Math.floor(f)), k = f - i;
+    _oz = _bz[i] + (_bz[i + 1] - _bz[i]) * k; _oy = _by[i] + (_by[i + 1] - _by[i]) * k; _oa = _ba[i] + (_ba[i + 1] - _ba[i]) * k;
+  };
+  for (const m of fx.meshes) {
+    const P = m.geo.attributes.position as THREE.BufferAttribute, N = m.geo.attributes.normal as THREE.BufferAttribute;
+    const p = P.array as Float32Array, n = N.array as Float32Array, r = m.rest, rn = m.restN;
+    for (let v = 0; v < r.length; v += 3) {
+      at(r[v + 2]);
+      const c = Math.cos(_oa), sn = Math.sin(_oa), h = r[v + 1];
+      p[v] = r[v]; p[v + 1] = _oy + h * c; p[v + 2] = _oz + h * sn;
+      n[v] = rn[v]; n[v + 1] = rn[v + 1] * c - rn[v + 2] * sn; n[v + 2] = rn[v + 1] * sn + rn[v + 2] * c;
+    }
+    P.needsUpdate = true; N.needsUpdate = true;
+  }
+  for (const b of fx.bindings) {
+    at(b.z);
+    const a = _oa;
+    b.obj.position.set(0, _oy + b.y * Math.cos(a), _oz + b.y * Math.sin(a));
+    b.obj.quaternion.copy(_qx.setFromAxisAngle(_ax, a)).multiply(_qy.setFromAxisAngle(_ay, b.ang));
+  }
 }
 
 type W = [BoneName, number][];
@@ -120,7 +226,12 @@ function rigid(g: THREE.BufferGeometry, bone: BoneName, at: [number, number, num
 
 const d2r = Math.PI / 180;
 
-export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): RiderRig {
+/**
+ * Build the rider. FEAT-139 `goofy`: the same body (left foot at -Z, chest +X) on a board turned
+ * round, nose at +Z with the +15 binding under the right foot, so drawn turned round (RiderView
+ * does that riding goofy) it is a true goofy stance: right foot forward, nose leading.
+ */
+export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski', goofy = false): RiderRig {
   const body = new THREE.Group(); body.name = 'rider body';
   const bones = {} as Record<BoneName, THREE.Bone>;
   for (const n of BONES) {
@@ -222,20 +333,33 @@ export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): Rid
   const board = new THREE.Group(); board.name = discipline === 'board' ? 'snowboard' : 'skis';
   const carriers: RiderRig['carriers'] = [];
   let anchors: RiderRig['anchors'];
+  let flex: BoardFlex | undefined;
   if (discipline === 'board') {
     const deck = new THREE.Group(); deck.name = 'deck'; board.add(deck);
-    const shape = new THREE.Shape();
-    const L = 0.78, Wd = 0.13;
-    shape.moveTo(-Wd, -L + 0.12); shape.quadraticCurveTo(-Wd, -L, 0, -L); shape.quadraticCurveTo(Wd, -L, Wd, -L + 0.12); shape.lineTo(Wd * 0.92, L - 0.12);
-    shape.quadraticCurveTo(Wd, L, 0, L); shape.quadraticCurveTo(-Wd, L, -Wd * 0.92, L - 0.12); shape.lineTo(-Wd, -L + 0.12);
-    const bg = new THREE.ExtrudeGeometry(shape, { depth: 0.022, bevelEnabled: false });
-    bg.rotateX(-Math.PI / 2);
-    const sb = mesh(bg, mats.board, 0, 0, 0, 'board base'); sb.receiveShadow = true; deck.add(sb);
-    deck.add(mesh(new THREE.BoxGeometry(0.06, 0.004, 1.3), mats.jacket, 0, 0.024, 0, 'topsheet stripe'));
+    // FEAT-118: built as bendable strips (a row of vertices every 4 cm) instead of a rigid extrusion.
+    // Outline: 0.13 m half-width at the nose tapering to 0.92 of that at the tail, rounded tips.
+    const L = FLEX_HALF, Wd = 0.13, tip = 0.12, nz = goofy ? -1 : 1; // FEAT-139: goofy's nose is at +Z
+    const outline = (z: number): number => {
+      const w = Wd * (1 - 0.08 * Math.max(0, Math.min(1, (nz * z + L - tip) / (2 * (L - tip)))));
+      const e = Math.abs(z) - (L - tip);
+      return e <= 0 ? w : w * Math.sqrt(Math.max(0, 1 - (e / tip) * (e / tip)));
+    };
+    const flexMeshes: FlexMesh[] = [];
+    const strip = (g: THREE.BufferGeometry, m: THREE.Material, name: string): THREE.Mesh => {
+      const o = mesh(g, m, 0, 0, 0, name);
+      flexMeshes.push({ geo: g, rest: (g.attributes.position.array as Float32Array).slice(), restN: (g.attributes.normal.array as Float32Array).slice() });
+      deck.add(o); return o;
+    };
+    strip(flexStrip(outline, 0, 0.022, -L, L, FLEX_N), mats.board, 'board base').receiveShadow = true;
+    strip(flexStrip(() => 0.03, 0.022, 0.026, -0.65, 0.65, 34), mats.jacket, 'topsheet stripe');
+    const flexBindings: BoardFlex['bindings'] = [];
     // bindings across the board, highback on the heel edge (-X); duck stance front +15, back -6.
-    // Front (nose, -Z) is the left foot in a regular stance.
+    // Front (nose, -Z) is the left foot in a regular stance. FEAT-139 goofy: the nose is +Z, the right
+    // foot's binding is the front one (toes turned 15 toward +Z) and the left the back (6 toward -Z).
+    // The left foot's binding comes first either way (anchors.l).
     const an: THREE.Object3D[] = [];
-    for (const [z, ang, which] of [[-0.28, 15, 'front'], [0.3, -6, 'back']] as const) {
+    const stance = goofy ? [[-0.3, 6, 'back'], [0.28, -15, 'front']] as const : [[-0.28, 15, 'front'], [0.3, -6, 'back']] as const;
+    for (const [z, ang, which] of stance) {
       const b = new THREE.Group(); b.name = `binding ${which}`; b.position.set(0, 0.025, z); b.rotation.y = ang * d2r;
       b.add(mesh(new THREE.BoxGeometry(0.3, 0.02, 0.2), mats.boots, 0, 0, 0, 'baseplate')); // top at 0.035
       b.add(mesh(new THREE.BoxGeometry(0.03, 0.26, 0.2), mats.boots, -0.13, 0.13, 0, 'highback'));
@@ -244,9 +368,11 @@ export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): Rid
       // ankle above the baseplate; the boot's toe (-Z in the bind pose) turned to the toe edge (+X)
       const a = new THREE.Object3D(); a.name = `ankle anchor ${which}`; a.position.set(-0.04, 0.01 + ANKLE_H, 0); a.rotation.y = -Math.PI / 2; b.add(a);
       deck.add(b); an.push(a);
+      flexBindings.push({ obj: b, y: 0.025, z, ang: ang * d2r });
     }
     carriers.push({ obj: deck, rest: deck.matrix.clone() });
     anchors = { l: an[0], r: an[1], lCarrier: 0, rCarrier: 0 };
+    flex = { meshes: flexMeshes, bindings: flexBindings, amount: 0, dir: -1, zs: new Float32Array(FLEX_N), ys: new Float32Array(FLEX_N) };
   } else {
     const skiShape = new THREE.Shape();
     const sl = 0.85, sw = 0.05;
@@ -278,7 +404,7 @@ export function buildRig(mats: RiderMaterials, discipline: 'board' | 'ski'): Rid
     };
     lPole = pole(bones.LeftHand, 'left'); rPole = pole(bones.RightHand, 'right');
   }
-  return { body, bones, board, carriers, anchors, headParts, coreParts, lPole, rPole, discipline };
+  return { body, bones, board, carriers, anchors, headParts, coreParts, lPole, rPole, discipline, flex };
 }
 
 // ---------------------------------------------------------------- IK

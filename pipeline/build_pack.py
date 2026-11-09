@@ -531,6 +531,68 @@ def rasterize_corridor(target, pts, half_width, value=1.0):
             rr, cc = np.ogrid[r0:r1, c0:c1]
             d2 = (rr - r) ** 2 + (cc - c) ** 2
             target[r0:r1, c0:c1] = np.maximum(target[r0:r1, c0:c1], np.where(d2 <= hw * hw, value, 0))
+
+
+def centerlines(run_list):
+    """1-pixel-wide centre lines of the given runs on the 2 m grid"""
+    m = np.zeros((H2, W2), bool)
+    for r in run_list:
+        rows, cols = line_cells([(p[0], p[1]) for p in r["points"]])
+        m[rows, cols] = True
+    return m
+
+
+def yield_to_ungroomed(groomed, run_list):
+    """BUG-030: a groomed corridor only keeps the cells that are nearer a groomed run's centre line than
+    a never-groomed run's, so the corridor painted around a groomer no longer spills corduroy onto the
+    ungroomed run beside it. Logs the groomed share along each never-groomed run."""
+    lines = [r for r in run_list if not r.get("area") and len(r["points"]) >= 2]
+    never = [r for r in lines if not r["groomed"]]
+    if not never or not any(r["groomed"] for r in lines):
+        return groomed
+    d_g = ndimage.distance_transform_edt(~centerlines([r for r in lines if r["groomed"]])).astype(np.float32)
+    d_u = ndimage.distance_transform_edt(~centerlines(never)).astype(np.float32)
+    before = never_groomed_share(groomed, never)
+    cells_before = int((groomed > 0.5).sum())
+    groomed = groomed * (d_g <= d_u)
+    del d_g, d_u
+    after = never_groomed_share(groomed, never)
+    cells_after = int((groomed > 0.5).sum())
+    log(f"  groomed area {cells_before * R2 * R2 / 1e4:.1f} ha -> {cells_after * R2 * R2 / 1e4:.1f} ha "
+        f"({(cells_before - cells_after) / max(1, cells_before) * 100:.1f}% handed to never-groomed runs)")
+    if after:
+        log(f"  never-groomed runs: mean groomed share along the line {np.mean(list(before.values()))*100:.1f}% -> {np.mean(list(after.values()))*100:.1f}% ({len(after)} runs)")
+        worst = sorted(after.items(), key=lambda kv: -kv[1])[:8]
+        log("  most groomed never-groomed runs: " + ", ".join(f"{k} {v*100:.0f}%" for k, v in worst))
+    return groomed
+
+
+def never_groomed_share(groomed, never):
+    """share of each never-groomed run's centre-line cells that are groomed (> 0.5), by run name"""
+    out = {}
+    for i, r in enumerate(never):
+        rows, cols = line_cells([(p[0], p[1]) for p in r["points"]])
+        if len(rows):
+            out[r.get("name") or f"unnamed {i}"] = float((groomed[rows, cols] > 0.5).mean())
+    return out
+
+
+def line_cells(pts):
+    """distinct 2 m grid cells along a polyline, as (rows, cols) index arrays, clipped to the grid"""
+    cells = set()
+    for (ax, ay), (bx, by) in zip(pts[:-1], pts[1:]):
+        steps = max(1, int(math.hypot(bx - ax, by - ay) / (R2 * 0.7)))
+        for s_ in range(steps + 1):
+            t = s_ / steps
+            c = int((ax + (bx - ax) * t + OX - X0) / R2); r = int((Y1 - (ay + (by - ay) * t + OY)) / R2)
+            if 0 <= r < H2 and 0 <= c < W2:
+                cells.add((r, c))
+    if not cells:
+        return np.array([], int), np.array([], int)
+    rc = np.array(sorted(cells))
+    return rc[:, 0], rc[:, 1]
+
+
 piste_f = np.zeros((H2, W2), np.float32)
 for run in runs:
     if run.get("area"):
@@ -540,6 +602,7 @@ for run in runs:
     rasterize_corridor(piste_f, pts, hw)
     if run["groomed"]:
         rasterize_corridor(groomed, pts, hw)
+groomed = yield_to_ungroomed(groomed, runs)
 piste_any = piste_f > 0
 del piste_f
 # built-up: roads and building footprints are grey in NAIP and were classified as rock (I-70, the villages)

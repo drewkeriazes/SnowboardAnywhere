@@ -55,3 +55,6 @@ Suggested fix in `Bridges.maintain`:
 - Tighten `MAX_SPAN` to about 80 m and require the ends to sit on the terrain (chord within 1.5 m of the ground at both ends).
 - Debug aid: log each accepted deck (`console.info('bridge', d)`) so Drew can see false positives, then remove it.
 - Re-check that China Bridge Access Road (1291, -1655) to (1260, -1694) still passes.
+
+## BUG-022 (#105) follow-up
+The segment-chord detector built railings across open bowls (Imperial Bowl, Poppyfields, Red Square), so it only runs with `?bridgeguess`. The creek-bed dip check on ski runs stays on by default, because OSM tags neither Cloud 9 - Lower by Tea Cup nor China Spur and the dip check is the only thing that builds them. Breckenridge needs a rebuild to get its OSM-tagged bridges (its pack predates the tag).

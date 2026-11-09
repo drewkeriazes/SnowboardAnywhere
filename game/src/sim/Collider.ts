@@ -17,6 +17,8 @@ export interface Hit {
   top: number;
   /** true when the point started inside a building footprint and was pushed out across an edge */
   inside: boolean;
+  /** BUG-045: true when the hit is a building footprint's edge, a ledge whose top can be stood on */
+  ledge: boolean;
 }
 
 /** Closed building footprint, counter-clockwise in x/y, for inside tests. */
@@ -38,11 +40,16 @@ function insidePoly(pts: [number, number][], x: number, y: number): boolean {
 
 export class Collider {
   private readonly cells = new Map<string, Float32Array[]>(); // packed [x, y, radius, zBase, zTop, kind]
-  private readonly hit: Hit = { x: 0, y: 0, nx: 0, ny: 0, kind: 0, top: 0, inside: false };
-  private readonly footprints = new Map<string, Footprint[]>();
+  private readonly hit: Hit = { x: 0, y: 0, nx: 0, ny: 0, kind: 0, top: 0, inside: false, ledge: false };
+  private readonly footprints = new Map<number, Footprint[]>();
 
   private key(cx: number, cy: number): string {
     return `${cx},${cy}`;
+  }
+
+  /** Numeric cell key for the footprint map: floorAt runs on every ground lookup, so no string per call. */
+  private fkey(cx: number, cy: number): number {
+    return (cx + 0x8000) * 0x10000 + (cy + 0x8000);
   }
 
   add(x: number, y: number, radius: number, zBase: number, zTop: number, kind = 0): void {
@@ -52,11 +59,14 @@ export class Collider {
     arr.push(new Float32Array([x, y, radius, zBase, zTop, kind]));
   }
 
-  private readonly walls = new Map<string, Float32Array[]>(); // packed [x1, y1, x2, y2, zBase, zTop]
+  private readonly walls = new Map<string, Float32Array[]>(); // packed [x1, y1, x2, y2, zBase, zTop, ledge, realTop]
 
-  /** Add a vertical wall segment (building edge). Registered in every cell its bbox touches. */
-  addWall(x1: number, y1: number, x2: number, y2: number, zBase: number, zTop: number): void {
-    const w = new Float32Array([x1, y1, x2, y2, zBase, zTop]);
+  /**
+   * Add a vertical wall segment (a building edge or a railing). Registered in every cell its bbox
+   * touches. `ledge` marks a building footprint's edge, whose top can be stepped or climbed onto.
+   */
+  addWall(x1: number, y1: number, x2: number, y2: number, zBase: number, zTop: number, ledge = false): Float32Array {
+    const w = new Float32Array([x1, y1, x2, y2, zBase, zTop, ledge ? 1 : 0, zTop]);
     const cx0 = Math.floor(Math.min(x1, x2) / CELL), cx1 = Math.floor(Math.max(x1, x2) / CELL);
     const cy0 = Math.floor(Math.min(y1, y2) / CELL), cy1 = Math.floor(Math.max(y1, y2) / CELL);
     for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
@@ -65,6 +75,15 @@ export class Collider {
       if (!arr) { arr = []; this.walls.set(k, arr); }
       arr.push(w);
     }
+    return w;
+  }
+
+  /**
+   * Switch a wall returned by `addWall` off or back on (FEAT-073: the lift-line setting). An off
+   * wall's top drops below any rider, so every lookup skips it; slot 7 keeps the real top.
+   */
+  setWallActive(w: Float32Array, on: boolean): void {
+    w[5] = on ? w[7] : -Infinity;
   }
 
   /**
@@ -76,13 +95,13 @@ export class Collider {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (let i = 0; i < n; i++) {
       const a = pts[i], c = pts[(i + 1) % n];
-      this.addWall(a[0], a[1], c[0], c[1], zBase, zTop);
+      this.addWall(a[0], a[1], c[0], c[1], zBase, zTop, true);
       minX = Math.min(minX, a[0]); maxX = Math.max(maxX, a[0]); minY = Math.min(minY, a[1]); maxY = Math.max(maxY, a[1]);
     }
     const f: Footprint = { pts, zBase, zTop };
     for (let cy = Math.floor(minY / CELL); cy <= Math.floor(maxY / CELL); cy++) {
       for (let cx = Math.floor(minX / CELL); cx <= Math.floor(maxX / CELL); cx++) {
-        const k = this.key(cx, cy);
+        const k = this.fkey(cx, cy);
         let arr = this.footprints.get(k);
         if (!arr) { arr = []; this.footprints.set(k, arr); }
         arr.push(f);
@@ -92,7 +111,7 @@ export class Collider {
 
   /** The footprint containing (x, y) at height z, or null. */
   private footprintAt(x: number, y: number, z: number): Footprint | null {
-    const arr = this.footprints.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
+    const arr = this.footprints.get(this.fkey(Math.floor(x / CELL), Math.floor(y / CELL)));
     if (!arr) return null;
     for (const f of arr) if (z < f.zTop - ON_TOP && z + 1.5 >= f.zBase && insidePoly(f.pts, x, y)) return f;
     return null;
@@ -103,7 +122,8 @@ export class Collider {
    * `reach` above z (a step or a climb) and no more than 2 m below (already up there). -Infinity if none.
    */
   floorAt(x: number, y: number, z: number, reach: number): number {
-    const arr = this.footprints.get(this.key(Math.floor(x / CELL), Math.floor(y / CELL)));
+    if (this.footprints.size === 0) return -Infinity;
+    const arr = this.footprints.get(this.fkey(Math.floor(x / CELL), Math.floor(y / CELL)));
     let best = -Infinity;
     if (arr) for (const f of arr) if (f.zTop <= z + reach && f.zTop >= z - 2 && f.zTop > best && insidePoly(f.pts, x, y)) best = f.zTop;
     return best;
@@ -204,7 +224,7 @@ export class Collider {
   /** Push a circle of radius r at (x, y, z) out of any cylinder it overlaps. Returns the hit or null. */
   resolve(x: number, y: number, z: number, r: number): Hit | null {
     let found: Hit | null = null;
-    this.hit.inside = false;
+    this.hit.inside = false; this.hit.ledge = false;
     // inside a building footprint (spawned, teleported or unloaded there): push out across the
     // nearest edge. The two-sided walls below would otherwise hold the rider in.
     const fp = this.footprintAt(x, y, z);
@@ -221,7 +241,7 @@ export class Collider {
         if (d < bestD) { const l = Math.sqrt(len2); bestD = d; bx = px; by = py; bnx = ey / l; bny = -ex / l; } // outward for CCW
       }
       x = bx + bnx * (r + 1e-3); y = by + bny * (r + 1e-3);
-      this.hit.x = x; this.hit.y = y; this.hit.nx = bnx; this.hit.ny = bny; this.hit.kind = 0; this.hit.top = fp.zTop; this.hit.inside = true;
+      this.hit.x = x; this.hit.y = y; this.hit.nx = bnx; this.hit.ny = bny; this.hit.kind = 0; this.hit.top = fp.zTop; this.hit.inside = true; this.hit.ledge = false;
       found = this.hit;
     }
     const cx = Math.floor(x / CELL), cy = Math.floor(y / CELL);
@@ -237,7 +257,7 @@ export class Collider {
           if (d < min) {
             const nx = d > 1e-4 ? dx / d : 1, ny = d > 1e-4 ? dy / d : 0;
             x = c[0] + nx * min; y = c[1] + ny * min;
-            this.hit.x = x; this.hit.y = y; this.hit.nx = nx; this.hit.ny = ny; this.hit.kind = c[5]; this.hit.top = c[4];
+            this.hit.x = x; this.hit.y = y; this.hit.nx = nx; this.hit.ny = ny; this.hit.kind = c[5]; this.hit.top = c[4]; this.hit.ledge = false;
             found = this.hit;
           }
         }
@@ -261,7 +281,7 @@ export class Collider {
             if (d > 1e-4) { nx = dx / d; ny = dy / d; }
             else { const l = Math.sqrt(len2); nx = ey / l; ny = -ex / l; }
             x = px + nx * r; y = py + ny * r;
-            this.hit.x = x; this.hit.y = y; this.hit.nx = nx; this.hit.ny = ny; this.hit.kind = 0; this.hit.top = w[5];
+            this.hit.x = x; this.hit.y = y; this.hit.nx = nx; this.hit.ny = ny; this.hit.kind = 0; this.hit.top = w[5]; this.hit.ledge = w[6] === 1;
             found = this.hit;
           }
         }

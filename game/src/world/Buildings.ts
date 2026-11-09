@@ -15,6 +15,37 @@ const SINK = 2.5; // m below the lowest ground point under the footprint
 
 /** BUG-045: a building=roof canopy: post width and the fascia depth under the roof edge (m) */
 const POST = 0.35, CANOPY_FASCIA = 0.6;
+/** canopy posts go at corners turning more than POST_TURN (radians), no closer than POST_GAP (m) */
+const POST_TURN = 30 * Math.PI / 180, POST_GAP = 3;
+
+/**
+ * BUG-045: where a canopy's posts stand. A post per OSM node would wall in a canopy traced with
+ * many nodes, so only real corners get one; a round or smooth outline gets about six, evenly spaced.
+ */
+function canopyPosts(pts: number[][]): number[][] {
+  const n = pts.length, out: number[][] = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[(i + n - 1) % n], p = pts[i], c = pts[(i + 1) % n];
+    const t = Math.abs(Math.atan2((p[0] - a[0]) * (c[1] - p[1]) - (p[1] - a[1]) * (c[0] - p[0]), (p[0] - a[0]) * (c[0] - p[0]) + (p[1] - a[1]) * (c[1] - p[1])));
+    if (t < POST_TURN) continue;
+    const q = out[out.length - 1];
+    if (!q || Math.hypot(p[0] - q[0], p[1] - q[1]) >= POST_GAP) out.push(p);
+  }
+  if (out.length > 1 && Math.hypot(out[0][0] - out[out.length - 1][0], out[0][1] - out[out.length - 1][1]) < POST_GAP) out.pop();
+  if (out.length >= 3) return out;
+  let perim = 0;
+  for (let i = 0; i < n; i++) perim += Math.hypot(pts[(i + 1) % n][0] - pts[i][0], pts[(i + 1) % n][1] - pts[i][1]);
+  const spacing = Math.max(POST_GAP, perim / 6);
+  const even: number[][] = [pts[0]];
+  let run = 0;
+  for (let i = 1; i < n; i++) {
+    run += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    if (run >= spacing) { even.push(pts[i]); run = 0; }
+  }
+  const last = even[even.length - 1];
+  if (even.length > 3 && Math.hypot(last[0] - pts[0][0], last[1] - pts[0][1]) < spacing / 2) even.pop();
+  return even.length >= 3 ? even : pts;
+}
 /** BUG-024: named buildings bigger than this (m^2) with no height in OSM get a lodge height */
 const BIG_LODGE_M2 = 1500; // keep in step with BIG_LODGE_M2 in pipeline/build_pack.py (old packs only)
 /** twice the signed shoelace area: positive for a counter-clockwise footprint */
@@ -114,7 +145,7 @@ export class Buildings {
     // ground left walkable under it, not a solid block; only the posts stop the rider
     const canopy = kind === 'roof';
     if (canopy) {
-      for (const p of pts) {
+      for (const p of canopyPosts(pts)) {
         if (this.collider) this.collider.add(p[0], p[1], POST / 2 + 0.05, base, top);
         for (let i = 0; i < 4; i++) {
           const a0 = (i * Math.PI) / 2 + Math.PI / 4, a1 = a0 + Math.PI / 2, r = POST * 0.71;

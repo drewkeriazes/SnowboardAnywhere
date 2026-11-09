@@ -1,29 +1,34 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, type Connect, type Plugin } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** Serve ../packs at /packs/ in dev so resort packs stay out of the game bundle (they are gitignored). */
+/**
+ * Serve ../packs at /packs/ so resort packs stay out of the game bundle (they are gitignored).
+ * Dev server and `vite preview` both (FEAT-138: `npm run host` serves the built game through preview).
+ */
 function servePacks(): Plugin {
   const packsDir = path.resolve(__dirname, '..', 'packs');
   const types: Record<string, string> = { '.png': 'image/png', '.json': 'application/json', '.bin': 'application/octet-stream', '.webp': 'image/webp' };
+  const handle: Connect.NextHandleFunction = (req, res, next) => {
+    if (!req.url || !req.url.startsWith('/packs/')) return next();
+    // npm run host serves this to the LAN: a bad escape is a 400, and only files inside packs/ (not a packs-old/ sibling)
+    let rel: string;
+    try { rel = decodeURIComponent(req.url.split('?')[0].slice('/packs/'.length)); } catch { res.statusCode = 400; res.end(); return; }
+    const file = path.join(packsDir, rel);
+    if (!file.startsWith(packsDir + path.sep) ||!fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.statusCode = 404; res.end(); return; }
+    res.setHeader('content-type', types[path.extname(file)] ?? 'application/octet-stream');
+    res.setHeader('cache-control', 'no-cache');
+    fs.createReadStream(file).pipe(res);
+  };
   return {
     name: 'serve-packs',
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        if (!req.url || !req.url.startsWith('/packs/')) return next();
-        const rel = decodeURIComponent(req.url.split('?')[0].slice('/packs/'.length));
-        const file = path.join(packsDir, rel);
-        if (!file.startsWith(packsDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.statusCode = 404; res.end(); return; }
-        res.setHeader('content-type', types[path.extname(file)] ?? 'application/octet-stream');
-        res.setHeader('cache-control', 'no-cache');
-        fs.createReadStream(file).pipe(res);
-      });
-    },
+    configureServer(server) { server.middlewares.use(handle); },
+    configurePreviewServer(server) { server.middlewares.use(handle); },
   };
 }
 
 /**
- * Dev only (DATA-008): the eye camera's P key posts its screenshot here. Saves
+ * Dev only (DATA-008; not in `vite preview`, so `npm run host` leaves it out): the eye camera's P key posts its screenshot here. Saves
  * docs/compare/<pack>/<spot>/eye-<view>.png and records the pose on that view in spot.json, so
  * game/tools/shoot_spots.mjs can re-shoot the same framing after later builds.
  */

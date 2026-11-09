@@ -18,8 +18,9 @@ const BASE = 4700; // m above sea level, above every summit in the Colorado pack
 const TOP = 6300;
 const RADIUS = 250000; // composite dome, < camera far (300 km)
 
-export type CloudCover = 'off' | 'few' | 'scattered' | 'broken' | 'overcast' | 'flurries' | 'storm';
-const COVER: Record<CloudCover, number> = { off: 0, few: 0.22, scattered: 0.3, broken: 0.42, overcast: 0, flurries: 0, storm: 0 };
+export type CloudCover = 'off' | 'cirrus' | 'few' | 'scattered' | 'broken' | 'overcast' | 'flurries' | 'storm';
+/** 'cirrus' (FEAT-084) is thin high cloud drawn by the sky dome, no cumulus */
+const COVER: Record<CloudCover, number> = { off: 0, cirrus: 0, few: 0.22, scattered: 0.3, broken: 0.42, overcast: 0, flurries: 0, storm: 0 };
 export const CLOUD_COVERS = Object.keys(COVER) as CloudCover[];
 /** A ?weather= / spot.json value as a cover ('clear' is an alias for 'off'); null when unknown. */
 export function parseWeather(w: string | null | undefined): CloudCover | null {

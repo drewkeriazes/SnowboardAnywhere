@@ -16,7 +16,7 @@ The kanban lives in GitHub Projects: https://github.com/users/drewkeriazes/proje
 ## What Claude does with a card
 
 1. New ask from Drew -> create the issue with the next id and the right labels, put it in Ready (or Backlog if it needs data first).
-2. "Build X" -> branch `issue-<number>-<slug>` from `main`, build, commit with the id in the message, open a PR with `Fixes #<number>` and notes on what changed and how it was checked. Drew reviews and merges; merging closes the issue (Done). The PR's link moves the card to In Progress. Do not push to `main` directly.
+2. "Build X" -> branch `issue-<number>-<slug>` from `main`, build, commit with the id in the message, update `README.md` and `docs/developer-guide.md` if the change is user-facing (see CLAUDE.md, Docs travel with the change), open a PR with `Fixes #<number>` and notes on what changed and how it was checked. The reviewer bot comments on the PR; Drew marks the ones he wants (thumbs up, or a reply) and the session applies them with the `pr-feedback` skill. Drew reviews and merges; merging closes the issue (Done). The PR's link moves the card to In Progress. Do not push to `main` directly.
 3. Found a bug while building -> new BUG card, not a silent fix.
 
 ## Parallel sessions (FEAT-089)

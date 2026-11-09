@@ -1,22 +1,59 @@
 import type { Input } from './Rider';
 
 /**
- * Keyboard (and basic touch) input. Mapping matches the common browser ski games:
- * Left/Right or A/D steer, Up/W tuck, Down/S brake, hold and release Space to jump,
- * Shift grab (sprint on foot), Left Ctrl squat (hold), X skate (hold), V / Z nose / tail press (hold); Space + W / S nollie / ollie. B unstraps or straps in. R resets, C cycles the camera, M toggles
- * the piste overlay, F free-fly.
+ * Keyboard, gamepad (and basic touch) input. FEAT-124 layout: everything you do while riding sits
+ * under the left hand on WASD and the keys around it; the arrows keep working as second bindings.
+ *
+ * Board: A / D steer, W tuck (front flip in the air), S brake (backflip in the air), hold and release
+ * Space to jump (Space + W / S nollie / ollie), Shift squats on the snow and grabs in the air,
+ * Q / Z nose / tail press (W / S balance it, FEAT-140), X skate. On foot: WASD walk, Shift sprint, Space jump / climb.
+ * Everywhere: E interact (lift, skip, strap in or out when stopped away from lifts), hold G to look
+ * behind, Alt or the right mouse button to free look, C camera, M map, P piste lines, N next track,
+ * T time trial, hold R to restart, K replay, Backspace rewind, F boost in Outrun, ` free fly.
+ *
+ * Each action has up to two bindings (KeyboardEvent.code, or Mouse2 for the right button).
  */
+export type KeyMap = Record<string, string[]>;
+
+/** Gamepad (standard mapping) buttons */
+const PAD = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, LT: 6, RT: 7, SELECT: 8, START: 9, L3: 10, R3: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 } as const;
+const DEAD = 0.18;
+/** one-shot gamepad buttons and the action each one fires */
+const padBtn = (gp: Gamepad, i: number): boolean => !!gp.buttons[i]?.pressed;
+const padVal = (gp: Gamepad, i: number): number => gp.buttons[i]?.value ?? 0;
+const padAxis = (gp: Gamepad, i: number): number => { const a = gp.axes[i] ?? 0; return Math.abs(a) > DEAD ? a : 0; };
+const PAD_ACTIONS: [number, string][] = [[PAD.Y, 'lift'], [PAD.UP, 'camera'], [PAD.RIGHT, 'map'], [PAD.LEFT, 'piste'], [PAD.DOWN, 'track'], [PAD.SELECT, 'replay'], [PAD.START, 'pause']];
+/**
+ * FEAT-138: the connected gamepads, or null. Firefox (and Chrome as it phases it in) only exposes the Gamepad
+ * API in a secure context (https or localhost); over plain http on the home network getGamepads is missing or throws, so the
+ * game plays on keyboard instead of failing every frame. After the first throw it stops asking.
+ */
+let padsBlocked = false;
+function readPads(): ArrayLike<Gamepad | null> | null {
+  if (padsBlocked || typeof navigator === 'undefined' || !navigator.getGamepads) return null;
+  try { return navigator.getGamepads(); } catch { padsBlocked = true; return null; }
+}
+
 export class Controls {
-  readonly input: Input = { steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false, squat: false, skate: false, lean: 0 };
-  /** action -> KeyboardEvent.code (remappable); WASD stay as fixed aliases for the movement keys */
-  keymap: Record<string, string> = { left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft', squat: 'ControlLeft', skate: 'KeyX', pressNose: 'KeyV', pressTail: 'KeyZ', lift: 'KeyE', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft', board: 'KeyB' };
+  readonly input: Input = { steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false, squat: false, skate: false, lean: 0, balance: 0 };
+  /** FEAT-140: main sets this while a press would be balanced (on the board, on the snow, Press balance not Off):
+   *  with a press key held, W / S and the left stick up / down then balance the press instead of tucking and braking */
+  balancing = false;
+  /** action -> up to two codes (remappable in Settings > Controls) */
+  keymap: KeyMap = {};
   invertSteer = false;
   /** FEAT-111: ask before the page closes (Ctrl+W mid-ride); main turns it off while paused */
   guardLeave = true;
   private readonly listeners: [string, EventListener][] = [];
   private readonly docListeners: [string, EventListener][] = [];
   readonly keys = new Set<string>();
-  private readonly pressed = new Set<string>(); // one-shot
+  private readonly pressed = new Set<string>(); // one-shot codes
+  private readonly padPressed = new Set<string>(); // one-shot actions from the gamepad
+  private padPrev: boolean[] = [];
+  /** right stick (free look), -1..1, read by main as mouse movement */
+  padLookX = 0; padLookY = 0;
+  /** a gamepad is connected (for the hints) */
+  padActive = false;
   touchSteer = 0;
   touchTuck = false;
   touchBrake = false;
@@ -27,18 +64,24 @@ export class Controls {
       if ((e.target as HTMLElement | null)?.tagName === 'INPUT' || (e.target as HTMLElement | null)?.tagName === 'SELECT') return; // typing in a menu
       this.keys.add(e.code);
       this.pressed.add(e.code);
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'AltLeft', 'AltRight'].includes(e.code)) e.preventDefault();
-      // squatting on Ctrl turns game keys into browser shortcuts (Ctrl+S, Ctrl+D...): block the ones a page can block
-      if (e.ctrlKey && this.keys.has(this.keymap.squat) && e.code !== this.keymap.squat) e.preventDefault();
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'AltLeft', 'AltRight', 'Backspace', 'Backquote'].includes(e.code)) e.preventDefault();
+      // anyone who binds Ctrl: block the browser shortcuts a page can block while it is held
+      // (only when Ctrl itself is bound to an action, so Ctrl+R etc. keep working for everyone else)
+      if (e.ctrlKey && (this.bound('ControlLeft') || this.bound('ControlRight')) && this.bound(e.code === 'ControlLeft' || e.code === 'ControlRight' ? '' : e.code)) e.preventDefault();
     };
     const ku = (e: KeyboardEvent) => {
       this.keys.delete(e.code);
       if (e.code === 'AltLeft' || e.code === 'AltRight') e.preventDefault(); // else Alt focuses the browser menu bar
-      if (e.code === this.keymap.jump) this.input.jumpReleased = true;
+      if (this.is('jump', e.code)) this.input.jumpReleased = true;
     };
     const bl = () => this.keys.clear();
+    // FEAT-124: the right mouse button is a binding too (free look)
+    const md = (e: MouseEvent) => { if (e.button === 2) { this.keys.add('Mouse2'); this.pressed.add('Mouse2'); } };
+    const mu = (e: MouseEvent) => { if (e.button === 2) this.keys.delete('Mouse2'); };
+    const cm = (e: Event) => e.preventDefault();
     window.addEventListener('keydown', kd); window.addEventListener('keyup', ku); window.addEventListener('blur', bl);
-    this.listeners.push(['keydown', kd as EventListener], ['keyup', ku as EventListener], ['blur', bl]);
+    window.addEventListener('mousedown', md); window.addEventListener('mouseup', mu); el.addEventListener('contextmenu', cm);
+    this.listeners.push(['keydown', kd as EventListener], ['keyup', ku as EventListener], ['blur', bl], ['mousedown', md as EventListener], ['mouseup', mu as EventListener]);
     // FEAT-111: Ctrl+W / Ctrl+N / Ctrl+T can't be blocked with preventDefault, so ask before leaving
     // mid-ride, and in real fullscreen ask the browser to hand those keys to the page (Keyboard Lock, Chromium)
     const unload = (e: BeforeUnloadEvent) => { if (!this.guardLeave) return; e.preventDefault(); e.returnValue = ''; };
@@ -50,55 +93,99 @@ export class Controls {
     if (!navigator.webdriver) { window.addEventListener('beforeunload', unload); this.listeners.push(['beforeunload', unload as EventListener]); } // not under Playwright (tools reload pages)
     document.addEventListener('fullscreenchange', fs);
     this.docListeners.push(['fullscreenchange', fs]);
-
-    void el;
   }
   private touchJump = false;
   touchJumpDown(): void { this.touchJump = true; }
   touchJumpUp(): void { if (this.touchJump) { this.touchJump = false; this.input.jumpReleased = true; } }
+
+  /** Is `code` one of `action`'s bindings? */
+  is(action: string, code: string): boolean { return !!this.keymap[action]?.includes(code); }
+  private bound(code: string): boolean { if (!code) return false; for (const a in this.keymap) if (this.keymap[a].includes(code)) return true; return false; }
+  /** Is any binding of `action` held? */
+  held(action: string): boolean { const b = this.keymap[action]; if (b) for (const c of b) if (this.keys.has(c)) return true; return false; }
 
   /** Consume a one-shot key press by code. */
   once(code: string): boolean {
     if (this.pressed.has(code)) { this.pressed.delete(code); return true; }
     return false;
   }
-  /** Consume a one-shot press of a mapped action. */
-  action(name: string): boolean { return this.once(this.keymap[name]); }
+  /** Consume a one-shot press of a mapped action (keyboard or gamepad). */
+  action(name: string): boolean {
+    let hit = false;
+    for (const c of this.keymap[name] ?? []) if (this.once(c)) hit = true;
+    if (this.padPressed.delete(name)) hit = true;
+    return hit;
+  }
 
-  /** Free look held (the mapped key, or either Alt). */
-  get looking(): boolean { return this.keys.has(this.keymap.look) || this.keys.has('AltLeft') || this.keys.has('AltRight'); }
+  /** Free look held (the mapped keys, either Alt, or the right stick). */
+  get looking(): boolean { return this.held('look') || this.keys.has('AltLeft') || this.keys.has('AltRight') || Math.hypot(this.padLookX, this.padLookY) > DEAD; }
+
+  /** Look behind held (G, or the right stick click). */
+  get glancing(): boolean { return this.held('glance') || this.padGlance; }
+  private padGlance = false;
 
   /** Remove the window listeners (quit to menu). */
   dispose(): void { for (const [t, f] of this.listeners) window.removeEventListener(t, f); for (const [t, f] of this.docListeners) document.removeEventListener(t, f); }
 
   update(): Input {
-    const k = this.keys;
-    let steer = 0;
-    const m = this.keymap;
-    if (k.has(m.left) || k.has('KeyA')) steer -= 1;
-    if (k.has(m.right) || k.has('KeyD')) steer += 1;
+    let steer = (this.held('right') ? 1 : 0) - (this.held('left') ? 1 : 0);
+    let tuck = this.held('tuck'), brake = this.held('brake'), jump = this.held('jump');
+    let crouch = this.held('grab'), squatOnly = this.held('squat'), skate = this.held('skate');
+    let lean = (this.held('pressNose') ? 1 : 0) - (this.held('pressTail') ? 1 : 0);
+    let padY = 0; // FEAT-140: the left stick's fore-aft, analog (+ up)
+    // ---- FEAT-124 gamepad (the standard mapping)
+    // (no per-frame allocations beyond getGamepads itself: a plain loop over the list, module-level helpers, padPrev reused)
+    const pads = readPads();
+    let gp: Gamepad | null = null;
+    if (pads) for (let i = 0; i < pads.length; i++) { const p = pads[i]; if (p && p.connected && p.mapping === 'standard') { gp = p; break; } }
+    this.padActive = !!gp;
+    this.padLookX = this.padLookY = 0; this.padGlance = false;
+    if (gp) {
+      const b = (i: number) => padBtn(gp, i), v = (i: number) => padVal(gp, i), ax = (i: number) => padAxis(gp, i);
+      if (ax(0)) steer = Math.max(-1, Math.min(1, steer + ax(0)));
+      padY = -ax(1);
+      if (ax(1) < -0.5 || v(PAD.RT) > 0.3) tuck = true;
+      if (ax(1) > 0.5 || v(PAD.LT) > 0.3) brake = true;
+      if (b(PAD.A)) jump = true;
+      if (!b(PAD.A) && this.padPrev[PAD.A]) this.input.jumpReleased = true;
+      if (b(PAD.X)) crouch = true;
+      if (b(PAD.B)) skate = true;
+      lean += (b(PAD.RB) ? 1 : 0) - (b(PAD.LB) ? 1 : 0);
+      this.padLookX = ax(2); this.padLookY = ax(3);
+      this.padGlance = b(PAD.R3);
+      for (const [i, a] of PAD_ACTIONS) if (b(i) && !this.padPrev[i]) { if (a === 'pause') this.pressed.add('Escape'); else this.padPressed.add(a); }
+      for (let i = 0; i < gp.buttons.length; i++) this.padPrev[i] = gp.buttons[i].pressed;
+    }
     if (this.invertSteer) steer = -steer;
     if (steer === 0) steer = this.touchSteer;
     this.input.steer = steer;
-    this.input.tuck = k.has(m.tuck) || k.has('KeyW') || this.touchTuck;
-    this.input.brake = k.has(m.brake) || k.has('KeyS') || this.touchBrake;
-    this.input.jumpHeld = k.has(m.jump) || this.touchJump;
-    this.input.grab = k.has(m.grab) || k.has('ShiftLeft') || k.has('ShiftRight');
-    this.input.squat = k.has(m.squat);
-    this.input.skate = k.has(m.skate);
+    this.input.tuck = tuck || this.touchTuck;
+    this.input.brake = brake || this.touchBrake;
+    this.input.jumpHeld = jump || this.touchJump;
+    // FEAT-124: one "get small" key: the rider squats on the snow and grabs in the air (sprint on foot)
+    this.input.grab = crouch;
+    this.input.squat = crouch || squatOnly;
+    this.input.skate = skate;
     // FEAT-112: while charging a jump, W/S lean forward (tail up, nollie) / back (nose up, ollie)
-    // instead of tucking or braking; V / Z hold a nose / tail press without jumping
-    let lean = (k.has(m.pressNose) ? 1 : 0) - (k.has(m.pressTail) ? 1 : 0);
+    // instead of tucking or braking; Q / Z hold a nose / tail press without jumping
+    lean = Math.max(-1, Math.min(1, lean));
     if (this.input.jumpHeld && (this.input.tuck || this.input.brake)) {
       lean = (this.input.tuck ? 1 : 0) - (this.input.brake ? 1 : 0);
       this.input.tuck = false; this.input.brake = false;
     }
     this.input.lean = lean;
-    this.pressed.clear = this.pressed.clear; // keep tslint quiet
+    // FEAT-140: holding a press, weight forward / back balances it (the keys are all or nothing, the stick is analog)
+    this.input.balance = 0;
+    if (this.balancing && lean !== 0 && !this.input.jumpHeld) {
+      const keys = (this.held('tuck') ? 1 : 0) - (this.held('brake') ? 1 : 0);
+      this.input.balance = Math.max(-1, Math.min(1, keys + padY));
+      this.input.tuck = false; this.input.brake = false;
+    }
     return this.input;
   }
 
   endFrame(): void {
     this.pressed.clear();
+    this.padPressed.clear();
   }
 }
