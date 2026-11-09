@@ -179,6 +179,39 @@ function snowPile(len: number, depth: number, h: number, seed: number, profile: 
   return g;
 }
 
+/**
+ * Snow hanging over a vertical face, local x along the length: the top edge at y = 0.04, the lumpy
+ * lower edge `drop` metres down times `profile` (t = 0 at the left end, 1 at the right).
+ */
+function snowDrape(len: number, drop: number, thick: number, seed: number, profile: (t: number) => number): THREE.BufferGeometry {
+  const g = new THREE.BoxGeometry(len, 1, thick, Math.max(4, Math.round(len * 8)), 1, 1);
+  const p = g.getAttribute('position') as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), t = x / len + 0.5;
+    if (p.getY(i) > 0) { p.setY(i, 0.04); continue; }
+    const lump = 0.75 + 0.25 * Math.sin(x * 7.3 + seed) + 0.12 * Math.sin(x * 19 + seed * 3);
+    const end = Math.min(1, (len / 2 - Math.abs(x)) / 0.15);
+    p.setY(i, 0.04 - drop * Math.max(0.05, profile(t) * lump * end));
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/** A lumpy snow bank around a post's base, centred on the ground (its lower half is underground). */
+function snowBank(rx: number, h: number, seed: number): THREE.BufferGeometry {
+  const g = new THREE.SphereGeometry(1, 20, 10);
+  const p = g.getAttribute('position') as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), a = Math.atan2(z, x);
+    const k = 1 + 0.18 * Math.sin(a * 3 + seed) + 0.1 * Math.sin(a * 7 + seed * 2);
+    // a drift, not a dome: flattened toward its rim so it runs out into the ground, longer uphill (+z)
+    const up = y > 0 ? y ** 1.6 : y;
+    p.setXYZ(i, x * rx * k, up * h * (0.8 + 0.25 * k), z * rx * (z > 0 ? 1.25 : 0.85) * k);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
 export class Landmarks {
   readonly group = new THREE.Group();
   readonly list: Landmark[];
@@ -186,7 +219,8 @@ export class Landmarks {
   private readonly wood = new THREE.MeshStandardMaterial({ color: 0x76604d, map: grainTexture(), roughness: 0.9 });
   private readonly concrete = new THREE.MeshStandardMaterial({ color: 0x6c6a66, roughness: 0.95 });
   private readonly board = new THREE.MeshStandardMaterial({ color: 0x121418, roughness: 0.7 });
-  private readonly snow = new THREE.MeshStandardMaterial({ color: 0xf6f8fb, roughness: 0.85 });
+  // a little emissive, like the lettering, so the snow stays white when the arch faces away from the sun (FEAT-143)
+  private readonly snow = new THREE.MeshStandardMaterial({ color: 0xf6f8fb, emissive: 0x5a5e62, roughness: 0.85 });
   /** per landmark: its root, the two post bases (pack x, y) and the resolution its ground was sampled at */
   private readonly seats: { obj: THREE.Object3D; posts: [number, number][]; res: number }[] = [];
   private readonly seen = new Set<string>();
@@ -237,7 +271,9 @@ export class Landmarks {
       plane.name = 'sign lettering'; root.add(plane);
     }
     // snow as in the photos: a thick lumpy pile on the left end of the top beam, a ledge along the
-    // beam either side of the board's left half, a small cap over the right post, a thin line on the board
+    // beam either side of the board's left half, hanging down the beam's uphill face over its left
+    // 40% (what a rider sees from below), a small cap over the right post, a thin line on the board,
+    // and a bank burying most of the left footing
     const boardL = BOARD_X - BOARD_LEN / 2, boardR = BOARD_X + BOARD_LEN / 2;
     const pile = (x0: number, x1: number, d: number, h: number, y: number, seed: number, profile?: (t: number) => number) => {
       const g = snowPile(x1 - x0, d, h, seed, profile); g.translate((x0 + x1) / 2, y, 0); snow.push(g);
@@ -246,6 +282,17 @@ export class Landmarks {
     pile(boardL, -0.3, BEAM_D + 0.06, 0.12, beamTop, 2.9, (t) => (1 - t) ** 0.7);
     pile(boardR - 0.1, beamLen / 2 + 0.02, BEAM_D + 0.04, 0.13, beamTop, 4.4, (t) => Math.sin(Math.PI * t) ** 0.5);
     pile(boardL + 0.02, boardR - 0.02, BOARD_D + 0.03, 0.05, boardTop, 0.7);
+    const drape = (x0: number, x1: number, drop: number, side: number, seed: number, profile: (t: number) => number) => {
+      const thick = 0.07, g = snowDrape(x1 - x0, drop, thick, seed, profile);
+      g.translate((x0 + x1) / 2, beamTop, side * (BEAM_D / 2 + thick / 2 - 0.01)); snow.push(g);
+    };
+    const left40 = -beamLen / 2 + 0.4 * beamLen;
+    drape(-beamLen / 2 - 0.02, left40, 0.27, 1, 0.4, (t) => (t < 0.35 ? 1 : Math.max(0, 1 - (t - 0.35) / 0.65) ** 0.8));
+    drape(-beamLen / 2 - 0.02, boardL, 0.16, -1, 1.9, () => 1);
+    // its own mesh so seat() can centre it on the left post's ground, whichever post is lower
+    const bankMesh = new THREE.Mesh(snowBank(1.1, 0.72, 2.2), this.snow);
+    bankMesh.name = 'snow bank'; bankMesh.position.x = -half; bankMesh.castShadow = true; bankMesh.receiveShadow = true;
+    root.add(bankMesh);
     const parts: [THREE.BufferGeometry[], THREE.Material, string][] = [[wood, this.wood, 'timber'], [conc, this.concrete, 'footings'], [snow, this.snow, 'snow']];
     for (const [gs, m, name] of parts) {
       const mesh = new THREE.Mesh(mergeGeometries(gs), m);
@@ -271,7 +318,12 @@ export class Landmarks {
     const zs = s.posts.map(([x, y]) => this.pack.terrainHeight(x, y)).filter(Number.isFinite);
     if (!zs.length) return;
     s.res = Math.max(...s.posts.map(([x, y]) => this.pack.finestRes(x, y)));
-    s.obj.position.set(l.x, Math.min(...zs), -l.y);
+    const base = Math.min(...zs);
+    s.obj.position.set(l.x, base, -l.y);
+    // the snow bank is centred on the left post's own ground so its footing stays buried on a cross-slope
+    const bank = s.obj.getObjectByName('snow bank');
+    const left = zs.length === s.posts.length ? zs[0] : base;
+    if (bank) bank.position.y = left - base;
   }
 
   /** Re-seat once finer terrain arrives; returns a landmark the rider just passed through (once per session). */
