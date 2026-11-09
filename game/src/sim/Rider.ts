@@ -92,7 +92,7 @@ export function bootSink(s: SurfaceInfo, snow?: SnowState): number {
 const PLANE_SPEED = 12, POWDER_DRAG = 0.012, SINK_DRAG = 0.08, SINK_SPEED = 6;
 /** FEAT-053 chop: a jolt every CHOP_GAP s (random, about), kicking the heading up to CHOP_YAW rad and
  *  the board sideways up to CHOP_KICK m/s at full chop and speed, smaller at low speed (gone by CHOP_SPEED) */
-const CHOP_GAP = 0.18, CHOP_YAW = 0.045, CHOP_KICK = 0.35, CHOP_SPEED = 12;
+const CHOP_GAP = 0.2, CHOP_YAW = 0.035, CHOP_KICK = 0.3, CHOP_SPEED = 12;
 
 /** wrap an angle to -PI..PI */
 function wrap(a: number): number { return Math.atan2(Math.sin(a), Math.cos(a)); }

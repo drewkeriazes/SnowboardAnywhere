@@ -48,7 +48,7 @@ export interface SnowState {
   drag1: number;
   /** multiplier on the carve's turn force and the sidecut's arc: below 1 the turns come round wider and slower */
   turn: number;
-  /** 0..1 random edge jolts (chop) */
+  /** 0..1 random edge jolts: 0 until the chop is about a third of the snow here, 1 when it is most of it */
   jolt: number;
   /** how much a skid scrubs speed (1 on groomed, less on ice) */
   skidScrub: number;
@@ -100,12 +100,12 @@ export function snowAt(s: SurfaceInfo, n: ArrayLike<number>, z: number, w: SnowW
   // ice: spring refreeze first thing (the groomers scraped firm, the off-piste crusted), and wind
   // scouring on high open ground, steeper exposed faces most; new snow softens both
   const refreeze = (w.day === 'spring' ? 0.7 : w.day === 'mid' ? 0.2 : 0.05) * morning;
-  const scoured = e * e * (1 - trees) * (0.3 + 0.7 * steep) * (1 - 0.6 * shade) * (1 - 0.7 * groomedRaw);
+  const scoured = e * e * (1 - trees) * (0.6 + 0.4 * steep) * (1 - 0.6 * shade) * (1 - 0.7 * groomedRaw); // flat high ridgetops scour hardest
   const iceShare = clamp01(Math.max(refreeze, 0.8 * scoured) * (1 - fresh)) * (1 - slushShare);
   // off-piste: untracked powder keeps in the shade, high up, under the trees and after a storm; open
   // ground gets tracked out into chop as the day goes on (less when it is still snowing)
   const keep = clamp01(0.15 + 0.25 * shade + 0.15 * e + 0.45 * trees + fresh);
-  const tracked = (w.day === 'fresh' ? 0.4 : w.day === 'mid' ? 0.85 : 0.7) * (0.3 + 0.7 * skiedDay) * (1 - trees) * (1 - fresh) * (1 - w.storm);
+  const tracked = (w.day === 'fresh' ? 0.4 : w.day === 'mid' ? 0.9 : 0.75) * (0.05 + 0.95 * skiedDay) * (1 - trees) * (1 - fresh) * (1 - w.storm);
   const chopShare = clamp01(tracked * (1 - keep));
   // on the groomers a real fall of new snow rides like powder, a dusting is still corduroy
   const groomPow = clamp01((w.newSnow - 0.3) / 0.7) * 0.6;
@@ -135,6 +135,8 @@ export function snowAt(s: SurfaceInfo, n: ArrayLike<number>, z: number, w: SnowW
     grip += wk * p[0]; drag0 += wk * p[1]; drag1 += wk * p[2]; turn += wk * p[3]; jolt += wk * p[4]; scrub += wk * p[5];
     depth += wk * (k === 'powder' ? powDepth : p[6]);
   }
+  // the jolts only once the chop is most of what is here: a third of chop mixed into powder rides smooth
+  jolt = clamp01((out.chop - 0.3) / 0.5);
   out.kind = kind; out.grip = grip; out.drag0 = drag0; out.drag1 = drag1; out.turn = turn; out.jolt = jolt; out.skidScrub = scrub; out.depth = depth;
   return out;
 }

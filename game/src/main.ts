@@ -134,6 +134,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const lifts = new Lifts(pack);
     add('lifts', lifts.group);
     const liftLines = new LiftLines(pack, lifts.all, collider); // FEAT-073
+    /** FEAT-053: the top of the resort (m): the highest lift unloading point, else the pack's start, else the range's top */
+    const resortTop = lifts.all.length ? Math.max(...lifts.all.map((l) => l.top[2])) : (zr[1] ?? 3000);
     liftLines.setEnabled(settings.liftLines);
     add('lift lines', liftLines.group);
     add('lift markers', lifts.markers);
@@ -870,7 +872,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         // a storm, open off-piste gets tracked out, the afternoon sun makes slush, spring mornings ice)
         const sw = rider.snowWorld;
         sw.hour = hour; sw.storm = weatherNow === 'storm' ? 1 : weatherNow === 'flurries' ? 0.3 : 0; sw.newSnow = snowCover; sw.day = settings.snowDay ?? 'mid';
-        sw.zLow = zr[0]; sw.zHigh = zr[1];
+        // "high up" is judged against the resort's own top (the highest lift top), not the pack's far terrain
+        sw.zLow = zr[0]; sw.zHigh = resortTop;
       }
       rocks.setSnow(Math.min(1, snowCover * 3), snow.wind.x, snow.wind.y); // boulder tops fill three times faster than the slopes
       roads.update(fx, fy);
@@ -952,7 +955,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
           `<br>snow groomed ${rider.snow.groomed.toFixed(2)} powder ${rider.snow.powder.toFixed(2)} chop ${rider.snow.chop.toFixed(2)} ice ${rider.snow.ice.toFixed(2)} slush ${rider.snow.slush.toFixed(2)} rock ${rider.snow.rock.toFixed(2)} &middot; depth ${(rider.snow.depth * 100).toFixed(0)} cm &middot; grip x${rider.snow.grip.toFixed(2)} &middot; turn x${rider.snow.turn.toFixed(2)} &middot; drag ${rider.snow.drag0.toFixed(2)} + ${rider.snow.drag1.toFixed(4)}v &middot; chop ${rider.chop.toFixed(2)} &middot; sink ${rider.noseSink.toFixed(2)}</span>` : '');
       (window as any).__sim = { rider, riderView, trialWorld, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, eyeAt, outrun, monsters, startOutrun, stopOutrun,
         /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
-        setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); } };
+        setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
+        /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */
+        applySettings: (what: string) => applySettings(settings, what) };
       if (!headless) requestAnimationFrame(frame);
     }
 
