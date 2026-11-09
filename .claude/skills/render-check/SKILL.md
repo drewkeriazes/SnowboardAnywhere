@@ -13,12 +13,12 @@ node tools/shoot.mjs vail shots-vail      # real pack, once packs/vail exists
 ```
 `tools/shoot.mjs` serves `dist/` plus `../packs` on a local port, loads `index.html?pack=<slug>&headless`, steps frames with `window.__step(n, dt)` and saves PNGs with `window.__shot()` (canvas.toDataURL, so no page.screenshot hangs). Each `settle` prints a JSON line with chunk count, triangle count, tree instances, rider position, speed, onGround and loaded tile counts per height set.
 
-Headed mode: `node tools/shoot.mjs vail shots-vail --headed` (or `npm run shoot:headed -- vail shots-vail`) opens a visible Chromium on the real GPU, runs the same script, and leaves the window open until you close it. Use it on Drew's PC for real packs; headless SwiftShader crashes the tab on the full Vail pack once the rider moves.
+GPU or CPU: every tool launches Chromium through `tools/browser.mjs` (FEAT-146) and prints the renderer it got on the first line, e.g. `GPU: ANGLE (NVIDIA, NVIDIA GeForce RTX 2070 SUPER ...) [gpu]` or `GPU: ... SwiftShader ... (software) [cpu]`. On Windows (Drew's PC) the default is the real GPU, headless; elsewhere it is SwiftShader. Flags on every tool: `--headed` (visible window on the real GPU, stays open until you close it; also `npm run shoot:headed`), `--gpu` (force the real GPU, exits if Chromium falls back to software), `--cpu` (force SwiftShader). Use the GPU for real packs; headless SwiftShader crashes the tab on the full Vail pack once the rider moves.
 
 Playwright: a devDependency of `game/` (`npm i` then `npx playwright install chromium` once per machine). The cloud sandbox falls back to its preinstalled copy at `/opt/npm-tools/node_modules/playwright`. Playwright 1.65.0 shipped without a matching `playwright-core` on 2026-11-05, so the lockfile pins 1.64.1.
 
 ## Software GPU rule
-On a machine without a GPU (cloud sandbox, CI), add `&lowgfx` to the URL (`SHOT_QUERY="&lowgfx" node tools/shoot.mjs synth`). It disables shadow maps, sets pixel ratio 1 and shrinks the tree radius to 250 / 600 m. Without it SwiftShader needs about 9 seconds per frame once 180k trees are loaded and the run looks hung. With a real GPU, run without `lowgfx`.
+On software (cloud sandbox, CI, or `--cpu`) the launcher appends `&lowgfx` to `SHOT_QUERY` automatically. It disables shadow maps, sets pixel ratio 1 and shrinks the tree radius to 250 / 600 m; without it SwiftShader needs about 9 seconds per frame once 180k trees are loaded and the run looks hung. On the real GPU nothing is added. If a run on Drew's PC prints SwiftShader, the GPU path failed: rerun with `--gpu` to get the error instead of a slow run.
 
 ## What to look at
 - `01_start.png`: rider standing on snow, forest band with visible trail cuts, horizon with distant ridges (not a flat line; if flat, mid/far tiles did not load or `Pack.height` fell through to `zRange[0]`).

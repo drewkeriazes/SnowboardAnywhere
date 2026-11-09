@@ -1,7 +1,7 @@
 // Hockey-stop render check (FEAT-065): tucks to speed, holds brake to a stop, and saves shots of
 // the board swung across, the spray and the scraped track; prints the board angle and speed.
 // node tools/brakeshot.mjs [pack] [outDir] [--headed] [--ski]   (run after `npx vite build`)
-const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
+import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,9 +25,7 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(p).pipe(res);
 });
 await new Promise((r) => server.listen(0, r));
-const browser = headed
-  ? await chromium.launch({ headless: false })
-  : await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 960, height: 720 }, deviceScaleFactor: 1 });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });

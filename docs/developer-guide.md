@@ -46,7 +46,8 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 
 ## Test tools (`game/tools/`)
 
-- `shoot.mjs [pack] [outDir] [--headed | --gpu]` render and ride test, screenshots into `game/shots/`; `--headed` opens a visible window on the real GPU, `--gpu` runs headless on the real GPU (Windows). Also `npm run shoot` / `npm run shoot:headed`. Use `SHOT_QUERY="&lowgfx"` on software GPUs.
+- `browser.mjs` the shared Chromium launcher every test tool uses (FEAT-146). Real GPU headless by default on Windows, SwiftShader elsewhere; every tool takes `--headed` (window, real GPU), `--gpu` (force the real GPU, exit if it falls back to software) and `--cpu` (force SwiftShader). Prints the renderer on the first line and adds `&lowgfx` automatically on software.
+- `shoot.mjs [pack] [outDir] [--headed | --gpu | --cpu]` render and ride test, screenshots into `game/shots/`. Also `npm run shoot` / `npm run shoot:headed`.
 - `ridecheck.mjs [pack] [seconds] [--headed]` streaming and determinism check: a straight tuck run ridden twice; reports top speed, late tiles and tree cells, and whether run 2 matches run 1 exactly.
 - `rider.mjs [pack] [outDir] [--headed]` rider close-up check: stand, tuck, carves, jump, crash and skis; records the worst boot-to-binding gap and saves side-view shots.
 - `walkcheck.mjs [pack] [outDir] [--headed] [--ski]` on-foot check: unstrap, walk, sprint, turn, strap back in; prints speed, stamina, foot-IK gap and bootprint spacing.

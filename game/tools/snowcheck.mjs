@@ -5,7 +5,7 @@
 // faster than a north-facing powder face, that powder turns wider, that spring-morning ice holds
 // less than the same groomer at 1 pm, and that chop rattles where powder does not.
 // node tools/snowcheck.mjs [pack] [--headed]   (run after `npx vite build`; exit 1 on a failed check)
-const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
+import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,9 +24,7 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(p).pipe(res);
 });
 await new Promise((r) => server.listen(0, r));
-const browser = headed
-  ? await chromium.launch({ headless: false })
-  : await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await launchBrowser();
 const fails = [];
 const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? `: ${detail}` : ''}`); if (!ok) fails.push(name); };
 
