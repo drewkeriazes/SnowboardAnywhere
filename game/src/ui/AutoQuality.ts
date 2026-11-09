@@ -12,17 +12,19 @@ export interface QualityLevel {
   cloudsDown: boolean;
   /** tree density as a share of the setting */
   trees: number;
-  /** falling snow particles as a share */
+  /** falling snow particles and spray particles as a share */
   snow: number;
+  /** FEAT-044 snow deformation: 1 full window, 0.5 a smaller window at half the texture, 0 off */
+  deform: number;
 }
 
 /** cumulative levels, the cheapest visual loss first */
 export const LEVELS: QualityLevel[] = [
-  { res: 1, cloudsDown: false, trees: 1, snow: 1 },
-  { res: 0.85, cloudsDown: false, trees: 1, snow: 1 },
-  { res: 0.75, cloudsDown: true, trees: 1, snow: 1 },
-  { res: 0.75, cloudsDown: true, trees: 0.7, snow: 0.6 },
-  { res: 0.65, cloudsDown: true, trees: 0.5, snow: 0.4 },
+  { res: 1, cloudsDown: false, trees: 1, snow: 1, deform: 1 },
+  { res: 0.85, cloudsDown: false, trees: 1, snow: 1, deform: 1 },
+  { res: 0.75, cloudsDown: true, trees: 1, snow: 1, deform: 1 },
+  { res: 0.75, cloudsDown: true, trees: 0.7, snow: 0.6, deform: 0.5 },
+  { res: 0.65, cloudsDown: true, trees: 0.5, snow: 0.4, deform: 0 },
 ];
 
 const CHECK = 0.5, DOWN_AFTER = 2, UP_AFTER = 8, COOLDOWN = 3, RELAPSE = 10, BACKOFF_MAX = 120;
@@ -68,6 +70,7 @@ export class AutoQuality {
     if (q.cloudsDown) parts.push('clouds lower');
     if (q.trees < 1) parts.push(`trees ${Math.round(q.trees * 100)}%`);
     if (q.snow < 1) parts.push(`snowfall ${Math.round(q.snow * 100)}%`);
+    if (q.deform < 1) parts.push(q.deform > 0 ? 'snow dents smaller' : 'snow dents off');
     return `auto quality -${this.level}: ${parts.join(', ')}`;
   }
 }

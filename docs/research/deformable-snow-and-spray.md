@@ -1,6 +1,6 @@
 # Research: deformable snow trails and powder spray (FEAT-044, #76)
 
-Researched 2026-11-09 against `main` at 393a891 (after FEAT-053 snow conditions merged). Planning only; nothing here is built. The card asks for three things: a rider-local heightfield the near terrain deforms from, the existing ribbon tracks kept for the far trail, and GPU powder spray that scales with edge angle, speed and snow depth. This note checks that pitch against the code, records what published snow-deformation techniques do, and lays out a build order that reuses what the game already has.
+Researched 2026-11-09 against `main` at 393a891 (after FEAT-053 snow conditions merged). Built in PR for #76 (`world/Deform.ts`, `world/Spray.ts`; see `docs/developer-guide.md`), with the differences noted in section 6. The card asks for three things: a rider-local heightfield the near terrain deforms from, the existing ribbon tracks kept for the far trail, and GPU powder spray that scales with edge angle, speed and snow depth. This note checks that pitch against the code, records what published snow-deformation techniques do, and lays out a build order that reuses what the game already has.
 
 ## 1. What the game has today
 
@@ -103,3 +103,17 @@ Check each on Drew's GPU with `--headed` runs; SwiftShader is too slow for a mea
 - **Replays and ghosts** (`Replay.ts`, `TimeTrial.ts`): the trail is rebuilt from the ribbon as the rider rides, so a replay rewinding past a section shows a trail that is already there. Same as today; not worse.
 - **The groomed boundary**: a track that crosses from a groomer into powder changes depth per section; the ribbon already handles that per section, so the texture does too.
 - Open: should the window follow the camera rather than the rider in free-fly and replay cameras? Proposal: the rider, always; the camera rarely looks at the near snow from elsewhere.
+
+## 6. What was built (2026-11-09)
+
+All three steps landed in one PR, as one card, and then changed to a hybrid after testing on Drew's GPU.
+
+**The first build** followed sections 3.1 to 3.4: the terrain split to 25 cm inside the window, displaced from the full-resolution texture and took the trench walls from it, and the ribbon hid where the trench was deep. It looked jagged. A texture dump showed why: a powder carve stamps a trench about 3 texels (37 cm) wide with walls narrower than a texel, and the 25 cm vertex grid samples it about one and a half vertices across, so a track running diagonally to the grid aliased into beads and stair-steps while one along an axis looked smooth. Where the window jumped (slowing, stopping), the coarser 1 m chunk showed the same texture until the 25 cm chunks were built, which is why the beads sometimes resolved after a moment. It also added about 120 terrain draw calls and a stream of CPU chunk builds. Section 3.3's estimate that 25 cm vertices would carry the broad trench was wrong for these widths.
+
+**The hybrid** keeps the ribbon as the visible trench everywhere (it is built along the track, so it has no resolution limit) and uses the texture only for a soft sag: shaders read its mipmap at about 1 m per texel, so the GPU's box filter pre-blurs the stamp to the terrain's own vertex spacing. The terrain, the ribbon and the boot prints all sink by the same sag at their vertices, so they stay together. No terrain split, no packed-snow shading, and the boot prints keep their own rims (BUG-020's single packed surface is not delivered by this).
+
+Other differences from the plan:
+- The capture renders proxy meshes (the lanes' geometry under a stamp `ShaderMaterial`, a second `InstancedMesh` sharing the boot prints' instance matrices) in a dedicated scene, instead of swapping materials on the real meshes.
+- In soft snow the knife-cut collapse is held back to 30 % (the board sinks, the whole base cuts); the floor is capped at 25 cm. Section 3.5's wider powder lips were tried and dropped: Drew wants the track no wider than the board.
+- No `#ifdef DEFORM`: a uniform branch on `uDeformWin.w` turns the shader work off, so no recompile when the setting changes.
+- Spray: drag and settling speed per kind in the vertex shader, spawn records uploaded through `addUpdateRange`.

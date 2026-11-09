@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { MOGUL_GLSL } from './Moguls';
 import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from './rockShader';
+import { DEFORM_GLSL, deformUniforms } from '../world/Deform';
 
 /**
  * Snow / rock / scree / groomed material. Per-vertex class weights arrive in the color attribute
@@ -26,6 +27,11 @@ import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from './rockShader';
  * ridges and talus aprons from Terrain.build) are thresholds against multi-scale world-space noise,
  * so rock pokes through the snow in crisp patches instead of a wash; flat ledges on the rock's own
  * detail normal keep snow. Surfaces come from rockShader.ts (CC0 photo textures, triplanar).
+ *
+ * Snow sag (FEAT-044, `world/Deform.ts`): inside the rider-local window the vertex shader sinks each
+ * vertex by the soft sag around the tracks and prints (the stamp averaged over about 1 m, fading out
+ * over the window's last metres) and the fragment shader tilts the normal by its slope; the sharp
+ * trench itself is the ribbon (`Tracks.ts`). `uDeformWin.w` = 0 turns it off (a uniform branch).
  */
 
 /** three.js's physical direct-light function with the snow wrap/subsurface and glint terms added. */
@@ -80,6 +86,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     /** baked AO strength (1 = as baked; debug A/B with 0) */
     uAO: { value: 1.0 },
     ...rockUniforms(),
+    ...deformUniforms,
   };
   mat.userData.uniforms = uniforms;
   mat.onBeforeCompile = (shader) => {
@@ -97,7 +104,15 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         varying vec2 vFall;
         varying float vMogul;
         varying vec3 vWorldPos;
-        varying vec3 vWorldNormal;`)
+        varying vec3 vWorldNormal;
+        ${DEFORM_GLSL}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        // FEAT-044: the snow sags softly around the tracks and prints inside the deformation window
+        if (uDeformWin.w > 0.0) {
+          vec2 duv = deformUV((modelMatrix * vec4(transformed, 1.0)).xz);
+          float df = deformFade(duv);
+          if (df > 0.0) transformed.y += deformSag(duv) * df;
+        }`)
       .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
         vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
         vWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
@@ -133,6 +148,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float gSnowW;
         vec3 gGlintN;
         float gGlintW;
+        ${DEFORM_GLSL}
         ${NOISE_GLSL}
         ${ROCK_GLSL}
         ${MOGUL_GLSL}
@@ -241,6 +257,9 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float wSnow = 1.0 - rockCov - screeCov;
         vec3 base = snow * wSnow + rockAlb * rockCov + screeAlb * screeCov;
         base = mix(base, groomed, wGroom * wSnow);
+        // FEAT-044: where the snow sags (the window fade and its uv, for the normal below)
+        float dFade = 0.0; vec2 dUV = vec2(0.0);
+        if (uDeformWin.w > 0.0) { dUV = deformUV(wp.xz); dFade = deformFade(dUV); }
         // glints: about one 4 cm cell in twelve holds a crystal facet tilted at random off the surface;
         // RE_Direct_Physical lights it when it faces the half vector. Gone once cells are sub-pixel.
         vec3 gc = wp * 25.0;
@@ -312,6 +331,11 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
             float chop = uSkied * (1.0 - 0.7 * uSpring) * wS * (1.0 - smoothstep(40.0, 120.0, length(cameraPosition - wpn)));
             vec3 cb = normalize(vec3(-(cx - c0) / ec, 1.0, -(cz - c0) / ec));
             nn = normalize(mix(nn, normalize(t * cb.x + nn * cb.y + b * cb.z), 0.6 * chop));
+          }
+          // FEAT-044: the sag's slope tilts the normal (the vertex normals do not see the displacement)
+          if (dFade > 0.0) {
+            vec2 slope = deformSagSlope(dUV) * dFade * snowW;
+            nn = normalize(vec3(nn.x - slope.x, nn.y, nn.z - slope.y));
           }
           // FEAT-059: on chunks too coarse to carry the bumps as geometry, shade the same mogul field
           // (pack frame: x east, y = -world z north) so a bump run reads from the lift; fades out where
