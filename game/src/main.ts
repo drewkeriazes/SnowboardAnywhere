@@ -434,7 +434,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const setPaused = (p: boolean) => {
       paused = p;
       controls.guardLeave = !p; // FEAT-111: no leave prompt from the pause menu
-      if (p) pause.show(); else pause.hide();
+      if (p) pause.show(); else { pause.hide(); controls.holdPadUntilRelease(); } // FEAT-128: A or B that closed the menu doesn't jump or skate
       audio.setDuck(p ? 0.3 : 1);
     };
     // ---------------------------------------------------------------- Outrun

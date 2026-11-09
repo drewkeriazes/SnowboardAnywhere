@@ -1,5 +1,6 @@
 import { PLAYLISTS, SHUFFLE_ALL } from '../audio/Audio';
 import { PAD_RIDE } from './PadMap';
+import { setNavSuspended } from './MenuNav';
 /**
  * Player settings, persisted in localStorage under one versioned key. `renderPanel` builds the
  * same settings UI for the main menu and the pause menu; `onChange` fires on every edit so the
@@ -184,10 +185,14 @@ export function playlistSelect(): string {
   return `<select data-k="playlist">${PLAYLISTS.map((p) => `<option value="${p.name}">${p.name}</option>`).join('')}<option value="${SHUFFLE_ALL}">Shuffle all</option></select>`;
 }
 
+export type SettingsTab = 'audio' | 'graphics' | 'controls' | 'rider' | 'game';
+/** FEAT-128: what the menus drive on a rendered panel (LB / RB and Q / E switch tabs, Controls opens its tab). */
+export interface SettingsPanel { openTab(t: SettingsTab): void; cycleTab(d: number): void }
+
 /**
  * Render the settings panel into `host`. Every edit mutates `s`, saves, and calls `onChange`.
  */
-export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settings, what: string) => void): void {
+export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settings, what: string) => void): SettingsPanel {
   host.innerHTML = `
     <div class="tabs"><button data-t="audio" class="on">Audio</button><button data-t="graphics">Graphics</button><button data-t="controls">Controls</button><button data-t="rider">Rider</button><button data-t="game">Game</button></div>
     <div class="tab" data-t="audio">
@@ -245,11 +250,12 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Month</label><select data-k="month"><option value="12">December</option><option value="1">January</option><option value="2">February</option><option value="3">March</option><option value="4">April</option><option value="7">July</option></select></div>
       <button data-a="reset" class="ghost">Reset to defaults</button>
     </div>`;
-  const tabs = host.querySelectorAll<HTMLButtonElement>('.tabs button');
-  tabs.forEach((b) => b.addEventListener('click', () => {
-    tabs.forEach((x) => x.classList.toggle('on', x === b));
-    host.querySelectorAll<HTMLElement>('.tab').forEach((t) => t.classList.toggle('hidden', t.dataset.t !== b.dataset.t));
-  }));
+  const tabs = [...host.querySelectorAll<HTMLButtonElement>('.tabs button')];
+  const openTab = (t: string) => {
+    tabs.forEach((x) => x.classList.toggle('on', x.dataset.t === t));
+    host.querySelectorAll<HTMLElement>('.tab').forEach((el) => el.classList.toggle('hidden', el.dataset.t !== t));
+  };
+  tabs.forEach((b) => b.addEventListener('click', () => openTab(b.dataset.t!)));
   let cancelListen: (() => void) | null = null; // the one key slot waiting for a press, if any
   const fill = () => {
     cancelListen?.();
@@ -273,6 +279,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
     keys.querySelectorAll<HTMLButtonElement>('button.key').forEach((b) => b.addEventListener('click', () => {
       cancelListen?.(); // a slot that was still listening stops (else both would take the next key)
       b.textContent = '...'; b.classList.add('listening');
+      setNavSuspended(true); // FEAT-128: the menus ignore keys and pad while a slot waits for one
       const act = b.dataset.action!, i = Number(b.dataset.slot);
       const set = (code: string | null) => {
         const arr = [...(s.keys[act] ?? [])];
@@ -288,7 +295,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       };
       const onMouse = (e: MouseEvent) => { if (e.button !== 2) return; e.preventDefault(); e.stopPropagation(); set('Mouse2'); done(); };
       const mouseTimer = setTimeout(() => window.addEventListener('mousedown', onMouse, true), 0);
-      const stop = () => { clearTimeout(mouseTimer); window.removeEventListener('keydown', onKey, true); window.removeEventListener('mousedown', onMouse, true); cancelListen = null; };
+      const stop = () => { clearTimeout(mouseTimer); window.removeEventListener('keydown', onKey, true); window.removeEventListener('mousedown', onMouse, true); cancelListen = null; setNavSuspended(false); };
       cancelListen = stop;
       window.addEventListener('keydown', onKey, true);
     }));
@@ -333,4 +340,11 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
     Object.assign(s, d, { keys: { ...d.keys }, outfit: { ...d.outfit } });
     fill(); fillOutfit(); onChange(s, 'reset');
   });
+  return {
+    openTab,
+    cycleTab: (d: number) => {
+      const i = tabs.findIndex((x) => x.classList.contains('on'));
+      openTab(tabs[(i + d + tabs.length) % tabs.length].dataset.t!);
+    },
+  };
 }

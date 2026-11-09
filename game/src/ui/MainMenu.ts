@@ -1,5 +1,7 @@
 import type { GameAudio } from '../audio/Audio';
 import { playlistSelect, renderPanel, saveSettings, type Settings } from './Settings';
+import { closeScreen, lastInputKind, openScreen, Screen } from './MenuNav';
+import { renderHints, type Hint } from './HintBar';
 
 /**
  * FEAT-138: on a build from `npm run host`, the address another computer on the home network opens, so it is
@@ -36,7 +38,7 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
         <button data-a="map">Drop in from the map</button>
         <button data-a="settings">Settings</button>
         <div class="settings hidden"></div>
-        <div class="keys">&larr; &rarr; steer &middot; &uarr; tuck &middot; &darr; brake &middot; Space jump &middot; E lift &middot; M map &middot; Esc pause</div>
+        <div class="hintbar"></div>
         ${hostedLine()}
       </div>`;
     document.body.appendChild(wrap);
@@ -60,7 +62,7 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
     const syncPick = () => { pick.value = settings.playlist; const other = panel.querySelector<HTMLSelectElement>('select[data-k="playlist"]'); if (other) other.value = settings.playlist; };
     pick.value = settings.playlist;
     pick.addEventListener('input', () => { settings.playlist = pick.value; saveSettings(settings); audio.setPlaylist(settings.playlist); syncPick(); onChange(settings, 'playlist'); });
-    renderPanel(panel, settings, (s, what) => { audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music); audio.setSource(s.musicSource); audio.setPlaylist(s.playlist); syncPick(); onChange(s, what); });
+    const sp = renderPanel(panel, settings, (s, what) => { audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music); audio.setSource(s.musicSource); audio.setPlaylist(s.playlist); syncPick(); onChange(s, what); });
     const credits = panel.querySelector('.credits') as HTMLElement;
     const fillCredits = () => {
       const c = audio.credits;
@@ -72,6 +74,30 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
     };
     fillCredits();
     void audio.loaded.then(fillCredits);
+    // FEAT-128: keyboard and gamepad navigation, hints from the key tables
+    const settingsBtn = wrap.querySelector<HTMLButtonElement>('button[data-a="settings"]')!;
+    const hintEl = wrap.querySelector('.hintbar') as HTMLElement;
+    const panelOpen = () => !panel.classList.contains('hidden');
+    const showHints = () => {
+      const h: Hint[] = [['select', 'Select'], ['move', 'Move']];
+      if (panelOpen()) h.push(['cat', 'Tabs'], ['back', 'Close settings']);
+      else h.push(['discipline', 'Snowboard / Skis']);
+      renderHints(hintEl, h, lastInputKind());
+    };
+    const closePanel = () => { panel.classList.add('hidden'); screen.focus(settingsBtn); showHints(); };
+    const screen = new Screen(wrap, {
+      primary: () => wrap.querySelector<HTMLButtonElement>('button[data-a="ride"]'),
+      onBack: () => { if (panelOpen()) closePanel(); },
+      onIntent: (i, down) => {
+        if (!down) return false;
+        if ((i === 'prevCat' || i === 'nextCat') && panelOpen()) { sp.cycleTab(i === 'nextCat' ? 1 : -1); return true; }
+        if (i === 'discipline' && !panelOpen()) { wrap.querySelector<HTMLButtonElement>(`button[data-d="${settings.discipline === 'board' ? 'ski' : 'board'}"]`)?.click(); return true; }
+        return false;
+      },
+      onInputKind: showHints,
+    });
+    openScreen(screen);
+    showHints();
     wrap.querySelectorAll<HTMLButtonElement>('button[data-d]').forEach((b) => b.addEventListener('click', () => {
       settings.discipline = b.dataset.d as 'board' | 'ski';
       wrap.querySelectorAll<HTMLButtonElement>('button[data-d]').forEach((x) => x.classList.toggle('on', x === b));
@@ -81,7 +107,8 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
     wrap.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => b.addEventListener('click', () => {
       audio.start();
       audio.setVolumes(settings.mute ? 0 : settings.sfx, settings.mute ? 0 : settings.music);
-      if (b.dataset.a === 'settings') { panel.classList.toggle('hidden'); return; }
+      if (b.dataset.a === 'settings') { if (panelOpen()) closePanel(); else { panel.classList.remove('hidden'); screen.focus(panel.querySelector<HTMLElement>('.tabs button.on')); showHints(); } return; }
+      closeScreen(screen);
       wrap.remove();
       resolve({ action: b.dataset.a as 'ride' | 'map' });
     }));

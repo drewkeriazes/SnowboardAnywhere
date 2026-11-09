@@ -51,6 +51,10 @@ export class Controls {
   private readonly pressed = new Set<string>(); // one-shot codes
   private readonly padPressed = new Set<string>(); // one-shot actions from the gamepad
   private padPrev: boolean[] = [];
+  /** FEAT-128: pad buttons ignored until released (A pressed on Resume must not jump); 'next' = take whatever is down at the next update */
+  private padHold: Set<number> | 'next' = 'next';
+  /** Ignore the pad buttons that are down now until each is released (closing a menu with A or B). */
+  holdPadUntilRelease(): void { this.padHold = 'next'; }
   /** right stick (free look), -1..1, read by main as mouse movement */
   padLookX = 0; padLookY = 0;
   /** a gamepad is connected (for the hints) */
@@ -142,7 +146,10 @@ export class Controls {
     this.padActive = !!gp;
     this.padLookX = this.padLookY = 0; this.padGlance = false;
     if (gp) {
-      const b = (i: number) => padBtn(gp, i), v = (i: number) => padVal(gp, i), ax = (i: number) => padAxis(gp, i);
+      if (this.padHold === 'next') { const h = new Set<number>(); for (let i = 0; i < gp.buttons.length; i++) if (gp.buttons[i].pressed) h.add(i); this.padHold = h; }
+      const hold = this.padHold;
+      for (const i of hold) if (!gp.buttons[i]?.pressed) hold.delete(i);
+      const b = (i: number) => padBtn(gp, i) && !hold.has(i), v = (i: number) => (hold.has(i) ? 0 : padVal(gp, i)), ax = (i: number) => padAxis(gp, i);
       if (ax(0)) steer = Math.max(-1, Math.min(1, steer + ax(0)));
       padY = -ax(1);
       if (ax(1) < -0.5 || v(B('tuck')) > 0.3) tuck = true;
@@ -155,7 +162,7 @@ export class Controls {
       this.padLookX = ax(2); this.padLookY = ax(3);
       this.padGlance = b(B('glance'));
       for (const [i, a] of PAD_ACTIONS) if (b(i) && !this.padPrev[i]) { if (a === 'pause') this.pressed.add('Escape'); else this.padPressed.add(a); }
-      for (let i = 0; i < gp.buttons.length; i++) this.padPrev[i] = gp.buttons[i].pressed;
+      for (let i = 0; i < gp.buttons.length; i++) this.padPrev[i] = b(i);
     }
     if (this.invertSteer) steer = -steer;
     if (steer === 0) steer = this.touchSteer;

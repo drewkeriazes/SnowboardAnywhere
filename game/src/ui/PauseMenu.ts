@@ -1,4 +1,6 @@
-import { renderPanel, saveSettings, type Settings } from './Settings';
+import { renderPanel, saveSettings, type Settings, type SettingsPanel } from './Settings';
+import { closeScreen, lastInputKind, openScreen, Screen } from './MenuNav';
+import { renderHints, type Hint } from './HintBar';
 
 export type PauseAction = 'resume' | 'restart' | 'map' | 'quit' | 'outrunStart' | 'outrunStop';
 
@@ -30,12 +32,13 @@ export class PauseMenu {
         <button data-a="settings">Settings</button>
         <div class="settings hidden"></div>
         <button data-a="quit" class="ghost">Quit to main menu</button>
+        <div class="hintbar"></div>
       </div>`;
     this.el.style.display = 'none';
     document.body.appendChild(this.el);
     this.panel = this.el.querySelector('.settings:not(.outrun)') as HTMLElement;
     this.outrunPanel = this.el.querySelector('.settings.outrun') as HTMLElement;
-    renderPanel(this.panel, settings, onChange);
+    this.sp = renderPanel(this.panel, settings, onChange);
     const o = settings.outrun;
     this.outrunPanel.querySelectorAll<HTMLSelectElement | HTMLInputElement>('[data-r]').forEach((el) => {
       const k = el.dataset.r as keyof typeof o;
@@ -48,22 +51,54 @@ export class PauseMenu {
       });
     });
     this.el.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => b.addEventListener('click', () => {
-      if (b.dataset.a === 'settings') { this.panel.classList.toggle('hidden'); this.outrunPanel.classList.add('hidden'); return; }
-      if (b.dataset.a === 'outrun') { this.outrunPanel.classList.toggle('hidden'); this.panel.classList.add('hidden'); return; }
+      if (b.dataset.a === 'settings') { this.panel.classList.toggle('hidden'); this.outrunPanel.classList.add('hidden'); this.afterToggle(b, this.panel); return; }
+      if (b.dataset.a === 'outrun') { this.outrunPanel.classList.toggle('hidden'); this.panel.classList.add('hidden'); this.afterToggle(b, this.outrunPanel); return; }
       this.hide();
       this.onAction?.(b.dataset.a as PauseAction);
     }));
+    this.hintEl = this.el.querySelector('.hintbar') as HTMLElement;
+    this.screen = new Screen(this.el, {
+      primary: () => this.el.querySelector<HTMLElement>('button[data-a="resume"]'),
+      onBack: () => {
+        const open = this.openSection();
+        if (open) { open.classList.add('hidden'); this.afterToggle(this.el.querySelector<HTMLElement>(open === this.panel ? 'button[data-a="settings"]' : 'button[data-a="outrun"]')!, open); return; }
+        this.hide();
+        this.onAction?.('resume');
+      },
+      onIntent: (i, down) => {
+        if (down && (i === 'prevCat' || i === 'nextCat') && this.openSection() === this.panel) { this.sp.cycleTab(i === 'nextCat' ? 1 : -1); return true; }
+        return false;
+      },
+      onInputKind: () => this.showHints(),
+    });
   }
 
   private readonly outrunPanel: HTMLElement;
+  private readonly sp: SettingsPanel;
+  /** FEAT-128: keyboard and gamepad navigation (B / Esc closes an open section, then resumes) */
+  private readonly screen: Screen;
+  private readonly hintEl: HTMLElement;
+  private openSection(): HTMLElement | null { return !this.panel.classList.contains('hidden') ? this.panel : !this.outrunPanel.classList.contains('hidden') ? this.outrunPanel : null; }
+  private showHints(): void {
+    const h: Hint[] = [['select', 'Select'], ['move', 'Move']];
+    if (this.openSection() === this.panel) h.push(['cat', 'Tabs']);
+    h.push(['back', this.openSection() ? 'Close' : 'Resume']);
+    renderHints(this.hintEl, h, lastInputKind());
+  }
+  /** after a section opens or closes: focus into it, or back on its button */
+  private afterToggle(btn: HTMLElement, section: HTMLElement): void {
+    if (section.classList.contains('hidden')) this.screen.focus(btn);
+    else this.screen.focus(section.querySelector<HTMLElement>(section === this.panel ? '.tabs button.on' : 'select, button'));
+    this.showHints();
+  }
   /** Swap the Outrun panel's button between Start and Stop. */
   setOutrunRunning(on: boolean): void {
     (this.el.querySelector('[data-a="outrunStart"]') as HTMLElement).classList.toggle('hidden', on);
     (this.el.querySelector('[data-a="outrunStop"]') as HTMLElement).classList.toggle('hidden', !on);
   }
 
-  show(): void { this.open = true; this.el.style.display = 'flex'; if (document.pointerLockElement) document.exitPointerLock(); }
-  hide(): void { this.open = false; this.el.style.display = 'none'; this.panel.classList.add('hidden'); this.outrunPanel.classList.add('hidden'); }
+  show(): void { this.open = true; this.el.style.display = 'flex'; if (document.pointerLockElement) document.exitPointerLock(); openScreen(this.screen); this.showHints(); }
+  hide(): void { this.open = false; this.el.style.display = 'none'; this.panel.classList.add('hidden'); this.outrunPanel.classList.add('hidden'); closeScreen(this.screen); }
   toggle(): void { this.open ? this.hide() : this.show(); }
-  destroy(): void { this.el.remove(); }
+  destroy(): void { closeScreen(this.screen); this.el.remove(); }
 }
