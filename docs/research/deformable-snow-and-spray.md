@@ -31,7 +31,7 @@ The card describes stamping the board footprint into a scrolling heightfield eac
 Consequences:
 - The ribbon meshes themselves are hidden inside the window (alpha fades to 0 over the last few metres of the window, a uniform on the track material) and show again outside it. Far trails stay ribbons, as the card asks.
 - Bootprints get BUG-020's "one packed surface" for free inside the window: overlapping prints take the deepest depression, and the rim is reconstructed at the edge of the packed area, not per print.
-- The stamp shader needs per-vertex height offset. `Lane.shape` already computes it (`h * depth + rh`); store it in a new 1-float attribute alongside `aSpread`. Bootprints' geometry heights are in `NOMINAL` units scaled per instance by the shader, so their offset is already in the vertex shader.
+- The stamp pass uses its own small `ShaderMaterial` on the same geometries (swap the material for the pass, or `scene.overrideMaterial` on a layer), not the ribbon's `mat`: the ribbon's vertex hook pushes vertices out by camera distance (`aSpread`) and biases depth toward the camera, both of which would put width and height noise into a top-down capture. The stamp material ignores `aSpread` and the bias and reads a per-vertex height offset. `Lane.shape` already computes that offset (`h * depth + rh`); store it in a new 1-float attribute alongside `aSpread`. Bootprints' geometry heights are in `NOMINAL` units scaled per instance by the shader, so their offset is already in the vertex shader and the stamp material repeats that scaling.
 
 ### 3.2 The deformation target
 
@@ -87,7 +87,7 @@ Budget: 8,192 points are nothing on the GPU; the CPU writes at most a few hundre
 
 ## 4. Build order (one card, three PRs, or split into three cards)
 
-1. **Deformation pass and terrain** (the big one): the ortho capture of lanes and prints, the near split in `Terrain.select`, the vertex offset and fragment normal in `TerrainMaterial`, the window fade on the ribbon, `?nodeform`. Done when a carve on the synth pack shows a real trench with lips in a chase-camera shot and the ribbon takes over seamlessly behind. Tool: `game/tools/trailcheck.mjs` (tuck, two carves, a stop; shots from the chase camera and straight down, with and without `nodeform`).
+1. **Deformation pass and terrain** (the big one): the ortho capture of lanes and prints, the near split in `Terrain.select`, the vertex offset and fragment normal in `TerrainMaterial`, the window fade on the ribbon, `?nodeform`. Done when a carve on the synth pack shows a real trench with lips in a chase-camera shot and the ribbon takes over seamlessly behind. Tool: a new `game/tools/trailcheck.mjs` to write in this step, modelled on `carveshot.mjs` (tuck, two carves, a stop; shots from the chase camera and straight down, with and without `nodeform`).
 2. **Powder depth and shading**: section depth from `rider.snow.depth`, widened lips, packed-amount shading, bootprints into the same target (closes the long-term half of BUG-020). Done when the Back Bowls trench is 15 to 30 cm deep and Born Free stays a 5 cm groove with the corduroy intact beside it.
 3. **GPU spray**: the new particle system, wisps and clouds, landing bursts; remove `updateSpray`. Done when a hard turn in powder throws a cloud that hangs for 2 s and drifts, and a groomer gives light wisps.
 
