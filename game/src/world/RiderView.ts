@@ -76,6 +76,11 @@ const DEEP_FROM = 0.3;
 const CLEAR_KNEE = 0.06, CLEAR_HIP = 0.17, CLEAR_HAND = 0.05;
 /** FEAT-148: in a hard carve the inside hand reaches down and drags on the snow once the lean passes
  *  HAND_DRAG_FROM (rad), all the way by HAND_DRAG_FULL, this high (m), a little out toward the inside */
+/** BUG-066: the leg bones' least distance above the deck (m) where they pass over the board (the knee is
+ *  about 6.5 cm round the bone, so about 5 cm of skin clear), the board's half width plus a limb's
+ *  reach over it, and where along the shin (from the ankle) and the thigh (from the knee) it is tested */
+const DECK_CLEAR = 0.115, DECK_HALF_W = 0.13 + 0.05, DECK_HALF_L = 0.8;
+const SHIN_TS = [0.35, 0.55, 0.75, 1], THIGH_TS = [0.25, 0.5, 0.75];
 const HAND_DRAG_FROM = 0.95, HAND_DRAG_FULL = 1.15, HAND_DRAG_Y = 0.02, HAND_DRAG_OUT = 0.08;
 
 const d2r = Math.PI / 180;
@@ -269,6 +274,9 @@ export class RiderView {
   private readonly m2 = new THREE.Matrix4();
   /** FEAT-126: world to the riding frame (the snow plane is y = 0) */
   private readonly invG = new THREE.Matrix4();
+  /** BUG-066: the board's inverse world matrix and scratch points for the deck clearance (the leg pass keeps v1 to v4) */
+  private readonly invB = new THREE.Matrix4();
+  private readonly dA = new THREE.Vector3(); private readonly dK = new THREE.Vector3(); private readonly dH = new THREE.Vector3();
   private readonly cq = new THREE.Quaternion();
   private readonly cp = new THREE.Vector3();
   private readonly armSave = [new THREE.Quaternion(), new THREE.Quaternion()];
@@ -422,6 +430,31 @@ export class RiderView {
   }
 
   /**
+   * BUG-066: how far the hips must rise (m, up the body) for the shins, knees and thighs to clear the deck
+   * where they pass over the board. The deck is tested in the board's own frame, so it holds with the
+   * board rolled further over than the body (the angulation of a hard carve) and tipped in a press.
+   */
+  private deckDeficit(): number {
+    const B = this.rig.bones;
+    this.invB.copy(this.rig.board.matrixWorld).invert();
+    let need = 0;
+    for (const [ankle, knee, hip] of [[B.LeftFoot, B.LeftLeg, B.LeftUpLeg], [B.RightFoot, B.RightLeg, B.RightUpLeg]] as const) {
+      const a = ankle.getWorldPosition(this.dA).applyMatrix4(this.invB);
+      const k = knee.getWorldPosition(this.dK).applyMatrix4(this.invB);
+      const h = hip.getWorldPosition(this.dH).applyMatrix4(this.invB);
+      const test = (p: THREE.Vector3, q: THREE.Vector3, ts: readonly number[]) => {
+        for (const t of ts) {
+          const x = p.x + (q.x - p.x) * t, y = p.y + (q.y - p.y) * t, z = p.z + (q.z - p.z) * t;
+          if (Math.abs(x) > DECK_HALF_W || Math.abs(z) > DECK_HALF_L) continue;
+          need = Math.max(need, deckY(this.rig, z) + 0.022 + DECK_CLEAR - y);
+        }
+      };
+      test(a, k, SHIN_TS); test(k, h, THIGH_TS);
+    }
+    return need;
+  }
+
+  /**
    * FEAT-126: a hand that would dip into the snow on a deep lean rests on it instead (a light drag touch).
    * FEAT-148: in a hard carve (`hard` 0..1) the inside hand, the one nearer the snow, reaches down to it
    * and drags: toeside the forearm and hand, heelside the hand beside the hip.
@@ -563,7 +596,10 @@ export class RiderView {
     if (deep > 0) lerpPose(t, t, this.leanAngle > 0 ? P.carveToeDeep : P.carveHeelDeep, deep);
     if (tuck) lerpPose(t, t, P.tuck, 0.85);
     if (r.jumpCharge > 0) lerpPose(t, t, P.crouch, Math.min(1, r.jumpCharge));
-    if (r.squat > 0) lerpPose(t, t, P.squat, r.squat); // FEAT-111: deeper than tuck or charge, wins over both
+    // FEAT-111: deeper than tuck or charge, wins over both. BUG-066: not in a hard carve (the same key),
+    // which keeps the deep carve stance above as one long line instead of folding onto the board
+    const squat = r.squat * (1 - r.hardCarve);
+    if (squat > 0) lerpPose(t, t, P.squat, squat);
     // FEAT-085 skating: knees bent, chest over the front foot, bobbing down into each push
     // FEAT-112: hips over the loaded end, the chest leaning with them
     // BUG-047: no extra drop when already squatting or charged (that put the seat through the deck)
@@ -851,11 +887,13 @@ export class RiderView {
       this.footGap = pinFeet(rig, lp, rp);
       // FEAT-126: raise the hips until the knees and the seat clear the snow, then solve the legs again.
       // A knee sits about halfway between the hips and the boot, so it rises about half as far.
-      if (nearSnow) {
-        for (let it = 0; it < 3; it++) {
-          const lift = this.snowDeficit();
+      // BUG-066: and the legs clear the deck (a hard carve's angulation tips the board toward the shins)
+      const deckCheck = this.discipline === 'board' && free && r.onGround;
+      if (nearSnow || deckCheck) {
+        for (let it = 0; it < 4; it++) {
+          const lift = Math.max(nearSnow ? this.snowDeficit() / Math.max(0.4, Math.cos(this.leanAngle)) : 0, deckCheck ? this.deckDeficit() : 0);
           if (lift < 0.003) break;
-          p.hipsY += lift / Math.max(0.4, Math.cos(this.leanAngle));
+          p.hipsY += lift;
           this.applyFK(p, -pv, hipZ);
           if (press) this.pressLegs(r);
           this.footGap = pinFeet(rig, lp, rp);
