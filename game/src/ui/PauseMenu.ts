@@ -15,7 +15,7 @@ export class PauseMenu {
     this.el.innerHTML = `
       <div class="panel">
         <div class="eyebrow">Paused</div>
-        <button data-a="resume" class="primary">Resume</button>
+        <button data-a="resume" class="primary" data-pad-back>Resume</button>
         <button data-a="restart">Restart at spawn</button>
         <button data-a="map">Open map</button>
         <button data-a="outrun">Outrun</button>
@@ -27,6 +27,7 @@ export class PauseMenu {
           <button data-a="outrunStart" class="primary">Start the chase</button>
           <button data-a="outrunStop" class="ghost hidden">Stop Outrun</button>
         </div>
+        <div class="ds-connect" style="display:none"><button data-ds-connect>Turn on DualSense rumble and lightbar</button><div class="hint ds-status">Click it with the mouse and pick the controller (once: it reconnects by itself after that).</div></div>
         <button data-a="settings">Settings</button>
         <div class="settings hidden"></div>
         <button data-a="quit" class="ghost">Quit to main menu</button>

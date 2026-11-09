@@ -134,6 +134,14 @@
     #prompt kbd { display: inline-block; min-width: 22px; padding: 2px 7px; margin: 0 4px; border-radius: 6px; background: #ffd166; color: #1a1a1a; font: 600 14px system-ui, sans-serif; box-shadow: 0 2px 0 #b8922e; }
     /* ?cam=eye (DATA-008): only the 3D view, so screenshots match a photo */
     body.eye-mode #hud, body.eye-mode #prompt, body.eye-mode #trial, body.eye-mode #finish-arrow, body.eye-mode #help, body.eye-mode #minimap, body.eye-mode #labels, body.eye-mode #goggles, body.eye-mode #lens, body.eye-mode #outrun, body.eye-mode #outrun-vignette { display: none !important; }
+    /* FEAT-137: controller glyphs, the menu focus ring, hint lines for keyboard or controller */
+    .pg { display: inline-flex; align-items: center; justify-content: center; vertical-align: -0.3em; height: 1.45em; min-width: 1.45em; margin: 0 1px; }
+    .pg svg { width: 1.45em; height: 1.45em; display: block; }
+    .pg.pill { padding: 0 .45em; height: 1.5em; border-radius: .75em; background: rgba(20,24,34,.85); border: 1px solid rgba(255,255,255,.5); color: #fff; font: 600 .78em/1 system-ui, sans-serif; vertical-align: 0.05em; white-space: nowrap; }
+    .ds-connect .hint { font-size: 11px; opacity: .65; margin: -4px 0 8px; }
+    .padfocus { outline: 3px solid #ffd166 !important; outline-offset: 2px; }
+    body.pad-on .kb-only { display: none !important; }
+    body:not(.pad-on) .pad-only { display: none !important; }
     #help { position: fixed; right: 16px; top: 16px; color: #fff; font-size: 12px; opacity: .8; text-align: right; text-shadow: 0 1px 3px rgba(0,0,0,.6); pointer-events: none; }
   </style>
 </head>
