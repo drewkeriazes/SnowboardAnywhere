@@ -10,6 +10,8 @@ const NS = 'http://www.w3.org/2000/svg';
 /** arc centre, radius, and the needle's swing at full balance (deg) */
 const CX = 8, CY = 50, R = 38, SWING = 50;
 const W = 60, H = 100;
+/** drawn this many times the size of the viewBox (px per unit) */
+const SCALE = 1.7;
 const ZONES: [number, number, string][] = [[-1, -0.7, '#ef4444'], [-0.7, -0.3, '#f59e0b'], [-0.3, 0.3, '#22c55e'], [0.3, 0.7, '#f59e0b'], [0.7, 1, '#ef4444']];
 
 const pt = (b: number, r: number): [number, number] => {
@@ -36,12 +38,12 @@ export class PressMeter {
 
   constructor() {
     this.root = document.createElement('div');
-    this.root.style.cssText = `position:fixed;left:0;top:0;width:${W}px;height:${H}px;pointer-events:none;z-index:6;opacity:0;transition:opacity .2s;will-change:transform`;
-    const svg = el('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}` });
-    svg.appendChild(el('path', { d: arc(-1, 1, R), stroke: 'rgba(0,0,0,.55)', 'stroke-width': 11, fill: 'none', 'stroke-linecap': 'round' }));
-    for (const [a, b, c] of ZONES) svg.appendChild(el('path', { d: arc(a, b, R), stroke: c, 'stroke-width': 7, fill: 'none' }));
+    this.root.style.cssText = `position:fixed;left:0;top:0;width:${W * SCALE}px;height:${H * SCALE}px;pointer-events:none;z-index:6;opacity:0;transition:opacity .2s;will-change:transform;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))`;
+    const svg = el('svg', { width: W * SCALE, height: H * SCALE, viewBox: `0 0 ${W} ${H}` });
+    svg.appendChild(el('path', { d: arc(-1, 1, R), stroke: 'rgba(0,0,0,.6)', 'stroke-width': 14, fill: 'none', 'stroke-linecap': 'round' }));
+    for (const [a, b, c] of ZONES) svg.appendChild(el('path', { d: arc(a, b, R), stroke: c, 'stroke-width': 9, fill: 'none' }));
     // the sweet spot's edges
-    for (const b of [-0.3, 0.3]) { const [x0, y0] = pt(b, R - 7), [x1, y1] = pt(b, R + 7); svg.appendChild(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#fff', 'stroke-width': 2 })); }
+    for (const b of [-0.3, 0.3]) { const [x0, y0] = pt(b, R - 8), [x1, y1] = pt(b, R + 8); svg.appendChild(el('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#fff', 'stroke-width': 2.5 })); }
     for (const side of [1, -1]) {
       const [x, y] = pt(side * 1.27, R);
       const g = el('g', { transform: `translate(${x.toFixed(1)} ${y.toFixed(1)})` });
@@ -54,10 +56,10 @@ export class PressMeter {
       this.ends.push({ g, cross, flat });
     }
     this.needle = el('g', {});
-    const [nx0, ny0] = pt(0, R - 16), [nx1, ny1] = pt(0, R + 9);
-    this.needle.appendChild(el('line', { x1: nx0, y1: ny0, x2: nx1, y2: ny1, stroke: 'rgba(0,0,0,.8)', 'stroke-width': 5, 'stroke-linecap': 'round' }));
-    this.needle.appendChild(el('line', { x1: nx0, y1: ny0, x2: nx1, y2: ny1, stroke: '#fff', 'stroke-width': 2.5, 'stroke-linecap': 'round' }));
-    this.needle.appendChild(el('circle', { cx: nx1, cy: ny1, r: 3, fill: '#fff', stroke: 'rgba(0,0,0,.8)', 'stroke-width': 1.5 }));
+    const [nx0, ny0] = pt(0, R - 20), [nx1, ny1] = pt(0, R + 10);
+    this.needle.appendChild(el('line', { x1: nx0, y1: ny0, x2: nx1, y2: ny1, stroke: 'rgba(0,0,0,.85)', 'stroke-width': 7, 'stroke-linecap': 'round' }));
+    this.needle.appendChild(el('line', { x1: nx0, y1: ny0, x2: nx1, y2: ny1, stroke: '#fff', 'stroke-width': 4, 'stroke-linecap': 'round' }));
+    this.needle.appendChild(el('circle', { cx: nx1, cy: ny1, r: 4.5, fill: '#fff', stroke: 'rgba(0,0,0,.85)', 'stroke-width': 2 }));
     svg.appendChild(this.needle);
     this.root.appendChild(svg);
     document.body.appendChild(this.root);
@@ -85,7 +87,7 @@ export class PressMeter {
         e.g.style.opacity = (0.55 + 0.45 * near).toFixed(2);
       }
     }
-    if (pressing || this.shown) this.root.style.transform = `translate(${(x - CX - 0.8 * R).toFixed(0)}px, ${(y - H).toFixed(0)}px)`;
+    if (pressing || this.shown) this.root.style.transform = `translate(${(x - (CX + 0.8 * R) * SCALE).toFixed(0)}px, ${(y - H * SCALE).toFixed(0)}px)`;
     if (pressing !== this.shown) { this.shown = pressing; this.root.style.opacity = pressing ? '1' : '0'; }
   }
 

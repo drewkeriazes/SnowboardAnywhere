@@ -19,6 +19,11 @@ const FLEX_W = 21, FLEX_ZETA = 0.45;
  *  0.6 before), the bend follows the balance by this share at the edge (deeper toward the loaded
  *  end, flatter toward the other), and never past BEND_MAX (the mesh's bounding sphere allows ~1.18) */
 const PRESS_BEND = 0.8, BAL_BEND = 0.5, BEND_MAX = 1.15;
+/** FEAT-140: deep in a press the whole board also tips up on its loaded tip, like a real tail press
+ *  at the extreme (35 deg or more with the bend): the tip at the edge of the balance toward the
+ *  loaded end (rad; half of it centred, none toward the other end), its response (s), and how far the
+ *  hips move on toward the loaded end at the full tip (m) */
+const PRESS_TIP = 32 * Math.PI / 180, TIP_RESPONSE = 0.12, TIP_SHIFT = 0.1;
 /** BUG-047: the hip joint stays this far above the deck under it (the glutes hang 0.1 to 0.15 m below
  *  the joint). FEAT-125: on a full press the hips move this far toward the loaded end (m), reached
  *  at this much bend (a full lean without a charge bends the board 0.6) */
@@ -199,6 +204,8 @@ export class RiderView {
   private readonly hipZF: Follow = { x: 0, v: 0 };
   /** FEAT-140: the press balance in the rig's frame, followed at body speed, for the hips' slide */
   private readonly balF: Follow = { x: 0, v: 0 };
+  /** FEAT-140: the board's tip up on its loaded end (rad), followed */
+  private readonly tipF: Follow = { x: 0, v: 0 };
   private get leanAngle(): number { return this.leanF.x; }
   private get yawLead(): number { return this.yawLeadF.x; }
   private get edgeUpper(): number { return this.edgeUpperF.x; }
@@ -685,6 +692,15 @@ export class RiderView {
       this.flexV += (FLEX_W * FLEX_W * (target - this.flex) - 2 * FLEX_ZETA * FLEX_W * this.flexV) * h;
       this.flex += this.flexV * h;
       bendBoard(this.rig, this.flex, this.flexDir);
+      // FEAT-140: deep in a press the whole board tips up about its loaded tip, which stays on the snow
+      const deep = Math.max(0, Math.min(1, 0.5 + 0.5 * r.pressBalance * r.pressDir));
+      follow(this.tipF, r.pressing && r.onGround && !seated ? Math.abs(L) * PRESS_TIP * deep : 0, TIP_RESPONSE, dt);
+      if (this.tipF.x > 1e-3) {
+        const sz = this.flexDir < 0 ? 1 : -1, end = sz * BOARD_HALF; // the loaded end's local z (+z the tail)
+        this.rig.board.rotation.set(sz * this.tipF.x, 0, -ex); // +x lifts the nose (-z)
+        this.pivot.set(0, 0, end);
+        this.rig.board.position.add(this.pivot).sub(this.v2.set(0, 0, end).applyQuaternion(this.rig.board.quaternion));
+      }
     } else if (Math.abs(L) > 0.01 && !seated) {
       const end = L < 0 ? BOARD_HALF : -BOARD_HALF; // the end that stays down (local -Z is the nose)
       this.rig.board.rotation.set((L < 0 ? 1 : -1) * Math.abs(L) * LEAN_TIP, 0, 0);
@@ -805,7 +821,10 @@ export class RiderView {
       // FEAT-140: the hips slide on toward the end the press balance is running to (+ balance: the nose, -z)
       follow(this.balF, free && r.pressing ? fl * r.pressBalance : 0, BODY_RESPONSE, dt);
       hipZ -= BAL_SHIFT * this.balF.x;
-      const floor = deckY(this.rig, hipZ) + 0.022 + HIP_CLEAR;
+      hipZ -= this.flexDir * TIP_SHIFT * Math.max(0, this.tipF.x) / PRESS_TIP; // FEAT-140: on over the tipped board's loaded end
+      // FEAT-140: a tipped board's deck rises from the loaded tip toward the hips
+      const tipRise = Math.max(0, BOARD_HALF + this.flexDir * hipZ) * Math.sin(Math.max(0, this.tipF.x)); // the hips' distance from the loaded tip
+      const floor = deckY(this.rig, hipZ) + 0.022 + HIP_CLEAR + tipRise;
       if (p.hipsY < floor) p.hipsY = floor;
     }
     this.applyFK(p, -pv, hipZ);
@@ -986,7 +1005,7 @@ export class RiderView {
     this.q.setFromRotationMatrix(this.rot);
     this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
     this.baseQ.copy(this.group.quaternion); // FEAT-110: keep the riding base in step, no swing when strapping back in
-    for (const f of [this.leanF, this.rollF, this.yawLeadF, this.edgeUpperF, this.edgeHipsF, this.hipZF, this.balF]) { f.x = 0; f.v = 0; }
+    for (const f of [this.leanF, this.rollF, this.yawLeadF, this.edgeUpperF, this.edgeHipsF, this.hipZF, this.balF, this.tipF]) { f.x = 0; f.v = 0; }
     this.twist = 0; this.visLive = false; // BUG-056: the follows snap when strapping back in
     this.lean.position.set(0, 0, 0); this.lean.rotation.set(0, 0, 0);
 
