@@ -83,6 +83,8 @@ export class GameAudio {
   private wasOnGround = true;
   private wasRiding = false;
   private brushT = 0;
+  /** FEAT-140: time to the next board creak near the limits of a press */
+  private creakT = 0;
 
   constructor() {}
 
@@ -327,6 +329,11 @@ export class GameAudio {
     // spray whoosh, bigger in powder
     this.burst('bandpass', 1500, 0.25 + 0.3 * shock, (0.1 + 0.3 * shock) * (0.6 + 0.6 * powder), 0.6, 500);
   }
+  /** FEAT-140: a short flex creak of the board, rougher and louder the nearer the press is to losing it (k 0..1) */
+  private creak(k: number): void {
+    this.pick([() => this.tone(120, 0.16, 0.05 + 0.05 * k, 'sawtooth', 165), () => this.tone(105, 0.18, 0.05 + 0.05 * k, 'sawtooth', 150), () => this.tone(140, 0.14, 0.05 + 0.05 * k, 'sawtooth', 185)])();
+    this.burst('bandpass', 700 + 500 * k, 0.12, 0.04 + 0.05 * k, 3);
+  }
   private crash(): void {
     this.pick([() => this.burst('lowpass', 110, 0.55, 1.0), () => this.burst('lowpass', 130, 0.5, 0.95), () => this.burst('lowpass', 95, 0.6, 1.0)])();
     this.burst('bandpass', 2400, 0.35, 0.3, 1.5, 700); // crunch
@@ -427,8 +434,9 @@ export class GameAudio {
     // carve: toe vs heel by edge sign; skid chatter
     const edge = Math.abs(r.edgeAngle);
     const carveG = onSnow ? Math.min(0.5, (0.03 + 0.5 * edge * v) * (0.5 + 0.5 * groomed + 0.6 * hard)) : 0;
-    lerp(this.carveToe.gain, r.edgeAngle > 0 ? carveG : 0);
-    lerp(this.carveHeel.gain, r.edgeAngle < 0 ? carveG : 0);
+    const toe = r.edgeAngle * r.toeSign; // FEAT-139: the toe edge is the heading's left riding switch or goofy
+    lerp(this.carveToe.gain, toe > 0 ? carveG : 0);
+    lerp(this.carveHeel.gain, toe < 0 ? carveG : 0);
     this.carveToe.filter.frequency.value = 2600 + 1200 * edge + 30 * spd;
     this.carveHeel.filter.frequency.value = 1700 + 900 * edge + 30 * spd;
     // skid chatter, and the edge scraping through a brake (louder and higher on hard snow)
@@ -460,6 +468,10 @@ export class GameAudio {
     if (r.lastHit === 'ramp') this.ramp();
     else if (r.lastHit === 'graze') this.graze();
     this.brushT -= dt;
+    // FEAT-140: the board creaks as a press nears either end of the balance meter, quicker the closer it gets
+    this.creakT -= dt;
+    const pb = r.pressing && onSnow ? Math.abs(r.pressBalance) : 0;
+    if (pb > 0.65 && this.creakT <= 0) { const k = Math.min(1, (pb - 0.65) / 0.35); this.creakT = 0.45 - 0.25 * k + Math.random() * 0.12; this.creak(k); }
     if (onSnow && s.canopy > 0.5 && spd > 6 && this.brushT <= 0) { this.brushT = 0.4 + Math.random() * 1.6; this.brush(); }
     if (riding && !this.wasRiding) { this.chime(); this.bullWheel(); }
     if (!riding && this.wasRiding) { this.unloadChime(); this.bullWheel(); }

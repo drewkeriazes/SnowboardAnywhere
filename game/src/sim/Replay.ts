@@ -1,18 +1,18 @@
 import type { Pack } from '../pack/Pack';
 import type { Rider } from './Rider';
-import type { GhostSample } from './TimeTrial';
+import { stanceFlags, type GhostSample } from './TimeTrial';
 
 /**
  * FEAT-043: the session recording behind the replay viewer and the practice rewind. The rider is
  * sampled at 20 Hz in the time-trial ghost format (t, x, y, z, board yaw, lateral g, edge angle,
- * flags: 1 on the ground, 2 tuck, 4 crashed) plus what the pose needs (heading, velocity, lean,
+ * flags: 1 on the ground, 2 tuck, 4 crashed, 8 riding switch, 16 goofy) plus what the pose needs (heading, velocity, lean,
  * flip, squat, jump charge). The last 20 minutes are kept.
  */
 export interface ReplaySample extends GhostSample { hd: number; vx: number; vy: number; vz: number; ln: number; fl: number; sq: number; jc: number; on: number }
 
 const DT = 0.05, MAX = 24000;
 /** the rider fields a sample drives (saved and put back around a replay or rewind frame) */
-const FIELDS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'boardYaw', 'onGround', 'lateralG', 'edgeAngle', 'lean', 'flip', 'squat', 'jumpCharge', 'crashed', 'speed', 'onFoot'] as const;
+const FIELDS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'heading', 'boardYaw', 'onGround', 'lateralG', 'edgeAngle', 'lean', 'flip', 'squat', 'jumpCharge', 'crashed', 'speed', 'onFoot', 'turnRate', 'switch', 'goofy', 'pressBalance', 'pressing'] as const;
 type Field = typeof FIELDS[number];
 
 export class Replay {
@@ -29,7 +29,7 @@ export class Replay {
     this.t += dt; this.acc += dt;
     if (this.acc < DT) return;
     this.acc = 0;
-    const f = (r.onGround ? 1 : 0) | (tuck ? 2 : 0) | (r.crashed > 0 ? 4 : 0);
+    const f = stanceFlags(r, (r.onGround ? 1 : 0) | (tuck ? 2 : 0) | (r.crashed > 0 ? 4 : 0));
     this.samples.push({ t: this.t, x: r.x, y: r.y, z: r.z, h: r.boardYaw, lg: r.lateralG, e: r.edgeAngle, f, hd: r.heading, vx: r.vx, vy: r.vy, vz: r.vz, ln: r.lean, fl: r.flip, sq: r.squat, jc: r.jumpCharge, on: r.onFoot ? 1 : 0 });
     if (this.samples.length > MAX + 1200) this.samples.splice(0, 1200);
   }
@@ -78,6 +78,9 @@ export class Replay {
     if (!this.overlaid) { for (const k of FIELDS) this.saved[k] = R[k]; this.savedN[0] = r.normal[0]; this.savedN[1] = r.normal[1]; this.savedN[2] = r.normal[2]; this.overlaid = true; }
     r.x = s.x; r.y = s.y; r.z = s.z; r.vx = s.vx; r.vy = s.vy; r.vz = s.vz; r.heading = s.hd; r.boardYaw = s.h;
     r.onGround = !!(s.f & 1); r.lateralG = s.lg; r.edgeAngle = s.e; r.lean = s.ln; r.flip = s.fl; r.squat = s.sq; r.jumpCharge = s.jc;
+    r.edgeTarget = r.edge; r.leanTarget = r.lean; r.turnRate = 0; // BUG-056: the steer target and turn rate are not recorded, so a replay draws no body lead
+    r.switch = !!(s.f & 8); r.goofy = !!(s.f & 16); // FEAT-139: drawn the way round it was ridden
+    r.pressBalance = 0; r.pressing = false; // FEAT-140: the balance is not recorded, so a replay draws no balance wobble
     r.crashed = s.f & 4 ? 0.5 : 0; r.speed = Math.hypot(s.vx, s.vy); r.onFoot = !!s.on;
     const n = pack.groundNormal(s.x, s.y);
     r.normal[0] = n[0]; r.normal[1] = n[1]; r.normal[2] = n[2];
