@@ -1,4 +1,5 @@
 import { intentForKey, LETTER_INTENTS, type NavIntent } from './MenuKeys';
+import { padUi } from '../sim/Pad';
 
 /**
  * FEAT-128: one focus manager for every menu. Open screens form a stack and only the top one takes
@@ -23,6 +24,8 @@ export interface ScreenOpts {
 }
 
 const FOCUSABLE = 'button, select, input, [data-nav]';
+/** what the controller can't operate: keyboard rebind slots wait for a key, colour pickers need the mouse (as FEAT-137's PadNav) */
+const PAD_SKIP = '.keys button.key, input[type=color]';
 const visible = (el: HTMLElement): boolean => el.isConnected && el.getClientRects().length > 0 && !(el as HTMLButtonElement).disabled && el.dataset.nav !== 'skip';
 const isText = (el: Element | null): boolean => el instanceof HTMLInputElement && ['text', 'search', 'email', 'number', 'password'].includes(el.type);
 
@@ -32,15 +35,21 @@ export class Screen {
   returnTo: HTMLElement | null = null;
 
   constructor(readonly root: HTMLElement, readonly opts: ScreenOpts = {}) {
-    root.addEventListener('pointerover', (e) => {
+    // hover focuses only when the pointer really moves: content scrolling under a resting mouse
+    // (the panel follows the keyboard or controller focus) must not steal the focus
+    root.addEventListener('pointermove', (e) => {
+      if (Math.abs(e.movementX) + Math.abs(e.movementY) < 1) return;
       const el = (e.target as HTMLElement).closest<HTMLElement>(FOCUSABLE);
       if (el && root.contains(el) && visible(el) && el !== this.cur) this.focus(el, false);
     });
     root.addEventListener('pointerdown', (e) => setKind((e as PointerEvent).pointerType === 'touch' ? 'touch' : 'mouse'));
   }
 
-  /** the visible focusables, in document order */
-  items(): HTMLElement[] { return [...this.root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(visible); }
+  /** the visible focusables, in document order; on the controller, not the keyboard key slots or colour pickers (a controller can't use them) */
+  items(): HTMLElement[] {
+    const pad = kind === 'pad';
+    return [...this.root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => visible(el) && !(pad && el.matches(PAD_SKIP)));
+  }
 
   focus(el: HTMLElement | null, scroll = true): void {
     this.cur?.classList.remove('nav-focus');
@@ -155,7 +164,7 @@ const top = (): Screen | null => stack[stack.length - 1] ?? null;
 
 function onKeyDown(e: KeyboardEvent): void {
   const s = top();
-  if (!s || suspended) return;
+  if (!s || suspended || padUi.listening) return; // a key or controller slot waiting for a press owns the keys (Esc cancels it)
   const i = intentForKey(e.code, e.shiftKey);
   if (!i) return;
   const t = e.target as Element | null;
@@ -186,7 +195,7 @@ export function hasScreen(): boolean { return stack.length > 0; }
  */
 export function padIntent(i: NavIntent, down = true): boolean {
   const s = top();
-  if (!s || suspended) return false;
+  if (!s || suspended || padUi.listening) return false;
   setKind('pad');
   if (!s.root.contains(document.activeElement) || !s.focused) s.refresh();
   if (i === 'reset') return s.handle('reset', down) || s.handle('discipline', down);

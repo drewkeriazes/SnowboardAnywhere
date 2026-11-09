@@ -42,8 +42,8 @@
 
 /* ---------------------------------------------------------------- shared pieces */
 .btn-primary, #pause button.primary, #menu button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 800; }
-/* the focus look: an accent bar on the left and a soft accent wash (MenuNav sets .nav-focus; :focus-visible covers plain tabbing) */
-.nav-focus, #menu :focus-visible, #pause :focus-visible { outline: none; box-shadow: inset 3px 0 0 var(--accent), 0 0 0 2px var(--accent); background-image: linear-gradient(90deg, var(--accent-wash), transparent); }
+/* the focus look: an accent bar on the left and a soft accent wash (MenuNav sets .nav-focus, FEAT-137's PadNav .padfocus on the Outrun card; :focus-visible covers plain tabbing) */
+.nav-focus, .padfocus, #menu :focus-visible, #pause :focus-visible { outline: none; box-shadow: inset 3px 0 0 var(--accent), 0 0 0 2px var(--accent); background-image: linear-gradient(90deg, var(--accent-wash), transparent); }
 #menu button.primary.nav-focus, #pause button.primary.nav-focus { box-shadow: 0 0 0 3px var(--bg-deep), 0 0 0 5px var(--accent); background-image: none; }
 .hintbar { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); margin-top: var(--sp-4); font: 500 var(--fs-xs) var(--font-body); color: var(--dim); }
 .hintbar span { white-space: nowrap; }
@@ -101,6 +101,8 @@
 .settings .row .val { width: 36px; text-align: right; color: var(--dim); font-size: var(--fs-xs); }
 #pause .settings button.key, #menu .settings button.key { width: auto; flex: 1; min-height: calc(30px * var(--ui-scale)); margin: 0; padding: 4px 8px; font: 500 var(--fs-sm) ui-monospace, monospace; text-transform: none; letter-spacing: 0; text-align: center; }
 #pause .settings button.key.listening, #menu .settings button.key.listening { background-color: var(--accent); color: var(--accent-ink); }
+/* action buttons inside a settings row (Reset keys, Test vibration, Connect DualSense extras): a settings control, not a menu item */
+#pause .settings .row > button:not(.key), #menu .settings .row > button:not(.key) { min-height: calc(36px * var(--ui-scale)); margin: 0; padding: 6px 12px; font: 600 var(--fs-sm) var(--font-body); text-transform: none; letter-spacing: 0; text-align: center; }
 .settings button.key + button.key { margin-left: 6px; }
 .settings button.key.clash { outline: 2px solid var(--danger); }
 .settings .hint { font-size: var(--fs-xs); color: var(--dim); margin-top: 6px; }

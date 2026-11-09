@@ -92,12 +92,27 @@ const hasControls = await page.evaluate(() => !!document.querySelector('#menu bu
 await page.evaluate(() => document.querySelector('#menu button[data-a="controls"]')?.focus());
 await key('Enter');
 check('Controls opens the Controls tab', hasControls && await page.evaluate(() => !document.querySelector('#menu .settings:not(.outrun)')?.classList.contains('hidden') && document.querySelector('#menu .tabs button.on')?.dataset.t === 'controls'));
+// the controller's menu buttons in Settings > Controls are glyphs read from the tables, not typed text
+check('controller menu hint from the tables', await page.evaluate(() => { const el = document.querySelector('#menu [data-padnav-hint]'); return !!el && el.querySelectorAll('.pg').length >= 5 && !/Cross \/ A to pick/.test(el.textContent ?? ''); }));
+// a controller-button slot (FEAT-137) waiting for a press: Esc cancels the slot only, the panel stays open
+const pslot = page.locator('#menu .padkeys button.key').first();
+const pBefore = await pslot.innerHTML();
+await pslot.click();
+await key('Escape');
+check('pad rebind Esc cancels only the slot', (await pslot.innerHTML()) === pBefore && await page.evaluate(() => !document.querySelector('#menu .settings:not(.outrun)')?.classList.contains('hidden')), `panel open ${await page.evaluate(() => !document.querySelector('#menu .settings:not(.outrun)')?.classList.contains('hidden'))}`);
+// with the controller, focus walks past the keyboard key slots (a controller can't press a key)
+await page.evaluate(() => document.querySelector('#menu .tabs button.on')?.focus());
+let onKeySlot = false;
+const walk = [];
+for (let i = 0; i < 14; i++) { await pad(13, 50); const w = await page.evaluate(() => { const a = document.activeElement; return (a?.matches('.keys button.key, input[type=color]') ? 'SLOT ' : '') + (a?.className + ':' + (a?.dataset.k ?? a?.dataset.paction ?? a?.textContent?.slice(0, 12))); }); walk.push(w); if (w.startsWith('SLOT')) onKeySlot = true; }
+check('pad focus skips keyboard key slots', !onKeySlot, walk.join(' > '));
 await key('Escape');
 
 // gamepad: D-pad moves focus, hints switch to pad labels
 await page.evaluate(() => document.querySelector('#menu button[data-a="ride"]')?.focus());
 await pad(13); // D-pad down
 check('pad D-pad moves focus', (await active()) !== 'ride', `focused ${await active()}`);
+if (shots) await page.screenshot({ path: path.join(outDir, 'main-pad.png') });
 check('hints switch to pad labels', /\[A\] Select/.test(await hints()) && !/Enter/.test(await hints()), await hints());
 await key('ArrowUp');
 

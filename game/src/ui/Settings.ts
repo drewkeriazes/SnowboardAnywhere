@@ -1,7 +1,8 @@
 import { PLAYLISTS, SHUFFLE_ALL } from '../audio/Audio';
-import { DEFAULT_PAD, PAUSE_BUTTONS, activePad, lastPadKind, migratePadKeys, padButtonName, padUi } from '../sim/Pad';
+import { DEFAULT_PAD, PAD, PAUSE_BUTTONS, activePad, lastPadKind, migratePadKeys, padButtonName, padUi } from '../sim/Pad';
 import { DualSenseHID, dualSense } from '../sim/DualSense';
-import { padGlyph } from './PadGlyphs';
+import { padGlyph, stickGlyph } from './PadGlyphs';
+import { MENU_PAD } from './MenuKeys';
 import { padFx } from '../sim/PadFeedback';
 import { LENSES, LENS_ORDER, type LensSetting } from '../world/Lens';
 import { setNavSuspended } from './MenuNav';
@@ -261,7 +262,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><button data-a="keys-reset">Reset keys to defaults</button></div>
       <div class="hint">Click a slot, then press a key (or the right mouse button). Esc cancels, Delete clears the slot.</div>
       <div class="hint" style="margin-top:14px;font-weight:600;opacity:.9">Controller</div>
-      <div class="hint">The left stick steers and leans (up / down tuck and brake), the right stick looks, Options / Start or the PS button pauses. In menus: D-pad or stick to move, Cross / A to pick, Circle / B to go back, L1 / R1 for the tabs.</div>
+      <div class="hint" data-padnav-hint></div>
       <div class="row"><label>Vibration</label><input type="checkbox" data-k="rumble"></div>
       <div class="row"><label>Vibration strength</label><input type="range" data-k="vibration" min="0.05" max="1" step="0.05"><span class="val" data-v="vibration"></span></div>
       <div class="row"><button data-a="rumble-test">Test vibration</button></div>
@@ -371,6 +372,11 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
   // FEAT-137: controller buttons, two slots per action like the keys
   const fillPad = () => {
     const kind = activePad()?.kind ?? lastPadKind ?? 'ps';
+    // FEAT-128: the fixed controller buttons and the menu buttons, as glyphs from the tables (nothing typed by hand)
+    const g = (b: number) => padGlyph(kind, b);
+    host.querySelector<HTMLElement>('[data-padnav-hint]')!.innerHTML =
+      `${stickGlyph('L')} steers and leans (up / down tuck and brake), ${stickGlyph('R')} looks, ${PAUSE_BUTTONS.map(g).join(' or ')} pauses. ` +
+      `In menus: ${[PAD.UP, PAD.DOWN, PAD.LEFT, PAD.RIGHT].map(g).join('')} or ${stickGlyph('L')} move, ${g(MENU_PAD.select!)} picks, ${g(MENU_PAD.back!)} goes back, ${g(MENU_PAD.prevCat!)} ${g(MENU_PAD.nextCat!)} switch tabs.`;
     const padHost = host.querySelector('.padkeys')!;
     const owner = new Map<number, string[]>();
     for (const act in s.padKeys) for (const b of s.padKeys[act] ?? []) owner.set(b, [...(owner.get(b) ?? []), act]);
