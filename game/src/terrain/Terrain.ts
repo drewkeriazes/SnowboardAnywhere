@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { type Pack, MOGUL_MAX_RES, MOGUL_SHADE_MAX_RES } from '../pack/Pack';
 import { MOGUL_FALL_D } from './Moguls';
 import { createTerrainMaterial, COVER_SLOTS } from './TerrainMaterial';
+import { vegetationFarRadius } from '../world/Vegetation';
 
 /**
  * Chunked quadtree terrain. The root covers the far height set (262 km). Each chunk is an
@@ -33,10 +34,10 @@ function proceduralForest(x: number, y: number, h: number, slope: number): numbe
   const valley = THREE.MathUtils.smoothstep(h, 2450, 2650); // towns and the I-70 corridor are open
   return below * open * flatOK * valley;
 }
-/** FEAT-153: chunks coarser than this (m) stand forested ground up by its canopy (the shader fades it in past the trees) */
-const LIFT_MIN_RES = 16;
 /** share of the canopy height the surface rises by (crowns are cones; the gaps let light through) */
 const LIFT_K = 0.7;
+/** m: a cover canopy height below this is blur from neighbouring open cells (G is bilinear and box-averaged), not a stand */
+const MIN_CANOPY_H = 2;
 /** canopy height (m) where the cover has forest but no height (and the procedural treeline) */
 const CANOPY_DEFAULT = 16;
 /** chunks at or below this vertex spacing (m) take baked AO from the pack; coarser ones are open sky */
@@ -235,6 +236,8 @@ export class Terrain {
     this.stats.chunks = this.visible.length;
     this.stats.triangles = tris;
     this.material.userData.shader?.uniforms.uTime && (this.material.userData.shader.uniforms.uTime.value = performance.now() / 1000);
+    // FEAT-153: the canopy lift starts where the tree impostors end, which moves with the tree density setting
+    (this.material.userData.uniforms as { uLiftNear: { value: number } }).uLiftNear.value = vegetationFarRadius();
   }
 
   private isAncestor(a: Chunk, d: Chunk): boolean {
@@ -317,7 +320,6 @@ export class Terrain {
     // FEAT-153: coarser chunks take forest, rock and canopy height from the cover levels where they have
     // loaded, else the procedural treeline
     const cover = !useMask && pack.cover ? pack.cover : null;
-    const doLift = res > LIFT_MIN_RES;
     let v = 0;
     const H = (i: number, j: number) => heights[(j + 1) * (n + 2) + (i + 1)];
     for (let j = 0; j < n; j++) {
@@ -346,10 +348,10 @@ export class Terrain {
             if (cw > 0) {
               fo += (cs[0] - fo) * cw;
               rock = cs[2] * cw; // the mask's rock weight (the shader thresholds it; 0.5 is where patches start)
-              canopyH += ((cs[1] > 2 ? cs[1] : CANOPY_DEFAULT) - canopyH) * cw;
+              canopyH += ((cs[1] > MIN_CANOPY_H ? cs[1] : CANOPY_DEFAULT) - canopyH) * cw;
             }
           }
-          if (doLift) lift[v] = fo * canopyH * LIFT_K;
+          lift[v] = fo * canopyH * LIFT_K; // the shader holds it at 0 inside the trees' reach
         }
         forest[v] = fo;
         let a = 1;

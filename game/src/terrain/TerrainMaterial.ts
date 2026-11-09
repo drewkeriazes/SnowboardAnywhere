@@ -46,7 +46,7 @@ import { DEFORM_GLSL, deformUniforms } from '../world/Deform';
  * Distant forest (FEAT-153): past a few hundred metres the forest share comes per pixel from the pack's
  * cover levels (`uCov0..2`, mipmapped, so trails narrower than a far chunk's vertices still show as white
  * cuts), not from the per-vertex value; conifer timber is a dark mass with a crown-scale texture that fades
- * to an even tone once a pixel is wider than a crown. Beyond the instanced trees (`LIFT_NEAR`) the coarse
+ * to an even tone once a pixel is wider than a crown. Beyond the instanced trees (`uLiftNear`) the coarse
  * chunks raise forested ground by the `lift` attribute (canopy height x cover) so ridges read as treed.
  */
 
@@ -71,8 +71,8 @@ function snowLightsChunk(): string {
 }
 
 /** FEAT-153: the canopy lift fades in from the impostors' reach (Vegetation FAR_RADIUS) to full here (m) */
-export const LIFT_NEAR = 4500;
-export const LIFT_FULL = 6500;
+/** FEAT-153: the canopy lift fades in over this many metres from `uLiftNear`, the impostors' reach (Vegetation FAR_RADIUS, set by Terrain.update) */
+export const LIFT_RAMP = 2000;
 /** FEAT-153: cover level slots in the shader (coarsest first) */
 export const COVER_SLOTS = 3;
 const EMPTY_RECT = new THREE.Vector4(-1e7, -1e7, -1e7 + 1000, -1e7 + 1000); // weight 0 everywhere, finite uv
@@ -83,6 +83,7 @@ function coverUniforms() {
     uCov0: { value: blank as THREE.Texture }, uCov1: { value: blank as THREE.Texture }, uCov2: { value: blank as THREE.Texture },
     uCovRect: { value: [EMPTY_RECT.clone(), EMPTY_RECT.clone(), EMPTY_RECT.clone()] },
     uCovBlend: { value: 500 },
+    uLiftNear: { value: 4500 },
   };
 }
 
@@ -136,6 +137,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         attribute float ao;
         attribute vec4 mogul;
         attribute float lift;
+        uniform float uLiftNear;
         varying float vAO;
         varying float vForest;
         varying vec2 vFall;
@@ -147,7 +149,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         // FEAT-153: forested ground stands up by its canopy past the instanced trees, so ridges read as treed
         if (lift > 0.0) {
           vec3 wl = (modelMatrix * vec4(transformed, 1.0)).xyz;
-          transformed.y += lift * smoothstep(${LIFT_NEAR.toFixed(1)}, ${LIFT_FULL.toFixed(1)}, distance(cameraPosition, wl));
+          transformed.y += lift * smoothstep(uLiftNear, uLiftNear + ${LIFT_RAMP.toFixed(1)}, distance(cameraPosition, wl));
         }
         // FEAT-044: the snow sags softly around the tracks and prints inside the deformation window
         if (uDeformWin.w > 0.0) {
