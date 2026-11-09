@@ -55,6 +55,10 @@ import { STAMINA, switchName, type PressEnd } from './sim/Rider';
 import { PressMeter } from './ui/PressMeter';
 import { availableResorts } from './resorts';
 import { hasCustomStart, resetStart, spawnKey } from './spawn';
+import { PAD } from './sim/Pad';
+import { padFx } from './sim/PadFeedback';
+import { padGlyph, padGlyphs, stickGlyph } from './ui/PadGlyphs';
+import { startPadNav } from './ui/PadNav';
 
 /** FEAT-105: the New snow setting as a snow cover amount */
 const NEW_SNOW: Record<string, number> = { none: 0, dusting: 0.25, '6in': 0.6, powder: 1 };
@@ -89,6 +93,7 @@ async function main(): Promise<void> {
   audio.source = settings.musicSource;
   audio.playlist = settings.playlist;
   status.textContent = '';
+  if (!headless) startPadNav(); // FEAT-137: menus on a controller, and the DualSense extras if picked before
 
   // one renderer for the whole page; sessions build and tear down their scene
   const canvas = document.getElementById('c') as HTMLCanvasElement;
@@ -199,9 +204,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         splitMsg = n > 1 ? `<span class="dim">${n} courses start here: follow the one you want</span>` : `<span class="dim">Ride through the gate to start</span>`;
         splitTimer = 99;
       }
-      else if (e.kind === 'start') { splitMsg = e.best ? `Ghost: ${fmt(e.best.time)}` : 'No ghost yet: set the time'; splitTimer = 3; audio.chime(); }
-      else if (e.kind === 'split') { splitMsg = e.delta === null ? `Split ${e.index + 1}: ${fmt(e.time)}` : `<span class="${e.delta <= 0 ? 'ahead' : 'behind'}">${e.delta <= 0 ? '' : '+'}${e.delta.toFixed(2)}</span>`; splitTimer = 3; }
-      else if (e.kind === 'finish') { splitMsg = e.isBest ? `<span class="ahead">New best ${fmt(e.time)}</span>` : `Finished ${fmt(e.time)} <span class="dim">(best ${fmt(e.best!.time)})</span>`; splitTimer = 6; audio.chime(); }
+      else if (e.kind === 'start') { splitMsg = e.best ? `Ghost: ${fmt(e.best.time)}` : 'No ghost yet: set the time'; splitTimer = 3; audio.chime(); padFx.trialEvent('start'); }
+      else if (e.kind === 'split') { splitMsg = e.delta === null ? `Split ${e.index + 1}: ${fmt(e.time)}` : `<span class="${e.delta <= 0 ? 'ahead' : 'behind'}">${e.delta <= 0 ? '' : '+'}${e.delta.toFixed(2)}</span>`; splitTimer = 3; padFx.trialEvent('split'); }
+      else if (e.kind === 'finish') { splitMsg = e.isBest ? `<span class="ahead">New best ${fmt(e.time)}</span>` : `Finished ${fmt(e.time)} <span class="dim">(best ${fmt(e.best!.time)})</span>`; splitTimer = 6; audio.chime(); padFx.trialEvent('finish', e.isBest); }
       else if (e.kind === 'cancel') { splitMsg = `<span class="behind">${e.reason}</span>`; splitTimer = 3; }
     };
     const refreshCourseFlags = () => { map.courseStarts = settings.timeTrials ? courses.map((c) => ({ x: c.start[0], y: c.start[1], name: c.name, best: trial.loadBest(c)?.time ?? null })) : []; };
@@ -376,6 +381,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       cam.baseFov = s.fov;
       controls.keymap = { ...s.keys };
       controls.invertSteer = s.invertSteer;
+      // FEAT-137: controller buttons, stick and trigger dead zones, look speed, the DualSense extras
+      controls.padKeys = { ...s.padKeys };
+      controls.padCfg = { dead: s.padDead, trigDead: s.padTrigDead, lookSens: s.lookSens, invertY: s.invertLookY, gyro: s.padGyro, gyroSens: s.gyroSens };
+      padFx.strength = s.vibration; padFx.triggers = s.padTriggers; padFx.lightbar = s.padLightbar;
       lifts.markers.visible = s.showMarkers;
       roads.setOnSnow(s.roadsOnSnow);
       liftLines.setEnabled(s.liftLines);
@@ -424,6 +433,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       cam.mode = cam.mode === 'free' ? 'chase' : cam.mode;
       cam.snapTo(rider);
       map.close();
+      controls.padMute(); // FEAT-137: the Cross that dropped in is not a jump
     };
     map.onPick = pickHandler;
 
@@ -432,7 +442,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const setPaused = (p: boolean) => {
       paused = p;
       controls.guardLeave = !p; // FEAT-111: no leave prompt from the pause menu
-      if (p) pause.show(); else pause.hide();
+      if (p) pause.show(); else { pause.hide(); controls.padMute(); }
       audio.setDuck(p ? 0.3 : 1);
     };
     // ---------------------------------------------------------------- Outrun
@@ -553,8 +563,12 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     document.body.appendChild(restartRing);
     const helpEl = document.getElementById('help');
     let helpShown = '', helpT = 0;
-    const k = (a: string) => `<kbd>${keysOf(settings, a)}</kbd>`;
+    // FEAT-137: with a controller in use, its button glyphs (an action with no button keeps its key)
+    const padKey = (a: string) => (controls.usingPad ? padGlyphs(controls.padKind, settings.padKeys[a]) : '');
+    const k = (a: string) => padKey(a) || `<kbd>${keysOf(settings, a)}</kbd>`;
     const k1 = (a: string) => keyName(settings.keys[a]?.[0] ?? ''); // first binding only (the walk cluster reads "WASD")
+    const lookKey = () => (controls.usingPad ? stickGlyph('R') : `<kbd>${keysOf(settings, 'look') || 'Alt'}</kbd>`);
+    const pg = (b: number) => padGlyph(controls.padKind, b);
     if (settings.keysNote) { boardMsgNote = 'New default key layout available: Settings > Controls > Reset keys'; settings.keysNote = false; saveSettings(settings); }
     const showPrompt = (html: string) => { if (html !== promptShown) { promptShown = html; prompt.innerHTML = html; prompt.classList.toggle('show', html !== ''); } };
 
@@ -580,6 +594,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       tracks.dispose(); deform.dispose();
       trialWorld.dispose();
       if (outrun.active) stopOutrun();
+      padFx.stop();
       outrunUI.destroy(); runCard.dispose(); speedLines.dispose(); pressMeter.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
       trialEl.classList.remove('show');
       finishArrow.style.display = 'none';
@@ -639,13 +654,14 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (!headless && !fixedDt && !paused && auto.frame(dt, settings.autoQuality ? (settings.targetFps || 60) : 0)) applyAuto();
       // FEAT-140: on the snow on the board, W / S and the stick balance a held press instead of tucking and braking
       controls.balancing = rider.pressMode !== 'off' && rider.discipline === 'board' && (rider.onGround || rider.pressing) && !rider.unstrapped && rider.crashed <= 0;
-      const input = controls.update();
+      const input = controls.update(dt);
       // FEAT-124: the gamepad's right stick looks around like the mouse: a rate (px/s at full deflection),
       // added before the cameras consume mouseDx / mouseDy so it lands this frame, not the next
       if (controls.padLookX || controls.padLookY) { mouseDx += controls.padLookX * 840 * dt; mouseDy += controls.padLookY * 600 * dt; }
+      mouseDx += controls.gyroDx; mouseDy += controls.gyroDy; // FEAT-137: DualSense gyro look (0 unless on)
       // pause has priority; Esc closes the map first if it is open
       if (controls.once('Escape') || touch?.once('pause')) { if (replayOpen) closeReplay(); else if (map.fullOpen) map.close(); else setPaused(!paused); }
-      if (paused) { controls.endFrame(); touch?.pressed.clear(); render(); if (!headless) requestAnimationFrame(frame); return; }
+      if (paused) { padFx.idle(controls.pad); controls.endFrame(); touch?.pressed.clear(); render(); if (!headless) requestAnimationFrame(frame); return; }
       touch?.setVisible(!map.fullOpen);
       elapsed += dt;
       // FEAT-124: restart needs a 0.6 s hold (a fill ring), so a stray tap next to E or W doesn't reset the run
@@ -671,19 +687,21 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (controls.action('replay') && !outrun.active && !liftRide.riding && !rider.unstrapped && replay.samples.length > 20) { if (replayOpen) closeReplay(); else openReplay(); }
       if (replayOpen) {
         const k = controls.keys;
-        if (controls.once('Space')) { if (replayT >= replay.end - 0.01) replayT = replay.start; replayPlay = !replayPlay; }
+        // FEAT-137 on a controller: Cross play, D-pad left / right scrub, R1 / L1 speed, Triangle camera, Square hide, Circle close
+        const po = (b: number) => controls.padOnce(b);
+        if (controls.once('Space') || po(PAD.A)) { if (replayT >= replay.end - 0.01) replayT = replay.start; replayPlay = !replayPlay; }
         const si = REPLAY_SPEEDS.indexOf(replaySpeed);
-        if (controls.once('ArrowUp')) replaySpeed = REPLAY_SPEEDS[Math.min(REPLAY_SPEEDS.length - 1, si + 1)];
-        if (controls.once('ArrowDown')) replaySpeed = REPLAY_SPEEDS[Math.max(0, si - 1)];
-        const scrub = (k.has('ArrowRight') ? 1 : 0) - (k.has('ArrowLeft') ? 1 : 0);
+        if (controls.once('ArrowUp') || po(PAD.RB)) replaySpeed = REPLAY_SPEEDS[Math.min(REPLAY_SPEEDS.length - 1, si + 1)];
+        if (controls.once('ArrowDown') || po(PAD.LB)) replaySpeed = REPLAY_SPEEDS[Math.max(0, si - 1)];
+        const scrub = (k.has('ArrowRight') || controls.padHeld(PAD.RIGHT) ? 1 : 0) - (k.has('ArrowLeft') || controls.padHeld(PAD.LEFT) ? 1 : 0);
         if (scrub) replayT += scrub * 5 * dt; else if (replayPlay) replayT += dt * replaySpeed;
         if (replayT >= replay.end) { replayT = replay.end; replayPlay = false; }
         if (replayT < replay.start) replayT = replay.start;
-        if (controls.once('KeyC')) {
+        if (controls.once('KeyC') || po(PAD.Y)) {
           replayCam = replayCam === 'follow' ? 'trackside' : replayCam === 'trackside' ? 'free' : 'follow'; trackSet = false;
           if (replayCam === 'free') cam.enterFree(); else cam.mode = settings.camera;
         }
-        if (controls.once('KeyH')) replayClean = !replayClean;
+        if (controls.once('KeyH') || po(PAD.X)) replayClean = !replayClean;
         if (controls.once('KeyP')) shotPending = true;
         if (controls.once('Minus')) photoFov = Math.max(-35, photoFov - 5);
         if (controls.once('Equal')) photoFov = Math.min(35, photoFov + 5);
@@ -697,7 +715,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         replayEl.style.display = replayClean ? 'none' : 'block';
         replayEl.innerHTML = `<div style="display:flex;justify-content:space-between"><b>REPLAY ${replayPlay ? '&#9654;' : '&#10074;&#10074;'} ${replaySpeed}x</b><span>${fmtT(replayT - replay.start)} / ${fmtT(span)}</span></div>` +
           `<div style="height:6px;background:rgba(255,255,255,.2);border-radius:3px;margin:6px 0"><div style="height:6px;width:${((replayT - replay.start) / span * 100).toFixed(1)}%;background:#facc15;border-radius:3px"></div></div>` +
-          `<div style="opacity:.75">Space play &middot; &larr; &rarr; scrub &middot; &uarr; &darr; speed &middot; C camera (${replayCam}) &middot; - = FOV &middot; , . time of day ${replayHour.toFixed(1)}h &middot; H hide &middot; P photo &middot; K / Esc close</div>`;
+          (controls.usingPad
+            ? `<div style="opacity:.75">${pg(PAD.A)} play &middot; ${pg(PAD.LEFT)}${pg(PAD.RIGHT)} scrub &middot; ${pg(PAD.LB)} ${pg(PAD.RB)} speed &middot; ${pg(PAD.Y)} camera (${replayCam}) &middot; ${pg(PAD.X)} hide &middot; ${pg(PAD.B)} close</div>`
+            : `<div style="opacity:.75">Space play &middot; &larr; &rarr; scrub &middot; &uarr; &darr; speed &middot; C camera (${replayCam}) &middot; - = FOV &middot; , . time of day ${replayHour.toFixed(1)}h &middot; H hide &middot; P photo &middot; K / Esc close</div>`);
+        if (controls.padOnce(PAD.B)) closeReplay();
       }
       // ---- FEAT-043: rewind (hold): scrub back along the recording, let go to carry on from the
       // last moment on the snow before there (not mid-air, not crashed)
@@ -716,7 +737,18 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       }
       const frozen = replayOpen || rewinding;
       if (!replayOpen && (controls.action('camera') || touch?.once('camera'))) cam.cycle();
-      if (!replayOpen && (controls.action('map') || touch?.once('map'))) map.toggle();
+      if (!replayOpen && (controls.action('map') || touch?.once('map'))) { map.toggle(); if (!map.fullOpen) controls.padMute(); }
+      // FEAT-137: the full map on a controller: the stick pans under a crosshair, R2 / L2 zoom, Cross drops in, Circle closes
+      if (map.fullOpen && controls.pad) {
+        const p = controls.pad, dz = (v: number) => (Math.abs(v) > settings.padDead ? v : 0);
+        const zoom = (p.buttons[PAD.RT]?.value ?? 0) - (p.buttons[PAD.LT]?.value ?? 0);
+        const sx = dz(p.axes[0] ?? 0), sy = dz(p.axes[1] ?? 0), z = Math.abs(zoom) > 0.1 ? zoom : 0;
+        if (controls.padOnce(PAD.B)) { map.close(); controls.padMute(); }
+        else {
+          const help = `${stickGlyph('L')} move &middot; ${pg(PAD.RT)} ${pg(PAD.LT)} zoom (${map.zoom.toFixed(1)}x) &middot; ${pg(PAD.A)} drop in &middot; ${pg(PAD.B)} close`;
+          if (map.padDrive(dt, sx, sy, z, controls.padOnce(PAD.A), help)) map.drawFull();
+        }
+      }
       // the rider stands still while the camera is detached (free fly, eye)
       const detached = cam.mode === 'free' || cam.mode === 'eye';
       const eyeMode = cam.mode === 'eye';
@@ -749,6 +781,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (!frozen && !onLift && !eating) replay.record(dt, rider, input.tuck); // FEAT-043
       if (!frozen && !eating && !outrun.active) runStats.update(dt, rider, onLift); // FEAT-055
       runCard.update(dt);
+      // FEAT-137: rumble (landings, crashes, rock, moguls), the DualSense lightbar and adaptive triggers
+      padFx.update(dt, controls.pad, { rider, riding: !detached && !onLift && !eating && !frozen && !map.fullOpen && !rider.unstrapped, monsterDist: outrun.running ? outrun.dist : Infinity, lens: riderView.mats.goggles.color.getHex() });
       // visuals draw the pose interpolated between the last two 120 Hz physics steps; gameplay
       // (trials, lifts, audio) keeps reading the sim pose
       riderView.setFirstPerson(cam.firstPerson);
@@ -766,7 +800,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
           else if (e.kind === 'roar') chase?.roar('spawn');
           else if (e.kind === 'sight') chase?.roar('sight');
           else if (e.kind === 'closecall') { chase?.roar('angry'); chase?.closeCall(); }
-          else if (e.kind === 'footfall' && e.m) { chase?.footfall(e.m.dist); if (e.m.dist < 30) cam.kick = Math.max(cam.kick, 0.7 * (1 - e.m.dist / 30)); }
+          else if (e.kind === 'footfall' && e.m) { chase?.footfall(e.m.dist); padFx.footfall(e.m.dist); if (e.m.dist < 30) cam.kick = Math.max(cam.kick, 0.7 * (1 - e.m.dist / 30)); }
           else if (e.kind === 'second') showToast('Another one.', 2500);
           else if (e.kind === 'escaped') { chase?.roar('giveup'); chase?.stop(); audio.resumeMusic(); chase?.fanfare(); }
           else if (e.kind === 'caught' && e.m) {
@@ -789,7 +823,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
           chase.update(dt, outrun.dist, outrun.phase === 'chase', outrun.boosting);
         }
       }
-      outrunUI.update(outrun, settings.units === 'metric', keysOf(settings, 'boost'));
+      outrunUI.update(outrun, settings.units === 'metric', padKey('boost') || keysOf(settings, 'boost'));
       if (settings.timeTrials) {
         if (onLift) trial.cancel('On a lift'); else if (rider.unstrapped) trial.cancel('Unstrapped'); else if (!frozen) trial.update(rider, dt, input.tuck);
         trialWorld.updateGates(rider.x, rider.y);
@@ -927,16 +961,16 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
       if (onLift) {
         const pct = ((liftRide.up / (liftRide.lift ? lifts.rideLength(liftRide.lift) : 1)) * 100).toFixed(0);
-        showPrompt(`<div class="name">${liftRide.lift?.feature.name ?? 'Lift'}</div><div class="row"><kbd>E</kbd> skip to the ${liftRide.lift?.kind === 'carpet' ? 'end' : 'top'} <span class="dim">${pct}%</span></div><div class="row"><kbd>W</kbd> hold for ${liftRide.fast ? '<b>5x speed</b>' : '5x speed'} &nbsp; <kbd>Alt</kbd> look around</div>`);
+        showPrompt(`<div class="name">${liftRide.lift?.feature.name ?? 'Lift'}</div><div class="row">${k('lift')} skip to the ${liftRide.lift?.kind === 'carpet' ? 'end' : 'top'} <span class="dim">${pct}%</span></div><div class="row">${k('tuck')} hold for ${liftRide.fast ? '<b>5x speed</b>' : '5x speed'} &nbsp; ${lookKey()} look around</div>`);
       } else if (liftRide.nearby && !map.fullOpen && !detached) {
         const name = liftRide.nearby.feature.name ?? 'Lift';
         const dist = settings.units === 'metric' ? `${liftRide.nearbyDist.toFixed(0)} m` : `${(liftRide.nearbyDist * 3.28084).toFixed(0)} ft`;
-        if (liftRide.canBoard) showPrompt(`<div class="name">${name}</div><div class="row"><kbd>E</kbd> ${rider.unstrapped ? 'strap in and ' : ''}${liftRide.nearby.kind === 'gondola' ? 'board the gondola' : liftRide.nearby.kind === 'surface' ? 'grab the lift' : liftRide.nearby.kind === 'carpet' ? 'step on' : 'ride up'}</div>`);
-        else if (liftRide.blocker === 'fast') showPrompt(`<div class="name">${name}</div><div class="row">slow down to board <kbd>&darr;</kbd> brake</div>`);
-        else showPrompt(`<div class="name">${name}</div><div class="row">ride to the lift <span class="dim">${dist}</span> then <kbd>E</kbd></div>`);
+        if (liftRide.canBoard) showPrompt(`<div class="name">${name}</div><div class="row">${k('lift')} ${rider.unstrapped ? 'strap in and ' : ''}${liftRide.nearby.kind === 'gondola' ? 'board the gondola' : liftRide.nearby.kind === 'surface' ? 'grab the lift' : liftRide.nearby.kind === 'carpet' ? 'step on' : 'ride up'}</div>`);
+        else if (liftRide.blocker === 'fast') showPrompt(`<div class="name">${name}</div><div class="row">slow down to board ${controls.usingPad ? k('brake') : '<kbd>&darr;</kbd>'} brake</div>`);
+        else showPrompt(`<div class="name">${name}</div><div class="row">ride to the lift <span class="dim">${dist}</span> then ${k('lift')}</div>`);
       } else if (!map.fullOpen && !detached) {
         // board on / off
-        const bk = `<kbd>${keysOf(settings, 'board') || keysOf(settings, 'lift')}</kbd>`; // FEAT-124: E straps in and out (or the optional board-only key)
+        const bk = padKey('board') || padKey('lift') || `<kbd>${keysOf(settings, 'board') || keysOf(settings, 'lift')}</kbd>`; // FEAT-124: E straps in and out (or the optional board-only key)
         if (boardMsgT > 0) showPrompt(`<div class="row">${boardMsg}</div>`);
         else if (rider.strapState !== 'none') showPrompt('');
         else if (rider.onFoot) showPrompt(`<div class="row">${bk} strap in${rider.speed > 0.3 ? ' <span class="dim">(stand still)</span>' : ''} &nbsp; ${k('grab')} sprint</div>`);
@@ -950,7 +984,16 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (helpEl && helpT <= 0) {
         helpT = 0.25;
         let h: string;
-        if (controls.padActive) h = 'Gamepad: left stick steer and lean &middot; A jump &middot; X squat / grab (+ steer: hard carve) &middot; RT / LT tuck / brake &middot; Y interact &middot; R3 look behind';
+        const L = stickGlyph('L');
+        if (controls.usingPad) {
+          // FEAT-137: the same hints in the controller's own buttons
+          if (liftRide.riding) h = `${k('lift')} skip &middot; ${k('tuck')} hold for 5x &middot; ${k('glance')} look behind &middot; ${stickGlyph('R')} look around`;
+          else if (outrun.running) h = `${k('boost')} boost &middot; ${k('glance')} look behind &middot; ${k('jump')} jump`;
+          else if (rider.onFoot) h = `${L} walk &middot; ${k('grab')} sprint &middot; ${k('jump')} jump / climb &middot; ${k('lift')} strap in &middot; ${k('glance')} look behind`;
+          else if (!rider.onGround) h = `${L} spin &middot; ${k('tuck')} front flip &middot; ${k('brake')} backflip &middot; ${k('grab')} grab`;
+          else if (liftRide.nearby) h = `${k('lift')} ride the lift &middot; ${k('brake')} brake`;
+          else h = `${L} steer &middot; ${k('tuck')} tuck &middot; ${k('brake')} brake &middot; hold ${k('jump')} jump (+ ${L} up / down nollie / ollie) &middot; ${k('grab')} squat (+ steer: hard carve) &middot; ${k('pressNose')} ${k('pressTail')} press (${L} balance) &middot; ${k('skate')} skate<br>${k('lift')} interact &middot; hold ${k('glance')} look behind &middot; ${k('camera')} camera &middot; ${k('map')} map &middot; ${pg(PAD.START)} pause`;
+        }
         else if (liftRide.riding) h = `${k('lift')} skip &middot; ${k('tuck')} hold for 5x &middot; ${k('glance')} look behind &middot; ${k('look')} look around`;
         else if (outrun.running) h = `${k('boost')} boost &middot; ${k('glance')} look behind &middot; ${k('jump')} jump`;
         else if (rider.onFoot) h = `${k1('tuck')}${k1('left')}${k1('brake')}${k1('right')} walk &middot; ${k('grab')} sprint &middot; ${k('jump')} jump / climb &middot; ${k('lift')} strap in &middot; ${k('glance')} look behind`;
@@ -991,7 +1034,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
           (rider.brakeAmt > 0 ? ` &middot; brake &Psi; ${(rider.brakePsi * 180 / Math.PI).toFixed(0)}&deg; &gamma; ${(Math.abs(rider.slip) * 180 / Math.PI).toFixed(0)}&deg; ${rider.brakeAcc.toFixed(1)} m/s&sup2; mod ${rider.brakeMod.toFixed(2)}` : '') +
           // FEAT-053: the snow weights and what they set
           `<br>snow groomed ${rider.snow.groomed.toFixed(2)} powder ${rider.snow.powder.toFixed(2)} chop ${rider.snow.chop.toFixed(2)} ice ${rider.snow.ice.toFixed(2)} slush ${rider.snow.slush.toFixed(2)} rock ${rider.snow.rock.toFixed(2)} &middot; depth ${(rider.snow.depth * 100).toFixed(0)} cm &middot; grip x${rider.snow.grip.toFixed(2)} &middot; turn x${rider.snow.turn.toFixed(2)} &middot; drag ${rider.snow.drag0.toFixed(2)} + ${rider.snow.drag1.toFixed(4)}v &middot; chop ${rider.chop.toFixed(2)} &middot; sink ${rider.noseSink.toFixed(2)}</span>` : '');
-      (window as any).__sim = { rider, riderView, trialWorld, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, eyeAt, outrun, monsters, startOutrun, stopOutrun,
+      (window as any).__sim = { rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, eyeAt, outrun, monsters, startOutrun, stopOutrun,
         /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
         setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
         /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */

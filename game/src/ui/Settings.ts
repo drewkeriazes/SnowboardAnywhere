@@ -1,4 +1,7 @@
 import { PLAYLISTS, SHUFFLE_ALL } from '../audio/Audio';
+import { DEFAULT_PAD, PAUSE_BUTTONS, activePad, lastPadKind, migratePadKeys, padButtonName, padUi } from '../sim/Pad';
+import { DualSenseHID, dualSense } from '../sim/DualSense';
+import { padGlyph } from './PadGlyphs';
 /**
  * Player settings, persisted in localStorage under one versioned key. `renderPanel` builds the
  * same settings UI for the main menu and the pause menu; `onChange` fires on every edit so the
@@ -64,6 +67,13 @@ export interface Settings {
   keys: Record<string, string[]>; // action -> up to two codes (FEAT-124)
   /** FEAT-124: the player had rebound keys before the new default layout; show the note once */
   keysNote?: boolean;
+  /** FEAT-137: controller buttons per action (standard-mapping indices, two slots), rumble strength 0..1 (0 off),
+   *  stick and trigger dead zones, right stick look rate and invert Y */
+  padKeys: Record<string, number[]>;
+  vibration: number;
+  padDead: number; padTrigDead: number; lookSens: number; invertLookY: boolean;
+  /** FEAT-137 DualSense extras (WebHID): adaptive triggers, the lightbar, gyro look and its rate */
+  padTriggers: boolean; padLightbar: boolean; padGyro: boolean; gyroSens: number;
   outfit: Outfit;
   discipline: 'board' | 'ski';
   /** FEAT-139: the snowboarder's normal stance, left foot forward (regular) or right (goofy) */
@@ -106,6 +116,9 @@ const KEY_GROUPS: [string, [string, string][]][] = [
   ['Outrun', [['boost', 'Boost']]],
 ];
 
+/** FEAT-137: the actions a controller button can be bound to (the sticks steer, lean and look; Options / PS pause) */
+const PAD_GROUPS: [string, [string, string][]][] = KEY_GROUPS.map(([g, list]) => [g, list.filter(([a]) => a in DEFAULT_PAD)] as [string, [string, string][]]).filter(([, l]) => l.length > 0);
+
 /** A saved keymap from any version, as two-binding arrays. `custom` is true when the player had rebound a key. */
 export function migrateKeys(raw: Record<string, unknown> | undefined): { keys: Record<string, string[]>; custom: boolean } {
   const keys: Record<string, string[]> = {};
@@ -127,6 +140,8 @@ const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', snowDay: 'mid', snowDeform: true, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
   fov: 68, autoQuality: true, targetFps: 60, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, fpShake: 0.3, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, pressBalance: 'on', outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', stance: 'regular', timeOfDay: 'pack', month: 2, units: 'imperial', keys: migrateKeys(undefined).keys,
   outrun: { difficulty: 'normal', escape: 'base', gentle: false },
+  padKeys: migratePadKeys(undefined), vibration: 0.8, padDead: 0.18, padTrigDead: 0.3, lookSens: 1, invertLookY: false,
+  padTriggers: false, padLightbar: true, padGyro: false, gyroSens: 1,
 };
 const KEY = 'settings';
 
@@ -139,16 +154,16 @@ export function loadSettings(): Settings {
       // saves from before the Lofi hip-hop default carry the old Ska-punk default: switch them once
       if (raw.playlistDefault !== 2) { if (raw.playlist === 'Ska-punk') raw.playlist = 'Lofi hip-hop'; raw.playlistDefault = 2; }
       const mk = migrateKeys(raw.keys);
-      return { ...DEFAULTS, ...raw, keys: mk.keys, keysNote: raw.keysNote ?? (mk.custom ? true : undefined), outfit: { ...DEFAULTS.outfit, ...(raw.outfit ?? {}) }, outrun: { ...DEFAULTS.outrun, ...(raw.outrun ?? {}) } };
+      return { ...DEFAULTS, ...raw, keys: mk.keys, keysNote: raw.keysNote ?? (mk.custom ? true : undefined), padKeys: migratePadKeys(raw.padKeys), outfit: { ...DEFAULTS.outfit, ...(raw.outfit ?? {}) }, outrun: { ...DEFAULTS.outrun, ...(raw.outrun ?? {}) } };
     }
     // migrate the older separate keys
-    const s = { ...DEFAULTS, keys: migrateKeys(undefined).keys, outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } };
+    const s = { ...DEFAULTS, keys: migrateKeys(undefined).keys, padKeys: migratePadKeys(undefined), outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } };
     const a = JSON.parse(localStorage.getItem('audio') ?? '{}');
     if (typeof a.sfx === 'number') s.sfx = a.sfx;
     if (typeof a.music === 'number') s.music = a.music;
     if (localStorage.getItem('gfx') === 'low') { s.quality = 'low'; s.shadows = false; s.treeDensity = 0.3; s.pixelRatio = 1; }
     return s;
-  } catch { return { ...DEFAULTS, keys: migrateKeys(undefined).keys, outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } }; }
+  } catch { return { ...DEFAULTS, keys: migrateKeys(undefined).keys, padKeys: migratePadKeys(undefined), outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } }; }
 }
 
 export function saveSettings(s: Settings): void {
@@ -156,7 +171,7 @@ export function saveSettings(s: Settings): void {
 }
 
 export function resetSettings(): Settings {
-  const s = { ...DEFAULTS, keys: migrateKeys(undefined).keys, outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } };
+  const s = { ...DEFAULTS, keys: migrateKeys(undefined).keys, padKeys: migratePadKeys(undefined), outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } };
   saveSettings(s);
   return s;
 }
@@ -223,7 +238,28 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Default camera</label><select data-k="camera"><option value="chase">Chase</option><option value="close">Close</option><option value="far">Far (angled)</option><option value="cine">Cinematic</option><option value="fp">First person</option><option value="helmet">Helmet cam</option></select></div>
       <div class="keys"></div>
       <div class="row"><button data-a="keys-reset">Reset keys to defaults</button></div>
-      <div class="hint">Click a slot, then press a key (or the right mouse button). Esc cancels, Delete clears the slot. A gamepad works too: left stick steer and lean, A jump, X squat / grab, RT / LT tuck / brake, RB / LB presses, B skate, Y interact, right stick look, R3 look behind, D-pad camera / map / piste / track, Start pause, Select replay.</div>
+      <div class="hint">Click a slot, then press a key (or the right mouse button). Esc cancels, Delete clears the slot.</div>
+      <div class="hint" style="margin-top:14px;font-weight:600;opacity:.9">Controller</div>
+      <div class="hint">The left stick steers and leans (up / down tuck and brake), the right stick looks, Options / Start or the PS button pauses. In menus: D-pad or stick to move, Cross / A to pick, Circle / B to go back, L1 / R1 for the tabs.</div>
+      <div class="row"><label>Vibration</label><input type="range" data-k="vibration" min="0" max="1" step="0.05"><span class="val" data-v="vibration"></span></div>
+      <div class="row"><label>Stick dead zone</label><input type="range" data-k="padDead" min="0.05" max="0.4" step="0.01"><span class="val" data-v="padDead"></span></div>
+      <div class="row"><label>Trigger dead zone</label><input type="range" data-k="padTrigDead" min="0.05" max="0.7" step="0.05"><span class="val" data-v="padTrigDead"></span></div>
+      <div class="row"><label>Look speed</label><input type="range" data-k="lookSens" min="0.25" max="3" step="0.05"><span class="val" data-v="lookSens"></span></div>
+      <div class="row"><label>Invert look Y</label><input type="checkbox" data-k="invertLookY"></div>
+      <div class="padkeys"></div>
+      <div class="row"><button data-a="pad-reset">Reset controller buttons</button></div>
+      <div class="hint">Click a slot (or press Cross / A on it), then press a controller button. Esc or 6 s cancels, Delete clears the slot.</div>
+      <div class="hint" style="margin-top:14px;font-weight:600;opacity:.9">DualSense extras</div>
+      <div class="hid">
+        <div class="hint">Lightbar, adaptive triggers, gyro look and touchpad swipes, over WebHID (Chrome or Edge, USB or Bluetooth). Click the button with the mouse and pick the controller.</div>
+        <div class="row"><button data-a="hid">Connect DualSense extras</button></div>
+        <div class="hint" data-hid-status></div>
+        <div class="row"><label>Adaptive triggers</label><input type="checkbox" data-k="padTriggers"></div>
+        <div class="row"><label>Lightbar</label><input type="checkbox" data-k="padLightbar"></div>
+        <div class="row"><label>Gyro look</label><input type="checkbox" data-k="padGyro"></div>
+        <div class="row"><label>Gyro speed</label><input type="range" data-k="gyroSens" min="0.25" max="3" step="0.05"><span class="val" data-v="gyroSens"></span></div>
+      </div>
+      <div class="hint" data-hid-none>DualSense extras need Chrome or Edge on https or localhost (WebHID).</div>
     </div>
     <div class="tab hidden" data-t="rider">
       <div class="row"><label>Ride</label><select data-k="discipline"><option value="board">Snowboard</option><option value="ski">Skis</option></select></div>
@@ -249,6 +285,11 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
     host.querySelectorAll<HTMLElement>('.tab').forEach((t) => t.classList.toggle('hidden', t.dataset.t !== b.dataset.t));
   }));
   let cancelListen: (() => void) | null = null; // the one key slot waiting for a press, if any
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  const showVals = () => {
+    const vals: Record<string, string> = { fov: `${s.fov}°`, vibration: s.vibration > 0 ? pct(s.vibration) : 'off', padDead: pct(s.padDead), padTrigDead: pct(s.padTrigDead), lookSens: `${s.lookSens.toFixed(2)}x`, gyroSens: `${s.gyroSens.toFixed(2)}x` };
+    for (const k in vals) { const el = host.querySelector(`[data-v="${k}"]`); if (el) el.textContent = vals[k]; }
+  };
   const fill = () => {
     cancelListen?.();
     host.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-k]').forEach((el) => {
@@ -256,7 +297,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       if (el instanceof HTMLInputElement && el.type === 'checkbox') el.checked = !!s[k];
       else el.value = String(s[k]);
     });
-    const fv = host.querySelector('[data-v="fov"]'); if (fv) fv.textContent = `${s.fov}°`;
+    showVals();
     const keys = host.querySelector('.keys')!;
     // FEAT-124: grouped by context, two slots per action, conflicts marked
     const owner = new Map<string, string[]>();
@@ -290,8 +331,70 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       cancelListen = stop;
       window.addEventListener('keydown', onKey, true);
     }));
+    fillPad();
+  };
+  // FEAT-137: controller buttons, two slots per action like the keys
+  const fillPad = () => {
+    const kind = activePad()?.kind ?? lastPadKind ?? 'ps';
+    const padHost = host.querySelector('.padkeys')!;
+    const owner = new Map<number, string[]>();
+    for (const act in s.padKeys) for (const b of s.padKeys[act] ?? []) owner.set(b, [...(owner.get(b) ?? []), act]);
+    const slot = (act: string, i: number) => {
+      const b = s.padKeys[act]?.[i];
+      const clash = b !== undefined && (owner.get(b)?.length ?? 0) > 1;
+      const title = b === undefined ? 'unbound' : padButtonName(kind, b) + (clash ? ' (also: ' + owner.get(b)!.filter((x) => x !== act).join(', ') + ')' : '');
+      return `<button class="key pad${clash ? ' clash' : ''}" data-paction="${act}" data-slot="${i}" title="${title}">${b === undefined ? '-' : padGlyph(kind, b)}</button>`;
+    };
+    padHost.innerHTML = PAD_GROUPS.map(([g, list]) => `<div class="hint" style="margin-top:10px;font-weight:600;opacity:.9">${g}</div>` +
+      list.map(([act, label]) => `<div class="row"><label>${label}</label>${slot(act, 0)}${slot(act, 1)}</div>`).join('')).join('');
+    padHost.querySelectorAll<HTMLButtonElement>('button.key').forEach((btn) => btn.addEventListener('click', () => {
+      cancelListen?.();
+      btn.textContent = '...'; btn.classList.add('listening');
+      const act = btn.dataset.paction!, i = Number(btn.dataset.slot);
+      const set = (b: number | null) => {
+        const arr = [...(s.padKeys[act] ?? [])];
+        if (b === null) arr.splice(i, 1); else arr[i] = b;
+        s.padKeys[act] = arr.filter((x) => x !== undefined && x !== null).slice(0, 2);
+        saveSettings(s); onChange(s, 'padKeys');
+      };
+      // wait for every button to be let go (the Cross that opened the slot), then take the next press
+      let armed = false, raf = 0;
+      const t0 = performance.now();
+      const poll = () => {
+        const p = activePad();
+        const down = p ? p.buttons.findIndex((x, j) => j !== 6 && j !== 7 ? x.pressed : x.value > 0.5) : -1;
+        if (!armed) { if (down < 0) armed = true; }
+        else if (down >= 0) {
+          if (!PAUSE_BUTTONS.includes(down)) set(down);
+          done(); return;
+        }
+        if (performance.now() - t0 > 6000) { done(); return; }
+        raf = requestAnimationFrame(poll);
+      };
+      const onKey = (e: KeyboardEvent) => { e.preventDefault(); e.stopPropagation(); if (e.code === 'Delete' || e.code === 'Backspace') set(null); done(); };
+      const stop = () => { cancelAnimationFrame(raf); window.removeEventListener('keydown', onKey, true); padUi.listening = false; cancelListen = null; };
+      const done = () => { stop(); fill(); };
+      cancelListen = stop;
+      padUi.listening = true;
+      window.addEventListener('keydown', onKey, true);
+      raf = requestAnimationFrame(poll);
+    }));
   };
   fill();
+  // FEAT-137: the DualSense extras (only where WebHID is)
+  const hidBox = host.querySelector<HTMLElement>('.hid')!, hidNone = host.querySelector<HTMLElement>('[data-hid-none]')!;
+  hidBox.style.display = DualSenseHID.supported ? '' : 'none';
+  hidNone.style.display = DualSenseHID.supported ? 'none' : '';
+  const hidStatus = host.querySelector<HTMLElement>('[data-hid-status]')!;
+  const hidBtn = host.querySelector<HTMLButtonElement>('[data-a="hid"]')!;
+  const showHid = () => {
+    hidStatus.textContent = dualSense.status || (dualSense.connected ? 'Connected' : 'Not connected');
+    hidBtn.textContent = dualSense.connected ? 'Disconnect DualSense extras' : 'Connect DualSense extras';
+  };
+  showHid();
+  const prevStatus = dualSense.onStatus;
+  dualSense.onStatus = (st) => { prevStatus?.(st); if (host.isConnected) showHid(); };
+  hidBtn.addEventListener('click', () => { void (dualSense.connected ? dualSense.disconnect() : dualSense.connect()).then(showHid); });
   host.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-k]').forEach((el) => {
     el.addEventListener('input', () => {
       const k = el.dataset.k as keyof Settings;
@@ -306,7 +409,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       saveSettings(s);
       onChange(s, k);
       if (k === 'quality') fill();
-      const fv = host.querySelector('[data-v="fov"]'); if (fv) fv.textContent = `${s.fov}°`;
+      showVals();
     });
   });
   // outfit
@@ -326,9 +429,12 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
   host.querySelector('[data-a="keys-reset"]')!.addEventListener('click', () => {
     s.keys = migrateKeys(undefined).keys; s.keysNote = false; saveSettings(s); fill(); onChange(s, 'keys');
   });
+  host.querySelector('[data-a="pad-reset"]')!.addEventListener('click', () => {
+    s.padKeys = migratePadKeys(undefined); saveSettings(s); fill(); onChange(s, 'padKeys');
+  });
   host.querySelector('[data-a="reset"]')!.addEventListener('click', () => {
     const d = resetSettings();
-    Object.assign(s, d, { keys: { ...d.keys }, outfit: { ...d.outfit } });
+    Object.assign(s, d, { keys: { ...d.keys }, padKeys: migratePadKeys(undefined), outfit: { ...d.outfit } });
     fill(); fillOutfit(); onChange(s, 'reset');
   });
 }

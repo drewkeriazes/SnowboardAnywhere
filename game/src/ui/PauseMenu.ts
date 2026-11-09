@@ -15,7 +15,7 @@ export class PauseMenu {
     this.el.innerHTML = `
       <div class="panel">
         <div class="eyebrow">Paused</div>
-        <button data-a="resume" class="primary">Resume</button>
+        <button data-a="resume" class="primary" data-pad-back>Resume</button>
         <button data-a="restart">Restart at spawn</button>
         <button data-a="map">Open map</button>
         <button data-a="outrun">Outrun</button>

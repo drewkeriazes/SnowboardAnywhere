@@ -36,7 +36,8 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
         <button data-a="map">Drop in from the map</button>
         <button data-a="settings">Settings</button>
         <div class="settings hidden"></div>
-        <div class="keys">&larr; &rarr; steer &middot; &uarr; tuck &middot; &darr; brake &middot; Space jump &middot; E lift &middot; M map &middot; Esc pause</div>
+        <div class="keys kb-only">&larr; &rarr; steer &middot; &uarr; tuck &middot; &darr; brake &middot; Space jump &middot; E lift &middot; M map &middot; Esc pause</div>
+        <div class="keys pad-only pad-hint"></div>
         ${hostedLine()}
       </div>`;
     document.body.appendChild(wrap);
