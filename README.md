@@ -89,6 +89,16 @@ and sliding off the other way. The HUD shows SWITCH while you do, and spins are 
 ("Backside 180", "Switch frontside 360"). Pick your normal stance in Settings > Rider > Stance:
 Regular (left foot forward) or Goofy (right foot forward).
 
+The snow changes how the board rides (FEAT-053). Groomers are fast and grippy. Off the groomers,
+north-facing bowls, high ground, the trees and anything under a storm hold powder: the board slows
+and floats, turns come round wider, and the nose sinks and digs in when you are slow. Open off-piste
+gets tracked out into chop as the day goes on and rattles the board. High exposed ridges are
+wind-scoured ice, and spring mornings leave the groomers icy: the edge holds less and skids sooner.
+Low sunny faces turn to slush in the afternoon, heavy and slow. Settings > Graphics (Snow conditions:
+Fresh corduroy, Mid-season or Spring; New snow; Weather) and Settings > Game (Time of day) all change it. The HUD names
+the snow under you (Groomed, Powder, Chop, Ice, Slush, Rock); on foot it also shows how deep the
+boots sink.
+
 While you ride, the HUD shows the run you're on, top speed, vertical and distance. After a real
 descent (60 m or more of vertical, ended by boarding a lift, stopping for 4 s or restarting) a run
 card shows time, top speed, distance, vertical, longest air, biggest drop, max g, the named runs

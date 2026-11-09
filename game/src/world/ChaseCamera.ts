@@ -217,7 +217,9 @@ export class ChaseCamera {
     this.shake *= Math.exp(-dt * 7);
     if (!this.camShake) return [0, 0, 0];
     const s = r.surface, spd = Math.hypot(r.vx, r.vy);
-    const rough = r.onGround && !r.onFoot ? (1 - 0.8 * s.groomed) * (1 + 1.5 * Math.min(1, s.rock + s.scree)) * Math.min(1, spd / 25) : 0;
+    // FEAT-053: chop rattles the camera too, powder is soft under the board, ice is smooth
+    const sn = r.snow;
+    const rough = r.onGround && !r.onFoot ? (1 - 0.8 * s.groomed) * (1 + 1.5 * Math.min(1, s.rock + s.scree)) * (1 + 1.2 * sn.chop + 0.8 * r.chop - 0.5 * sn.powder - 0.6 * sn.ice) * Math.min(1, spd / 25) : 0;
     this.rumbleT += dt * (6 + spd * 0.6);
     const t = this.rumbleT, a = rough * 0.03 * scale, sk = this.shake * this.shake * 0.12 * landScale;
     return [

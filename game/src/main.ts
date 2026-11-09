@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Pack } from './pack/Pack';
 import { Terrain } from './terrain/Terrain';
 import { Rider } from './sim/Rider';
+import { snowLabel } from './sim/SnowConditions';
 import { Collider } from './sim/Collider';
 import { Bridges } from './world/Bridges';
 import { Landmarks, landmarkStart } from './world/Landmarks';
@@ -214,8 +215,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const rider = new Rider(pack, collider);
     // on foot (FEAT-067): every foot plant of the skeleton leaves a print and a footstep
     riderView.setPack(pack, collider); // FEAT-046: the crash ragdoll hits trunks, rocks and walls
-    rider.onSkateStroke = () => audio.footstep(rider.surface, rider.speed, 0); // FEAT-085: a crunch per push
-    riderView.onPlant = (p) => { bootprints.add(p, rider.sink); audio.footstep(rider.surface, p.speed, rider.sink); };
+    rider.onSkateStroke = () => audio.footstep(rider.surface, rider.speed, 0, rider.snow); // FEAT-085: a crunch per push
+    riderView.onPlant = (p) => { bootprints.add(p, rider.sink); audio.footstep(rider.surface, p.speed, rider.sink, rider.snow); };
     let boardMsg = '', boardMsgT = 0;
     let boardMsgNote = '', boardNoteT = 25; // FEAT-124: one-time note for players with their own keys
     const liftRide = new LiftRide(pack, lifts, collider);
@@ -865,6 +866,11 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         const day = Math.max(0, Math.min(1, (hour - 8.5) / 6.5));
         const base = SKIED_BASE[settings.snowDay ?? 'mid'];
         terrain.setSkied(base * (0.15 + 0.85 * day * day * (3 - 2 * day)) * (1 - snowCover), settings.snowDay === 'spring' ? 1 : 0);
+        // FEAT-053: the same day drives the snow under the board (powder keeps in the shade and after
+        // a storm, open off-piste gets tracked out, the afternoon sun makes slush, spring mornings ice)
+        const sw = rider.snowWorld;
+        sw.hour = hour; sw.storm = weatherNow === 'storm' ? 1 : weatherNow === 'flurries' ? 0.3 : 0; sw.newSnow = snowCover; sw.day = settings.snowDay ?? 'mid';
+        sw.zLow = zr[0]; sw.zHigh = zr[1];
       }
       rocks.setSnow(Math.min(1, snowCover * 3), snow.wind.x, snow.wind.y); // boulder tops fill three times faster than the slopes
       roads.update(fx, fy);
@@ -930,6 +936,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
       hud.innerHTML =
         `<b>${speedStr(rider.speed)} &nbsp; ${altStr(rider.z)} &nbsp; slope ${rider.slopeDeg.toFixed(0)}&deg;` +
+        // FEAT-053: what the snow is here; on foot, how deep the boots sink in it
+        (rider.onFoot ? ` &nbsp; <span class="dim">snow</span> ${snowLabel(rider.snow.kind).toLowerCase()} &middot; <span class="dim">sink</span> ${settings.units === 'metric' ? (rider.sink * 100).toFixed(0) + ' cm' : (rider.sink * 39.37).toFixed(0) + ' in'}` : rider.onGround && !rider.unstrapped ? ` &nbsp; <span class="dim">${snowLabel(rider.snow.kind)}</span>` : '') +
         (rider.onFoot ? ` &nbsp; ${rider.crawling ? 'SCRAMBLING' : 'ON FOOT'} &nbsp; <span class="dim">sprint</span> ${'&#9646;'.repeat(Math.ceil(rider.stamina / STAMINA * 5))}${'&#9647;'.repeat(5 - Math.ceil(rider.stamina / STAMINA * 5))}` : '') +
         (rider.switch && !rider.unstrapped ? ' &nbsp; SWITCH' : '') + // FEAT-139
         (rider.onGround || rider.onFoot ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') +
@@ -939,7 +947,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}${auto.level ? ' &middot; ' + auto.describe() : ''}</span>` +
         // BUG-053 ?debug: the edge model's numbers for tuning (edge angle, the lateral acceleration it balances, turn radius and rate, the brake's cut and swing)
         (debugHud ? `<br><span class="dim">edge ${(rider.edge * 180 / Math.PI).toFixed(0)}&deg; &middot; aLat ${rider.carveAcc.toFixed(1)} m/s&sup2; (${rider.lateralG.toFixed(2)} g) &middot; R ${Number.isFinite(rider.turnRadius) ? rider.turnRadius.toFixed(0) + ' m' : '&infin;'} &middot; ${(rider.turnRate * 180 / Math.PI).toFixed(0)}&deg;/s` +
-          (rider.brakeAmt > 0 ? ` &middot; brake &Psi; ${(rider.brakePsi * 180 / Math.PI).toFixed(0)}&deg; &gamma; ${(Math.abs(rider.slip) * 180 / Math.PI).toFixed(0)}&deg; ${rider.brakeAcc.toFixed(1)} m/s&sup2; mod ${rider.brakeMod.toFixed(2)}` : '') + '</span>' : '');
+          (rider.brakeAmt > 0 ? ` &middot; brake &Psi; ${(rider.brakePsi * 180 / Math.PI).toFixed(0)}&deg; &gamma; ${(Math.abs(rider.slip) * 180 / Math.PI).toFixed(0)}&deg; ${rider.brakeAcc.toFixed(1)} m/s&sup2; mod ${rider.brakeMod.toFixed(2)}` : '') +
+          // FEAT-053: the snow weights and what they set
+          `<br>snow groomed ${rider.snow.groomed.toFixed(2)} powder ${rider.snow.powder.toFixed(2)} chop ${rider.snow.chop.toFixed(2)} ice ${rider.snow.ice.toFixed(2)} slush ${rider.snow.slush.toFixed(2)} rock ${rider.snow.rock.toFixed(2)} &middot; depth ${(rider.snow.depth * 100).toFixed(0)} cm &middot; grip x${rider.snow.grip.toFixed(2)} &middot; turn x${rider.snow.turn.toFixed(2)} &middot; drag ${rider.snow.drag0.toFixed(2)} + ${rider.snow.drag1.toFixed(4)}v &middot; chop ${rider.chop.toFixed(2)} &middot; sink ${rider.noseSink.toFixed(2)}</span>` : '');
       (window as any).__sim = { rider, riderView, trialWorld, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, eyeAt, outrun, monsters, startOutrun, stopOutrun,
         /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
         setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); } };
