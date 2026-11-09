@@ -98,8 +98,11 @@ the settings tabs, and left / right change a slider or a list. Settings > Contro
 vibration strength (0 is off), the stick and trigger dead zones, the look speed, invert look Y, and two
 slots per action to rebind the buttons (click a slot or press ✕ on it, then press the button).
 
-Rumble: landings (harder the harder you land), crashes, scraping over rock, moguls, time trial
-checkpoints, and the Outrun monster's footsteps as it closes in.
+Rumble: landings (harder the harder you land), crashes, scraping over rock, bumps at speed (moguls,
+rollers, chop; softer on groomers and at a crawl), time trial checkpoints, and the Outrun monster's
+footsteps as it closes in. Holding a nose or tail press hums, then beats faster and harder as the
+balance needle nears either end: a heavy rumble when it is about to catch the loaded end (ease off), a
+light buzz when the board is about to drop flat (lean in more).
 
 **DualSense extras** (Chrome or Edge, USB or Bluetooth): Settings > Controls > Connect DualSense extras,
 clicked with the mouse, opens the browser's device picker; pick the controller. After that it reconnects

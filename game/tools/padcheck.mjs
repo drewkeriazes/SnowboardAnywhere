@@ -8,7 +8,9 @@
 //     switching the tab, Circle closing the panel back onto its button;
 //  3. a headless session: the default buttons (R2 tuck past the trigger dead zone, Cross jump and release,
 //     D-pad right one map press, Options pause), the stick dead zone, a rebound jump, a muted held button,
-//     the corner hints in PlayStation glyphs (keys again after a key press), and rumble effects on a landing and a crash.
+//     the corner hints in PlayStation glyphs (keys again after a key press), rumble effects on a landing and a crash,
+//     and on a scripted rider: a press's hum and its warning beat on the heavy (slam) or light (flat) motor, bumps at
+//     speed (none on a smooth slope, softer at a crawl and on groomed snow).
 // node tools/padcheck.mjs [pack] [--headed]   (run after `npx vite build`; exit 1 on a failed check)
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
@@ -198,6 +200,41 @@ console.log('---- session');
   check('a landing rumbles', fx.land.length > 0 && Math.max(...fx.land) > 0.5, JSON.stringify(fx.land));
   check('a crash rumbles hard', fx.crash.length > 0 && Math.max(...fx.crash) > 0.7, JSON.stringify(fx.crash));
   check('vibration 0 is off', fx.off === 0, String(fx.off));
+  // press balance and bumps, on a scripted rider (deterministic)
+  const pb = await page.evaluate(() => {
+    const fx = window.__sim.padFx;
+    const motors = [];
+    const pad = { gp: { vibrationActuator: { playEffect: (_t, o) => { motors.push([o.strongMagnitude, o.weakMagnitude]); return Promise.resolve(); }, reset: () => Promise.resolve() } } };
+    const rider = (o) => ({ landingShock: 0, crashed: 0, onGround: true, onFoot: false, speed: 12, vz: 0, chop: 0, pressing: false, pressBalance: 0, pressDir: 1, brakeAmt: 0, scrape: 0, surface: { rock: 0, scree: 0, moguls: 0, groomed: 0 }, ...o });
+    const ride = (o, vz = () => 0) => {
+      fx.stop(); fx.strength = 1; motors.length = 0;
+      const r = rider(o);
+      for (let i = 0; i < 90; i++) { r.vz = vz(i / 60); fx.update(1 / 60, pad, { rider: r, riding: true, monsterDist: Infinity, lens: 0 }); }
+      const late = motors.slice(Math.floor(motors.length / 3));
+      return { strong: Math.max(0, ...late.map((m) => m[0])), weak: Math.max(0, ...late.map((m) => m[1])) };
+    };
+    const out = {
+      centre: ride({ pressing: true, pressBalance: 0 }),
+      slam: ride({ pressing: true, pressBalance: 0.9 }),
+      flat: ride({ pressing: true, pressBalance: -0.9 }),
+      tailSlam: ride({ pressing: true, pressDir: -1, pressBalance: -0.9 }),
+      smooth: ride({}, () => -3),
+      bumps: ride({}, (t) => 2 * Math.sin(2 * Math.PI * 2 * t)),
+      bumpsSlow: ride({ speed: 2 }, (t) => 2 * Math.sin(2 * Math.PI * 2 * t)),
+      bumpsGroomed: ride({ surface: { rock: 0, scree: 0, moguls: 0, groomed: 1 } }, (t) => 2 * Math.sin(2 * Math.PI * 2 * t)),
+    };
+    fx.stop(); fx.strength = window.__sim.settings.vibration;
+    return out;
+  });
+  const f2 = (m) => `strong ${m.strong.toFixed(2)} weak ${m.weak.toFixed(2)}`;
+  check('a centred press only hums', pb.centre.strong < 0.05 && pb.centre.weak > 0.03 && pb.centre.weak < 0.2, f2(pb.centre));
+  check('near the slam: the heavy motor beats', pb.slam.strong > 0.5 && pb.slam.weak < 0.2, f2(pb.slam));
+  check('near dropping flat: the light motor beats', pb.flat.weak > 0.5 && pb.flat.strong < 0.1, f2(pb.flat));
+  check('a tail press near its slam: the heavy motor', pb.tailSlam.strong > 0.5, f2(pb.tailSlam));
+  check('a smooth slope at speed is still', pb.smooth.strong < 0.02 && pb.smooth.weak < 0.02, f2(pb.smooth));
+  check('bumps at speed rumble', pb.bumps.strong > 0.4, f2(pb.bumps));
+  check('the same bumps at a crawl, softer', pb.bumpsSlow.strong < pb.bumps.strong * 0.4, `${f2(pb.bumpsSlow)} vs ${pb.bumps.strong.toFixed(2)}`);
+  check('groomed snow, half', Math.abs(pb.bumpsGroomed.strong - pb.bumps.strong * 0.5) < 0.1, `${f2(pb.bumpsGroomed)} vs ${pb.bumps.strong.toFixed(2)}`);
   // the hints follow the hands: a key press brings the keys back, the controller its buttons
   await page.keyboard.press('KeyN');
   const kbHelp = await page.evaluate(() => { window.__step(16); return document.getElementById('help')?.innerHTML ?? ''; });

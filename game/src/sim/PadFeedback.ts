@@ -8,8 +8,10 @@ import type { Rider } from './Rider';
  * connected, through its own motors over WebHID; plus the extras' lightbar and adaptive triggers.
  *
  * Effects: a thump on landings (by `landingShock`), a buzz on a crash, a texture while the board scrapes
- * rock or scree (FEAT-103) or rides moguls, a tick at each time-trial checkpoint, the Outrun monster's
- * footfalls (stronger as it closes in). Lightbar: the goggle lens colour, pulsing red as the monster
+ * rock or scree (FEAT-103), bumps at speed (moguls, rollers, chop: the board's vertical jolt), a press
+ * being balanced (a hum that beats faster and harder as the needle nears either end, the heavy motor
+ * toward the slam, the light one toward dropping flat), a tick at each time-trial checkpoint, the Outrun
+ * monster's footfalls (stronger as it closes in). Lightbar: the goggle lens colour, pulsing red as the monster
  * closes, flashing green on a time-trial best. Triggers: L2 (brake) resists harder the more the edge
  * digs (FEAT-133), R2 (tuck) clicks near the top of its travel.
  */
@@ -18,6 +20,11 @@ interface Pulse { t: number; dur: number; strong: number; weak: number }
 /** How often a continuing rumble is renewed through the Gamepad API (each effect lasts a little longer). */
 const RENEW_S = 0.08;
 const EFFECT_MS = 140;
+/** bumps: the board's vertical jolt (m/s^2, smoothed) where the rumble starts, and how much more is full */
+export const BUMP_A0 = 4, BUMP_A1 = 30;
+/** press: the share of the balance range where the warning starts */
+const PRESS_WARN = 0.35;
+const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 export interface PadFxFrame {
   rider: Rider;
@@ -39,7 +46,10 @@ export class PadFeedback {
   private renew = 0;
   private lastStrong = -1; private lastWeak = -1;
   private prevShock = 0; private prevCrash = 0;
-  private mogulPhase = 0;
+  /** bumps: last frame's vertical speed on the snow (NaN off it), the smoothed jolt, its envelope */
+  private vzPrev = NaN; jolt = 0; private bumpEnv = 0;
+  private prevChop = 0;
+  private pressPhase = 0; private prevPressing = false;
   private flashT = 0; private t = 0;
   private pad: PadState | null = null;
 
@@ -69,19 +79,40 @@ export class PadFeedback {
     this.prevShock = r.landingShock;
     if (r.crashed > 0 && this.prevCrash <= 0) this.pulse(0.35, 1, 0.8);
     this.prevCrash = r.crashed;
-    // textures: rock and scree under the board (a gritty high buzz), moguls (a low thud each bump)
+    // textures: rock and scree under the board (a gritty high buzz)
     let ts = 0, tw = 0;
-    if (f.riding && r.onGround && !r.onFoot && r.speed > 1) {
+    const onSnow = f.riding && r.onGround && !r.onFoot;
+    if (onSnow && r.speed > 1) {
       const v = Math.min(1, r.speed / 18);
       const rock = Math.min(1, r.surface.rock + 0.6 * r.surface.scree);
       if (rock > 0.05) { tw += rock * v * (0.35 + 0.35 * Math.random()); ts += 0.25 * rock * v; }
-      const m = Math.min(1, r.surface.moguls / 0.4);
-      if (m > 0.05) {
-        this.mogulPhase += r.speed * dt / 4.5; // a bump every 4.5 m or so
-        const bump = Math.pow(0.5 + 0.5 * Math.sin(this.mogulPhase * Math.PI * 2), 6);
-        ts += 0.5 * m * Math.min(1, r.speed / 10) * bump;
-      }
     }
+    // bumps at speed: on the snow vz is the surface's vertical speed at every physics step, so its rate of
+    // change is how hard the board is being thrown up and dropped (moguls, rollers, lips); smoothed over
+    // about 70 ms so frames that do not line up with the 120 Hz steps don't flicker it
+    if (onSnow && dt > 0) {
+      if (!Number.isNaN(this.vzPrev)) this.jolt += (Math.abs(r.vz - this.vzPrev) / dt - this.jolt) * Math.min(1, dt * 15);
+      this.vzPrev = r.vz;
+    } else { this.vzPrev = NaN; this.jolt *= Math.exp(-dt * 15); }
+    // a quick rise (a roller at 20 m/s is a light thrum, a mogul line close to full), less at a crawl
+    // (groomed snow half: smoother under the board, and it keeps the elevation model's noise out of a fast groomer)
+    const bump = onSnow ? Math.pow(Math.max(0, Math.min(1, (this.jolt - BUMP_A0) / BUMP_A1)), 0.7) * Math.min(1, r.speed / 8) * (1 - 0.5 * r.surface.groomed) : 0;
+    this.bumpEnv = Math.max(this.bumpEnv * Math.exp(-dt * 10), bump);
+    ts += 0.8 * this.bumpEnv; tw += 0.25 * this.bumpEnv;
+    // chop: each rattle of the board in tracked-out snow
+    if (onSnow && r.chop > this.prevChop + 0.05) { const c = Math.min(1, (r.chop - this.prevChop) * 2); this.pulse(0.06, 0.25 * c, 0.45 * c); }
+    this.prevChop = r.chop;
+    // a press being balanced: a light hum, then a beat that quickens and hardens toward either end; the heavy
+    // motor toward the loaded end catching (a slam), the light one toward the board dropping flat
+    if (onSnow && r.pressing) {
+      if (!this.prevPressing) this.pulse(0.06, 0.15, 0.3);
+      const over = r.pressBalance * r.pressDir, warn = smooth(PRESS_WARN, 1, Math.abs(over));
+      this.pressPhase += dt * (1.5 + 8.5 * warn);
+      const beat = Math.pow(0.5 + 0.5 * Math.sin(this.pressPhase * Math.PI * 2), 2);
+      tw += 0.07;
+      if (over > 0) ts += warn * (0.25 + 0.6 * beat); else tw += warn * (0.25 + 0.6 * beat);
+    } else if (this.prevPressing && r.crashed <= 0) this.pulse(0.08, 0.1, 0.35); // the board settles back flat
+    this.prevPressing = onSnow && r.pressing;
     this.texStrong = ts; this.texWeak = tw;
     // combine
     let s = ts, w = tw;
@@ -103,7 +134,7 @@ export class PadFeedback {
     if (dualSense.connected) { dualSense.setTriggers(triggerOff(), triggerOff()); dualSense.flush(); }
   }
   /** Session over. */
-  stop(): void { this.idle(this.pad); this.prevShock = 0; this.prevCrash = 0; }
+  stop(): void { this.idle(this.pad); this.prevShock = 0; this.prevCrash = 0; this.vzPrev = NaN; this.jolt = this.bumpEnv = 0; this.prevPressing = false; this.prevChop = 0; }
 
   private output(dt: number, strong: number, weak: number): void {
     if (dualSense.live) { dualSense.setRumble(strong, weak); return; }
