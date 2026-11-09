@@ -15,6 +15,10 @@ const EDGE_OFF = 0.13, SKI_EDGE_OFF = 0.05, EDGE_PIVOT_ROLL = 0.15;
 /** FEAT-118: board flex spring: natural frequency (rad/s, about 0.3 s a cycle) and damping ratio
  *  (0.45 overshoots about 20 %, so a full load snaps past flat to about -0.15 on the pop) */
 const FLEX_W = 21, FLEX_ZETA = 0.45;
+/** FEAT-140: a held press bends the board this much (share of full flex, the free tip about 22 cm up;
+ *  0.6 before), the bend follows the balance by this share at the edge (deeper toward the loaded
+ *  end, flatter toward the other), and never past BEND_MAX (the mesh's bounding sphere allows ~1.18) */
+const PRESS_BEND = 0.8, BAL_BEND = 0.5, BEND_MAX = 1.15;
 /** BUG-047: the hip joint stays this far above the deck under it (the glutes hang 0.1 to 0.15 m below
  *  the joint). FEAT-125: on a full press the hips move this far toward the loaded end (m), reached
  *  at this much bend (a full lean without a charge bends the board 0.6) */
@@ -668,6 +672,9 @@ export class RiderView {
       // The load grows with the lean and the jump charge and lets go in the air (the pop).
       this.rig.board.rotation.set(0, 0, -ex);
       let target = seated || !r.onGround ? 0 : Math.abs(L) * (0.6 + 0.4 * Math.min(1, r.jumpCharge));
+      // FEAT-140: a balanced press bends deeper, and deeper still as the balance runs to the loaded end
+      // (flatter toward the other end; a jump charge still adds its load on top)
+      if (r.pressing && r.onGround && !seated) target = Math.min(BEND_MAX, Math.abs(L) * (PRESS_BEND * (1 + BAL_BEND * r.pressBalance * r.pressDir) + 0.4 * Math.min(1, r.jumpCharge)));
       // BUG-048: a lean to the other end first lets the board come back to flat, and only then bends it
       // the other way (switching while still bent swapped nose-up for tail-up in one frame)
       if (Math.abs(L) > 0.01 && Math.sign(L) !== this.flexDir) {
