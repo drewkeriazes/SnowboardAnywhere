@@ -351,14 +351,14 @@ export class GameAudio {
    * tiny pitch chirp), powder whumps (low and soft, deeper the more the boot sinks), ice and rock
    * scrape (high and dry). A sprint lands harder.
    */
-  footstep(s: SurfaceInfo, speed: number, sink: number, snow?: SnowState): void {
+  footstep(s: SurfaceInfo, speed: number, sink: number, snow: SnowState): void {
     if (!this.ctx) return;
-    // FEAT-053: with the snow state, ice scrapes like rock, slush squelches, chop is a soft crunch
-    const hard = snow ? Math.min(1, s.rock + s.scree + 0.8 * snow.ice) : Math.min(1, s.rock + s.scree);
-    const groomed = snow ? snow.groomed + 0.5 * snow.chop : s.groomed * (1 - hard);
-    const powder = snow ? snow.powder + 0.5 * snow.chop : Math.max(0, 1 - groomed - hard);
+    // FEAT-053: ice scrapes like rock, slush squelches, chop is a soft crunch
+    const hard = Math.min(1, s.rock + s.scree + 0.8 * snow.ice);
+    const groomed = snow.groomed + 0.5 * snow.chop;
+    const powder = snow.powder + 0.5 * snow.chop;
     const g = 0.5 + 0.5 * Math.min(1, speed / 3.8);
-    if (snow && snow.slush > 0.3) this.burst('lowpass', 420, 0.12, 0.3 * snow.slush * g, 0.5, 200);
+    if (snow.slush > 0.3) this.burst('lowpass', 420, 0.12, 0.3 * snow.slush * g, 0.5, 200);
     if (groomed > 0.3) {
       this.burst('bandpass', 2600, 0.09, 0.22 * groomed * g, 2.2, 1800);
       this.tone(1400 + Math.random() * 500, 0.05, 0.025 * groomed * g, 'triangle', 1900);
