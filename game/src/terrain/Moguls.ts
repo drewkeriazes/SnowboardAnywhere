@@ -110,7 +110,7 @@ function mogulEval(x: number, y: number, amp: number, fallX: number, fallY: numb
     const A = k * (u + creepM) + j1, B = k * v + j2;
     const sA = Math.sin(A), sB = Math.sin(B);
     const s = 0.5 + 0.5 * sA * sB;
-    const e = Math.exp(CELL_SMAX * Math.pow(s, 1.6));
+    const e = Math.exp(CELL_SMAX * Math.pow(Math.max(s, 1e-6), 1.6)); // same guard as MOGUL_GLSL
     acc += w * e;
     if (out) {
       // d(s^1.6) = 0.8 s^0.6 df, with df from u = (fx, fy) and v = (-fy, fx)
@@ -167,11 +167,14 @@ export const MOGUL_GLSL = /* glsl */ `
       vec2 dwo = mix(-dw, dw, o);
       float wc = wo.x * wo.y;
       vec2 dwc = vec2(dwo.x * wo.y, wo.x * dwo.y);
+      // outside the 8 m blend bands a neighbour's weight and its slope are exactly 0: skip its trig
+      if (wc <= 0.0 && dwc.x == 0.0 && dwc.y == 0.0) continue;
       vec2 d = pxy - (gi + o + 0.5) * ${MOGUL_CELL.toFixed(1)};
       float A = k * (dot(d, fd) + creep) + j1, B = k * (-d.x * fd.y + d.y * fd.x) + j2;
       float sA = sin(A), sB = sin(B), cA = cos(A), cB = cos(B);
       float s = 0.5 + 0.5 * sA * sB;
-      float e = exp(${CELL_SMAX.toFixed(1)} * pow(s, 1.6));
+      // rounding can take s a hair below 0, where pow is undefined
+      float e = exp(${CELL_SMAX.toFixed(1)} * pow(max(s, 1e-6), 1.6));
       float q = 0.8 * pow(max(s, 1e-6), 0.6) * k;
       vec2 dh = q * vec2(cA * sB * fd.x - sA * cB * fd.y, cA * sB * fd.y + sA * cB * fd.x);
       acc += wc * e;
