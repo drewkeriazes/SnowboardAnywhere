@@ -16,6 +16,8 @@ export interface Input {
   skate?: boolean;
   /** FEAT-112: -1 lean back (nose up, ollie) .. +1 lean forward (tail up, nollie) */
   lean?: number;
+  /** FEAT-140: weight forward (+1, W or the stick up) or back (-1) to balance a press; Controls sends W / S here instead of tuck / brake while a press key is held on the snow */
+  balance?: number;
 }
 
 export interface SurfaceInfo {
@@ -201,6 +203,30 @@ const SKATE_ACC = 4.2, SKATE_MAX = 5.5, SKATE_SLOPE = 10, SKATE_PERIOD = 0.6;
  * ollie / nollie (|lean| > 0.5 at release), and the pitch rate it leaves (rad/s per unit lean) */
 const LEAN_IN = 0.2, PRESS_GRIP = 0.35, PRESS_DRAG = 0.05, OLLIE_POP = 1.3, OLLIE_PITCH = 1.2;
 
+/** FEAT-140: how a held press ends: let go (or left the snow), dropped flat (under-pressed), slammed or stalled (over-pressed) */
+export type PressEnd = 'clean' | 'flat' | 'slam' | 'stall';
+/** FEAT-140: Settings > Game > Press balance */
+export type PressMode = 'on' | 'easy' | 'off';
+/**
+ * FEAT-140 press balance, in needle units per second (the needle runs -1 .. 1, + toward the
+ * heading's front end): the base drift, the share it grows per second held and per m/s of speed,
+ * the runaway rate off centre (an inverted pendulum, so a needle off centre keeps going), the
+ * jitter at full bumps (moguls, crud), a random push of PB_PUSH every PB_GAP s (min, max), full
+ * W / S, and the slowest the loaded end slams instead of stalling (m/s). Tuned with a standalone
+ * sim so a keyboard press lasts about 3 to 5 s on a groomer at 10 m/s, 6 to 8 s with care, and
+ * Easy roughly four times longer.
+ */
+const PB_DRIFT = 0.2, PB_HOLD = 0.35, PB_SPEED = 0.04, PB_UNSTABLE = 1.0, PB_BUMP = 2.4, PB_PUSH = 0.35, PB_CORRECT = 1.5, PB_STALL = 3;
+const PB_GAP = [0.8, 2.2] as const, PB_PUSH_T = 0.15;
+/** FEAT-140 Easy: drift, jitter and push scaled by PB_EASY, the runaway by PB_EASY_UNSTABLE */
+const PB_EASY = 0.5, PB_EASY_UNSTABLE = 0.6;
+/** FEAT-140: vertical acceleration through the board counted as full bumps (m/s^2), the bumps counted
+ *  in ungroomed snow, the drift added at full bumps (share), and the longest hop (s) a press rides
+ *  through (a roller or a mogul; longer is a jump and ends it) */
+const PB_BUMP_ACC = 15, PB_CRUD = 0.35, PB_BUMP_DRIFT = 2, PB_AIR = 0.3;
+/** FEAT-140: a press held shorter than this (s) ends without a report */
+export const PRESS_MIN_REPORT = 0.5;
+
 export class Rider {
   x = 0; y = 0; z = 0; // position, local metres (z up)
   vx = 0; vy = 0; vz = 0;
@@ -246,6 +272,23 @@ export class Rider {
   /** FEAT-085: skating now, the stroke phase (0..1, a push at 0), and a callback on each push for sound */
   /** FEAT-112: the board's lean, eased: -1 nose up (tail loaded) .. +1 tail up (nose loaded) */
   lean = 0;
+  // ---- FEAT-140 press balance
+  /** Settings > Game > Press balance (main sets it) */
+  pressMode: PressMode = 'on';
+  /** a press is being held and balanced (|lean| > 0.5 on the snow) */
+  pressing = false;
+  /** the balance needle, -1 .. 1, 0 = the sweet spot, + toward the heading's front end (W) */
+  pressBalance = 0;
+  /** the loaded end of the press being held: +1 the front (nose press), -1 the back (tail press) */
+  pressDir = 0;
+  /** seconds and metres the press has been held */
+  pressT = 0; pressDist = 0;
+  /** called when a press ends (how, which end, s, m, riding switch); one held under PRESS_MIN_REPORT is not reported */
+  onPress: ((end: PressEnd, dir: number, t: number, dist: number, switchStance: boolean) => void) | null = null;
+  /** lost it: the lean stays flat until the press key (this sign) is let go */
+  private pressLock = 0;
+  private pbDrift = 1; private pbPushT = 0; private pbPushLeft = 0; private pbPushV = 0;
+  private pbNoise = 0; private pbNoiseTo = 0; private pbNoiseT = 0; private pbBump = 0; private pbVz = 0;
   skating = false;
   skatePhase = 0;
   onSkateStroke: (() => void) | null = null;
@@ -350,6 +393,7 @@ export class Rider {
     this.heading += Math.PI; this.boardYaw += Math.PI; // the board was already posed this step
     this.edge = -this.edge; this.edgeTarget = -this.edgeTarget;
     this.lateralG = -this.lateralG; this.lean = -this.lean;
+    this.pressBalance = -this.pressBalance; this.pressDir = -this.pressDir; this.pbDrift = -this.pbDrift; this.pressLock = -this.pressLock; // FEAT-140
     if (this.discipline === 'board') this.switch = !this.switch;
   }
 
@@ -358,7 +402,7 @@ export class Rider {
     this.vx = this.vy = this.vz = 0;
     this.heading = heading; this.switch = false; this.onGround = true; this.airTime = 0; this.jumpCharge = 0;
     this.crashed = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
-    this.edge = 0; this.edgeTarget = 0; this.leanTarget = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.landingShock = 0;
+    this.edge = 0; this.edgeTarget = 0; this.leanTarget = 0; this.lean = 0; this.pressing = false; this.pressBalance = 0; this.pressDir = 0; this.pressLock = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.landingShock = 0;
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
     this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false; this.mantle = 0; this.stepT = 0;
     this.sprinting = false; this.crawling = false; this.slipT = 0; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
@@ -429,8 +473,12 @@ export class Rider {
       const fb = this.pack.coarseFallbacks;
       // FEAT-124: the squat key grabs in the air and sprints on foot, so it only squats riding on the snow
       this.easeSquat(STEP, !!input.squat && this.onGround && !this.onFoot);
-      this.leanTarget = this.onGround ? input.lean ?? 0 : 0;
+      // FEAT-140: a lost press keeps the board flat until the press key is let go
+      const want = input.lean ?? 0;
+      if (this.pressLock && Math.sign(want) !== this.pressLock) this.pressLock = 0;
+      this.leanTarget = (this.onGround || (this.pressing && this.airTime < PB_AIR)) && !this.pressLock ? want : 0;
       this.lean += (this.leanTarget - this.lean) * Math.min(1, STEP / LEAN_IN); // snaps back level in the air
+      this.pressStep(STEP, input);
       this.step(STEP, input);
       this.steps++;
       if (this.pack.coarseFallbacks !== fb) this.onCoarse();
@@ -439,6 +487,68 @@ export class Rider {
     }
     this.end[0] = this.x; this.end[1] = this.y; this.end[2] = this.z; this.end[3] = this.heading;
     this.alpha = this.accum / STEP;
+  }
+
+  /**
+   * FEAT-140: balance a held nose or tail press. The needle drifts toward one end, faster the longer
+   * the press is held, the faster the rider goes and the bumpier the snow, with a random push now and
+   * then; off centre it runs away on its own. W / S (input.balance) push it back. Off the loaded end
+   * the board catches (a crash, or a stall below PB_STALL); off the other end it drops flat.
+   */
+  private pressStep(dt: number, input: Input): void {
+    const live = this.pressMode !== 'off' && this.discipline === 'board' && this.onGround && !this.unstrapped && this.crashed <= 0;
+    const L = this.lean;
+    if (!this.pressing) {
+      // a press starts once the lean passes half way (not the lean a jump charge's W / S sets)
+      if (!live || Math.abs(L) <= 0.5 || Math.sign(this.leanTarget) !== Math.sign(L) || input.jumpHeld) return;
+      this.pressing = true; this.pressDir = Math.sign(L); this.pressBalance = 0; this.pressT = 0; this.pressDist = 0;
+      // the step count too, so the first press after every restart does not drift the same way
+      this.pbDrift = (this.rng.next() + this.steps * 0.618034) % 1 < 0.5 ? -1 : 1;
+      this.pbPushT = this.pbGap(); this.pbPushLeft = 0;
+      this.pbNoise = this.pbNoiseTo = 0; this.pbNoiseT = 0; this.pbBump = 0; this.pbVz = this.vz;
+      return;
+    }
+    if (this.crashed > 0) { this.endPress(null); return; } // crashed into something else
+    if (!this.onGround && this.airTime < PB_AIR && this.crashed <= 0) return; // a short hop: the press rides through it
+    if (!live || Math.abs(L) < 0.5 || Math.sign(L) !== this.pressDir) { this.endPress('clean'); return; } // let go, or left the snow
+    const easy = this.pressMode === 'easy', e = easy ? PB_EASY : 1, spd = this.speed;
+    this.pressT += dt; this.pressDist += spd * dt;
+    // bumps: vertical acceleration through the board, plus crud off the groomers at speed
+    const az = Math.abs(this.vz - this.pbVz) / dt; this.pbVz = this.vz;
+    const crud = PB_CRUD * (1 - this.surface.groomed) * Math.min(1, spd / 12);
+    this.pbBump += (Math.min(1, az / PB_BUMP_ACC + crud) - this.pbBump) * Math.min(1, dt * 4);
+    this.pbNoiseT -= dt;
+    if (this.pbNoiseT <= 0) { this.pbNoiseT = 0.15; this.pbNoiseTo = this.rng.next() * 2 - 1; }
+    this.pbNoise += (this.pbNoiseTo - this.pbNoise) * Math.min(1, dt * 8);
+    // a random push now and then, and the drift may turn to the other end with it
+    this.pbPushT -= dt;
+    if (this.pbPushT <= 0) {
+      this.pbPushT = this.pbGap(); this.pbPushLeft = PB_PUSH_T;
+      this.pbPushV = (this.rng.next() < 0.5 ? -1 : 1) * PB_PUSH * e / PB_PUSH_T;
+      if (this.rng.next() < 0.4) this.pbDrift = -this.pbDrift;
+    }
+    const push = this.pbPushLeft > 0 ? this.pbPushV : 0;
+    this.pbPushLeft -= dt;
+    const drift = PB_DRIFT * e * (1 + PB_HOLD * this.pressT) * (1 + PB_SPEED * spd) * (1 + PB_BUMP_DRIFT * this.pbBump) * this.pbDrift;
+    const corr = Math.max(-1, Math.min(1, input.balance ?? 0));
+    const b = this.pressBalance;
+    this.pressBalance = b + (drift + PB_UNSTABLE * (easy ? PB_EASY_UNSTABLE : 1) * b + PB_BUMP * e * this.pbBump * this.pbNoise + push + PB_CORRECT * corr) * dt;
+    const over = this.pressBalance * this.pressDir;
+    if (over >= 1) {
+      // over-pressed: the loaded end catches; slow, the board just stops
+      if (spd < PB_STALL) { this.vx *= 0.2; this.vy *= 0.2; this.speed *= 0.2; this.endPress('stall'); }
+      else { this.crashed = 1.3; this.endPress('slam'); }
+    } else if (over <= -1) this.endPress('flat'); // under-pressed: the board drops flat
+  }
+
+  private pbGap(): number { return PB_GAP[0] + this.rng.next() * (PB_GAP[1] - PB_GAP[0]); }
+
+  /** FEAT-140: end the press (null: silently), keep the lean flat if it was lost, report it */
+  private endPress(how: PressEnd | null): void {
+    const dir = this.pressDir, t = this.pressT, d = this.pressDist;
+    this.pressing = false; this.pressBalance = 0;
+    if (how && how !== 'clean') { this.pressLock = dir; this.leanTarget = 0; }
+    if (how && t >= PRESS_MIN_REPORT) this.onPress?.(how, dir, t, d, this.switch);
   }
 
   /** FEAT-111: blend into or out of the squat, and time how long ago a deep squat was released */

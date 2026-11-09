@@ -28,6 +28,9 @@ const FLAIL_BASE = 0.04, FLAIL_HOLD = 0.13, FLAIL_RAMP = 2.5, CORR_W = 11, CORR_
 /** FEAT-125 wobble growth: share added per m/s of speed (up to FLAIL_VMAX m/s), share added at full
  *  bumps, and the vertical acceleration counted as full bumps (m/s^2, about 1.5 g) */
 const FLAIL_SPEED = 0.04, FLAIL_VMAX = 15, FLAIL_BUMP = 1.5, BUMP_ACC = 15;
+/** FEAT-140: the wobble added as the press balance runs out to either end (share at the end), and
+ *  the extra pelvis roll toward the end it runs to (rad at the end) */
+const FLAIL_BAL = 1.6, BAL_ROLL = 0.17;
 /** FEAT-125 wobble shape: the fore-aft swing as a share of the up-down wave, and the elbow's bend
  *  (deg) per rad of wave (each elbow follows the other arm's wave, so the two never move in step) */
 const FLAIL_SWING = 0.6, FLAIL_ELBOW = 40;
@@ -503,7 +506,7 @@ export class RiderView {
     this.prevLean = lean;
     this.corrV += CORR_KICK * dL - (CORR_W * CORR_W * this.corr + 2 * CORR_ZETA * CORR_W * this.corrV) * h;
     this.corr += this.corrV * h;
-    const amp = ground ? smooth(0.2, 0.8, La) * (FLAIL_BASE + FLAIL_HOLD * Math.min(1, this.holdT / FLAIL_RAMP)) * (1 + FLAIL_SPEED * Math.min(FLAIL_VMAX, r.speed) + FLAIL_BUMP * this.bump) : 0;
+    const amp = ground ? smooth(0.2, 0.8, La) * (FLAIL_BASE + FLAIL_HOLD * Math.min(1, this.holdT / FLAIL_RAMP)) * (1 + FLAIL_SPEED * Math.min(FLAIL_VMAX, r.speed) + FLAIL_BUMP * this.bump + (r.pressing ? FLAIL_BAL * smooth(0.2, 1, Math.abs(r.pressBalance)) : 0)) : 0;
     this.flailAmp += (amp - this.flailAmp) * Math.min(1, h * 6);
     const fp = this.fp ? 0.35 : 1, A = this.flailAmp * fp, c = this.clock;
     const wl = wave(WOBBLE.lOut, c), wr = wave(WOBBLE.rOut, c), sl = wave(WOBBLE.lSwing, c), sr = wave(WOBBLE.rSwing, c);
@@ -559,7 +562,11 @@ export class RiderView {
     // BUG-047: no extra drop when already squatting or charged (that put the seat through the deck)
     // FEAT-125: a snowboarder leans the whole upper body over the loaded end with the arms up to balance
     if (Math.abs(lean) > 0.01) {
-      if (this.discipline === 'board') pressRoll = this.pressPose(t, lean);
+      if (this.discipline === 'board') {
+        pressRoll = this.pressPose(t, lean);
+        // FEAT-140: the pelvis rolls on toward the end the balance is running to (the head takes it back out)
+        if (r.pressing) { const lr = BAL_ROLL * this.fl * r.pressBalance; t.hipsRot[2] += lr; pressRoll += lr; }
+      }
       else t.torso = [t.torso[0] + 0.3 * lean, t.torso[1], t.torso[2]];
       t.hipsY -= 0.06 * Math.abs(lean) * (1 - Math.min(1, Math.max(r.squat, r.jumpCharge)));
     }
