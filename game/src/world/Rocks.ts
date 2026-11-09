@@ -92,6 +92,13 @@ export class Rocks {
   }
 
   /** Stream cells in the box around the rider (x, y) and the look-ahead point (ax, ay). */
+  /** BUG-063: rock cells in range still downloading */
+  get pending(): number {
+    let n = 0;
+    for (const c of this.cells.values()) if (c.loading) n++;
+    return n;
+  }
+
   update(x: number, y: number, ax = x, ay = y): void {
     const inst = this.pack.meta.instances;
     if (!inst) return;

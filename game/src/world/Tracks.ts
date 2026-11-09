@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Rider } from '../sim/Rider';
 import { rockCover } from '../terrain/rockCover';
+import { DEFORM_GLSL, deformUniforms, laneStampMaterial, markStampDirty } from './Deform';
 
 /**
  * Tracks in the snow as real 3D grooves. Every STEP metres on the snow a cross-section is laid
@@ -27,6 +28,12 @@ import { rockCover } from '../terrain/rockCover';
  * about a board length wide: a shallow, polished floor with a ridge of pushed snow on the downhill
  * side that grows as the rider slows. Ring buffer of MAX sections per lane (about 3 km); old track
  * fills back in (depth and alpha fade) over FADE seconds.
+ *
+ * FEAT-044: in soft snow the floor is 0.7 of the loose snow depth (`rider.snow.depth`: 8 to 25 cm in
+ * powder) and the knife-cut collapse is held back (the board sinks and the whole base displaces
+ * snow), so a powder carve is a board-wide trench; it is never wider than the board's footprint. Near the rider the lanes are also rendered top-down into the
+ * deformation texture (`Deform.ts`, `aStamp` = height offset, packed per vertex); the terrain sags
+ * softly around them and the ribbon rides the same sag, so it stays the sharp trench everywhere.
  */
 const MAX = 6000;
 const STEP = 0.5; // m between sections
@@ -35,6 +42,8 @@ const ACROSS_FREEZE = 1;
 /** BUG-019: the band may grow this many m of half width per m ridden */
 const HALF_GROW_PER_M = 0.5;
 const DEPTH = 0.05; // m, about 2 in on a groomer
+/** FEAT-044: the deepest trench (m), in bottomless powder */
+const MAX_DEPTH = 0.25;
 export const FADE = 600; // s until the snow has filled the track back in in clear weather (bootprints too)
 /**
  * How many times faster tracks and boot prints fill in while it snows (FEAT-107): clear 1, flurries 2,
@@ -60,13 +69,18 @@ const PROFILE: { sx: number; dx: number; h: number; a: number }[] = [
   { sx: 1, dx: 0.09, h: 0.0, a: 0 },
 ];
 const P = PROFILE.length;
+/** sections per stamp block: the deformation pass draws each block as its own culled mesh (review, PR #324) */
+const BLOCK = 250;
+const BLOCKS = Math.ceil(MAX / BLOCK);
 const UP = [0, 1, 0];
 /** BUG-021: the terrain's typical snow albedo: mix(uSnowShade, uSnow, 0.72) times its 0.95 grain tone */
 const SNOW_RGB = [0.83, 0.86, 0.94];
 /** floats stored per section */
-const SEC = 14; // ... + terrain normal (three.js x, y, z) at the centre (BUG-021)
+const SEC = 15; // ... + terrain normal (three.js x, y, z) at the centre (BUG-021), soft (FEAT-044)
 /** the berm and lip spread wider when scraping, so the ridge is a mound rather than a spike */
 const lipWidth = (polish: number) => 1 + 2.5 * polish;
+/** FEAT-044: how much of the knife-cut collapse soft snow allows (the board sinks, so the whole base cuts) */
+const SOFT_TILT = 0.3;
 /**
  * 0..1 how far the groove has collapsed from a trench into the knife cut of a committed carve:
  * smoothstep over the edge amount, so a light turn is still a wedge and only a hard carve is a line.
@@ -95,6 +109,8 @@ class Lane {
   private readonly col: Float32Array;
   /** per vertex: unit outward across vector (three.js x, y, z) and the vertex's across offset, for the minimum on-screen width */
   private readonly spr: Float32Array;
+  /** FEAT-044 per vertex: height offset from the snow surface (m), packed amount (for the deformation stamp) */
+  private readonly stp: Float32Array;
   private readonly idx: Uint32Array;
   // per section: the data needed to re-shape it as it fills in
   private readonly secC: Float32Array; // centre x, y, z(surface) in three.js coords, across x, across z, half width, depth, tilt, ridge (m), ridge side, polish
@@ -103,12 +119,16 @@ class Lane {
   private count = 0;
   private lastSlot = -1;
   private readonly geo: THREE.BufferGeometry;
+  /** FEAT-044: the stamp copy in blocks of BLOCK sections, each with bounds so the top-down camera culls it; and the bounds (min xyz, max xyz) */
+  private blocks: THREE.Mesh[] = [];
+  private readonly bounds = new Float32Array(BLOCKS * 6);
 
   constructor(material: THREE.Material) {
     this.pos = new Float32Array(MAX * P * 3);
     this.nor = new Float32Array(MAX * P * 3);
     this.col = new Float32Array(MAX * P * 4);
     this.spr = new Float32Array(MAX * P * 4);
+    this.stp = new Float32Array(MAX * P * 2);
     this.idx = new Uint32Array(MAX * (P - 1) * 6);
     this.secC = new Float32Array(MAX * SEC);
     this.age = new Float32Array(MAX).fill(1e9);
@@ -117,6 +137,7 @@ class Lane {
     this.geo.setAttribute('normal', new THREE.BufferAttribute(this.nor, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 4).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('aSpread', new THREE.BufferAttribute(this.spr, 4).setUsage(THREE.DynamicDrawUsage));
+    this.geo.setAttribute('aStamp', new THREE.BufferAttribute(this.stp, 2).setUsage(THREE.DynamicDrawUsage));
     this.geo.setIndex(new THREE.BufferAttribute(this.idx, 1).setUsage(THREE.DynamicDrawUsage));
     this.mesh = new THREE.Mesh(this.geo, material);
     this.mesh.name = 'board tracks';
@@ -128,17 +149,58 @@ class Lane {
   gap(): void { this.lastSlot = -1; }
 
   /**
+   * FEAT-044: the same sections drawn with the stamp material for the deformation pass, as BLOCKS
+   * meshes over shared attributes, each drawing BLOCK sections' quads with its own bounding sphere, so
+   * the window's orthographic camera only draws the blocks near the rider (not the whole 3 km ring).
+   */
+  proxy(material: THREE.Material): THREE.Group {
+    const g = new THREE.Group();
+    g.name = 'track stamp';
+    const quads = BLOCK * (P - 1) * 6;
+    this.blocks = [];
+    for (let b = 0; b < BLOCKS; b++) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', this.geo.getAttribute('position'));
+      geo.setAttribute('aStamp', this.geo.getAttribute('aStamp'));
+      geo.setIndex(this.geo.index);
+      geo.setDrawRange(b * quads, quads);
+      geo.boundingSphere = new THREE.Sphere();
+      const m = new THREE.Mesh(geo, material);
+      m.frustumCulled = true; m.visible = false; m.matrixAutoUpdate = false;
+      this.blocks.push(m); g.add(m);
+    }
+    return g;
+  }
+
+  /** grow block b's bounds by section s's vertices and refit its sphere (a fresh block starts empty) */
+  private bound(s: number): void {
+    const b = Math.floor(s / BLOCK), o = b * 6, bd = this.bounds;
+    if (s % BLOCK === 0) { bd.fill(Infinity, o, o + 3); bd.fill(-Infinity, o + 3, o + 6); }
+    for (let k = 0; k < P; k++) {
+      const v = (s * P + k) * 3;
+      for (let i = 0; i < 3; i++) { const p = this.pos[v + i]; if (p < bd[o + i]) bd[o + i] = p; if (p > bd[o + 3 + i]) bd[o + 3 + i] = p; }
+    }
+    const m = this.blocks[b];
+    if (!m) return;
+    const sp = m.geometry.boundingSphere!;
+    sp.center.set((bd[o] + bd[o + 3]) / 2, (bd[o + 1] + bd[o + 4]) / 2, (bd[o + 2] + bd[o + 5]) / 2);
+    sp.radius = Math.hypot(bd[o + 3] - bd[o], bd[o + 4] - bd[o + 1], bd[o + 5] - bd[o + 2]) / 2 + 1; // + the joining quad and the fill-in reshapes
+    m.visible = true;
+  }
+
+  /**
    * Add a section. (cx, cy, cz) centre on the snow in three.js coords; (ax, az) unit vector
    * across the track (three.js x/z); half width; depth (m); surface(x, z) returns the snow height.
    * Scraping: ridge height (m) of pushed snow, ridgeSide -1..1 (which lip gets it, + = the right
-   * side), polish 0..1 (how much the floor is a flat scraped band rather than a cut groove).
+   * side), polish 0..1 (how much the floor is a flat scraped band rather than a cut groove), soft
+   * 0..1 (FEAT-044: how soft the snow is; the floor is packed less).
    */
-  add(cx: number, cy: number, cz: number, ax: number, az: number, half: number, depth: number, tilt: number, surface: (x: number, z: number) => number, ridge = 0, ridgeSide = 0, polish = 0, fill = 1, gn: ArrayLike<number> = UP): void {
+  add(cx: number, cy: number, cz: number, ax: number, az: number, half: number, depth: number, tilt: number, surface: (x: number, z: number) => number, ridge = 0, ridgeSide = 0, polish = 0, fill = 1, gn: ArrayLike<number> = UP, soft = 0): void {
     const s = this.head;
     const o = s * SEC, c = this.secC;
     c[o] = cx; c[o + 1] = cy; c[o + 2] = cz; c[o + 3] = ax; c[o + 4] = az; c[o + 5] = half; c[o + 6] = depth; c[o + 7] = tilt;
     c[o + 8] = ridge; c[o + 9] = ridgeSide; c[o + 10] = polish;
-    c[o + 11] = gn[0]; c[o + 12] = gn[1]; c[o + 13] = gn[2];
+    c[o + 11] = gn[0]; c[o + 12] = gn[1]; c[o + 13] = gn[2]; c[o + 14] = soft;
     this.age[s] = FADE * (1 - fill); // fill < 1 (a rock edge, BUG-043) starts part filled in: shallower and fainter
     // snow heights under each profile vertex (follow the slope across the track)
     const lw = lipWidth(polish);
@@ -147,6 +209,7 @@ class Lane {
       this.ground[s * P + k] = surface(cx + ax * off, cz + az * off);
     }
     this.shape(s);
+    this.bound(s);
     // quads to the previous section of this stroke
     const q = s * (P - 1) * 6;
     if (this.lastSlot >= 0) {
@@ -168,7 +231,7 @@ class Lane {
   private shape(s: number): void {
     const o = s * SEC;
     const cx = this.secC[o], cz = this.secC[o + 2], ax = this.secC[o + 3], az = this.secC[o + 4], half = this.secC[o + 5];
-    const ridgeSide = this.secC[o + 9], polish = this.secC[o + 10], lw = lipWidth(polish);
+    const ridgeSide = this.secC[o + 9], polish = this.secC[o + 10], soft = this.secC[o + 14], lw = lipWidth(polish);
     // tilt -1..1: the board on its edge. Positive = the right-hand edge is engaged: that side of the
     // floor is deepest with a near-vertical wall, the other side rises to a shallow shelf, and the
     // displaced snow piles up on the outside of the turn.
@@ -202,6 +265,10 @@ class Lane {
       this.pos[v] = cx + ax * off; this.pos[v + 1] = ys[k]; this.pos[v + 2] = cz + az * off;
       const q = (s * P + k) * 4;
       this.spr[q] = ax * side; this.spr[q + 1] = 0; this.spr[q + 2] = az * side; this.spr[q + 3] = Math.abs(off);
+      // FEAT-044 stamp: the floor is packed (polished when scraped, less so in soft snow), the wall top half, the lips loose
+      const packed = (pr.h < 0 ? 0.6 + 0.4 * polish : pr.h < 0.2 ? 0.3 : 0) * (1 - 0.5 * soft) * Math.min(1, fill * 3);
+      const w = (s * P + k) * 2;
+      this.stp[w] = h * depth + rh; this.stp[w + 1] = packed;
     }
     // normals from the profile slope across the track (smoothed between neighbours); the wall
     // vertices of a carve take the wall's own slope so a 1 cm wall still catches the light
@@ -246,21 +313,27 @@ class Lane {
     (this.geo.getAttribute('normal') as THREE.BufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
     (this.geo.getAttribute('aSpread') as THREE.BufferAttribute).needsUpdate = true;
+    (this.geo.getAttribute('aStamp') as THREE.BufferAttribute).needsUpdate = true;
+    markStampDirty();
   }
 
   /** Age and re-shape (called a couple of times a second). */
   tick(dt: number): void {
     const aged = dt * fillRate;
+    if (!this.count) return;
     for (let s = 0; s < this.count; s++) { this.age[s] += aged; this.shape(s); }
     this.flag();
   }
 
-  clear(): void { this.idx.fill(0); this.count = 0; this.head = 0; this.lastSlot = -1; this.geo.index!.needsUpdate = true; }
-  dispose(): void { this.geo.dispose(); }
+  clear(): void { this.idx.fill(0); this.count = 0; this.head = 0; this.lastSlot = -1; this.geo.index!.needsUpdate = true; for (const m of this.blocks) m.visible = false; markStampDirty(); }
+  dispose(): void { this.geo.dispose(); for (const m of this.blocks) m.geometry.dispose(); }
 }
 
 export class Tracks {
   readonly group = new THREE.Group();
+  /** FEAT-044: the lanes drawn with the stamp material, for the deformation pass (add to `Deform.scene`) */
+  readonly stampGroup = new THREE.Group();
+  private readonly stampMat = laneStampMaterial();
   private readonly pack: Pack;
   private readonly mat: THREE.MeshStandardMaterial;
   private lanes: Lane[] = [];
@@ -281,6 +354,7 @@ export class Tracks {
   discipline: 'board' | 'ski' = 'board';
   /** on foot: one skid groove per boot when slipping down the snow (FEAT-068) */
   private readonly bootLanes: Lane[];
+  private laneProxies: THREE.Group[] = [];
   private bootX = NaN;
   private bootY = NaN;
 
@@ -291,13 +365,16 @@ export class Tracks {
     // the floor is below the terrain surface: bias the depth a few cm toward the camera so the
     // terrain does not cover it, but nearer geometry (rider, trees, ridges) still does
     this.mat.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, deformUniforms);
       // minimum on-screen width (FEAT-109): a 1 cm carve line is thinner than a pixel at range, so
       // each vertex is held at least 1.5 mm per metre of distance off the centre line; the line
-      // widens a little with distance and stays a stable thin line instead of flickering
-      shader.vertexShader = 'attribute vec4 aSpread;\n' + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      // widens a little with distance and stays a stable thin line instead of flickering.
+      // FEAT-044: the ribbon rides the soft sag the terrain takes around it (Deform.ts), so the two move together
+      shader.vertexShader = 'attribute vec4 aSpread;\n' + DEFORM_GLSL + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
         {
           float camDist = length((modelViewMatrix * vec4(position, 1.0)).xyz);
           transformed += aSpread.xyz * max(0.0, 0.0015 * camDist - aSpread.w);
+          if (uDeformWin.w > 0.0) { vec2 duv = deformUV((modelMatrix * vec4(transformed, 1.0)).xz); transformed.y += deformSag(duv) * deformFade(duv); }
         }`);
       shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
         {
@@ -309,7 +386,7 @@ export class Tracks {
     };
     this.setDiscipline('board');
     this.bootLanes = [new Lane(this.mat), new Lane(this.mat)];
-    for (const l of this.bootLanes) { l.mesh.name = 'boot skid tracks'; this.group.add(l.mesh); }
+    for (const l of this.bootLanes) { l.mesh.name = 'boot skid tracks'; this.group.add(l.mesh); this.stampGroup.add(l.proxy(this.stampMat)); }
   }
 
   /** On foot and slipping: each boot drags a narrow, shallow, slightly polished groove down the snow. */
@@ -333,7 +410,7 @@ export class Tracks {
       if (Number.isNaN(g)) continue;
       const pn = this.pack.groundNormal(cx, cy, this.nTmp); // BUG-021: lit like the slope, not flat ground
       this.gnTmp[0] = pn[0]; this.gnTmp[1] = pn[2]; this.gnTmp[2] = -pn[1];
-      this.bootLanes[i].add(cx, g, -cy, ax, -ay, 0.07, depth, 0, surface, 0.01, 0, 0.4, 1, this.gnTmp);
+      this.bootLanes[i].add(cx, g, -cy, ax, -ay, 0.07, depth, 0, surface, 0.01, 0, 0.4, 1, this.gnTmp, Math.min(1, r.sink / 0.2));
     }
   }
 
@@ -344,9 +421,13 @@ export class Tracks {
     this.discipline = d;
     this.merged = false;
     for (const l of this.lanes) { this.group.remove(l.mesh); l.dispose(); }
+    for (const p of this.laneProxies) this.stampGroup.remove(p);
     this.offsets = d === 'ski' ? [-0.12, 0.12] : [0];
     this.lanes = this.offsets.map(() => new Lane(this.mat));
     for (const l of this.lanes) this.group.add(l.mesh);
+    this.laneProxies = this.lanes.map((l) => l.proxy(this.stampMat));
+    for (const p of this.laneProxies) this.stampGroup.add(p);
+    markStampDirty();
     this.lastX = NaN;
   }
 
@@ -377,6 +458,8 @@ export class Tracks {
     const skid = Math.min(1, r.skid);
     const s = r.surface;
     const powder = Math.max(0, Math.min(1, r.snow.powder + 0.6 * r.snow.slush + 0.3 * r.snow.chop - 0.9 * r.snow.ice)); // FEAT-053: deeper in soft snow, barely a mark on ice
+    // FEAT-044: how soft the snow is from its loose depth (0 on a groomer, about a third in chop, 1 in powder)
+    const soft = Math.max(0, Math.min(1, (r.snow.depth - 0.03) / 0.15));
     // footprint across the travel direction from the board's slip angle: the board's width when
     // running straight, up to its length when it is across (a hockey stop)
     const ski = this.discipline === 'ski';
@@ -392,7 +475,8 @@ export class Tracks {
     // line slides across through the wedge and the flat imprint instead of stepping sideways
     const raw = Math.sign(phi) * Math.min(1, Math.abs(phi) / TRACK_EDGE_FULL) * (1 - scrape);
     this.tiltS = moved > 6 ? raw : this.tiltS + (raw - this.tiltS) * (1 - Math.exp(-moved / 1.2));
-    const tilt = this.tiltS;
+    // FEAT-044: in soft snow the board sinks and the whole base cuts, so the trench stays a wedge instead of a knife line
+    const tilt = this.tiltS * (1 - (1 - SOFT_TILT) * soft);
     const edge = Math.abs(tilt);
     // a committed carve collapses the trench to a knife cut about 1 cm wide (FEAT-109)
     const ec = edgeCurve(edge);
@@ -400,7 +484,8 @@ export class Tracks {
     // BUG-019: ease the width so a stop widens the band over a few sections, not in one long wedge
     const half = moved > 6 || Number.isNaN(this.lastHalf) ? halfRaw : Math.min(halfRaw, this.lastHalf + HALF_GROW_PER_M * moved);
     this.lastHalf = half;
-    const depth = DEPTH * (1 + 0.6 * powder) * (1 + 0.3 * edge) * (1 - 0.6 * scrape) * (s.rock + s.scree > 0.5 ? 0.3 : 1);
+    // FEAT-044: the floor is the groomer's DEPTH or 0.7 of the loose snow depth, whichever is deeper (8 to 25 cm in powder)
+    const depth = Math.min(MAX_DEPTH, Math.max(DEPTH * (1 + 0.3 * powder), 0.7 * r.snow.depth) * (1 + 0.3 * edge)) * (1 - 0.6 * scrape) * (s.rock + s.scree > 0.5 ? 0.3 : 1);
     // the cut sits under the engaged edge, not the middle of the board: slide the section across by
     // up to half the width as the board goes on edge, so the line crosses the board between turns
     const shift = 0.5 * W * gc * ec * Math.sign(tilt);
@@ -434,7 +519,7 @@ export class Tracks {
       const fill = rock > ROCK_FADE ? 1 - (rock - ROCK_FADE) / (ROCK_CUT - ROCK_FADE) : 1;
       const pn = this.pack.groundNormal(cx, cy, this.nTmp);
       this.gnTmp[0] = pn[0]; this.gnTmp[1] = pn[2]; this.gnTmp[2] = -pn[1]; // pack -> three.js axes
-      this.lanes[i].add(cx, g, -cy, ax, -ay, bandHalf, depth, tilt, surface, ridge, ridgeSide, gs, fill, this.gnTmp);
+      this.lanes[i].add(cx, g, -cy, ax, -ay, bandHalf, depth, tilt, surface, ridge, ridgeSide, gs, fill, this.gnTmp, soft);
     });
   }
 
@@ -454,5 +539,5 @@ export class Tracks {
   }
 
   clear(): void { for (const l of [...this.lanes, ...this.bootLanes]) l.clear(); this.lastX = NaN; this.bootX = NaN; }
-  dispose(): void { for (const l of [...this.lanes, ...this.bootLanes]) l.dispose(); this.mat.dispose(); }
+  dispose(): void { for (const l of [...this.lanes, ...this.bootLanes]) l.dispose(); this.mat.dispose(); this.stampMat.dispose(); }
 }

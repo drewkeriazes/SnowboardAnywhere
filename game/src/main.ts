@@ -29,6 +29,7 @@ import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
 import { FILL_RATE, Tracks, setTrackFillRate } from './world/Tracks';
 import { Bootprints } from './world/Bootprints';
+import { Deform } from './world/Deform';
 import { Outrun } from './sim/Outrun';
 import { Monsters } from './world/Monster';
 import { Puffs } from './world/Puffs';
@@ -44,6 +45,7 @@ import { LiftRide } from './sim/LiftRide';
 import { Prefetch } from './sim/Prefetch';
 import { GameAudio } from './audio/Audio';
 import { showMainMenu } from './ui/MainMenu';
+import { LoadingScreen } from './ui/Loading';
 import { PauseMenu } from './ui/PauseMenu';
 import { Labels } from './ui/Labels';
 import { TouchControls } from './ui/TouchControls';
@@ -104,15 +106,18 @@ async function main(): Promise<void> {
       const choice = await showMainMenu(pack.meta.name, audio, settings, () => undefined, resorts, packSlug, startInfo);
       openMapAtStart = choice.action === 'map';
     }
-    status.textContent = `Loading ${packSlug}...`;
     skipMenu = false;
-    await runSession(pack, renderer, canvas, audio, settings, openMapAtStart);
+    // BUG-063: show the loading screen and let it paint before the session's heavy setup runs behind it
+    let loading: LoadingScreen | null = null;
+    if (headless) status.textContent = `Loading ${packSlug}...`;
+    else { status.textContent = ''; loading = new LoadingScreen(pack.meta.name); await loading.painted(); }
+    await runSession(pack, renderer, canvas, audio, settings, openMapAtStart, loading);
     if (headless) break;
   }
 }
 
 /** Resolves when the player quits to the main menu. */
-function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanvasElement, audio: GameAudio, settings: Settings, openMapAtStart: boolean): Promise<void> {
+function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanvasElement, audio: GameAudio, settings: Settings, openMapAtStart: boolean, loading: LoadingScreen | null = null): Promise<void> {
   return new Promise<void>((resolveQuit) => {
     const hud = document.getElementById('hud')!;
     const status = document.getElementById('status')!;
@@ -164,6 +169,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('puffs', puffs.points);
     const bigprints = new Bootprints(pack, 3.2);
     add('monster prints', bigprints.mesh);
+    // FEAT-044: the tracks and prints near the rider stamped into a texture the terrain deforms from
+    const deform = new Deform();
+    deform.scene.add(tracks.stampGroup, bootprints.stampMesh, bigprints.stampMesh);
+    deform.cullers.push((x, z, s) => bootprints.cullStamp(x, z, s), (x, z, s) => bigprints.cullStamp(x, z, s));
     const monsters = new Monsters(pack, collider, puffs, bigprints);
     add('monsters', monsters.group);
     const eat = new Eat(pack, puffs);
@@ -310,9 +319,18 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const auto = new AutoQuality();
     const autoClouds = (q: 'high' | 'medium' | 'low'): 'high' | 'medium' | 'low' => auto.current.cloudsDown ? (q === 'high' ? 'medium' : 'low') : q;
     let lastDraw = 0;
+    /** FEAT-044: the deformation window and the spray budget from the preset, the Snow dents setting, ?nodeform and the auto level */
+    const applyDeform = (s: Settings): void => {
+      const q = auto.current;
+      deform.enabled = s.snowDeform !== false && s.quality !== 'low' && !params.has('nodeform') && q.deform > 0;
+      const small = q.deform < 1 || s.quality === 'medium';
+      deform.configure(small ? 256 : 512, small ? 48 : 64);
+      riderView.spray.setCount((s.quality === 'high' ? 8192 : s.quality === 'medium' ? 4096 : 2048) * q.snow);
+    };
     /** apply only what the auto level scales (applySettings also does this, scaled, on any settings change) */
     const applyAuto = (): void => {
       const s = settings, q = auto.current;
+      applyDeform(s);
       clouds.configure(weatherNow, autoClouds(s.quality));
       renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2) * q.res);
       if (s.quality !== 'low') setVegetationDensity(s.treeDensity * q.trees);
@@ -339,6 +357,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       snow.points.visible = storm || weather === 'flurries';
       const flakes = s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500;
       snow.setCount(Math.round((storm ? flakes : flakes / 6) * auto.current.snow));
+      applyDeform(s);
       // old tracks and boot prints fill in faster while it snows (FEAT-107)
       setTrackFillRate(storm ? FILL_RATE.storm : weather === 'flurries' ? FILL_RATE.flurries : FILL_RATE.clear);
       // limited render distance in the storm: nothing past the fog is drawn
@@ -557,7 +576,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       map.destroy();
       pause.destroy();
       labels.destroy();
-      tracks.dispose();
+      tracks.dispose(); deform.dispose();
       trialWorld.dispose();
       if (outrun.active) stopOutrun();
       outrunUI.destroy(); runCard.dispose(); speedLines.dispose(); pressMeter.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
@@ -600,8 +619,12 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
 
     /** headless only: exact frame dt for __step, so scripted runs replay step for step */
     let fixedDt: number | null = null;
+    /** BUG-063: the loading screen, hidden once the first real frames have run behind it */
+    let hideLoading: LoadingScreen | null = null, loadFrames = 0;
+    const HIDE_AFTER_FRAMES = 3;
     function frame(): void {
       if (!alive) return;
+      if (hideLoading && ++loadFrames >= HIDE_AFTER_FRAMES) { hideLoading.hide(); hideLoading = null; }
       const now = performance.now();
       // FEAT-062: a 30 fps target skips display frames (a millisecond of slack for timer jitter)
       // against a running deadline so the average hits 30 even when the refresh rate does not divide evenly (75, 100 Hz)
@@ -850,11 +873,13 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       snow.update(dt, cam.camera, renderer.domElement.height, 0.45 + 0.6 * env.hemi.intensity / 1.4);
       // BUG-046: spray and puffs are unlit points; give them the light flat snow gets at the rider (dark at dusk, darker in a ridge's shade)
       const pl = particleLight.update(dt, env, (x, y) => pack.terrainHeight(x, y), rider.x, rider.y, rider.z);
-      (riderView.sprayObject.material as THREE.PointsMaterial).color.copy(pl);
+      riderView.spray.setLight(pl); riderView.spray.setViewHeight(renderer.domElement.height); riderView.spray.wind.set(snow.wind.x * 0.3, snow.wind.y * 0.3);
       (puffs.points.material as THREE.PointsMaterial).color.copy(pl);
       veg.setSun(env.sun.color, env.sun.intensity);
       terrain.setSun(env.sunDir); // BUG-062: the mogul colouring's sun term
       const cp = cam.camera.position;
+      // FEAT-044: stamp the tracks and prints near the rider into the deformation texture (the soft sag around them)
+      deform.update(renderer, rider.x, rider.z, -rider.y, rider.vx, -rider.vy);
       terrain.update(cp.x, -cp.z, cp.y);
       const fx = detached ? cp.x : rider.x, fy = detached ? -cp.z : rider.y;
       // terrain, mask and instance tiles stream ahead along the direction of travel
@@ -964,7 +989,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
           (rider.brakeAmt > 0 ? ` &middot; brake &Psi; ${(rider.brakePsi * 180 / Math.PI).toFixed(0)}&deg; &gamma; ${(Math.abs(rider.slip) * 180 / Math.PI).toFixed(0)}&deg; ${rider.brakeAcc.toFixed(1)} m/s&sup2; mod ${rider.brakeMod.toFixed(2)}` : '') +
           // FEAT-053: the snow weights and what they set
           `<br>snow groomed ${rider.snow.groomed.toFixed(2)} powder ${rider.snow.powder.toFixed(2)} chop ${rider.snow.chop.toFixed(2)} ice ${rider.snow.ice.toFixed(2)} slush ${rider.snow.slush.toFixed(2)} rock ${rider.snow.rock.toFixed(2)} &middot; depth ${(rider.snow.depth * 100).toFixed(0)} cm &middot; grip x${rider.snow.grip.toFixed(2)} &middot; turn x${rider.snow.turn.toFixed(2)} &middot; drag ${rider.snow.drag0.toFixed(2)} + ${rider.snow.drag1.toFixed(4)}v &middot; chop ${rider.chop.toFixed(2)} &middot; sink ${rider.noseSink.toFixed(2)}</span>` : '');
-      (window as any).__sim = { rider, riderView, trialWorld, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, eyeAt, outrun, monsters, startOutrun, stopOutrun,
+      (window as any).__sim = { rider, riderView, trialWorld, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, eyeAt, outrun, monsters, startOutrun, stopOutrun,
         /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
         setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
         /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */
@@ -972,13 +997,49 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (!headless) requestAnimationFrame(frame);
     }
 
-    // wait briefly for the fine tiles under the start point, then go
+    /**
+     * BUG-063: build the world around the start behind the loading screen, without drawing: stream terrain,
+     * trees and rocks with a large per-frame budget (frames stay short, so the page never locks up), then
+     * compile every shader in the background. Ends when nothing near the start is still downloading or
+     * building, or after 20 s. The screen then stays up for the first few real frames (HIDE_AFTER_FRAMES),
+     * so whatever only the full frame draws (clouds, the body pass, GPU uploads) is paid behind it.
+     */
+    async function warmUp(ls: LoadingScreen): Promise<void> {
+      const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+      terrain.budgetMs = 12; terrain.maxBuilds = 64; veg.budgetMs = 12;
+      const tiles = () => [pack.fine, pack.mid, pack.far, pack.mask, pack.ao, pack.dir, pack.moguls].reduce((n, t) => n + (t?.inFlight ?? 0), 0);
+      const t0 = performance.now();
+      let peak = 1, settled = 0;
+      while (performance.now() - t0 < 20000) {
+        cam.camera.updateMatrixWorld();
+        const cp = cam.camera.position;
+        terrain.update(cp.x, -cp.z, cp.y);
+        veg.update(rider.x, rider.y);
+        rocks.update(rider.x, rider.y);
+        const tl = tiles();
+        const left = terrain.pending + tl + veg.pending + rocks.pending;
+        peak = Math.max(peak, left);
+        ls.set(0.85 * (1 - left / peak), `Terrain ${terrain.pending + tl} · trees ${veg.pending} · rocks ${rocks.pending}`);
+        settled = left === 0 ? settled + 1 : 0;
+        if (settled >= 3) break; // three quiet frames: late tile arrivals have had a chance to mark rebuilds
+        await nextFrame();
+      }
+      ls.set(0.9, 'Compiling shaders...');
+      await renderer.compileAsync(scene, cam.camera).catch((e) => console.warn('compileAsync failed', e));
+      ls.set(0.97, 'Almost there...');
+      // riding: small budgets so streaming never spikes a frame; built parent chunks cover any gaps
+      terrain.budgetMs = 4; terrain.maxBuilds = 10; veg.budgetMs = 3;
+    }
+
+    // wait briefly for the fine tiles under the start point, then warm up and go
     (async () => {
       const t0 = performance.now();
       while (Number.isNaN(pack.fine?.sample(sx, sy) ?? 0) && performance.now() - t0 < 8000) await new Promise((r) => setTimeout(r, 50));
       rider.reset(sx, sy, sh);
       lifts.buildMarkers(pack);
       cam.snapTo(rider);
+      if (loading && alive) { await warmUp(loading); hideLoading = loading; }
+      if (!alive) return;
       status.textContent = '';
       if (openMapAtStart) map.open();
       last = performance.now();

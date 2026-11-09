@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Plant } from './Gait';
 import { FADE, trackFillRate } from './Tracks';
+import { DEFORM_GLSL, deformUniforms, markStampDirty, printStampMaterial } from './Deform';
 
 /**
  * Bootprints (FEAT-067): one dent per foot plant, stamped where the gait put the boot down, as one
@@ -84,6 +85,9 @@ function printGeometry(HL: number, HW: number): THREE.BufferGeometry {
 
 export class Bootprints {
   readonly mesh: THREE.InstancedMesh;
+  /** FEAT-044: the same instances drawn with the stamp material, for the deformation pass (add to `Deform.scene`) */
+  readonly stampMesh: THREE.InstancedMesh;
+  private readonly stampMat: THREE.ShaderMaterial;
   private readonly pack: Pack;
   private readonly mat: THREE.MeshStandardMaterial;
   private readonly depth: THREE.InstancedBufferAttribute;
@@ -127,14 +131,17 @@ export class Bootprints {
     // Lambert material came out whiter than the terrain and the prints read as raised slabs)
     this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, depthWrite: true, roughness: 0.9 });
     this.mat.onBeforeCompile = (shader) => {
-      shader.vertexShader = 'attribute float aDepth;\nattribute float aFill;\nattribute float aKick;\nattribute vec2 aSmear;\nattribute float toe;\n' + shader.vertexShader
+      Object.assign(shader.uniforms, deformUniforms);
+      shader.vertexShader = 'attribute float aDepth;\nattribute float aFill;\nattribute float aKick;\nattribute vec2 aSmear;\nattribute float toe;\n' + DEFORM_GLSL + shader.vertexShader
         .replace('#include <begin_vertex>', `#include <begin_vertex>
           // scale the nominal hollow to this print's depth as it fills in; kicked snow at the toe
           transformed.y *= aDepth * aFill / ${NOMINAL.toFixed(3)};
           transformed.y += toe * aKick * aFill * 0.035;
           // smear: the downhill side of the print drawn out along aSmear (local x/z)
           float sl = length(aSmear);
-          if (sl > 1e-4) transformed.xz += aSmear * clamp(dot(position.xz, aSmear / sl) / ${HL.toFixed(3)}, 0.0, 1.0);`)
+          if (sl > 1e-4) transformed.xz += aSmear * clamp(dot(position.xz, aSmear / sl) / ${HL.toFixed(3)}, 0.0, 1.0);
+          // FEAT-044: ride the soft sag the terrain takes around the prints (Deform.ts)
+          if (uDeformWin.w > 0.0) { vec2 duv = deformUV((modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xz); transformed.y += deformSag(duv) * deformFade(duv); }`)
         .replace('#include <color_vertex>', '#include <color_vertex>\n  vColor.a *= min(1.0, aFill * 3.0);')
         // the hollow is below the terrain surface: pull its depth toward the camera by about its
         // own depth so the terrain does not cover it (nearer objects still do), as the tracks do
@@ -152,6 +159,13 @@ export class Bootprints {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 1;
     this.mesh.receiveShadow = true;
+    // FEAT-044: a second InstancedMesh over the same geometry and instance matrices for the deformation pass
+    this.stampMat = printStampMaterial(NOMINAL, HL);
+    this.stampMesh = new THREE.InstancedMesh(g, this.stampMat, MAX);
+    this.stampMesh.instanceMatrix = this.mesh.instanceMatrix;
+    this.stampMesh.name = 'bootprint stamps';
+    this.stampMesh.count = 0;
+    this.stampMesh.frustumCulled = false; // cullStamp hides it instead (InstancedMesh culls as a whole)
   }
 
   /** Stamp one print at a foot plant. `depth` (m) from how far the boot sank. */
@@ -185,9 +199,26 @@ export class Bootprints {
     this.fill.setX(s, 1);
     this.head = (s + 1) % MAX;
     this.count = Math.min(MAX, this.count + 1);
-    this.mesh.count = this.count;
+    this.mesh.count = this.count; this.stampMesh.count = this.count;
     this.mesh.instanceMatrix.needsUpdate = true;
     this.depth.needsUpdate = this.kick.needsUpdate = this.smear.needsUpdate = this.fill.needsUpdate = true;
+    markStampDirty();
+  }
+
+  /**
+   * FEAT-044 (review, PR #324): draw the stamp copy only when a live print is inside the deformation
+   * window (three.js x0, z0, size), so a long walk's prints elsewhere cost the capture nothing.
+   */
+  cullStamp(x0: number, z0: number, size: number): void {
+    const m = SOLE_HL * this.scale * 1.6;
+    const xa = x0 - m, xb = x0 + size + m, ya = -(z0 + size) - m, yb = -z0 + m; // pack y = -z
+    let any = false;
+    for (let s = 0; s < this.count && !any; s++) {
+      if (this.cellOf[s] === null) continue;
+      const x = this.px[s], y = this.py[s];
+      any = x > xa && x < xb && y > ya && y < yb;
+    }
+    this.stampMesh.visible = any;
   }
 
   /** a print that is still a visible dent (not filled back in or overwritten) */
@@ -213,6 +244,7 @@ export class Bootprints {
     this.depth.setX(s, Math.min(this.depth0[s] * DEEPEN_CAP, this.depth.getX(s) * DEEPEN));
     this.age[s] = 0; this.fill.setX(s, 1);
     this.depth.needsUpdate = this.fill.needsUpdate = true;
+    markStampDirty();
   }
 
   /** file slot s under its grid cell, taking it out of the cell of the print it overwrites */
@@ -236,10 +268,11 @@ export class Bootprints {
       this.fill.setX(s, Math.max(0, 1 - this.age[s] / FADE) * (1 - ringAge * ringAge));
     }
     this.fill.needsUpdate = true;
+    if (this.count) markStampDirty();
     this.tickAcc = 0;
   }
 
   get stats(): { prints: number } { return { prints: this.count }; }
-  clear(): void { this.count = 0; this.head = 0; this.mesh.count = 0; this.grid.clear(); this.cellOf.fill(null); this.lastOf[0] = this.lastOf[1] = -1; }
-  dispose(): void { this.mesh.geometry.dispose(); this.mat.dispose(); }
+  clear(): void { this.count = 0; this.head = 0; this.mesh.count = 0; this.stampMesh.count = 0; this.grid.clear(); this.cellOf.fill(null); this.lastOf[0] = this.lastOf[1] = -1; markStampDirty(); }
+  dispose(): void { this.mesh.geometry.dispose(); this.mat.dispose(); this.stampMat.dispose(); }
 }

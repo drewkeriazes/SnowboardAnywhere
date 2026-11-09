@@ -67,6 +67,15 @@ export class Terrain {
   /** chunks selected this frame */
   private visible: Chunk[] = [];
   readonly stats = { chunks: 0, builds: 0, triangles: 0 };
+  /**
+   * BUG-063: chunk builds per frame. `maxBuilds` caps the count; `budgetMs` (0 = off) also stops after that
+   * many milliseconds (always at least one build), so streaming never spikes a frame. Headless runs keep
+   * the plain count so scripted runs stay deterministic.
+   */
+  maxBuilds = MAX_BUILDS_PER_FRAME;
+  budgetMs = 0;
+  /** BUG-063: selected chunks still unbuilt or waiting on a rebuild after the last update (0 = settled) */
+  pending = 0;
 
   constructor(pack: Pack) {
     this.pack = pack;
@@ -157,7 +166,8 @@ export class Terrain {
     this.select(0, 0, 0, this.rootMinX, this.rootMinY, this.rootSize, camX, camY, camZ);
     // request data for the chunks we want at their resolution
     const want = new Set<string>();
-    let builds = 0;
+    let builds = 0, pending = 0;
+    const t0 = performance.now();
     for (const c of this.visible) {
       want.add(c.key);
       c.lastUsed = this.frame;
@@ -168,13 +178,17 @@ export class Terrain {
       if (c.res <= 8 && this.pack.dir) this.pack.dir.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if (c.res <= AO_MAX_RES && this.pack.ao) this.pack.ao.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if (c.res <= MOGUL_SHADE_MAX_RES && this.pack.moguls) this.pack.moguls.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size); // FEAT-059: bump geometry on the finest chunks, shading on the next ones
-      if ((!c.mesh || this.dirty.has(c.key)) && builds < MAX_BUILDS_PER_FRAME) {
-        this.build(c);
-        this.dirty.delete(c.key);
-        builds++;
+      if (!c.mesh || this.dirty.has(c.key)) {
+        const inBudget = builds < this.maxBuilds && (this.budgetMs <= 0 || builds === 0 || performance.now() - t0 < this.budgetMs);
+        if (inBudget) {
+          this.build(c);
+          this.dirty.delete(c.key);
+          builds++;
+        } else pending++;
       }
     }
     this.stats.builds = builds;
+    this.pending = pending;
     // show/hide: a chunk is drawn if selected and built; a selected but unbuilt chunk shows its built ancestor instead
     let tris = 0;
     for (const c of this.chunks.values()) {
