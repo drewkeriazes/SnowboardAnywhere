@@ -23,11 +23,13 @@ export interface Settings {
   /** cascaded shadow maps (experimental, off by default: turned the terrain black on Drew's GPU); off = single shadow camera around the rider */
   csmExperimental: boolean;
   /** volumetric cloud cover */
-  clouds: 'off' | 'few' | 'scattered' | 'broken' | 'overcast' | 'flurries' | 'storm';
+  clouds: 'off' | 'cirrus' | 'few' | 'scattered' | 'broken' | 'overcast' | 'flurries' | 'storm';
   /** low morning fog lying in the valleys, burning off as the sun climbs */
   valleyFog: boolean;
   /** FEAT-105: how much new snow covers the rock at the start (a storm adds more as it falls) */
   newSnow?: 'none' | 'dusting' | '6in' | 'powder';
+  /** FEAT-077: fresh morning corduroy, mid-season (skied out as the day goes on), or spring snow */
+  snowDay: 'fresh' | 'mid' | 'spring';
   treeDensity: number; // 0.25 .. 1
   pixelRatio: number; // 0.5 .. 2 (capped by the device)
   fov: number; // base chase FOV, 50 .. 100
@@ -48,14 +50,20 @@ export interface Settings {
   liftLines: boolean;
   /** time trials: start/finish gates on real runs, timer, ghost of your best run (off by default) */
   timeTrials: boolean;
+  /** FEAT-140: holding a nose or tail press is a balancing act (Easy: slower drift; Off: the press holds as long as the key) */
+  pressBalance: 'on' | 'easy' | 'hard' | 'off';
   /** 'pack' = the pack's fixed sun, 'now' = real clock at the resort, or a fixed hour 6..20 */
   timeOfDay: 'pack' | 'now' | number;
   /** month 1..12 used with a fixed hour (season changes the sun's height) */
   month: number;
   units: Units;
-  keys: Record<string, string>; // action -> KeyboardEvent.code
+  keys: Record<string, string[]>; // action -> up to two codes (FEAT-124)
+  /** FEAT-124: the player had rebound keys before the new default layout; show the note once */
+  keysNote?: boolean;
   outfit: Outfit;
   discipline: 'board' | 'ski';
+  /** FEAT-139: the snowboarder's normal stance, left foot forward (regular) or right (goofy) */
+  stance: 'regular' | 'goofy';
   /** Outrun mode (FEAT-097): the last picked difficulty, escape rule and the Gentle eat */
   outrun: { difficulty: 'chill' | 'normal' | 'skifree'; escape: 'endless' | 'base'; gentle: boolean };
 }
@@ -69,15 +77,51 @@ export const OUTFIT_PRESETS: Record<string, Outfit> = {
   'Safety orange': { jacket: '#ff7a00', pants: '#111827', helmet: '#ffffff', board: '#111827', gloves: '#ff7a00' },
 };
 
-export const DEFAULT_KEYS: Record<string, string> = {
+/**
+ * FEAT-124 default layout: up to two bindings per action (KeyboardEvent.code, or Mouse2 for the right
+ * mouse button). Everything you do while riding sits under the left hand on WASD; the arrows are the
+ * second bindings for steering, tuck and brake. No action needs Ctrl.
+ */
+export const DEFAULT_KEYS: Record<string, string[]> = {
+  left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], tuck: ['KeyW', 'ArrowUp'], brake: ['KeyS', 'ArrowDown'], jump: ['Space'],
+  grab: ['ShiftLeft', 'ShiftRight'], squat: [], pressNose: ['KeyQ'], pressTail: ['KeyZ'], skate: ['KeyX'],
+  lift: ['KeyE'], board: [], glance: ['KeyG'], look: ['AltLeft', 'Mouse2'],
+  camera: ['KeyC'], map: ['KeyM'], piste: ['KeyP'], track: ['KeyN'], trial: ['KeyT'], restart: ['KeyR'], replay: ['KeyK'], rewind: ['Backspace'],
+  boost: ['KeyF'], fly: ['Backquote'],
+};
+/** the layout before FEAT-124: a saved keymap equal to this never changed a key, so it gets the new defaults */
+const OLD_DEFAULT_KEYS: Record<string, string> = {
   left: 'ArrowLeft', right: 'ArrowRight', tuck: 'ArrowUp', brake: 'ArrowDown', jump: 'Space', grab: 'ShiftLeft', squat: 'ControlLeft', skate: 'KeyX', pressNose: 'KeyV', pressTail: 'KeyZ',
   lift: 'KeyE', board: 'KeyB', trial: 'KeyT', map: 'KeyM', camera: 'KeyC', restart: 'KeyR', piste: 'KeyP', fly: 'KeyF', track: 'KeyN', look: 'AltLeft', boost: 'KeyQ', glance: 'KeyG', replay: 'KeyK', rewind: 'Backspace',
 };
-const KEY_LABELS: Record<string, string> = { left: 'Steer left', right: 'Steer right', tuck: 'Tuck', brake: 'Brake', jump: 'Jump (hold)', grab: 'Grab (sprint on foot)', squat: 'Squat (hold)', skate: 'Skate on the flat (hold)', pressNose: 'Nose press (hold)', pressTail: 'Tail press (hold)', lift: 'Ride lift / skip', board: 'Board on / off', trial: 'Go to nearest time trial', map: 'Map', camera: 'Camera', restart: 'Restart', piste: 'Piste lines', fly: 'Free fly', track: 'Next track', look: 'Free look (hold, move mouse)', boost: 'Outrun boost', glance: 'Outrun look back (hold)', replay: 'Replay viewer', rewind: 'Rewind (hold)' };
+/** the Controls tab, grouped by when each action applies */
+const KEY_GROUPS: [string, [string, string][]][] = [
+  ['Board', [['left', 'Steer left'], ['right', 'Steer right'], ['tuck', 'Tuck (front flip in the air)'], ['brake', 'Brake (backflip in the air)'], ['jump', 'Jump (hold, release)'], ['grab', 'Squat on the snow / grab in the air / sprint on foot'], ['squat', 'Squat only (optional)'], ['pressNose', 'Nose press (hold)'], ['pressTail', 'Tail press (hold)'], ['skate', 'Skate on the flat (hold)']]],
+  ['Everywhere', [['lift', 'Interact: ride lift, skip, strap in or out'], ['board', 'Strap in or out only (optional)'], ['glance', 'Look behind (hold)'], ['look', 'Free look (hold, move mouse)']]],
+  ['Camera and UI', [['camera', 'Camera'], ['map', 'Map'], ['piste', 'Piste lines'], ['track', 'Next track'], ['trial', 'Go to nearest time trial'], ['restart', 'Restart (hold)'], ['replay', 'Replay viewer'], ['rewind', 'Rewind (hold)'], ['fly', 'Free fly']]],
+  ['Outrun', [['boost', 'Boost']]],
+];
+
+/** A saved keymap from any version, as two-binding arrays. `custom` is true when the player had rebound a key. */
+export function migrateKeys(raw: Record<string, unknown> | undefined): { keys: Record<string, string[]>; custom: boolean } {
+  const keys: Record<string, string[]> = {};
+  for (const a in DEFAULT_KEYS) keys[a] = [...DEFAULT_KEYS[a]];
+  if (!raw) return { keys, custom: false };
+  const vals = Object.values(raw);
+  if (vals.length && vals.every((v) => Array.isArray(v))) { for (const a in raw) keys[a] = [...(raw[a] as string[])].slice(0, 2); return { keys, custom: false }; }
+  // the old one-code-per-action format
+  const changed = Object.entries(raw).some(([a, v]) => typeof v === 'string' && OLD_DEFAULT_KEYS[a] !== undefined && OLD_DEFAULT_KEYS[a] !== v);
+  if (!changed) return { keys, custom: false };
+  for (const [a, v] of Object.entries(raw)) if (typeof v === 'string') keys[a] = [v];
+  // the old hidden aliases become real second bindings
+  const alias: Record<string, string> = { left: 'KeyA', right: 'KeyD', tuck: 'KeyW', brake: 'KeyS' };
+  for (const a in alias) if (keys[a].length < 2 && !keys[a].includes(alias[a])) keys[a].push(alias[a]);
+  return { keys, custom: true };
+}
 
 const DEFAULTS: Settings = {
-  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-  fov: 68, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, fpShake: 0.3, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', timeOfDay: 'pack', month: 2, units: 'imperial', keys: { ...DEFAULT_KEYS },
+  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', snowDay: 'mid', treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
+  fov: 68, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', fpVignette: true, goggleStrength: 0.6, fpShake: 0.3, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, pressBalance: 'on', outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', stance: 'regular', timeOfDay: 'pack', month: 2, units: 'imperial', keys: migrateKeys(undefined).keys,
   outrun: { difficulty: 'normal', escape: 'base', gentle: false },
 };
 const KEY = 'settings';
@@ -90,16 +134,17 @@ export function loadSettings(): Settings {
       if (raw.playlist === 'Hip-hop') raw.playlist = 'Lofi hip-hop';
       // saves from before the Lofi hip-hop default carry the old Ska-punk default: switch them once
       if (raw.playlistDefault !== 2) { if (raw.playlist === 'Ska-punk') raw.playlist = 'Lofi hip-hop'; raw.playlistDefault = 2; }
-      return { ...DEFAULTS, ...raw, keys: { ...DEFAULT_KEYS, ...(raw.keys ?? {}) }, outfit: { ...DEFAULTS.outfit, ...(raw.outfit ?? {}) }, outrun: { ...DEFAULTS.outrun, ...(raw.outrun ?? {}) } };
+      const mk = migrateKeys(raw.keys);
+      return { ...DEFAULTS, ...raw, keys: mk.keys, keysNote: raw.keysNote ?? (mk.custom ? true : undefined), outfit: { ...DEFAULTS.outfit, ...(raw.outfit ?? {}) }, outrun: { ...DEFAULTS.outrun, ...(raw.outrun ?? {}) } };
     }
     // migrate the older separate keys
-    const s = { ...DEFAULTS, keys: { ...DEFAULT_KEYS }, outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } };
+    const s = { ...DEFAULTS, keys: migrateKeys(undefined).keys, outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } };
     const a = JSON.parse(localStorage.getItem('audio') ?? '{}');
     if (typeof a.sfx === 'number') s.sfx = a.sfx;
     if (typeof a.music === 'number') s.music = a.music;
     if (localStorage.getItem('gfx') === 'low') { s.quality = 'low'; s.shadows = false; s.treeDensity = 0.3; s.pixelRatio = 1; }
     return s;
-  } catch { return { ...DEFAULTS, keys: { ...DEFAULT_KEYS }, outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } }; }
+  } catch { return { ...DEFAULTS, keys: migrateKeys(undefined).keys, outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } }; }
 }
 
 export function saveSettings(s: Settings): void {
@@ -107,7 +152,7 @@ export function saveSettings(s: Settings): void {
 }
 
 export function resetSettings(): Settings {
-  const s = { ...DEFAULTS, keys: { ...DEFAULT_KEYS }, outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } };
+  const s = { ...DEFAULTS, keys: migrateKeys(undefined).keys, outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } };
   saveSettings(s);
   return s;
 }
@@ -121,8 +166,13 @@ export function applyQuality(s: Settings, q: Quality): void {
 }
 
 export function keyName(code: string): string {
-  return code.replace(/^Key/, '').replace(/^Arrow/, '').replace('ShiftLeft', 'Shift').replace('ShiftRight', 'R Shift').replace('Space', 'Space');
+  if (!code) return '-';
+  const named: Record<string, string> = { ShiftLeft: 'Shift', ShiftRight: 'R Shift', AltLeft: 'Alt', AltRight: 'R Alt', ControlLeft: 'Ctrl', ControlRight: 'R Ctrl', Mouse2: 'Right mouse', Backquote: '`', Backspace: 'Backspace', ArrowLeft: '\u2190', ArrowRight: '\u2192', ArrowUp: '\u2191', ArrowDown: '\u2193' };
+  return named[code] ?? code.replace(/^Key/, '').replace(/^Digit/, '');
 }
+
+/** Every binding of an action as text ("A / \u2190"). */
+export function keysOf(s: Settings, action: string): string { return (s.keys[action] ?? []).map(keyName).join(' / '); }
 
 /** Playlist picker (shared by the settings panel and the main menu). */
 export function playlistSelect(): string {
@@ -147,7 +197,8 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Quality</label><select data-k="quality"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></div>
       <div class="row"><label>Shadows</label><input type="checkbox" data-k="shadows"></div>
       <div class="row"><label>Cascaded (beta)</label><input type="checkbox" data-k="csmExperimental"></div>
-      <div class="row"><label>Weather</label><select data-k="clouds"><option value="off">Bluebird (clear)</option><option value="few">Few clouds</option><option value="scattered">Scattered clouds</option><option value="broken">Broken clouds</option><option value="overcast">Overcast (flat light)</option><option value="flurries">Overcast, light snow</option><option value="storm">Snowstorm</option></select></div>
+      <div class="row"><label>Weather</label><select data-k="clouds"><option value="off">Bluebird (clear)</option><option value="cirrus">Thin high cloud</option><option value="few">Few clouds</option><option value="scattered">Scattered clouds</option><option value="broken">Broken clouds</option><option value="overcast">Overcast (flat light)</option><option value="flurries">Overcast, light snow</option><option value="storm">Snowstorm</option></select></div>
+      <div class="row"><label>Snow conditions</label><select data-k="snowDay"><option value="fresh">Fresh corduroy</option><option value="mid">Mid-season</option><option value="spring">Spring</option></select></div>
       <div class="row"><label>New snow</label><select data-k="newSnow"><option value="none">None</option><option value="dusting">Dusting</option><option value="6in">6 in</option><option value="powder">Powder day</option></select></div>
       <div class="row"><label>Valley fog</label><input type="checkbox" data-k="valleyFog"></div>
       <div class="row"><label>Trees</label><input type="range" data-k="treeDensity" min="0.25" max="1" step="0.05"></div>
@@ -164,10 +215,12 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Invert steer</label><input type="checkbox" data-k="invertSteer"></div>
       <div class="row"><label>Default camera</label><select data-k="camera"><option value="chase">Chase</option><option value="close">Close</option><option value="far">Far (angled)</option><option value="cine">Cinematic</option><option value="fp">First person</option><option value="helmet">Helmet cam</option></select></div>
       <div class="keys"></div>
-      <div class="hint">Click a key, then press the new one. Esc cancels.</div>
+      <div class="row"><button data-a="keys-reset">Reset keys to defaults</button></div>
+      <div class="hint">Click a slot, then press a key (or the right mouse button). Esc cancels, Delete clears the slot. A gamepad works too: left stick steer and lean, A jump, X squat / grab, RT / LT tuck / brake, RB / LB presses, B skate, Y interact, right stick look, R3 look behind, D-pad camera / map / piste / track, Start pause, Select replay.</div>
     </div>
     <div class="tab hidden" data-t="rider">
       <div class="row"><label>Ride</label><select data-k="discipline"><option value="board">Snowboard</option><option value="ski">Skis</option></select></div>
+      <div class="row"><label>Stance</label><select data-k="stance"><option value="regular">Regular (left foot forward)</option><option value="goofy">Goofy (right foot forward)</option></select></div>
       <div class="row"><label>Preset</label><select data-o="preset"><option value="">Custom</option>${Object.keys(OUTFIT_PRESETS).map((n) => `<option value="${n}">${n}</option>`).join('')}</select></div>
       ${(['jacket', 'pants', 'helmet', 'gloves', 'board'] as (keyof Outfit)[]).map((k) => `<div class="row"><label>${k[0].toUpperCase() + k.slice(1)}</label><input type="color" data-o="${k}"><span class="val" data-ov="${k}"></span></div>`).join('')}
     </div>
@@ -178,6 +231,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="row"><label>Roads and trails on snow</label><input type="checkbox" data-k="roadsOnSnow"></div>
       <div class="row"><label>Lift-line mazes</label><input type="checkbox" data-k="liftLines"></div>
       <div class="row"><label>Time trials</label><input type="checkbox" data-k="timeTrials"></div>
+      <div class="row"><label>Press balance</label><select data-k="pressBalance"><option value="easy">Easy (slow drift)</option><option value="on">Normal</option><option value="hard">Hard (fast drift)</option><option value="off">Off (hold as long as you like)</option></select></div>
       <div class="row"><label>Time of day</label><select data-k="timeOfDay"><option value="pack">Resort default</option><option value="now">Now (real time)</option><option value="7">7 am</option><option value="9">9 am</option><option value="11">11 am</option><option value="13">1 pm</option><option value="15">3 pm</option><option value="16.5">4:30 pm</option><option value="17.5">5:30 pm</option></select></div>
       <div class="row"><label>Month</label><select data-k="month"><option value="12">December</option><option value="1">January</option><option value="2">February</option><option value="3">March</option><option value="4">April</option><option value="7">July</option></select></div>
       <button data-a="reset" class="ghost">Reset to defaults</button>
@@ -187,7 +241,9 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
     tabs.forEach((x) => x.classList.toggle('on', x === b));
     host.querySelectorAll<HTMLElement>('.tab').forEach((t) => t.classList.toggle('hidden', t.dataset.t !== b.dataset.t));
   }));
+  let cancelListen: (() => void) | null = null; // the one key slot waiting for a press, if any
   const fill = () => {
+    cancelListen?.();
     host.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-k]').forEach((el) => {
       const k = el.dataset.k as keyof Settings;
       if (el instanceof HTMLInputElement && el.type === 'checkbox') el.checked = !!s[k];
@@ -195,15 +251,36 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
     });
     const fv = host.querySelector('[data-v="fov"]'); if (fv) fv.textContent = `${s.fov}°`;
     const keys = host.querySelector('.keys')!;
-    keys.innerHTML = Object.keys(DEFAULT_KEYS).map((a) => `<div class="row"><label>${KEY_LABELS[a]}</label><button class="key" data-action="${a}">${keyName(s.keys[a])}</button></div>`).join('');
+    // FEAT-124: grouped by context, two slots per action, conflicts marked
+    const owner = new Map<string, string[]>();
+    for (const act in s.keys) for (const c of s.keys[act] ?? []) owner.set(c, [...(owner.get(c) ?? []), act]);
+    const slot = (act: string, i: number) => {
+      const c = s.keys[act]?.[i] ?? '';
+      const clash = c && (owner.get(c)?.length ?? 0) > 1;
+      return `<button class="key${clash ? ' clash' : ''}" data-action="${act}" data-slot="${i}" title="${clash ? 'Also bound to: ' + owner.get(c)!.filter((x) => x !== act).join(', ') : ''}">${keyName(c)}</button>`;
+    };
+    keys.innerHTML = KEY_GROUPS.map(([g, list]) => `<div class="hint" style="margin-top:10px;font-weight:600;opacity:.9">${g}</div>` +
+      list.map(([act, label]) => `<div class="row"><label>${label}</label>${slot(act, 0)}${slot(act, 1)}</div>`).join('')).join('');
     keys.querySelectorAll<HTMLButtonElement>('button.key').forEach((b) => b.addEventListener('click', () => {
+      cancelListen?.(); // a slot that was still listening stops (else both would take the next key)
       b.textContent = '...'; b.classList.add('listening');
+      const act = b.dataset.action!, i = Number(b.dataset.slot);
+      const set = (code: string | null) => {
+        const arr = [...(s.keys[act] ?? [])];
+        if (code === null) arr.splice(i, 1); else { arr[i] = code; }
+        s.keys[act] = arr.filter((x) => !!x).slice(0, 2);
+        saveSettings(s); onChange(s, 'keys');
+      };
+      const done = () => { stop(); fill(); };
       const onKey = (e: KeyboardEvent) => {
         e.preventDefault(); e.stopPropagation();
-        window.removeEventListener('keydown', onKey, true);
-        if (e.code !== 'Escape') { s.keys[b.dataset.action!] = e.code; saveSettings(s); onChange(s, 'keys'); }
-        fill();
+        if (e.code === 'Delete') set(null); else if (e.code !== 'Escape') set(e.code);
+        done();
       };
+      const onMouse = (e: MouseEvent) => { if (e.button !== 2) return; e.preventDefault(); e.stopPropagation(); set('Mouse2'); done(); };
+      const mouseTimer = setTimeout(() => window.addEventListener('mousedown', onMouse, true), 0);
+      const stop = () => { clearTimeout(mouseTimer); window.removeEventListener('keydown', onKey, true); window.removeEventListener('mousedown', onMouse, true); cancelListen = null; };
+      cancelListen = stop;
       window.addEventListener('keydown', onKey, true);
     }));
   };
@@ -238,6 +315,9 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
   (host.querySelector('select[data-o="preset"]') as HTMLSelectElement).addEventListener('change', (e) => {
     const n = (e.target as HTMLSelectElement).value;
     if (OUTFIT_PRESETS[n]) { s.outfit = { ...OUTFIT_PRESETS[n] }; saveSettings(s); fillOutfit(); onChange(s, 'outfit'); }
+  });
+  host.querySelector('[data-a="keys-reset"]')!.addEventListener('click', () => {
+    s.keys = migrateKeys(undefined).keys; s.keysNote = false; saveSettings(s); fill(); onChange(s, 'keys');
   });
   host.querySelector('[data-a="reset"]')!.addEventListener('click', () => {
     const d = resetSettings();

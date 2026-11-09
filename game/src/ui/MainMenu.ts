@@ -1,6 +1,17 @@
 import type { GameAudio } from '../audio/Audio';
 import { playlistSelect, renderPanel, saveSettings, type Settings } from './Settings';
 
+/**
+ * FEAT-138: on a build from `npm run host`, the address another computer on the home network opens, so it is
+ * easy to read off and share. Over plain http (not localhost) some browsers (Firefox) hide controllers, so it says how to get them.
+ */
+function hostedLine(): string {
+  const pc = import.meta.env.VITE_HOST_NAME as string | undefined;
+  if (!pc) return '';
+  const pads = window.isSecureContext ? '' : `<br>Controller not seen? Run <code>npm run host -- --https</code> on ${pc}`;
+  return `<div class="keys hosted">Hosted from ${pc} &middot; ${location.host}${pads}</div>`;
+}
+
 export interface MenuChoice { action: 'ride' | 'map' }
 /** What the menu says about where Free ride starts (BUG-037). */
 export interface MenuStart { resortLabel: string; custom: boolean; onReset: () => void }
@@ -26,6 +37,7 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
         <button data-a="settings">Settings</button>
         <div class="settings hidden"></div>
         <div class="keys">&larr; &rarr; steer &middot; &uarr; tuck &middot; &darr; brake &middot; Space jump &middot; E lift &middot; M map &middot; Esc pause</div>
+        ${hostedLine()}
       </div>`;
     document.body.appendChild(wrap);
     // switching resort reloads with ?pack= (the pack loads before the menu)

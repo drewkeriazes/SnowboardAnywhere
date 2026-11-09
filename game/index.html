@@ -30,6 +30,8 @@
     .settings .row .val { width: 36px; text-align: right; opacity: .8; font-size: 12px; }
     .settings button.key { width: auto; flex: 1; margin: 0; padding: 4px 8px; font-size: 13px; font-family: ui-monospace, monospace; }
     .settings button.key.listening { background: #ffd166; color: #1a1a1a; }
+    .settings button.key + button.key { margin-left: 6px; }
+    .settings button.key.clash { outline: 2px solid #ef476f; }
     .settings .hint { font-size: 11px; opacity: .6; margin-top: 6px; }
     .settings button.ghost { margin-top: 8px; }
     #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
@@ -133,7 +135,7 @@
   <div id="toast"></div>
   <div id="trial"></div>
   <div id="finish-arrow"><div class="arrow"></div><div class="d"></div></div>
-  <div id="help">&larr; &rarr; steer &middot; &uarr; tuck &middot; &darr; brake &middot; hold/release Space to jump &middot; Shift grab &middot; hold Ctrl squat &middot; hold X to skate on the flat<br>Space + S ollie, Space + W nollie &middot; V / Z nose / tail press<br>E ride lift / skip to top &middot; M map (click to drop in) &middot; P piste lines &middot; N next track &middot; T time trial (when on)<br>R restart &middot; C camera &middot; F free fly &middot; Esc pause / settings / Outrun (Q boost, hold G to look back)</div>
+  <div id="help">A / D steer &middot; W tuck &middot; S brake &middot; hold Space to jump &middot; Shift squat / grab &middot; E interact &middot; hold G look behind</div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

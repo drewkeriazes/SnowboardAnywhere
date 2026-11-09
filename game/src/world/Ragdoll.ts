@@ -68,7 +68,8 @@ export class Ragdoll {
   constructor(private readonly pack: Pack, private readonly collider: Collider | null) {}
 
   /** Start from the rig's current world pose, moving at `vel` (world m/s), with a random tumble. */
-  start(rig: RiderRig, vel: THREE.Vector3): void {
+  /** `fall`: a horizontal unit direction to topple the body toward (FEAT-140: over a press's loaded end), or null for a random way */
+  start(rig: RiderRig, vel: THREE.Vector3, fall: THREE.Vector3 | null = null): void {
     const B = rig.bones;
     rig.body.updateMatrixWorld(true);
     BONES.forEach((b, i) => B[b].getWorldPosition(this.p[i]));
@@ -78,7 +79,9 @@ export class Ragdoll {
     const axis = this.v1.set(vel.z, 0, -vel.x);
     if (axis.lengthSq() < 1e-6) axis.set(1, 0, 0);
     axis.normalize().applyAxisAngle(this.v2.set(0, 1, 0), (Math.random() - 0.5) * 0.8);
-    const w = Math.min(6, 1.5 + spd * 0.25) * (Math.random() < 0.5 ? 1 : -1);
+    let w = Math.min(6, 1.5 + spd * 0.25) * (Math.random() < 0.5 ? 1 : -1);
+    // the top of the body moves along w (r x axis) for r up, so an axis of fall x up topples it toward `fall`
+    if (fall) { axis.set(fall.x, 0, fall.z).cross(this.v2.set(0, 1, 0)).normalize(); w = Math.max(3, Math.abs(w)); }
     const centre = this.v2.copy(this.p[IDX('Hips')]);
     for (let i = 0; i < N; i++) {
       const r = this.v3.copy(this.p[i]).sub(centre);

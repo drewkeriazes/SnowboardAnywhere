@@ -16,24 +16,39 @@ export type CameraMode = 'chase' | 'close' | 'far' | 'cine' | 'fp' | 'helmet' | 
 
 /**
  * FEAT-122: how each third-person camera frames the rider (metres). dist / height place the camera
- * behind and above the board; it looks at a point lookAhead in front of the rider along the travel
- * direction and lookUp above the board. tuckDrop lowers it in a tuck, side swings it off to one side,
- * lead (0..1) is how much of the follow lag is cancelled so the distance holds at speed.
+ * behind and above the board, and clear is the least it keeps above the snow under itself (on a steep
+ * slope that, not height, sets how high it sits). It looks at a point lookAhead in front of the rider
+ * along the travel direction, lookUp above the board, or with aimGround lookUp above the snow there,
+ * so it looks over the rider's head at what is coming. tuckDrop lowers it in a tuck, side swings it
+ * off to one side, lead (0..1) is how much of the follow lag is cancelled so the distance holds at speed.
  */
-interface Framing { dist: number; height: number; lookAhead: number; lookUp: number; tuckDrop: number; side: number; lead: number }
+interface Framing { dist: number; height: number; clear: number; lookAhead: number; lookUp: number; aimGround: boolean; tuckDrop: number; side: number; lead: number }
 const FRAMING: Record<'chase' | 'close' | 'far' | 'cine', Framing> = {
-  // default at speed: close behind, a little above the head, the rider in the lower middle of the frame
-  chase: { dist: 4.0, height: 1.6, lookAhead: 5, lookUp: 1.5, tuckDrop: 0.3, side: 0, lead: 1 },
-  close: { dist: 3.0, height: 1.4, lookAhead: 4, lookUp: 1.4, tuckDrop: 0.25, side: 0, lead: 1 },
+  // default: above and behind, looking over the head at the snow ahead; the rider in the lower third
+  chase: { dist: 4.5, height: 4.0, clear: 3.6, lookAhead: 10, lookUp: 1.0, aimGround: true, tuckDrop: 0.3, side: 0, lead: 1 },
+  // tight and low behind the back: the rider big in frame, for the feel of speed
+  close: { dist: 2.6, height: 1.3, clear: 1.0, lookAhead: 4, lookUp: 1.5, aimGround: false, tuckDrop: 0.25, side: 0, lead: 1 },
   // broadcast view: high and further back, looking down at the rider about 25 deg, the line ahead in view
-  far: { dist: 11, height: 6.5, lookAhead: 3, lookUp: 0.6, tuckDrop: 0.4, side: 0, lead: 1 },
+  far: { dist: 11, height: 6.5, clear: 1.2, lookAhead: 3, lookUp: 0.6, aimGround: false, tuckDrop: 0.4, side: 0, lead: 1 },
   // FEAT-045 cinematic: low, off to one side and trailing on a long lens, slow to follow (lag kept)
-  cine: { dist: 11, height: 1.3, lookAhead: 0, lookUp: 1.0, tuckDrop: 0.6, side: 5, lead: 0 },
+  cine: { dist: 11, height: 1.3, clear: 1.2, lookAhead: 0, lookUp: 1.0, aimGround: false, tuckDrop: 0.6, side: 5, lead: 0 },
 };
 /** FEAT-122: the default camera stopped or slow relaxes back to this, so you can see around you */
-const CHASE_SLOW = { dist: 5.0, height: 2.1 };
+const CHASE_SLOW = { dist: 5.5, height: 4.2 };
+/** aimGround: the aim point never drops faster than this (rise / run) below the rider, nor rises above it more than AIM_RISE, so a cliff, a jump or an uphill does not yank the view */
+const AIM_DROP = 0.6, AIM_RISE = 0.15;
 /** speeds (m/s) between which the default blends from CHASE_SLOW to its at-speed framing */
 const CHASE_BLEND_LO = 3, CHASE_BLEND_HI = 12;
+/**
+ * BUG-057 look behind: first person tips up this much (rad, about 5 deg) so the horizon and the run
+ * above are in frame. The chase cameras swing round to the downhill side, ease their orbit pitch to
+ * GLANCE_PITCH and come down to at most GLANCE_HEIGHT (m) above the board, and aim GLANCE_AIM m back
+ * up the travel line, GLANCE_AIM_UP above the snow there, keeping the rider between GLANCE_LOW and
+ * GLANCE_HIGH of the half FOV below the centre of the frame.
+ */
+const FP_GLANCE_UP = 0.09;
+const GLANCE_PITCH = -0.05, GLANCE_HEIGHT = 2.0, GLANCE_AIM = 25, GLANCE_AIM_UP = 2;
+const GLANCE_LOW = 0.2, GLANCE_HIGH = 0.65;
 
 /**
  * FEAT-122: for a target followed by `p += (target - p) * kf` each frame of `dt`, the time (s) to lead
@@ -69,6 +84,8 @@ export class ChaseCamera {
   /** BUG-051: the stabilised rider height (alpha-beta filter: follows the run down with no lag,
    *  drops the fast ripples of the 1 m terrain) and its rate; and the smoothed slope pitch */
   private fpZ = NaN; private fpZv = 0; private fpPitch = 0;
+  /** FEAT-124: look behind held (first person turns the head round; the chase cams orbit in freeLook) */
+  glance = false;
   private fpBob = 0;
   private fpDip = 0;
   private readonly fpFwd = new THREE.Vector3();
@@ -231,6 +248,10 @@ export class ChaseCamera {
     if (onLift) {
       this.lookYaw = THREE.MathUtils.clamp(this.lookYaw + mouseDx * 0.003, -2.1, 2.1);
       this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - mouseDy * 0.003, -1.0, 1.0);
+    } else if (this.glance) {
+      // FEAT-124: look back over the shoulder, a little up so the run above is in frame (BUG-057)
+      const k = Math.min(1, dt * 10);
+      this.lookYaw += (Math.PI * 0.95 - this.lookYaw) * k; this.lookPitch += (FP_GLANCE_UP - this.lookPitch) * k;
     } else {
       this.lookYaw *= Math.exp(-dt * 6); this.lookPitch *= Math.exp(-dt * 6);
     }
@@ -284,7 +305,9 @@ export class ChaseCamera {
     const slopePitch = r.onGround ? Math.atan2(-(r.vx * r.normal[0] + r.vy * r.normal[1]), Math.max(0.3, spd)) * 0.25 : 0; // negative = looking downhill (a quarter of the slope)
     // BUG-051: the eyes hold the line: the slope pitch eases over about 0.4 s instead of nodding over every roller
     this.fpPitch += (slopePitch - this.fpPitch) * (1 - Math.exp(-dt / FP_PITCH_TAU));
-    const pitch = THREE.MathUtils.clamp(this.fpPitch - (tuck ? 0.06 : 0) + this.lookPitch, -1.2, 1.2);
+    // BUG-057: that tilt is down the slope ahead; turned round (look behind, free look) it flips, so
+    // looking back you look up the run above instead of into the snow rising behind you
+    const pitch = THREE.MathUtils.clamp((this.fpPitch - (tuck ? 0.06 : 0)) * Math.cos(this.lookYaw) + this.lookPitch, -1.2, 1.2);
     const yaw = Math.atan2(this.fpLook.x, -this.fpLook.z) + this.lookYaw;
     // build orientation: yaw about up, then pitch, then roll about the view axis
     // camera forward is -Z; a yaw of `yaw` (clockwise from north) is a rotation of -yaw about +Y
@@ -306,12 +329,16 @@ export class ChaseCamera {
   orbitYaw = 0; orbitPitch = 0;
   /** Outrun (FEAT-101): footfall kick 0..1 on the chase cameras, decays on its own */
   kick = 0;
+  /** BUG-057: how far into look behind the chase cameras are, 0..1 (lowers the camera, aims up the hill) */
+  private glanceW = 0;
   /** `glance` (FEAT-101): snap the orbit round to look back over the shoulder while held. */
   freeLook(held: boolean, dt: number, mouseDx: number, mouseDy: number, glance = false): void {
+    this.glanceW = glance ? this.glanceW + (1 - this.glanceW) * (1 - Math.exp(-dt * 10)) : this.glanceW * Math.exp(-dt * 5);
     if (glance) {
       const k = 1 - Math.exp(-dt * 10);
       const target = this.orbitYaw < 0 ? -Math.PI : Math.PI;
-      this.orbitYaw += (target - this.orbitYaw) * k; this.orbitPitch += (0.25 - this.orbitPitch) * k;
+      // BUG-057: low on the downhill side (it rose over the rider and looked down into the snow)
+      this.orbitYaw += (target - this.orbitYaw) * k; this.orbitPitch += (GLANCE_PITCH - this.orbitPitch) * k;
     } else if (held) {
       this.orbitYaw += mouseDx * 0.004;
       this.orbitPitch = THREE.MathUtils.clamp(this.orbitPitch + mouseDy * 0.003, -0.35, 1.2);
@@ -356,6 +383,9 @@ export class ChaseCamera {
       dist = CHASE_SLOW.dist + (f.dist - CHASE_SLOW.dist) * b;
       height = CHASE_SLOW.height + (f.height - CHASE_SLOW.height) * b;
     }
+    // BUG-057: looking behind, come down near the rider's height so the run above fills the frame
+    const g = this.glanceW;
+    height += (Math.min(height, GLANCE_HEIGHT) - height) * g;
     // on foot it stays behind where you face (walking backwards or slipping must not swing it round)
     if (spd > 2.5 && !r.onFoot) this.fwd.set(r.vx / spd, 0, -r.vy / spd);
     else this.fwd.lerp(new THREE.Vector3(Math.sin(r.heading), 0, -Math.cos(r.heading)), Math.min(1, dt * 2)).normalize();
@@ -367,7 +397,7 @@ export class ChaseCamera {
     if (f.side) this.desired.add(new THREE.Vector3(-back.z, 0, back.x).multiplyScalar(f.side));
     // keep the camera above the snow
     const ground = this.pack.groundHeight(this.desired.x, -this.desired.z);
-    if (this.desired.y < ground + 1.2) this.desired.y = ground + 1.2;
+    if (this.desired.y < ground + f.clear) this.desired.y = ground + f.clear;
     // BUG-032: a trunk, rock or wall between the rider and the camera pulls the camera in front of it,
     // quickly (no lag through the tree); the normal lag eases it back out once the line is clear
     const blocked = this.pullIn(r, this.desired);
@@ -383,7 +413,14 @@ export class ChaseCamera {
     const under = this.pack.groundHeight(this.pos.x, -this.pos.z) + 0.8;
     if (this.pos.y < under) this.pos.y = under;
     // while orbiting look at the rider, not ahead of them
-    const lookTarget = riderPos.clone().addScaledVector(back, orbiting ? 0 : f.lookAhead).add(new THREE.Vector3(0, orbiting ? 1.0 : f.lookUp, 0));
+    const ahead = orbiting ? 0 : f.lookAhead;
+    const lookTarget = riderPos.clone().addScaledVector(back, ahead);
+    if (f.aimGround && !orbiting) {
+      // over the head at the snow ahead: follows the slope down, within AIM_DROP / AIM_RISE of the rider
+      const ga = this.pack.groundHeight(lookTarget.x, -lookTarget.z);
+      lookTarget.y = THREE.MathUtils.clamp(Number.isFinite(ga) ? ga : r.z, r.z - ahead * AIM_DROP, r.z + ahead * AIM_RISE) + f.lookUp;
+    } else lookTarget.y += orbiting ? 1.0 : f.lookUp;
+    if (g > 0.001) lookTarget.lerp(this.glanceAim(r, back), g);
     const kl = 1 - Math.exp(-dt * 8), ll = f.lead * lagTime(dt, kl);
     lookTarget.x += r.vx * ll; lookTarget.y += vz * ll; lookTarget.z -= r.vy * ll;
     this.look.lerp(lookTarget, kl);
@@ -401,5 +438,22 @@ export class ChaseCamera {
     const fov = (cine ? this.baseFov - 22 : this.baseFov) + (this.speedFov ? Math.min(22, r.speed * 0.6) + (tuck ? 4 : 0) : 0);
     this.camera.fov += (fov - this.camera.fov) * Math.min(1, dt * 4);
     this.camera.updateProjectionMatrix();
+  }
+
+  /**
+   * BUG-057: where the chase cameras look while looking behind: GLANCE_AIM m back up the travel line
+   * (`back` is swung round to point there), GLANCE_AIM_UP above the snow, so the run above and anything
+   * coming down it are in view. The aim's pitch is held so the rider stays in the lower part of the frame.
+   */
+  private glanceAim(r: Rider, back: THREE.Vector3): THREE.Vector3 {
+    const p = this.pos;
+    const ax = r.x + back.x * GLANCE_AIM, az = -r.y + back.z * GLANCE_AIM;
+    const ga = this.pack.groundHeight(ax, -az);
+    const ay = (Number.isFinite(ga) ? ga : r.z) + GLANCE_AIM_UP;
+    const hd = Math.hypot(ax - p.x, az - p.z) || 1;
+    const rd = Math.hypot(r.x - p.x, -r.y - p.z) || 1;
+    const toRider = Math.atan2(r.z + 1 - p.y, rd), half = this.camera.fov * Math.PI / 360;
+    const pitch = THREE.MathUtils.clamp(Math.atan2(ay - p.y, hd), toRider + GLANCE_LOW * half, toRider + GLANCE_HIGH * half);
+    return new THREE.Vector3(ax, p.y + Math.tan(pitch) * hd, az);
   }
 }
