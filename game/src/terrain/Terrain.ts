@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { type Pack, MOGUL_MAX_RES, MOGUL_SHADE_MAX_RES } from '../pack/Pack';
+import { MOGUL_FALL_D } from './Moguls';
 import { createTerrainMaterial } from './TerrainMaterial';
 
 /**
@@ -131,6 +132,16 @@ export class Terrain {
     (this.material.userData.uniforms as { uFlat: { value: number } }).uFlat.value = v;
   }
 
+  /** BUG-062: the sun's direction (three.js world frame, toward the sun) for the mogul colouring. */
+  setSun(dir: THREE.Vector3): void {
+    (this.material.userData.uniforms as { uSunDir: { value: THREE.Vector3 } }).uSunDir.value.copy(dir);
+  }
+
+  /** BUG-062 `?debug=moguls`: tint the mogul amplitude and show which path draws each chunk. */
+  setMogulDebug(on: boolean): void {
+    (this.material.userData.uniforms as { uDebugMoguls: { value: number } }).uDebugMoguls.value = on ? 1 : 0;
+  }
+
   /** Finest resolution worth rendering at a point: 1 m inside the fine set, else mid, else far. */
   private minRes(cx: number, cy: number): number {
     const p = this.pack;
@@ -244,9 +255,15 @@ export class Terrain {
     const col = new Float32Array(vertCount * 3);
     const forest = new Float32Array(vertCount);
     const ao = new Float32Array(vertCount);
-    // FEAT-059: mogul amplitude for the shader on chunks too coarse to carry the bumps as geometry
-    const mogul = new Float32Array(vertCount);
-    const shadeMoguls = !!pack.moguls && res > MOGUL_MAX_RES && res <= MOGUL_SHADE_MAX_RES;
+    // FEAT-059 / BUG-062: mogul amplitude for the shader (x) and which path draws the field here (y:
+    // 0 none, 1 shader only, 2 bumps in the geometry too). Every chunk up to MOGUL_SHADE_MAX_RES is
+    // shaded per pixel; the finest ones also carry the bumps in their positions, with their vertex
+    // normals from the base surface so the shader's analytic bump normal is not doubled (and not the
+    // aliased one a 2 m grid makes of a 5.7 m wave).
+    const mogul = new Float32Array(vertCount * 2);
+    const shadeMoguls = !!pack.moguls && res <= MOGUL_SHADE_MAX_RES;
+    const geoMoguls = !!pack.moguls && res <= MOGUL_MAX_RES;
+    const mogPath = geoMoguls ? 2 : shadeMoguls ? 1 : 0;
     const aoSet = pack.ao && res <= AO_MAX_RES ? pack.ao : null;
     // footprint for the AO lookup: one 2 m sample near the rider, a 2 x 2 box of samples on coarser chunks
     const aoOff = res > 2 ? res / 4 : 0;
@@ -257,13 +274,13 @@ export class Terrain {
     const FR = 6;
     const dirSet = pack.dir && res <= 8 ? pack.dir : null;
     const heights = new Float32Array((n + 2) * (n + 2)); // with a 1-sample border for normals
-    // sample heights including border
+    // sample base heights (no mogul bumps) including border
     let dataRes = Infinity;
     for (let j = -1; j <= n; j++) {
       const y = c.minY + j * res;
       for (let i = -1; i <= n; i++) {
         const x = c.minX + i * res;
-        heights[(j + 1) * (n + 2) + (i + 1)] = pack.height(x, y, res);
+        heights[(j + 1) * (n + 2) + (i + 1)] = pack.height(x, y, res, false);
       }
     }
     dataRes = pack.finestRes(c.minX + c.size / 2, c.minY + c.size / 2);
@@ -275,7 +292,7 @@ export class Terrain {
       for (let i = 0; i < n; i++) {
         const x = c.minX + i * res, y = c.minY + j * res;
         const h = H(i, j);
-        pos[v * 3] = x; pos[v * 3 + 1] = h; pos[v * 3 + 2] = -y;
+        pos[v * 3] = x; pos[v * 3 + 1] = geoMoguls ? h + pack.bumpAt(x, y) : h; pos[v * 3 + 2] = -y;
         // normal by central differences (pack x east, y north -> three x, -z)
         const nxp = -(H(i + 1, j) - H(i - 1, j)) / (2 * res);
         const nyp = -(H(i, j + 1) - H(i, j - 1)) / (2 * res);
@@ -321,10 +338,13 @@ export class Terrain {
         }
         col[v * 3] = rock; col[v * 3 + 1] = scree * (1 - rock); col[v * 3 + 2] = groom * (1 - rock);
         const mog = shadeMoguls ? pack.mogulAmp(x, y, true) * (1 - rock) : 0;
-        mogul[v] = mog;
+        mogul[v * 2] = mog; mogul[v * 2 + 1] = mogPath;
         if (groom > 0.02 || mog > 0.01) {
-          const gx = (pack.height(x + FR, y, resB) - pack.height(x - FR, y, resB)) / (2 * FR);
-          const gy = (pack.height(x, y + FR, resB) - pack.height(x, y - FR, resB)) / (2 * FR);
+          // moguls take the same wide fall line as Pack.bumpAt (BUG-064), so the shaded field matches the
+          // bumps in the geometry and the physics; corduroy keeps the 6 m one
+          const fr = mog > 0.01 && groom <= 0.02 ? MOGUL_FALL_D : FR;
+          const gx = (pack.height(x + fr, y, resB) - pack.height(x - fr, y, resB)) / (2 * fr);
+          const gy = (pack.height(x, y + fr, resB) - pack.height(x, y - fr, resB)) / (2 * fr);
           const b = groom > 0.02 && dirSet && dirSet.has(x, y) ? Math.round(dirSet.sample(x, y, this.maskSample)[0] * 255) : 0;
           if (b > 0) {
             // run axis (pack east, north), undirected; take the sense that points downhill. A groomer
@@ -353,7 +373,7 @@ export class Terrain {
       pos[v * 3] = pos[e * 3]; pos[v * 3 + 1] = pos[e * 3 + 1] - skirt; pos[v * 3 + 2] = pos[e * 3 + 2];
       nor[v * 3] = nor[e * 3]; nor[v * 3 + 1] = nor[e * 3 + 1]; nor[v * 3 + 2] = nor[e * 3 + 2];
       col[v * 3] = col[e * 3]; col[v * 3 + 1] = col[e * 3 + 1]; col[v * 3 + 2] = col[e * 3 + 2]; forest[v] = forest[e]; ao[v] = ao[e];
-      fall[v * 2] = fall[e * 2]; fall[v * 2 + 1] = fall[e * 2 + 1]; mogul[v] = mogul[e];
+      fall[v * 2] = fall[e * 2]; fall[v * 2 + 1] = fall[e * 2 + 1]; mogul[v * 2] = mogul[e * 2]; mogul[v * 2 + 1] = mogul[e * 2 + 1];
       v++;
     }
     const idx: number[] = [];
@@ -379,7 +399,7 @@ export class Terrain {
     geo.setAttribute('forest', new THREE.BufferAttribute(forest, 1));
     geo.setAttribute('ao', new THREE.BufferAttribute(ao, 1));
     geo.setAttribute('fall', new THREE.BufferAttribute(fall, 2));
-    geo.setAttribute('mogul', new THREE.BufferAttribute(mogul, 1));
+    geo.setAttribute('mogul', new THREE.BufferAttribute(mogul, 2));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
     if (c.mesh) {

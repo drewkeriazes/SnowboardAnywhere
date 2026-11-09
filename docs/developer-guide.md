@@ -110,7 +110,7 @@ The data hosts (USGS, Planetary Computer, Overpass, Mapterhorn) are not reachabl
 - `rider=ski` or `rider=board`
 - `stance=regular` or `stance=goofy` (FEAT-139, overrides Settings > Rider > Stance)
 - `debug` (not in the `npm run host` build) adds a HUD line with the edge angle, lateral acceleration, turn radius and turn rate, a line with the snow condition weights (FEAT-053), and sliders for the body lead / board lag chain (BUG-056)
-- `nomoguls` flattens the mogul fields (FEAT-059); with `debug`, the resort map (M) under-strokes runs scoring 0.3 or more in orange and the hover line shows the nearest run's score
+- `nomoguls` flattens the mogul fields (FEAT-059); with `debug`, the resort map (M) under-strokes runs scoring 0.3 or more in orange and the hover line shows the nearest run's score. `debug=moguls` (BUG-062) tints the terrain by mogul amplitude: green where the bumps are in the chunk geometry (1 and 2 m chunks), red where the shader alone draws them (4 to 16 m), faint magenta on chunks too coarse for either
 - `lowgfx` reduced graphics for software GPUs; `headless` is used by the test tools; `csm` / `nocsm` force cascaded shadows on or off; `noimpostors` disables tree impostors; `nodeform` turns the snow deformation off (FEAT-044, for A/B shots); `bridgeguess` adds the segment-chord bridge detector
 
 ## Milestones

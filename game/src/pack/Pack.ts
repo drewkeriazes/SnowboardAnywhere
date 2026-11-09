@@ -1,7 +1,7 @@
 import { HeightSet } from './HeightSet';
 import { MaskSet } from './MaskSet';
 import type { Features, PackMeta } from './types';
-import { fallFrom, mogulHeight } from '../terrain/Moguls';
+import { fallFrom, mogulHeight, MOGUL_FALL_D } from '../terrain/Moguls';
 
 /** chunks at this resolution or finer carry the mogul bumps in their geometry */
 export const MOGUL_MAX_RES = 2;
@@ -68,14 +68,16 @@ export class Pack {
   /**
    * Height for rendering at a target resolution: use the finest loaded set whose resolution
    * is not much finer than needed (coarser sets are smoother and cheaper), fall back outward.
+   * `bumps = false` leaves the mogul bumps out (BUG-062: the chunk builder wants the base surface for
+   * its normals and adds the bumps to the positions itself).
    */
-  height(x: number, y: number, res: number): number {
+  height(x: number, y: number, res: number, bumps = true): number {
     for (const s of this.sets) {
       if (!s.contains(x, y)) continue;
       // skip sets that are far finer than needed (except when nothing else covers the point)
       if (s.meta.res * 16 < res && s !== this.sets[this.sets.length - 1]) continue;
       const h = s.sample(x, y);
-      if (!Number.isNaN(h)) return res <= MOGUL_MAX_RES ? h + this.bumpAt(x, y) : h;
+      if (!Number.isNaN(h)) return bumps && res <= MOGUL_MAX_RES ? h + this.bumpAt(x, y) : h;
     }
     // last resort: any set that has data
     for (const s of this.sets) {
@@ -114,7 +116,7 @@ export class Pack {
   bumpAt(x: number, y: number): number {
     const amp = this.mogulAmp(x, y);
     if (amp < 0.005) return 0;
-    const f = fallFrom(this.baseFn, x, y, this.fallTmp);
+    const f = fallFrom(this.baseFn, x, y, this.fallTmp, MOGUL_FALL_D); // BUG-064: a wide difference so the rows hold their direction
     return mogulHeight(x, y, amp, f[0], f[1], this.mogulCreep);
   }
 
