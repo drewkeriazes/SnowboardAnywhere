@@ -22,12 +22,12 @@ const TWO_PI = Math.PI * 2;
 const JITTER_CELL = 25; // m: scale of the phase jitter that breaks the perfect grid
 const JITTER_RAD = 0.8;
 
-/** cheap 2D hash to -1..1 */
+/** cheap 2D hash to -1..1, in uint32 arithmetic so MOGUL_GLSL reproduces it bit for bit */
 function hash(ix: number, iy: number, salt: number): number {
-  let h = (ix * 374761393 + iy * 668265263 + salt * 1442695041) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  h ^= h >>> 16;
-  return ((h & 0xffff) / 0x7fff) - 1;
+  let h = (Math.imul(ix, 374761393) + Math.imul(iy, 668265263) + Math.imul(salt, 1442695041)) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+  h = (h ^ (h >>> 16)) >>> 0;
+  return (h & 0xffff) / 32767.5 - 1;
 }
 
 /** bilinear value noise in -1..1 at a 25 m cell size */
@@ -58,6 +58,38 @@ export function mogulHeight(x: number, y: number, amp: number, fallX: number, fa
   const s = 0.5 + 0.5 * f;
   return a * Math.pow(s, 1.6);
 }
+
+/**
+ * The same field in GLSL for the terrain shader, which shades coarser chunks (no bump geometry) with
+ * it: mogulH(pxy, fall, amp, creep) takes pack coordinates (x east, y north) and the downhill
+ * direction in the same frame. Keep in step with mogulHeight above.
+ */
+export const MOGUL_GLSL = /* glsl */ `
+  float mogHash(int ix, int iy, int salt) {
+    uint h = uint(ix) * 374761393u + uint(iy) * 668265263u + uint(salt) * 1442695041u;
+    h = (h ^ (h >> 13u)) * 1274126177u;
+    h ^= h >> 16u;
+    return float(h & 0xffffu) / 32767.5 - 1.0;
+  }
+  float mogJitter(vec2 p, int salt) {
+    vec2 f = p / ${JITTER_CELL.toFixed(1)};
+    vec2 i = floor(f);
+    vec2 t = f - i;
+    t = t * t * (3.0 - 2.0 * t);
+    int ix = int(i.x), iy = int(i.y);
+    float a = mogHash(ix, iy, salt), b = mogHash(ix + 1, iy, salt), c = mogHash(ix, iy + 1, salt), d = mogHash(ix + 1, iy + 1, salt);
+    return mix(mix(a, b, t.x), mix(c, d, t.x), t.y);
+  }
+  float mogulH(vec2 pxy, vec2 fall, float amp, float creep) {
+    float l = length(fall);
+    vec2 fd = l > 1e-6 ? fall / l : vec2(1.0, 0.0);
+    float u = dot(pxy, fd);
+    float v = -pxy.x * fd.y + pxy.y * fd.x;
+    float k = 6.2831853 / ${MOGUL_SPACING.toFixed(2)};
+    float f = sin(k * (u + creep) + ${JITTER_RAD.toFixed(2)} * mogJitter(pxy, 1)) * sin(k * v + ${JITTER_RAD.toFixed(2)} * mogJitter(pxy, 2));
+    return amp * pow(0.5 + 0.5 * f, 1.6);
+  }
+`;
 
 /**
  * Unit downhill direction at (x, y) from central differences of `baseH` at +-d metres, written into

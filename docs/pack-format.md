@@ -55,8 +55,8 @@ Greyscale PNG on the mask grid: mogul amplitude 0..255 = 0..1 m from `pipeline/m
 `area` runs are filled), times a slope window (none below 15 degrees, full 20 to 35, none above 40),
 and removed under canopy, on groomed corduroy, built-up ground and rock. Padding outside the data is 0.
 The client turns the amplitude into a fall-line-aligned staggered bump field (`game/src/terrain/Moguls.ts`,
-5.7 m spacing) in both the physics height and the near terrain mesh (chunks at 2 m or finer). Packs
-without the set have no bumps.
+5.7 m spacing) in both the physics height and the near terrain mesh (chunks at 2 m or finer), and shades
+the same field in the terrain shader on chunks from 4 to 16 m. Packs without the set have no bumps.
 
 ## Instances
 

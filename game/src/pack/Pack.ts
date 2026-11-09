@@ -3,8 +3,10 @@ import { MaskSet } from './MaskSet';
 import type { Features, PackMeta } from './types';
 import { fallFrom, mogulHeight } from '../terrain/Moguls';
 
-/** chunks at this resolution or finer carry the mogul bumps (coarser ones average them out) */
+/** chunks at this resolution or finer carry the mogul bumps in their geometry */
 export const MOGUL_MAX_RES = 2;
+/** coarser chunks up to this resolution shade the same field in the terrain shader (seen from the lift) */
+export const MOGUL_SHADE_MAX_RES = 16;
 
 /** A straight bridge deck segment (pack metres). The surface runs from a to b at the given z. */
 export interface Deck { ax: number; ay: number; az: number; bx: number; by: number; bz: number; hw: number }
@@ -100,9 +102,9 @@ export class Pack {
   private readonly fallTmp = [1, 0];
 
   /** FEAT-059: mogul amplitude (m) at a point from the pack's moguls set; 0 without the set or its tile. */
-  mogulAmp(x: number, y: number): number {
-    if (!this.moguls || this.mogulScale <= 0) return 0;
-    return this.moguls.sampleBilinear(x, y, this.mogTmp)[0] * this.mogulScale;
+  mogulAmp(x: number, y: number, raw = false): number {
+    if (!this.moguls || (!raw && this.mogulScale <= 0)) return 0;
+    return this.moguls.sampleBilinear(x, y, this.mogTmp)[0] * (raw ? 1 : this.mogulScale);
   }
 
   /** FEAT-059: the bump height at a point: the field's amplitude here, aligned to the local fall line. */

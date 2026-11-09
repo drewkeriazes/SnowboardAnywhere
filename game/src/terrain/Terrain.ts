@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { type Pack, MOGUL_MAX_RES } from '../pack/Pack';
+import { type Pack, MOGUL_MAX_RES, MOGUL_SHADE_MAX_RES } from '../pack/Pack';
 import { createTerrainMaterial } from './TerrainMaterial';
 
 /**
@@ -94,6 +94,12 @@ export class Terrain {
     u.uSkied.value = Math.max(0, Math.min(1, skied)); u.uSpring.value = Math.max(0, Math.min(1, spring));
   }
 
+  /** FEAT-059: the mogul field's amplitude multiplier and uphill creep (m) for the shaded (coarse) chunks. */
+  setMoguls(scale: number, creepM: number): void {
+    const u = this.material.userData.uniforms as { uMogulScale: { value: number }; uMogulCreep: { value: number } };
+    u.uMogulScale.value = Math.max(0, Math.min(1, scale)); u.uMogulCreep.value = creepM;
+  }
+
   /** Storm flat light: 0 = normal, 1 = overcast (snow relief and glints fade out). */
   setFlatLight(v: number): void {
     (this.material.userData.uniforms as { uFlat: { value: number } }).uFlat.value = v;
@@ -132,7 +138,7 @@ export class Terrain {
       else if (this.pack.far) this.pack.far.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if (c.res <= 8 && this.pack.mask) this.pack.mask.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if (c.res <= AO_MAX_RES && this.pack.ao) this.pack.ao.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
-      if (c.res <= MOGUL_MAX_RES && this.pack.moguls) this.pack.moguls.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size); // FEAT-059: bumps only on the finest chunks
+      if (c.res <= MOGUL_SHADE_MAX_RES && this.pack.moguls) this.pack.moguls.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size); // FEAT-059: bump geometry on the finest chunks, shading on the next ones
       if ((!c.mesh || this.dirty.has(c.key)) && builds < MAX_BUILDS_PER_FRAME) {
         this.build(c);
         this.dirty.delete(c.key);
@@ -206,6 +212,9 @@ export class Terrain {
     const col = new Float32Array(vertCount * 3);
     const forest = new Float32Array(vertCount);
     const ao = new Float32Array(vertCount);
+    // FEAT-059: mogul amplitude for the shader on chunks too coarse to carry the bumps as geometry
+    const mogul = new Float32Array(vertCount);
+    const shadeMoguls = !!pack.moguls && res > MOGUL_MAX_RES && res <= MOGUL_SHADE_MAX_RES;
     const aoSet = pack.ao && res <= AO_MAX_RES ? pack.ao : null;
     // footprint for the AO lookup: one 2 m sample near the rider, a 2 x 2 box of samples on coarser chunks
     const aoOff = res > 2 ? res / 4 : 0;
@@ -277,7 +286,9 @@ export class Terrain {
           scree = Math.max(scree, talus * 0.9);
         }
         col[v * 3] = rock; col[v * 3 + 1] = scree * (1 - rock); col[v * 3 + 2] = groom * (1 - rock);
-        if (groom > 0.02) {
+        const mog = shadeMoguls ? pack.mogulAmp(x, y, true) * (1 - rock) : 0;
+        mogul[v] = mog;
+        if (groom > 0.02 || mog > 0.01) {
           const gx = (pack.height(x + FR, y, resB) - pack.height(x - FR, y, resB)) / (2 * FR);
           const gy = (pack.height(x, y + FR, resB) - pack.height(x, y - FR, resB)) / (2 * FR);
           fall[v * 2] = -gx; fall[v * 2 + 1] = gy; // downhill east, and z = -north
@@ -297,7 +308,7 @@ export class Terrain {
       pos[v * 3] = pos[e * 3]; pos[v * 3 + 1] = pos[e * 3 + 1] - skirt; pos[v * 3 + 2] = pos[e * 3 + 2];
       nor[v * 3] = nor[e * 3]; nor[v * 3 + 1] = nor[e * 3 + 1]; nor[v * 3 + 2] = nor[e * 3 + 2];
       col[v * 3] = col[e * 3]; col[v * 3 + 1] = col[e * 3 + 1]; col[v * 3 + 2] = col[e * 3 + 2]; forest[v] = forest[e]; ao[v] = ao[e];
-      fall[v * 2] = fall[e * 2]; fall[v * 2 + 1] = fall[e * 2 + 1];
+      fall[v * 2] = fall[e * 2]; fall[v * 2 + 1] = fall[e * 2 + 1]; mogul[v] = mogul[e];
       v++;
     }
     const idx: number[] = [];
@@ -323,6 +334,7 @@ export class Terrain {
     geo.setAttribute('forest', new THREE.BufferAttribute(forest, 1));
     geo.setAttribute('ao', new THREE.BufferAttribute(ao, 1));
     geo.setAttribute('fall', new THREE.BufferAttribute(fall, 2));
+    geo.setAttribute('mogul', new THREE.BufferAttribute(mogul, 1));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
     if (c.mesh) {

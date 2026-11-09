@@ -873,6 +873,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         const seasonStart = Date.UTC(d.getUTCMonth() >= 10 ? d.getUTCFullYear() : d.getUTCFullYear() - 1, 10, 15);
         const seasonDays = Math.max(0, Math.min(150, (d.getTime() - seasonStart) / 86400000));
         pack.setMoguls(params.has('nomoguls') ? 0 : 1 - 0.6 * snowCover, MOGUL_CREEP_M_PER_DAY * seasonDays);
+        terrain.setMoguls(pack.mogulScale, pack.mogulCreep);
       }
       rocks.setSnow(Math.min(1, snowCover * 3), snow.wind.x, snow.wind.y); // boulder tops fill three times faster than the slopes
       roads.update(fx, fy);
