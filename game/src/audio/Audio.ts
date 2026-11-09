@@ -438,12 +438,14 @@ export class GameAudio {
     else lerp(this.flowCrust.gain, 0);
     // carve: toe vs heel by edge sign; skid chatter
     const edge = Math.abs(r.edgeAngle);
-    const carveG = onSnow ? Math.min(0.5, (0.03 + 0.5 * edge * v) * (0.5 + 0.5 * groomed + 0.6 * hard)) : 0;
+    // FEAT-148: a hard carve's edge hisses louder and higher with the g it pulls (2.5 g full)
+    const hiss = onSnow ? r.hardCarve * Math.min(1, Math.abs(r.lateralG) / 2.5) : 0;
+    const carveG = onSnow ? Math.min(0.5 + 0.2 * hiss, (0.03 + 0.5 * edge * v) * (0.5 + 0.5 * groomed + 0.6 * hard) * (1 + 0.6 * hiss)) : 0;
     const toe = r.edgeAngle * r.toeSign; // FEAT-139: the toe edge is the heading's left riding switch or goofy
     lerp(this.carveToe.gain, toe > 0 ? carveG : 0);
     lerp(this.carveHeel.gain, toe < 0 ? carveG : 0);
-    this.carveToe.filter.frequency.value = 2600 + 1200 * edge + 30 * spd;
-    this.carveHeel.filter.frequency.value = 1700 + 900 * edge + 30 * spd;
+    this.carveToe.filter.frequency.value = 2600 + 1200 * edge + 30 * spd + 1500 * hiss;
+    this.carveHeel.filter.frequency.value = 1700 + 900 * edge + 30 * spd + 1200 * hiss;
     // skid chatter, and the edge scraping through a brake (louder and higher on hard snow)
     const scrub = Math.max(r.skid, r.scrape);
     lerp(this.skidL.gain, onSnow ? Math.min(0.5, scrub * 0.5 * (0.6 + 0.4 * v) * (1 + hard)) : 0);

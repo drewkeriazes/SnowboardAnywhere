@@ -485,7 +485,7 @@ export class Tracks {
     const half = moved > 6 || Number.isNaN(this.lastHalf) ? halfRaw : Math.min(halfRaw, this.lastHalf + HALF_GROW_PER_M * moved);
     this.lastHalf = half;
     // FEAT-044: the floor is the groomer's DEPTH or 0.7 of the loose snow depth, whichever is deeper (8 to 25 cm in powder)
-    const depth = Math.min(MAX_DEPTH, Math.max(DEPTH * (1 + 0.3 * powder), 0.7 * r.snow.depth) * (1 + 0.3 * edge)) * (1 - 0.6 * scrape) * (s.rock + s.scree > 0.5 ? 0.3 : 1);
+    const depth = Math.min(MAX_DEPTH, Math.max(DEPTH * (1 + 0.3 * powder), 0.7 * r.snow.depth) * (1 + 0.3 * edge + 0.4 * r.hardCarve * edge)) * (1 - 0.6 * scrape) * (s.rock + s.scree > 0.5 ? 0.3 : 1);
     // the cut sits under the engaged edge, not the middle of the board: slide the section across by
     // up to half the width as the board goes on edge, so the line crosses the board between turns
     const shift = 0.5 * W * gc * ec * Math.sign(tilt);
