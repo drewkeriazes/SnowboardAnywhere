@@ -87,6 +87,7 @@ Flow: `resorts/<slug>.json` -> `gen_manifest.py` -> `manifests/<slug>.json` -> `
 - `synth_pack.py <out_dir>` synthetic test mountain in the same format, for client work without real data.
 - `packwriter.py` shared pack writer (Terrarium height tiles, masks) used by `build_pack.py` and `synth_pack.py`.
 - `terrain_ao.py` baked sky visibility (terrain ambient occlusion) from the DEM, used by the pack build.
+- `piste_dir.py` piste direction (DATA-002): the groomed runs' axis per 2 m cell as the `dir/` tile set, used by both pack builds; `python pipeline/piste_dir.py packs/<slug>` adds it to an existing pack from `features.json` and the mask tiles without a rebuild. The terrain (`Terrain.ts`) points it downhill and feeds it to the corduroy as the `fall` attribute, falling back to the smoothed fall line where a pack has no set.
 - `moguls.py` (FEAT-059) scores each run for mogul fields (grooming reports, difficulty, slope and aspect along the centre line, lift-top traffic; cat tracks, glades and greens never) and paints the amplitude raster the pack build writes as the `moguls` tile set. The build log lists the top-scoring runs. Tests: `cd pipeline && python -m pytest tests`.
 - `ept_select.py <dataset> <depth_in_ski_area> <depth_in_buffer> [out.txt]` picks the EPT lidar nodes over a resort for the manifest (boxes are hard-coded for Breckenridge).
 - `prep_textures.py [work_dir]` fetches the CC0 ambientCG rock and talus sets and writes the game's surface textures into `game/public/textures/`.

@@ -10,7 +10,7 @@ Steps
   4. Lidar: EPT LAZ nodes -> DSM (max per 2 m cell) -> canopy height model = DSM - DEM
   5. NAIP: 4-band 1 m -> NDVI, brightness -> canopy / aspen / rock / scree / meadow classes
   6. OSM: pistes, lifts (+pylons, stations), buildings, roads, water, peaks -> features.json
-  7. Masks (2 m): rock, scree, groomed piste corridors, canopy cover
+  7. Masks (2 m): rock, scree, groomed piste corridors, canopy cover; piste direction for the groomers
   8. Trees: crown detection on the CHM/NDVI, species from NAIP colour + elevation; rocks on the rock mask
   9. Write the pack
 """
@@ -21,6 +21,7 @@ import tifffile
 from scipy import ndimage
 from pyproj import Transformer
 from packwriter import (write_height_set, write_mask_set, write_instances, write_meta, write_features, decode_terrarium)
+from piste_dir import piste_direction
 from terrain_ao import sky_visibility
 from moguls import run_mogul_score, slope_window, paint_field, paint_polygon
 
@@ -652,6 +653,8 @@ canopy_cover = ndimage.uniform_filter(canopy.astype(np.float32), 5)
 rgba = np.stack([rock_w * 255, scree_w * 255, np.clip(groomed, 0, 1) * 255, canopy_cover * 255], axis=-1).astype(np.uint8)
 mask_meta = write_mask_set(out, rgba, R2, X0 - OX, Y0 - OY)
 del rgba
+# piste direction (DATA-002): the groomed runs' axis per cell, for corduroy that follows the run
+dir_meta = write_mask_set(out, piste_direction(runs, groomed, R2, X0 - OX, Y1 - OY, log=log), R2, X0 - OX, Y0 - OY, kind="dir", pad=0)
 # baked sky visibility (FEAT-047): gullies, couloirs, cirques and cliff feet darken; same grid as the mask.
 # A light blur first so 1 m DEM noise does not speckle the tangent plane.
 log("  terrain AO")
@@ -778,7 +781,7 @@ if seg is not None:
 meta = {"version": 1, "slug": slug, "name": cfg["name"], "crs": crs, "origin": [OX, OY], "lonlat": [lon_c, lat_c],
         "bounds": {"minX": X0 - OX, "minY": Y0 - OY, "maxX": X1 - OX, "maxY": Y1 - OY},
         "zRange": [float(np.floor(Z_MIN / 100) * 100 - 100), float(np.ceil(Z_MAX / 100) * 100 + 100)],
-        "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "moguls": mog_meta, "instances": inst,
+        "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "dir": dir_meta, "moguls": mog_meta, "instances": inst,
         "start": start, "sun": {"azimuth": 160, "elevation": 30}, "attribution": cfg["attribution"]}
 write_meta(out, meta)
 log("done")

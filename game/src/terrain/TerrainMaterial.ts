@@ -10,8 +10,9 @@ import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from './rockShader';
  * Groomed vs ungroomed: groomers are smooth, clean snow with corduroy ridges (about 30 cm apart)
  * running down the fall line, lit as small bumps, in groomer-width passes with faint seams; the
  * ridges fade out with distance so they never shimmer. Ungroomed snow (bowls, glades) keeps the
- * stronger drift relief plus wind ripples and more tonal variation. The fall line comes from the
- * normal; stripes use 12 fixed world directions, blending the two nearest the local fall line, so
+ * stronger drift relief plus wind ripples and more tonal variation. The ridge direction is the run's
+ * axis from the pack's piste direction set (DATA-002), else the smoothed fall line from the heights;
+ * stripes use 12 fixed world directions, blending the two nearest the local direction, so
  * they stay put on the snow instead of swimming as the slope curves.
  *
  * Snow lighting (FEAT-047): sunlight wraps past the terminator as a blue subsurface glow (light
