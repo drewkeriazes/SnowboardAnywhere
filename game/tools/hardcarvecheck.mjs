@@ -2,7 +2,7 @@
 // checks the issue's "done when": holding the squat key while steering on a groomer carves a much
 // tighter turn than normal steering; committed (already on edge when the press goes in) it bites
 // clean; pressed from flat at speed the edge lags, the board skids and bleeds more speed, and badly
-// overdone (fast, or on ice) it washes out onto the butt or the hip; every hard carve slows you;
+// overdone (from flat at 45 mph on a groomer, or 34 mph on ice) it washes out onto the butt or the hip; every hard carve slows you;
 // deep powder planes instead of washing out; and the squat without steer is just a squat. Normal
 // steering is tools/carvecheck.mjs (unchanged).
 // node tools/hardcarvecheck.mjs        (exit code 1 if a check fails)
@@ -80,13 +80,13 @@ check('the skidded one bleeds more speed than the clean one', f15.lost > c15.los
 check('but survives at 15 m/s on a groomer', !f15.washed, f15.washed ? 'washed out' : 'held');
 
 console.log('overdone:');
-const f25 = arc(25, 'flat'), f25l = arc(25, 'flat', { steer: -1 }), i20 = arc(20, 'flat', { snow: 'ice' }), ic20 = arc(20, 'committed', { snow: 'ice' }), c25 = arc(25, 'committed');
-show('25 m/s groomer, from flat, right', f25); show('25 m/s groomer, from flat, left', f25l); show('25 m/s groomer, committed', c25);
-show(`20 m/s ${i20.snowKind}, from flat`, i20); show(`20 m/s ${ic20.snowKind}, committed`, ic20);
-check('pressed from flat at 25 m/s it washes out', !!f25.washed && !!f25l.washed, `${f25.washed} / ${f25l.washed}`);
+const f25 = arc(20, 'flat'), f25l = arc(20, 'flat', { steer: -1 }), i20 = arc(15, 'flat', { snow: 'ice' }), ic20 = arc(20, 'committed', { snow: 'ice' }), c25 = arc(25, 'committed');
+show('20 m/s (45 mph) groomer, from flat, right', f25); show('20 m/s (45 mph) groomer, from flat, left', f25l); show('25 m/s groomer, committed', c25);
+show(`15 m/s (34 mph) ${i20.snowKind}, from flat`, i20); show(`20 m/s ${ic20.snowKind}, committed`, ic20);
+check('pressed from flat at 20 m/s (45 mph) it washes out', !!f25.washed && !!f25l.washed, `${f25.washed} / ${f25l.washed}`);
 check('a washout goes down on the inside: toeside onto the hip turning right, heelside onto the butt turning left (regular)', f25.washed === 1 && f25.crashSide === 1 && f25l.washed === -1 && f25l.crashSide === -1, `right ${f25.washed} side ${f25.crashSide}, left ${f25l.washed} side ${f25l.crashSide}`);
 check('committed at 25 m/s on a groomer still holds', !c25.washed, c25.washed ? 'washed out' : `R ${c25.R.toFixed(1)} m`);
-check('ice washes out easily at 20 m/s, even committed', i20.snowKind === 'ice' && !!i20.washed && !!ic20.washed, `${i20.washed} / ${ic20.washed}`);
+check('ice washes out easily: from flat at 15 m/s (34 mph), even committed at 20 m/s', i20.snowKind === 'ice' && !!i20.washed && !!ic20.washed, `${i20.washed} / ${ic20.washed}`);
 
 console.log('deep powder:');
 const p25 = arc(25, 'flat', { snow: 'powder' });

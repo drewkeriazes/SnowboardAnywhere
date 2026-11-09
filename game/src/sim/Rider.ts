@@ -157,7 +157,7 @@ const HARD_IN = 0.12, HARD_PSI = 80 * D2R, HARD_ROLL = 1.5, HARD_ROLL_V = 10, HA
  * beyond); full, the edge lets go and the rider goes down on the inside of the turn. It drains at
  * WASH_DRAIN per s.
  */
-const HARD_DRIVE_T = 0.15, WASH_SHORT = 0.6, WASH_V0 = 8, WASH_SPAN = 12, WASH_RATE = 8, WASH_DRAIN = 3;
+const HARD_DRIVE_T = 0.15, WASH_SHORT = 0.6, WASH_V0 = 8, WASH_SPAN = 12, WASH_RATE = 13, WASH_DRAIN = 3;
 /** extra sideways grip on groomed corduroy (gripBase is GROOMED_GRIP there): HARD_G is in g on corduroy */
 const GROOMED_BONUS = 0.4, GROOMED_GRIP = 1 + GROOMED_BONUS;
 /** FEAT-148: a committed edge holds this much over the turn it balances, so it bites clean instead of riding the grip limit */

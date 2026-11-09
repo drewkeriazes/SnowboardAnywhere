@@ -87,8 +87,8 @@ Hold Shift while you steer for a hard carve: the rider drops low, drives the edg
 and lays over toward the snow with the inside hand dragging, for the tightest turn the board allows
 (about 3 to 4 m at 22 mph on a groomer, against about 5 m steering normally). Commit first: roll onto the
 edge, then press. Pressed from flat at speed, or on ice, the edge lags behind the turn you are asking
-for, so the tail skids out wide and scrubs speed, and badly overdone it washes out and you go down on
-your hip (toeside) or your butt (heelside). In deep powder the board planes instead, a deep surfy
+for, so the tail skids out wide and scrubs speed, and badly overdone (pressed from straight at about 45 mph on a groomer,
+less on ice) it washes out and you go down on your hip (toeside) or your butt (heelside). In deep powder the board planes instead, a deep surfy
 turn. Every hard carve slows you, a skidded one more. Steering without Shift is unchanged.
 
 You can ride switch (the other foot forward, the tail leading). Land a 180, or slide back down the
