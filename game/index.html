@@ -10,6 +10,15 @@
     #hud { position: fixed; left: 16px; bottom: 16px; color: #fff; font-size: 22px; text-shadow: 0 1px 3px rgba(0,0,0,.6); line-height: 1.35; pointer-events: none; }
     #hud .dim { font-size: 12px; opacity: .75; }
     #hud .prompt { font-size: 16px; color: #ffe08a; }
+    /* BUG-063: loading screen while the session warms up */
+    #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(#1b2a44, #0b1220); z-index: 30; color: #fff; transition: opacity .45s ease; }
+    #loading.done { opacity: 0; pointer-events: none; }
+    #loading .panel { width: 360px; padding: 28px 32px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.16); border-radius: 16px; }
+    #loading .eyebrow { font-size: 12px; letter-spacing: .2em; text-transform: uppercase; opacity: .7; margin-bottom: 6px; }
+    #loading .title { font-size: 24px; margin-bottom: 18px; }
+    #loading .track { height: 6px; border-radius: 3px; background: rgba(255,255,255,.15); overflow: hidden; }
+    #loading .fill { height: 100%; width: 0; background: #ffd166; transition: width .2s linear; }
+    #loading .label { margin-top: 10px; font-size: 13px; opacity: .75; min-height: 1.2em; }
     #status { position: fixed; left: 50%; top: 40%; transform: translateX(-50%); color: #fff; font-size: 20px; }
     #pause { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(8,12,24,.72); z-index: 20; color: #fff; }
     #pause .panel, #menu .panel { width: 380px; max-height: 90vh; overflow: auto; padding: 28px 32px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.18); border-radius: 16px; backdrop-filter: blur(6px); }

@@ -6,6 +6,8 @@ export class MaskSet {
   readonly size: number;
   private readonly tiles = new Map<number, Uint8ClampedArray | null>();
   private readonly pending = new Map<number, Promise<void>>();
+  /** BUG-063: tiles still downloading */
+  get inFlight(): number { return this.pending.size; }
   private readonly missing = new Set<number>();
   private readonly baseUrl: string;
   onTileLoaded: ((tx: number, ty: number) => void) | null = null;
