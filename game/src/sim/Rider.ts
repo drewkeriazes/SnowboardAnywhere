@@ -2,6 +2,7 @@ import type { Pack } from '../pack/Pack';
 import type { Collider } from './Collider';
 import { Rng } from './Rng';
 import { rockCover } from '../terrain/rockCover';
+import { DEFAULT_SNOW_WORLD, newSnowState, snowAt, type SnowState, type SnowWorld } from './SnowConditions';
 
 export interface Input {
   steer: number; // -1 left .. +1 right
@@ -74,17 +75,20 @@ const STAMINA_RESUME = 1.5;
 const CLIMB_MAX = 35, CRAWL_MAX = 45, CRAWL = 0.45, BODY_L = 2.5;
 
 /**
- * How far a boot sinks (m): about 2.5 cm on a groomer, 10 to 16 cm in open powder, up to about
- * 22 cm in deep powder off-piste under trees, almost nothing on rock. Drives the walking speed,
- * the boot height and the print depth.
+ * How far a boot sinks (m): 70% of the snow depth under the rider (FEAT-053), at least 4 mm. It
+ * follows the day's conditions: deeper after a storm, a few cm in chop and slush, almost nothing
+ * on ice or rock. Drives the walking speed, the boot height and the print depth.
  */
-export function bootSink(s: SurfaceInfo): number {
-  const hard = Math.min(1, s.rock + s.scree);
-  const groomed = Math.min(1, s.groomed) * (1 - hard);
-  const powder = Math.max(0, 1 - groomed - hard);
-  const deep = powder * (s.canopy > 0.3 ? 1 : 0.5);
-  return 0.025 * groomed + 0.1 * powder + 0.12 * deep + 0.008 * hard;
+export function bootSink(snow: SnowState): number {
+  return Math.max(0.004, snow.depth * 0.7);
 }
+/** FEAT-053 powder: speed (m/s) by which the board planes and the speed-scaled drag stops growing,
+ *  the drag per m/s before that (per unit powder), and the nose-sink drag (g) at a standstill that
+ *  is gone by SINK_SPEED m/s */
+const PLANE_SPEED = 12, POWDER_DRAG = 0.012, SINK_DRAG = 0.08, SINK_SPEED = 6;
+/** FEAT-053 chop: a jolt every CHOP_GAP s (random, about), kicking the heading up to CHOP_YAW rad and
+ *  the board sideways up to CHOP_KICK m/s at full chop and speed, smaller at low speed (gone by CHOP_SPEED) */
+const CHOP_GAP = 0.2, CHOP_YAW = 0.035, CHOP_KICK = 0.3, CHOP_SPEED = 12;
 
 /** wrap an angle to -PI..PI */
 function wrap(a: number): number { return Math.atan2(Math.sin(a), Math.cos(a)); }
@@ -319,6 +323,15 @@ export class Rider {
   /** FEAT-140: which way the crash throws the body, +1 forward along the heading, -1 back, 0 either (a press slam falls over its loaded end) */
   crashFall = 0;
   surface: SurfaceInfo = { rock: 0, scree: 0, groomed: 0, canopy: 0, moguls: 0 };
+  /** FEAT-053: the snow here (groomed / powder / chop / ice / slush weights and the physics they set) */
+  readonly snow: SnowState = newSnowState();
+  /** FEAT-053: the day's conditions (main.ts sets the hour, weather, new snow and the setting) */
+  readonly snowWorld: SnowWorld = { ...DEFAULT_SNOW_WORLD };
+  /** FEAT-053: 0..1 how hard the chop is rattling the board right now (smoothed, for the camera and the view) */
+  chop = 0;
+  /** FEAT-053: 0..1 the nose sinking into slow powder (for the drag; the view may tip the board) */
+  noseSink = 0;
+  private chopT = 0;
   normal: [number, number, number] = [0, 0, 1];
   slopeDeg = 0;
   skid = 0; // 0..1 how much the board is sliding sideways (for spray)
@@ -429,6 +442,7 @@ export class Rider {
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
     this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false; this.mantle = 0; this.stepT = 0;
     this.sprinting = false; this.crawling = false; this.slipT = 0; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
+    this.chop = 0; this.noseSink = 0; this.chopT = 0;
     this.rng.seed(seed);
     this.squareBoard();
     this.snapPose();
@@ -640,6 +654,8 @@ export class Rider {
       this.surface.rock = cov.rock; this.surface.scree = cov.scree; this.surface.groomed = m[2]; this.surface.canopy = m[3];
     }
     this.surface.moguls = pack.mogulAmp?.(this.x, this.y) ?? 0; // FEAT-059 (test planes may lack the method)
+    snowAt(this.surface, n, this.z, this.snowWorld, this.snow); // FEAT-053
+    this.chop *= Math.exp(-dt * 6);
     if (this.strapState !== 'none') { this.strapStep(dt, ground); return; }
     if (this.onFoot) { this.walkStep(dt, input, n, ground); return; }
     if (this.crashed > 0) {
@@ -697,11 +713,13 @@ export class Rider {
     const spd = Math.hypot(this.vx, this.vy);
     const F = FEEL[this.discipline];
 
-    // surface properties
+    // surface properties (FEAT-053: the snow state blends the day's conditions into the grip,
+    // the drag, the turn shape and the jolts)
     const groomed = this.surface.groomed;
     const rock = this.surface.rock;
-    const powder = Math.max(0, 1 - groomed) * (this.surface.canopy > 0.3 ? 1 : 0.6);
-    const gripBase = (1.0 + 0.4 * groomed - 0.5 * rock) * (1 + SQUAT_GRIP * this.squat) * (1 - PRESS_GRIP * Math.abs(this.lean)) // low centre of mass bites a little more; on a press you can't carve
+    const snow = this.snow;
+    const powder = Math.min(1, snow.powder + 0.5 * snow.chop + 0.5 * snow.slush); // soft snow the board planes in, so the edge cap is lower
+    const gripBase = (1.0 + 0.4 * groomed - 0.5 * rock) * snow.grip * (1 + SQUAT_GRIP * this.squat) * (1 - PRESS_GRIP * Math.abs(this.lean)) // low centre of mass bites a little more; on a press you can't carve
       * (this.switch ? 1 - SWITCH_GRIP : 1); // FEAT-139: a touch weaker switch
 
     // ---- FEAT-127 edge and carve. Steer sets a target edge angle up to what can be held here; the
@@ -721,7 +739,8 @@ export class Rider {
     const phi = Math.min(PHI_MAX, psi * (1 - F.angulation));
     const gInRaw = (ax * lx + ay * ly) * Math.sign(this.edge);
     const gIn = gInRaw < 0 ? gInRaw * GIN_FIGHT : gInRaw;
-    const aLat = Math.min((spd * spd) / (F.sidecut * Math.cos(psi)), Math.max(0, G * n[2] * Math.tan(phi) + gIn));
+    // FEAT-053: soft snow does not hold the sidecut's arc, so the turns come round wider and slower (snow.turn < 1)
+    const aLat = Math.min((spd * spd * snow.turn) / (F.sidecut * Math.cos(psi)), Math.max(0, G * n[2] * Math.tan(phi) * snow.turn + gIn));
     this.carveAcc = aLat;
     // more than the snow holds and the tail slides out: once the board slips past its line the
     // arc lets go of the heading, so the skid settles at a slip angle instead of spinning out
@@ -737,6 +756,19 @@ export class Rider {
     const steerFade = Math.max(0, Math.min(1, spd / F.pivotFade - 0.5));
     const pivotRate = input.steer * ((input.tuck ? F.pivotTuck : F.pivot) * Math.max(0, 1 - spd / F.pivotFade) + STEER_YAW * steerFade) * (1 - this.brakeAmt);
     const turnRate = carveRate + pivotRate;
+    // FEAT-053 chop: tracked-out snow rattles the board, a small random jolt to the heading and a
+    // sideways kick every CHOP_GAP s or so, bigger with speed; from the seeded rng so replays match
+    if (snow.jolt > 0.05 && spd > 2 && this.brakeAmt === 0) {
+      this.chopT -= dt;
+      if (this.chopT <= 0) {
+        this.chopT = CHOP_GAP * (0.5 + this.rng.next());
+        const amp = snow.jolt * Math.min(1, spd / CHOP_SPEED);
+        const r1 = this.rng.next() * 2 - 1, r2 = this.rng.next() * 2 - 1;
+        this.heading += CHOP_YAW * amp * r1;
+        this.vx += lx * CHOP_KICK * amp * r2; this.vy += ly * CHOP_KICK * amp * r2;
+        this.chop = Math.min(1, this.chop + amp * (0.4 + 0.6 * Math.abs(r1)));
+      }
+    } else this.chopT = 0;
     this.turnRate = turnRate;
     this.turnRadius = Math.abs(turnRate) > 1e-3 ? spd / Math.abs(turnRate) : Infinity;
     const dHeading = turnRate * dt;
@@ -826,10 +858,17 @@ export class Rider {
     ax += latAcc * lx; ay += latAcc * ly;
     this.lateralG += ((latAcc / G) - this.lateralG) * Math.min(1, dt * 12);
 
-    // drag: aerodynamic + snow. Tuck lowers aero, powder adds speed-scaled drag, skidding scrubs speed
+    // drag: aerodynamic + snow. Tuck lowers aero, skidding scrubs speed (less on ice). FEAT-053: the
+    // snow state sets the constant and speed-scaled drag by condition; powder adds speed-scaled drag
+    // until the board planes at PLANE_SPEED (float), and slow in powder the nose sinks and digs in
     const aeroK = input.tuck ? F.aeroTuck : F.aero + (F.aeroTuck - F.aero) * SQUAT_AERO * this.squat; // a squat is part way to a tuck
     const aero = aeroK * spd * spd * (this.boost ? 0.55 : 1) + PRESS_DRAG * Math.abs(this.lean) * spd; // FEAT-112: the loaded end digs in
-    const snowDrag = 0.015 * G * (1 - 0.5 * groomed) + powder * 0.004 * spd + 0.35 * this.skid * G;
+    const deep = Math.min(1, snow.depth / 0.3);
+    const sinkNow = snow.powder * deep * Math.max(0, 1 - spd / SINK_SPEED);
+    this.noseSink += (sinkNow - this.noseSink) * Math.min(1, dt * 6);
+    const snowDrag = snow.drag0 + snow.drag1 * spd
+      + snow.powder * POWDER_DRAG * Math.min(spd, PLANE_SPEED) * (0.6 + 0.6 * deep) + sinkNow * SINK_DRAG * G
+      + 0.35 * this.skid * G * snow.skidScrub;
     const dragAcc = aero + snowDrag + plough;
     if (spd > 0.01) {
       const d = Math.min(dragAcc * dt, spd);
@@ -954,7 +993,7 @@ export class Rider {
     this.z = ground; this.vz = 0; this.onGround = true;
     this.speed = Math.hypot(this.vx, this.vy);
     this.edge = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.skid = 0; this.jumpCharge = 0; this.landingShock = 0;
-    this.sink = bootSink(this.surface);
+    this.sink = bootSink(this.snow);
     this.squareBoard();
     this.strapT += dt;
     if (this.strapState === 'off' && this.strapT >= UNSTRAP_TIME) {
@@ -978,7 +1017,7 @@ export class Rider {
    * SLIP_SLOPE you slip down whatever you do. Same colliders as riding.
    */
   private walkStep(dt: number, input: Input, n: [number, number, number], ground: number): void {
-    this.sink = bootSink(this.surface);
+    this.sink = bootSink(this.snow);
     this.edge = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.skid = 0; this.jumpCharge = 0;
     this.landingShock = Math.max(0, this.landingShock - dt * 3);
     this.squareBoard();
