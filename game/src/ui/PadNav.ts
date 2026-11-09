@@ -1,5 +1,5 @@
-import { PAD, activePad, padButtonName, padTouched, padUi, type PadKind } from '../sim/Pad';
-import { dualSense } from '../sim/DualSense';
+import { PAD, activePad, isDualSense, padButtonName, padTouched, padUi, type PadKind } from '../sim/Pad';
+import { DualSenseHID, dualSense } from '../sim/DualSense';
 import { padFx } from '../sim/PadFeedback';
 import { padGlyph } from './PadGlyphs';
 
@@ -16,6 +16,7 @@ const FOCUSABLE = 'button, select, input:not([type=color]), a[href]';
 const REPEAT_DELAY = 0.35, REPEAT_RATE = 0.11;
 
 let started = false;
+let offerShown = false;
 const debugOn = typeof location !== 'undefined' && new URLSearchParams(location.search).get('debug') === 'pad';
 let kindShown: PadKind | null = null;
 const prev: boolean[] = [];
@@ -149,6 +150,10 @@ function frame(t: number, last: number): void {
     if (kind) document.querySelectorAll<HTMLElement>('.pad-hint').forEach((el) => { el.innerHTML = menuPadHint(kind); });
   }
   if (debugOn) debug();
+  // a DualSense on the Gamepad API (no rumble there on Windows Chrome) and WebHID here: offer the extras in the menus
+  const offer = !!pad && pad.source === 'gamepad' && isDualSense(pad.id) && DualSenseHID.supported && !dualSense.connected;
+  if (offer !== offerShown || offer) document.querySelectorAll<HTMLElement>('.ds-connect').forEach((el) => { el.style.display = offer ? '' : 'none'; });
+  offerShown = offer;
   const root = openRoot();
   if (root !== rootShown) {
     rootShown = root; held = null;
@@ -188,6 +193,14 @@ export function startPadNav(): void {
   if (started || typeof requestAnimationFrame === 'undefined') return;
   started = true;
   void dualSense.reconnect();
+  // the menus' "Turn on DualSense rumble" button: the browser's device picker needs a real click
+  document.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement | null)?.closest?.('[data-ds-connect]');
+    if (!b) return;
+    const note = b.parentElement?.querySelector<HTMLElement>('.ds-status');
+    if (!e.isTrusted || e.detail === 0) { if (note) note.textContent = 'The browser only opens the picker on a mouse click: click the button with the mouse.'; return; }
+    void dualSense.connect().then((ok) => { if (note) note.textContent = ok ? 'Connected: rumble and lightbar on.' : dualSense.status; });
+  });
   const kb = () => { padUi.lastWasPad = false; };
   window.addEventListener('keydown', kb, true); window.addEventListener('mousedown', kb, true);
   requestAnimationFrame((t) => frame(t, t));

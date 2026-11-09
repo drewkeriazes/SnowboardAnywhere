@@ -106,7 +106,9 @@ light buzz when the board is about to drop flat (lean in more).
 
 **DualSense extras** (Chrome or Edge, USB or Bluetooth): Settings > Controls > Connect DualSense extras,
 clicked with the mouse, opens the browser's device picker; pick the controller. After that it reconnects
-by itself. It adds the lightbar (the goggle lens colour, pulsing red as the Outrun monster closes in,
+by itself. Chrome on Windows gives a DualSense no rumble on its own, so its rumble comes through the
+extras: the main and pause menus show a "Turn on DualSense rumble and lightbar" button while one is
+plugged in without them (Settings > Controls > Test vibration says which way rumble goes). It adds the lightbar (the goggle lens colour, pulsing red as the Outrun monster closes in,
 flashing green on a time trial best), adaptive triggers (L2 pushes back harder the more the edge digs in
 a brake, R2 clicks near the top; off by default), gyro look (tilt the controller to look around; off by
 default, with a speed slider) and touchpad swipes to change the camera.

@@ -127,6 +127,13 @@ console.log('---- main menu');
   await tap(page, 13); // down
   const f2 = await page.evaluate(() => document.querySelector('.padfocus')?.textContent ?? '');
   check('D-pad down moves the focus', f2 === 'Drop in from the map', f2);
+  // a DualSense on the Gamepad API (no rumble on Windows Chrome): the menu offers the WebHID extras; Cross on it asks for the mouse
+  await tap(page, 13);
+  const offer = await page.evaluate(() => ({ shown: getComputedStyle(document.querySelector('#menu .ds-connect')).display !== 'none', focus: document.querySelector('.padfocus')?.textContent ?? '' }));
+  check('the menu offers the DualSense extras', offer.shown && offer.focus.startsWith('Turn on DualSense'), JSON.stringify(offer));
+  await tap(page, 0);
+  const note = await page.evaluate(() => document.querySelector('#menu .ds-status')?.textContent ?? '');
+  check('Cross on it asks for a mouse click (the picker needs one)', note.includes('mouse click'), note);
   await tap(page, 13);
   await tap(page, 0); // Cross on Settings
   const open = await page.evaluate(() => !document.querySelector('#menu .settings').classList.contains('hidden'));
