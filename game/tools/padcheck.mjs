@@ -10,7 +10,7 @@
 //     D-pad right one map press, Options pause), the stick dead zone, a rebound jump, a muted held button,
 //     the corner hints in PlayStation glyphs (keys again after a key press), rumble effects on a landing and a crash,
 //     and on a scripted rider: a press's hum and its warning beat on the heavy (slam) or light (flat) motor, bumps at
-//     speed (none on a smooth slope, softer at a crawl and on groomed snow).
+//     speed (none on a smooth slope or groomed snow, softer at a crawl).
 // node tools/padcheck.mjs [pack] [--headed]   (run after `npx vite build`; exit 1 on a failed check)
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
@@ -241,7 +241,7 @@ console.log('---- session');
   check('a smooth slope at speed is still', pb.smooth.strong < 0.02 && pb.smooth.weak < 0.02, f2(pb.smooth));
   check('bumps at speed: a light background rumble, under a crash', pb.bumps.strong > 0.1 && pb.bumps.strong < 0.3, f2(pb.bumps));
   check('the same bumps at a crawl, softer', pb.bumpsSlow.strong < pb.bumps.strong * 0.4, `${f2(pb.bumpsSlow)} vs ${pb.bumps.strong.toFixed(2)}`);
-  check('groomed snow, half', Math.abs(pb.bumpsGroomed.strong - pb.bumps.strong * 0.5) < 0.1, `${f2(pb.bumpsGroomed)} vs ${pb.bumps.strong.toFixed(2)}`);
+  check('groomed snow: no bump rumble', pb.bumpsGroomed.strong < 0.02 && pb.bumpsGroomed.weak < 0.02, f2(pb.bumpsGroomed));
   // the hints follow the hands: a key press brings the keys back, the controller its buttons
   await page.keyboard.press('KeyN');
   const kbHelp = await page.evaluate(() => { window.__step(16); return document.getElementById('help')?.innerHTML ?? ''; });

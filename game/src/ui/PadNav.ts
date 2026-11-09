@@ -130,7 +130,8 @@ function debug(): void {
     const g = dualSense.gyro, t = dualSense.touch;
     lines.push(`    gyro ${g.map((v) => v.toFixed(0).padStart(5)).join(' ')} deg/s · touch ${t.active ? `${t.x}, ${t.y}` : 'none'}`);
   }
-  lines.push(`rumble: ${padFx.rumbleStatus}`);
+  const why = Object.entries(padFx.why).filter(([, v]) => v > 0.01).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(', ');
+  lines.push(`rumble: ${padFx.rumbleStatus} · now strong ${padFx.strongNow.toFixed(2)} weak ${padFx.weakNow.toFixed(2)}${why ? ` (${why})` : ''}`);
   const a = activePad();
   if (a) lines.push(`reading: ${a.source} · ${a.kind} · pressed ${a.buttons.map((b, i) => (b.pressed ? padButtonName(a.kind, i) : '')).filter(Boolean).join(', ') || '-'}`);
   debugEl.textContent = lines.join('\n');

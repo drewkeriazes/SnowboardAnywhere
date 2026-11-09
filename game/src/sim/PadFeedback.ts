@@ -15,7 +15,7 @@ import type { Rider } from './Rider';
  * closes, flashing green on a time-trial best. Triggers: L2 (brake) resists harder the more the edge
  * digs (FEAT-133), R2 (tuck) clicks near the top of its travel.
  */
-interface Pulse { t: number; dur: number; strong: number; weak: number }
+interface Pulse { t: number; dur: number; strong: number; weak: number; src: string }
 
 /** How often a continuing rumble is renewed through the Gamepad API (each effect lasts a little longer). */
 const RENEW_S = 0.08;
@@ -59,24 +59,28 @@ export class PadFeedback {
   private vzPrev = NaN; jolt = 0; private bumpEnv = 0;
   private prevChop = 0;
   private pressPhase = 0; private prevPressing = false;
+  /** this frame's rumble by source (bumps, chop, rock, landing, crash, press, trial, monster), for ?debug=pad and the checks */
+  readonly why: Record<string, number> = {};
+  /** the motors this frame before the strength setting, 0..1 */
+  strongNow = 0; weakNow = 0;
   private flashT = 0; private t = 0;
   private pad: PadState | null = null;
   private readonly rgb: [number, number, number] = [0, 0, 0];
 
   /** One-shot effect, magnitudes 0..1. */
-  pulse(durS: number, strong: number, weak: number): void {
+  pulse(durS: number, strong: number, weak: number, src = 'event'): void {
     if (this.pulses.length > 8) this.pulses.shift();
-    this.pulses.push({ t: 0, dur: durS, strong, weak });
+    this.pulses.push({ t: 0, dur: durS, strong, weak, src });
   }
   /** a time-trial checkpoint or the finish (a best flashes the lightbar green) */
   trialEvent(kind: 'split' | 'finish' | 'start', isBest = false): void {
-    if (kind === 'split' || kind === 'start') this.pulse(0.05, 0, 0.55);
-    else { this.pulse(0.09, 0.2, 0.7); if (isBest) this.flashT = 2.5; }
+    if (kind === 'split' || kind === 'start') this.pulse(0.05, 0, 0.55, 'trial');
+    else { this.pulse(0.09, 0.2, 0.7, 'trial'); if (isBest) this.flashT = 2.5; }
   }
   /** Outrun: a monster's foot came down `dist` m away */
   footfall(dist: number): void {
     const k = Math.max(0, 1 - dist / 120);
-    if (k > 0) this.pulse(0.1 + 0.08 * k, 0.15 + 0.85 * k * k, 0.1 * k);
+    if (k > 0) this.pulse(0.1 + 0.08 * k, 0.15 + 0.85 * k * k, 0.1 * k, 'monster');
   }
 
   /** Per frame while the game runs. `pad` is the controller read this frame. */
@@ -88,18 +92,20 @@ export class PadFeedback {
     // landings: a real landing thumps in full; the small touchdowns between bumps and rollers are riding texture
     if (r.landingShock > this.prevShock + 0.05) {
       const s = Math.min(1, r.landingShock), k = RIDE_RUMBLE + (1 - RIDE_RUMBLE) * smooth(0.25, 0.6, s);
-      this.pulse(0.08 + 0.16 * s, k * (0.25 + 0.75 * s), k * (0.2 + 0.4 * s));
+      this.pulse(0.08 + 0.16 * s, k * (0.25 + 0.75 * s), k * (0.2 + 0.4 * s), 'landing');
     }
     this.prevShock = r.landingShock;
-    if (r.crashed > 0 && this.prevCrash <= 0) this.pulse(0.35, 1, 0.8);
+    if (r.crashed > 0 && this.prevCrash <= 0) this.pulse(0.35, 1, 0.8, 'crash');
     this.prevCrash = r.crashed;
     // textures: rock and scree under the board (a gritty high buzz)
     let ts = 0, tw = 0;
+    const why = this.why; for (const k in why) why[k] = 0;
+    const note = (k: string, v: number) => { if (v > (why[k] ?? 0)) why[k] = v; };
     const onSnow = f.riding && r.onGround && !r.onFoot;
     if (onSnow && r.speed > 1) {
       const v = Math.min(1, r.speed / 18);
       const rock = Math.min(1, r.surface.rock + 0.6 * r.surface.scree);
-      if (rock > 0.05) { tw += RIDE_RUMBLE * rock * v * (0.35 + 0.35 * Math.random()); ts += RIDE_RUMBLE * 0.25 * rock * v; }
+      if (rock > 0.05) { tw += RIDE_RUMBLE * rock * v * (0.35 + 0.35 * Math.random()); ts += RIDE_RUMBLE * 0.25 * rock * v; note('rock', RIDE_RUMBLE * 0.7 * rock * v); }
     }
     // bumps at speed: on the snow vz is the surface's vertical speed at every physics step, so its rate of
     // change is how hard the board is being thrown up and dropped (moguls, rollers, lips); smoothed over
@@ -109,23 +115,26 @@ export class PadFeedback {
       this.vzPrev = r.vz;
     } else { this.vzPrev = NaN; this.jolt *= Math.exp(-dt * 15); }
     // a quick rise (a roller at 20 m/s is a light thrum, a mogul line close to full), less at a crawl
-    // (groomed snow half: smoother under the board, and it keeps the elevation model's noise out of a fast groomer)
-    const bump = onSnow ? Math.pow(Math.max(0, Math.min(1, (this.jolt - BUMP_A0) / BUMP_A1)), 0.7) * Math.min(1, r.speed / 8) * (1 - 0.5 * r.surface.groomed) : 0;
+    // (none on groomed snow: the snow is smooth there, and the elevation model's own undulation under a
+    // groomer read as bumps at speed, up to a quarter strength on Vail's; landings off rollers still thump)
+    const rough = 1 - smooth(0.3, 0.7, r.surface.groomed); // groomed enough: no bumps at all (the tail stops too)
+    const bump = onSnow ? Math.pow(Math.max(0, Math.min(1, (this.jolt - BUMP_A0) / BUMP_A1)), 0.7) * Math.min(1, r.speed / 8) * rough : 0;
     this.bumpEnv = Math.max(this.bumpEnv * Math.exp(-dt * 10), bump);
-    ts += RIDE_RUMBLE * 0.8 * this.bumpEnv; tw += RIDE_RUMBLE * 0.25 * this.bumpEnv;
+    const be = this.bumpEnv * rough;
+    ts += RIDE_RUMBLE * 0.8 * be; tw += RIDE_RUMBLE * 0.25 * be; note('bumps', RIDE_RUMBLE * 0.8 * be);
     // chop: each rattle of the board in tracked-out snow
-    if (onSnow && r.chop > this.prevChop + 0.05) { const c = Math.min(1, (r.chop - this.prevChop) * 2); this.pulse(0.06, RIDE_RUMBLE * 0.25 * c, RIDE_RUMBLE * 0.45 * c); }
+    if (onSnow && r.chop > this.prevChop + 0.05) { const c = Math.min(1, (r.chop - this.prevChop) * 2); this.pulse(0.06, RIDE_RUMBLE * 0.25 * c, RIDE_RUMBLE * 0.45 * c, 'chop'); }
     this.prevChop = r.chop;
     // a press being balanced: a light hum, then a beat that quickens and hardens toward either end; the heavy
     // motor toward the loaded end catching (a slam), the light one toward the board dropping flat
     if (onSnow && r.pressing) {
-      if (!this.prevPressing) this.pulse(0.06, 0.15, 0.3);
+      if (!this.prevPressing) this.pulse(0.06, 0.15, 0.3, 'press');
       const over = r.pressBalance * r.pressDir, warn = smooth(PRESS_WARN, 1, Math.abs(over));
       this.pressPhase += dt * (1.5 + 8.5 * warn);
       const beat = Math.pow(0.5 + 0.5 * Math.sin(this.pressPhase * Math.PI * 2), 2);
-      tw += 0.07;
+      tw += 0.07; note('press', 0.07 + warn);
       if (over > 0) ts += warn * (0.25 + 0.6 * beat); else tw += warn * (0.25 + 0.6 * beat);
-    } else if (this.prevPressing && r.crashed <= 0) this.pulse(0.08, 0.1, 0.35); // the board settles back flat
+    } else if (this.prevPressing && r.crashed <= 0) this.pulse(0.08, 0.1, 0.35, 'press'); // the board settles back flat
     this.prevPressing = onSnow && r.pressing;
     this.texStrong = ts; this.texWeak = tw;
     // combine
@@ -134,8 +143,9 @@ export class PadFeedback {
       const p = this.pulses[i];
       p.t += dt;
       if (p.t >= p.dur) { this.pulses.splice(i, 1); continue; }
-      s = Math.max(s, p.strong); w = Math.max(w, p.weak);
+      s = Math.max(s, p.strong); w = Math.max(w, p.weak); note(p.src, Math.max(p.strong, p.weak));
     }
+    this.strongNow = s; this.weakNow = w;
     this.output(dt, Math.min(1, s * this.strength), Math.min(1, w * this.strength));
     this.extras(dt, f);
   }
