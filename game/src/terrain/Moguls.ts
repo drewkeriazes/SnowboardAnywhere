@@ -7,14 +7,6 @@
  * a height at a point, in pack metres, aligned to the local downhill direction. Fields creep uphill
  * about 8 cm a day over a season, so the phase takes a creep distance.
  *
- * The field is laid out along the fall line by projecting the position onto the downhill direction.
- * Done with the raw local direction that falls apart (BUG-062): 700 m from the pack origin a tenth of
- * a degree of noise in the direction shifts the phase by more than a metre, so the bumps came out as
- * broken contour lines that changed at every mesh triangle. So the direction snaps to one of 24 fixed
- * world headings (15 degrees apart) and the two nearest patterns crossfade, the way the corduroy
- * stripes do: inside a bin the field is perfectly coherent, and a run that curves rotates it in steps
- * too small to notice.
- *
  * Pure functions: both the physics (Pack.terrainHeight) and the near terrain mesh (Pack.height)
  * add the same bumps, so the board sits on what the player sees.
  */
@@ -29,9 +21,6 @@ export const MOGUL_CREEP_M_PER_DAY = 0.08;
 const TWO_PI = Math.PI * 2;
 const JITTER_CELL = 25; // m: scale of the phase jitter that breaks the perfect grid
 const JITTER_RAD = 0.8;
-/** fixed world headings the fall line snaps to (BUG-062) */
-const FALL_BINS = 24;
-const FALL_BIN = TWO_PI / FALL_BINS;
 
 /** cheap 2D hash to -1..1, in uint32 arithmetic so MOGUL_GLSL reproduces it bit for bit */
 function hash(ix: number, iy: number, salt: number): number {
@@ -58,26 +47,16 @@ function jitter(x: number, y: number, salt: number): number {
 export function mogulHeight(x: number, y: number, amp: number, fallX: number, fallY: number, creepM: number): number {
   if (amp <= 0) return 0;
   const a = Math.min(MOGUL_MAX_AMP, amp);
-  // heading of the fall line snapped to the two nearest fixed bins (zero length means east)
-  const q = Math.atan2(fallY, fallX) / FALL_BIN;
-  const k0 = Math.floor(q);
-  const tq = q - k0;
-  const t = tq <= 0.25 ? 0 : tq >= 0.75 ? 1 : (() => { const z = (tq - 0.25) * 2; return z * z * (3 - 2 * z); })();
-  const j1 = JITTER_RAD * jitter(x, y, 1), j2 = JITTER_RAD * jitter(x, y, 2);
-  const f0 = pattern(x, y, k0 * FALL_BIN, creepM, j1, j2);
-  const f = t <= 0 ? f0 : f0 + (pattern(x, y, (k0 + 1) * FALL_BIN, creepM, j1, j2) - f0) * t;
-  const s = 0.5 + 0.5 * f;
-  return a * Math.pow(s, 1.6);
-}
-
-/** the -1..1 staggered pattern with the fall line at heading `ang` (radians from east, counter-clockwise) */
-function pattern(x: number, y: number, ang: number, creepM: number, j1: number, j2: number): number {
-  const fx = Math.cos(ang), fy = Math.sin(ang);
+  let l = Math.hypot(fallX, fallY);
+  let fx = 1, fy = 0;
+  if (l > 1e-6) { fx = fallX / l; fy = fallY / l; }
   // u along the fall line (positive downhill), v across it
   const u = x * fx + y * fy;
   const v = -x * fy + y * fx;
   const k = TWO_PI / MOGUL_SPACING;
-  return Math.sin(k * (u + creepM) + j1) * Math.sin(k * v + j2);
+  const f = Math.sin(k * (u + creepM) + JITTER_RAD * jitter(x, y, 1)) * Math.sin(k * v + JITTER_RAD * jitter(x, y, 2));
+  const s = 0.5 + 0.5 * f;
+  return a * Math.pow(s, 1.6);
 }
 
 /**
@@ -101,21 +80,13 @@ export const MOGUL_GLSL = /* glsl */ `
     float a = mogHash(ix, iy, salt), b = mogHash(ix + 1, iy, salt), c = mogHash(ix, iy + 1, salt), d = mogHash(ix + 1, iy + 1, salt);
     return mix(mix(a, b, t.x), mix(c, d, t.x), t.y);
   }
-  float mogPattern(vec2 pxy, float ang, float creep, float j1, float j2) {
-    vec2 fd = vec2(cos(ang), sin(ang));
+  float mogulH(vec2 pxy, vec2 fall, float amp, float creep) {
+    float l = length(fall);
+    vec2 fd = l > 1e-6 ? fall / l : vec2(1.0, 0.0);
     float u = dot(pxy, fd);
     float v = -pxy.x * fd.y + pxy.y * fd.x;
     float k = 6.2831853 / ${MOGUL_SPACING.toFixed(2)};
-    return sin(k * (u + creep) + j1) * sin(k * v + j2);
-  }
-  float mogulH(vec2 pxy, vec2 fall, float amp, float creep) {
-    float q = atan(fall.y, fall.x) / ${FALL_BIN.toFixed(8)};
-    float k0 = floor(q);
-    float t = smoothstep(0.25, 0.75, q - k0);
-    float j1 = ${JITTER_RAD.toFixed(2)} * mogJitter(pxy, 1), j2 = ${JITTER_RAD.toFixed(2)} * mogJitter(pxy, 2);
-    float f0 = mogPattern(pxy, k0 * ${FALL_BIN.toFixed(8)}, creep, j1, j2);
-    float f1 = mogPattern(pxy, (k0 + 1.0) * ${FALL_BIN.toFixed(8)}, creep, j1, j2);
-    float f = mix(f0, f1, t);
+    float f = sin(k * (u + creep) + ${JITTER_RAD.toFixed(2)} * mogJitter(pxy, 1)) * sin(k * v + ${JITTER_RAD.toFixed(2)} * mogJitter(pxy, 2));
     return amp * pow(0.5 + 0.5 * f, 1.6);
   }
 `;
