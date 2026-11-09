@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { Pack } from '../pack/Pack';
+import { type Pack, MOGUL_MAX_RES, MOGUL_SHADE_MAX_RES } from '../pack/Pack';
 import { createTerrainMaterial } from './TerrainMaterial';
 
 /**
@@ -33,6 +33,8 @@ function proceduralForest(x: number, y: number, h: number, slope: number): numbe
 }
 /** chunks at or below this vertex spacing (m) take baked AO from the pack; coarser ones are open sky */
 const AO_MAX_RES = 32;
+/** DATA-002: slope (rise/run) the piste direction counts as at least, so corduroy stays on flat groomed cat tracks */
+const DIR_MIN_SLOPE = 0.1;
 const SPLIT_K = 2.6; // split when distance < size * SPLIT_K
 const MAX_BUILDS_PER_FRAME = 10;
 
@@ -64,6 +66,15 @@ export class Terrain {
   /** chunks selected this frame */
   private visible: Chunk[] = [];
   readonly stats = { chunks: 0, builds: 0, triangles: 0 };
+  /**
+   * BUG-063: chunk builds per frame. `maxBuilds` caps the count; `budgetMs` (0 = off) also stops after that
+   * many milliseconds (always at least one build), so streaming never spikes a frame. Headless runs keep
+   * the plain count so scripted runs stay deterministic.
+   */
+  maxBuilds = MAX_BUILDS_PER_FRAME;
+  budgetMs = 0;
+  /** BUG-063: selected chunks still unbuilt or waiting on a rebuild after the last update (0 = settled) */
+  pending = 0;
 
   constructor(pack: Pack) {
     this.pack = pack;
@@ -77,6 +88,8 @@ export class Terrain {
     }
     if (pack.mask) pack.mask.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.mask!.meta.minX + tx * pack.mask!.size, pack.mask!.meta.minY + ty * pack.mask!.size, pack.mask!.size, 0);
     if (pack.ao) pack.ao.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.ao!.meta.minX + tx * pack.ao!.size, pack.ao!.meta.minY + ty * pack.ao!.size, pack.ao!.size, 0);
+    if (pack.dir) pack.dir.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.dir!.meta.minX + tx * pack.dir!.size, pack.dir!.meta.minY + ty * pack.dir!.size, pack.dir!.size, 0);
+    if (pack.moguls) pack.moguls.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.moguls!.meta.minX + tx * pack.moguls!.size, pack.moguls!.meta.minY + ty * pack.moguls!.size, pack.moguls!.size, 0);
   }
 
   /** FEAT-105: new snow on the rock (0 = today's look, 1 = a powder day) and the downwind direction (three.js x, z). */
@@ -91,6 +104,26 @@ export class Terrain {
   setSkied(skied: number, spring: number): void {
     const u = this.material.userData.uniforms as { uSkied: { value: number }; uSpring: { value: number } };
     u.uSkied.value = Math.max(0, Math.min(1, skied)); u.uSpring.value = Math.max(0, Math.min(1, spring));
+  }
+
+  /** the mogul scale and creep the fine chunks were last (re)built with */
+  private mogulBuiltScale = 1;
+  private mogulBuiltCreep = 0;
+
+  /**
+   * FEAT-059: the mogul field's amplitude multiplier and uphill creep (m). The shaded (coarse) chunks
+   * read them live as uniforms; the fine chunks bake the bumps into their geometry from Pack.height,
+   * so when either has moved since they were built (a storm softening the field, a season change)
+   * they are marked dirty and rebuilt, throttled by MAX_BUILDS_PER_FRAME, to stay in step with physics.
+   */
+  setMoguls(scale: number, creepM: number): void {
+    const u = this.material.userData.uniforms as { uMogulScale: { value: number }; uMogulCreep: { value: number } };
+    const sc = Math.max(0, Math.min(1, scale));
+    u.uMogulScale.value = sc; u.uMogulCreep.value = creepM;
+    if (!this.pack.moguls) return;
+    if (Math.abs(sc - this.mogulBuiltScale) <= 0.05 && Math.abs(creepM - this.mogulBuiltCreep) <= 0.3) return;
+    this.mogulBuiltScale = sc; this.mogulBuiltCreep = creepM;
+    for (const c of this.chunks.values()) if (c.mesh && c.res <= MOGUL_MAX_RES) this.dirty.add(c.key);
   }
 
   /** Storm flat light: 0 = normal, 1 = overcast (snow relief and glints fade out). */
@@ -122,7 +155,8 @@ export class Terrain {
     this.select(0, 0, 0, this.rootMinX, this.rootMinY, this.rootSize, camX, camY, camZ);
     // request data for the chunks we want at their resolution
     const want = new Set<string>();
-    let builds = 0;
+    let builds = 0, pending = 0;
+    const t0 = performance.now();
     for (const c of this.visible) {
       want.add(c.key);
       c.lastUsed = this.frame;
@@ -130,14 +164,20 @@ export class Terrain {
       else if (c.res <= 64 && this.pack.mid) this.pack.mid.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       else if (this.pack.far) this.pack.far.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if (c.res <= 8 && this.pack.mask) this.pack.mask.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
+      if (c.res <= 8 && this.pack.dir) this.pack.dir.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if (c.res <= AO_MAX_RES && this.pack.ao) this.pack.ao.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
-      if ((!c.mesh || this.dirty.has(c.key)) && builds < MAX_BUILDS_PER_FRAME) {
-        this.build(c);
-        this.dirty.delete(c.key);
-        builds++;
+      if (c.res <= MOGUL_SHADE_MAX_RES && this.pack.moguls) this.pack.moguls.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size); // FEAT-059: bump geometry on the finest chunks, shading on the next ones
+      if (!c.mesh || this.dirty.has(c.key)) {
+        const inBudget = builds < this.maxBuilds && (this.budgetMs <= 0 || builds === 0 || performance.now() - t0 < this.budgetMs);
+        if (inBudget) {
+          this.build(c);
+          this.dirty.delete(c.key);
+          builds++;
+        } else pending++;
       }
     }
     this.stats.builds = builds;
+    this.pending = pending;
     // show/hide: a chunk is drawn if selected and built; a selected but unbuilt chunk shows its built ancestor instead
     let tris = 0;
     for (const c of this.chunks.values()) {
@@ -204,13 +244,18 @@ export class Terrain {
     const col = new Float32Array(vertCount * 3);
     const forest = new Float32Array(vertCount);
     const ao = new Float32Array(vertCount);
+    // FEAT-059: mogul amplitude for the shader on chunks too coarse to carry the bumps as geometry
+    const mogul = new Float32Array(vertCount);
+    const shadeMoguls = !!pack.moguls && res > MOGUL_MAX_RES && res <= MOGUL_SHADE_MAX_RES;
     const aoSet = pack.ao && res <= AO_MAX_RES ? pack.ao : null;
     // footprint for the AO lookup: one 2 m sample near the rider, a 2 x 2 box of samples on coarser chunks
     const aoOff = res > 2 ? res / 4 : 0;
-    // smoothed downhill direction (three.js xz, length = slope) for groomer corduroy; heights 6 m
-    // either side so the ridges follow the run, not every 1 m bump
+    // groomer corduroy direction (three.js xz, length = slope): the run's axis from the pack's piste
+    // direction set (DATA-002) pointed downhill, else the smoothed fall line; heights 6 m either side
+    // so the ridges follow the run, not every 1 m bump
     const fall = new Float32Array(vertCount * 2);
     const FR = 6;
+    const dirSet = pack.dir && res <= 8 ? pack.dir : null;
     const heights = new Float32Array((n + 2) * (n + 2)); // with a 1-sample border for normals
     // sample heights including border
     let dataRes = Infinity;
@@ -222,6 +267,7 @@ export class Terrain {
       }
     }
     dataRes = pack.finestRes(c.minX + c.size / 2, c.minY + c.size / 2);
+    const resB = Math.max(res, MOGUL_MAX_RES * 2); // auxiliary samples (ridges, talus, fall line) without the mogul bumps
     const useMask = !!pack.mask && res <= 8;
     let v = 0;
     const H = (i: number, j: number) => heights[(j + 1) * (n + 2) + (i + 1)];
@@ -262,22 +308,35 @@ export class Terrain {
         const steep = THREE.MathUtils.smoothstep(slope, steepLo, steepLo + 0.2);
         // wind-scoured convex ridges above about 3,250 m: relief over the mean of four neighbours d away
         const d = Math.max(12, res);
-        const relief = h - 0.25 * (pack.height(x + d, y, res) + pack.height(x - d, y, res) + pack.height(x, y + d, res) + pack.height(x, y - d, res));
+        const relief = h - 0.25 * (pack.height(x + d, y, resB) + pack.height(x - d, y, resB) + pack.height(x, y + d, resB) + pack.height(x, y - d, resB));
         const scour = THREE.MathUtils.smoothstep(relief / d, 0.06, 0.2) * THREE.MathUtils.smoothstep(h, 3250, 3550) * (1 - fo);
         rock = Math.max(rock, steep, scour * 0.8);
         // talus apron at the foot of steep faces: the line to a point 15 m uphill is steeper than about
         // 48 deg while the ground here is gentler
         if (res <= 8 && slope > 0.2) {
           const du = 15, gl = Math.hypot(nxp, nyp);
-          const up = pack.height(x - (nxp / gl) * du, y - (nyp / gl) * du, res);
+          const up = pack.height(x - (nxp / gl) * du, y - (nyp / gl) * du, resB);
           const talus = THREE.MathUtils.smoothstep((up - h) / du, 0.95, 1.4) * (1 - steep);
           scree = Math.max(scree, talus * 0.9);
         }
         col[v * 3] = rock; col[v * 3 + 1] = scree * (1 - rock); col[v * 3 + 2] = groom * (1 - rock);
-        if (groom > 0.02) {
-          const gx = (pack.height(x + FR, y, res) - pack.height(x - FR, y, res)) / (2 * FR);
-          const gy = (pack.height(x, y + FR, res) - pack.height(x, y - FR, res)) / (2 * FR);
-          fall[v * 2] = -gx; fall[v * 2 + 1] = gy; // downhill east, and z = -north
+        const mog = shadeMoguls ? pack.mogulAmp(x, y, true) * (1 - rock) : 0;
+        mogul[v] = mog;
+        if (groom > 0.02 || mog > 0.01) {
+          const gx = (pack.height(x + FR, y, resB) - pack.height(x - FR, y, resB)) / (2 * FR);
+          const gy = (pack.height(x, y + FR, resB) - pack.height(x, y - FR, resB)) / (2 * FR);
+          const b = groom > 0.02 && dirSet && dirSet.has(x, y) ? Math.round(dirSet.sample(x, y, this.maskSample)[0] * 255) : 0;
+          if (b > 0) {
+            // run axis (pack east, north), undirected; take the sense that points downhill. A groomer
+            // leaves corduroy on a flat cat track too, so the confidence has a floor the fall line lacks.
+            const th = ((b - 1) / 254) * Math.PI;
+            let ax = Math.cos(th), ay = Math.sin(th);
+            if (ax * gx + ay * gy > 0) { ax = -ax; ay = -ay; }
+            const l = Math.max(Math.hypot(gx, gy), DIR_MIN_SLOPE);
+            fall[v * 2] = ax * l; fall[v * 2 + 1] = -ay * l; // z = -north
+          } else {
+            fall[v * 2] = -gx; fall[v * 2 + 1] = gy; // downhill east, and z = -north
+          }
         }
         v++;
       }
@@ -294,7 +353,7 @@ export class Terrain {
       pos[v * 3] = pos[e * 3]; pos[v * 3 + 1] = pos[e * 3 + 1] - skirt; pos[v * 3 + 2] = pos[e * 3 + 2];
       nor[v * 3] = nor[e * 3]; nor[v * 3 + 1] = nor[e * 3 + 1]; nor[v * 3 + 2] = nor[e * 3 + 2];
       col[v * 3] = col[e * 3]; col[v * 3 + 1] = col[e * 3 + 1]; col[v * 3 + 2] = col[e * 3 + 2]; forest[v] = forest[e]; ao[v] = ao[e];
-      fall[v * 2] = fall[e * 2]; fall[v * 2 + 1] = fall[e * 2 + 1];
+      fall[v * 2] = fall[e * 2]; fall[v * 2 + 1] = fall[e * 2 + 1]; mogul[v] = mogul[e];
       v++;
     }
     const idx: number[] = [];
@@ -320,6 +379,7 @@ export class Terrain {
     geo.setAttribute('forest', new THREE.BufferAttribute(forest, 1));
     geo.setAttribute('ao', new THREE.BufferAttribute(ao, 1));
     geo.setAttribute('fall', new THREE.BufferAttribute(fall, 2));
+    geo.setAttribute('mogul', new THREE.BufferAttribute(mogul, 1));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
     if (c.mesh) {

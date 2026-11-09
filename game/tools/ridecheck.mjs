@@ -3,7 +3,7 @@
 // Reports: top speed, physics steps that fell back to a coarser height set, terrain/mask tiles and
 // tree cells that arrived late (within LATE_M of the rider), and whether run 2 matches run 1 exactly.
 // Frames are stepped at a fixed 1/60 s in real-time batches so tile fetches race the rider as in play.
-const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
+import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,9 +28,7 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(0, r));
 const port = server.address().port;
-const browser = headed
-  ? await chromium.launch({ headless: false })
-  : await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 960, height: 540 }, deviceScaleFactor: 1 });
 const warnings = [];
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') warnings.push(`${m.type()}: ${m.text()}`); });

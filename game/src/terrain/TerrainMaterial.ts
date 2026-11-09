@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MOGUL_GLSL } from './Moguls';
 import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from './rockShader';
 import { DEFORM_GLSL, deformUniforms } from '../world/Deform';
 
@@ -10,8 +11,9 @@ import { DEFORM_GLSL, deformUniforms } from '../world/Deform';
  * Groomed vs ungroomed: groomers are smooth, clean snow with corduroy ridges (about 30 cm apart)
  * running down the fall line, lit as small bumps, in groomer-width passes with faint seams; the
  * ridges fade out with distance so they never shimmer. Ungroomed snow (bowls, glades) keeps the
- * stronger drift relief plus wind ripples and more tonal variation. The fall line comes from the
- * normal; stripes use 12 fixed world directions, blending the two nearest the local fall line, so
+ * stronger drift relief plus wind ripples and more tonal variation. The ridge direction is the run's
+ * axis from the pack's piste direction set (DATA-002), else the smoothed fall line from the heights;
+ * stripes use 12 fixed world directions, blending the two nearest the local direction, so
  * they stay put on the snow instead of swimming as the slope curves.
  *
  * Snow lighting (FEAT-047): sunlight wraps past the terminator as a blue subsurface glow (light
@@ -78,6 +80,9 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     uSkied: { value: 0.0 },
     uSpring: { value: 0.0 },
     uSnowLee: { value: new THREE.Vector2(1, 0) },
+    /** FEAT-059: mogul field amplitude multiplier and uphill creep (m) for the shaded coarse chunks */
+    uMogulScale: { value: 1.0 },
+    uMogulCreep: { value: 0.0 },
     /** baked AO strength (1 = as baked; debug A/B with 0) */
     uAO: { value: 1.0 },
     ...rockUniforms(),
@@ -93,9 +98,11 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         attribute float forest;
         attribute vec2 fall;
         attribute float ao;
+        attribute float mogul;
         varying float vAO;
         varying float vForest;
         varying vec2 vFall;
+        varying float vMogul;
         varying vec3 vWorldPos;
         varying vec3 vWorldNormal;
         ${DEFORM_GLSL}`)
@@ -110,6 +117,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
         vWorldNormal = normalize(mat3(modelMatrix) * objectNormal);
         vFall = fall;
+        vMogul = mogul;
         vAO = ao;
         vForest = forest;`);
 
@@ -121,6 +129,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         varying float vForest;
         varying float vAO;
         varying vec2 vFall;
+        varying float vMogul;
+        uniform float uMogulScale, uMogulCreep;
         uniform float uTime;
         uniform vec3 uSnow, uSnowShade, uGroomed, uShadeTint, uSSS;
         uniform float uWrap, uGlint, uFlat, uAO;
@@ -141,6 +151,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         ${DEFORM_GLSL}
         ${NOISE_GLSL}
         ${ROCK_GLSL}
+        ${MOGUL_GLSL}
         float fbm2(vec2 p) { return 0.6 * vnoise(vec3(p, 0.0)) + 0.3 * vnoise(vec3(p * 2.1, 1.7)) + 0.1 * vnoise(vec3(p * 4.3, 3.1)); }
         // corduroy across the fall line. Returns x = ridge profile (-1..1, already faded by distance),
         // y = ridge slope for the bump, zw = the across-slope direction in world xz. Also outputs the
@@ -325,6 +336,21 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           if (dFade > 0.0) {
             vec2 slope = deformSagSlope(dUV) * dFade * snowW;
             nn = normalize(vec3(nn.x - slope.x, nn.y, nn.z - slope.y));
+          }
+          // FEAT-059: on chunks too coarse to carry the bumps as geometry, shade the same mogul field
+          // (pack frame: x east, y = -world z north) so a bump run reads from the lift; fades out where
+          // the 5.7 m pattern would shimmer
+          float mogA = vMogul * uMogulScale * snowW * (1.0 - smoothstep(900.0, 1600.0, length(cameraPosition - wpn)));
+          if (mogA > 0.005) {
+            vec2 pxy = vec2(wpn.x, -wpn.z);
+            vec2 pf = vec2(vFall.x, -vFall.y);
+            float em = 0.5;
+            float m0 = mogulH(pxy, pf, mogA, uMogulCreep);
+            float mx = mogulH(pxy + vec2(em, 0.0), pf, mogA, uMogulCreep);
+            float my = mogulH(pxy + vec2(0.0, em), pf, mogA, uMogulCreep);
+            // pack +y is world -z, so the z slope is the negative of the y slope
+            vec3 mb = normalize(vec3(-(mx - m0) / em, 1.0, (my - m0) / em));
+            nn = normalize(t * mb.x + nn * mb.y + b * mb.z);
           }
           // rock and talus carry their own photo normals
           nn = normalize(nn * max(wSnow, 1e-3) + rockN * rockCov + screeN * screeCov);

@@ -1,13 +1,13 @@
 // Re-shoot the game side of every real vs game pair (DATA-008) with the eye camera.
-// node tools/shoot_spots.mjs [pack] [spot-slug ...] [--headed | --gpu] [--size 1280x720]
+// node tools/shoot_spots.mjs [pack] [spot-slug ...] [--headed | --gpu | --cpu] [--size 1280x720]
 //   reads ../docs/compare/<pack>/<spot>/spot.json and writes eye-<view>.jpg next to it (committed, quality 90)
 //   plus the lossless eye-<view>.png (gitignored, for image statistics) (FEAT-095).
 //   Pose per view: the saved `eye` pose (from the P key) if any, else x / y / h from
 //   tools/gmaps2game.py --add, else the spot's game x / y and the Street View heading.
 //   Weather per view: the view's `weather`, else the spot's `weather` (e.g. "overcast" to match an
 //   overcast photo, FEAT-078), else the page's own (SHOT_QUERY="&weather=..." or the default).
-//   Needs `npx vite build` first. Software GPU: SHOT_QUERY="&lowgfx".
-const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
+//   Needs `npx vite build` first. lowgfx is added automatically on a software GPU (tools/browser.mjs).
+import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,7 +15,6 @@ import { DIST, PACKS, REPO } from './paths.mjs';
 
 const args = process.argv.slice(2);
 const headed = args.includes('--headed') || process.env.SHOT_HEADED === '1';
-const gpu = args.includes('--gpu');
 const sizeArg = args[args.indexOf('--size') + 1];
 const [vw, vh] = args.includes('--size') ? sizeArg.split('x').map(Number) : [1280, 720];
 const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--size');
@@ -42,10 +41,7 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, r));
 const port = server.address().port;
 
-const browser = headed
-  ? await chromium.launch({ headless: false })
-  : gpu ? await chromium.launch({ args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] })
-  : await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: vw, height: vh }, deviceScaleFactor: 1 });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
