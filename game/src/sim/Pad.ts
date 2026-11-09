@@ -27,8 +27,10 @@ export interface PadState {
 /** Sony: vendor 054c. DualSense 0ce6, DualSense Edge 0df2 (DualShock 4 05c4 / 09cc get the same labels). */
 export function padKind(id: string): PadKind {
   const s = id.toLowerCase();
-  if (/054c/.test(s) || /dualsense|dualshock|wireless controller|playstation/.test(s)) return 'ps';
+  // Xbox first: a Series X/S pad over Bluetooth is "Xbox Wireless Controller (... Vendor: 045e ...)", which the
+  // PlayStation "wireless controller" name would also match
   if (/xbox|xinput|045e/.test(s)) return 'xbox';
+  if (/054c/.test(s) || /dualsense|dualshock|wireless controller|playstation/.test(s)) return 'ps';
   return 'generic';
 }
 export function isDualSense(id: string): boolean { const s = id.toLowerCase(); return /054c/.test(s) && /0ce6|0df2/.test(s) || /dualsense/.test(s); }

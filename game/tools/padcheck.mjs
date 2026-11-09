@@ -32,6 +32,17 @@ console.log('---- DualSense reports');
   const here = path.dirname(fileURLToPath(import.meta.url));
   const out = await build({ entryPoints: [path.join(here, '../src/sim/DualSense.ts')], bundle: true, format: 'esm', platform: 'neutral', write: false, logLevel: 'error' });
   const ds = await import(`data:text/javascript;base64,${Buffer.from(out.outputFiles[0].text).toString('base64')}`);
+  // controller kinds from the ids Chrome reports
+  const padOut = await build({ entryPoints: [path.join(here, '../src/sim/Pad.ts')], bundle: true, format: 'esm', platform: 'neutral', write: false, logLevel: 'error' });
+  const { padKind } = await import(`data:text/javascript;base64,${Buffer.from(padOut.outputFiles[0].text).toString('base64')}`);
+  const ids = [
+    ['DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)', 'ps'],
+    ['Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 09cc)', 'ps'],
+    ['Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)', 'xbox'],
+    ['Xbox 360 Controller (XInput STANDARD GAMEPAD)', 'xbox'],
+    ['T.16000M (Vendor: 044f Product: b10a)', 'generic'],
+  ];
+  for (const [id, want] of ids) check(`kind of "${id.split(' (')[0]}" (${id.match(/Vendor: (\w+)/)?.[1] ?? 'xinput'})`, padKind(id) === want, padKind(id));
   check('crc32 check value', ds.crc32Of(new TextEncoder().encode('123456789')) === 0xcbf43926, ds.crc32Of(new TextEncoder().encode('123456789')).toString(16));
   const fb = ds.triggerFeedback(1, 8);
   // Nielk1: zones 1..9 active (0x3fe), force 7 in each 3-bit slot from zone 1
