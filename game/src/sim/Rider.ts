@@ -212,12 +212,18 @@ export type PressMode = 'on' | 'easy' | 'off';
  * heading's front end): the base drift, the share it grows per second held and per m/s of speed,
  * the runaway rate off centre (an inverted pendulum, so a needle off centre keeps going), the
  * jitter at full bumps (moguls, crud), a random push of PB_PUSH every PB_GAP s (min, max), full
- * W / S, and the slowest the loaded end slams instead of stalling (m/s). Tuned with a standalone
- * sim so a keyboard press lasts about 3 to 5 s on a groomer at 10 m/s, 6 to 8 s with care, and
- * Easy roughly four times longer.
+ * W / S, and the slowest the loaded end slams instead of stalling (m/s). With PRESS_RANGE 1.6 a
+ * keyboard press lasts about 8 s on a groomer at 10 m/s, 11 s with care (tools/presscheck.mjs).
  */
 const PB_DRIFT = 0.2, PB_HOLD = 0.35, PB_SPEED = 0.04, PB_UNSTABLE = 1.0, PB_BUMP = 2.4, PB_PUSH = 0.35, PB_CORRECT = 1.5, PB_STALL = 3;
 const PB_GAP = [0.8, 2.2] as const, PB_PUSH_T = 0.15;
+/**
+ * FEAT-140: how far the balance can run before it is lost, in the units the rates above are in
+ * (was 1). pressBalance stays a share of it (-1 .. 1) for the meter; the body leans in proportion,
+ * so at the edge it leans this many times as far as at 1. The runaway grows with the share, not the
+ * distance, so a press stays saveable out to the edge.
+ */
+export const PRESS_RANGE = 1.6;
 /** FEAT-140 Easy: drift, jitter and push scaled by PB_EASY, the runaway by PB_EASY_UNSTABLE */
 const PB_EASY = 0.5, PB_EASY_UNSTABLE = 0.6;
 /** FEAT-140: vertical acceleration through the board counted as full bumps (m/s^2), the bumps counted
@@ -277,7 +283,7 @@ export class Rider {
   pressMode: PressMode = 'on';
   /** a press is being held and balanced (|lean| > 0.5 on the snow) */
   pressing = false;
-  /** the balance needle, -1 .. 1, 0 = the sweet spot, + toward the heading's front end (W) */
+  /** the balance needle, -1 .. 1 (a share of PRESS_RANGE), 0 = the sweet spot, + toward the heading's front end (W) */
   pressBalance = 0;
   /** the loaded end of the press being held: +1 the front (nose press), -1 the back (tail press) */
   pressDir = 0;
@@ -532,7 +538,7 @@ export class Rider {
     const drift = PB_DRIFT * e * (1 + PB_HOLD * this.pressT) * (1 + PB_SPEED * spd) * (1 + PB_BUMP_DRIFT * this.pbBump) * this.pbDrift;
     const corr = Math.max(-1, Math.min(1, input.balance ?? 0));
     const b = this.pressBalance;
-    this.pressBalance = b + (drift + PB_UNSTABLE * (easy ? PB_EASY_UNSTABLE : 1) * b + PB_BUMP * e * this.pbBump * this.pbNoise + push + PB_CORRECT * corr) * dt;
+    this.pressBalance = b + (drift + PB_UNSTABLE * (easy ? PB_EASY_UNSTABLE : 1) * b + PB_BUMP * e * this.pbBump * this.pbNoise + push + PB_CORRECT * corr) / PRESS_RANGE * dt;
     const over = this.pressBalance * this.pressDir;
     if (over >= 1) {
       // over-pressed: the loaded end catches; slow, the board just stops

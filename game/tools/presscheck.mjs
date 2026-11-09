@@ -80,9 +80,9 @@ const times = (o) => SEEDS.map((seed) => { const p = press({ ...o, seed }); retu
 // ---- On, no correction: lost within a few seconds, both ways
 {
   const ends = SEEDS.map((seed) => press({ seed }));
-  const lost = ends.filter((p) => p.end && p.end.t < 6);
+  const lost = ends.filter((p) => p.end && p.end.t < 10);
   const slams = ends.filter((p) => p.end?.how === 'slam'), flats = ends.filter((p) => p.end?.how === 'flat');
-  check('with no correction the press is lost within 6 s', lost.length === ends.length, `${lost.length}/${ends.length}, median ${median(ends.map((p) => p.end?.t ?? 30)).toFixed(1)} s at ${ends[0].startSpeed.toFixed(1)} m/s`);
+  check('with no correction the press is lost within 10 s', lost.length === ends.length, `${lost.length}/${ends.length}, median ${median(ends.map((p) => p.end?.t ?? 30)).toFixed(1)} s at ${ends[0].startSpeed.toFixed(1)} m/s`);
   check('losing it toward the loaded end slams, the other way drops flat', slams.length > 5 && flats.length > 5 && slams.every((p) => p.r.crashed > 0) && flats.every((p) => p.r.crashed <= 0), `${slams.length} slams, ${flats.length} flat`);
   const flat = flats[0];
   if (flat) {
@@ -104,7 +104,7 @@ const T = {
   easy: median(times({ speed: 10, mode: 'easy' })),
 };
 console.log('median press (s):', Object.entries(T).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(', '));
-check('a sloppy keyboard player holds a groomer press 2 to 6 s', T.sloppy >= 2 && T.sloppy <= 6, T.sloppy.toFixed(1));
+check('a sloppy keyboard player holds a groomer press 4 to 10 s', T.sloppy >= 4 && T.sloppy <= 10, T.sloppy.toFixed(1));
 check('a careful player holds it longer than a sloppy one', T.careful > T.sloppy * 1.2, `${T.careful.toFixed(1)} vs ${T.sloppy.toFixed(1)}`);
 check('faster is harder', T.fast < T.careful, `${T.fast.toFixed(1)} at 20 m/s vs ${T.careful.toFixed(1)} at 10`);
 check('moguls are harder', T.moguls < T.careful, `${T.moguls.toFixed(1)} vs ${T.careful.toFixed(1)}`);

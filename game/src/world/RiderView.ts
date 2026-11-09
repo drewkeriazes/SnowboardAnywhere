@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { EDGE_FULL, type Rider } from '../sim/Rider';
+import { EDGE_FULL, PRESS_RANGE, type Rider } from '../sim/Rider';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
 import { Ragdoll, RAGDOLL_RECOVER } from './Ragdoll';
@@ -29,9 +29,10 @@ const FLAIL_BASE = 0.04, FLAIL_HOLD = 0.13, FLAIL_RAMP = 2.5, CORR_W = 11, CORR_
  *  bumps, and the vertical acceleration counted as full bumps (m/s^2, about 1.5 g) */
 const FLAIL_SPEED = 0.04, FLAIL_VMAX = 15, FLAIL_BUMP = 1.5, BUMP_ACC = 15;
 /** FEAT-140: the wobble added as the press balance runs out to either end (share at the end), the
- *  extra pelvis roll toward the end it runs to (rad at the end, about 23 deg; the head takes most of
- *  it back out), and how far the hips slide along the board toward that end (m at the end) */
-const FLAIL_BAL = 1.6, BAL_ROLL = 0.4, BAL_SHIFT = 0.14;
+ *  extra pelvis roll toward the end it runs to (rad per unit of balance, about 23 deg; the head takes
+ *  most of it back out), and how far the hips slide along the board toward that end (m per unit).
+ *  The balance runs to PRESS_RANGE units, so at the edge the body leans PRESS_RANGE times as far. */
+const FLAIL_BAL = 1.6, BAL_ROLL = 0.4 * PRESS_RANGE, BAL_SHIFT = 0.14 * PRESS_RANGE;
 /** FEAT-125 wobble shape: the fore-aft swing as a share of the up-down wave, and the elbow's bend
  *  (deg) per rad of wave (each elbow follows the other arm's wave, so the two never move in step) */
 const FLAIL_SWING = 0.6, FLAIL_ELBOW = 40;
