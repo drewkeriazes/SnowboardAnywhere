@@ -376,7 +376,7 @@ export class Tracks {
     const ax = fy, ay = -fx; // right-hand side, pack coords
     const skid = Math.min(1, r.skid);
     const s = r.surface;
-    const powder = Math.max(0, 1 - s.groomed - s.rock - s.scree);
+    const powder = Math.max(0, Math.min(1, r.snow.powder + 0.6 * r.snow.slush + 0.3 * r.snow.chop - 0.9 * r.snow.ice)); // FEAT-053: deeper in soft snow, barely a mark on ice
     // footprint across the travel direction from the board's slip angle: the board's width when
     // running straight, up to its length when it is across (a hockey stop)
     const ski = this.discipline === 'ski';

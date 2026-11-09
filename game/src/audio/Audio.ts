@@ -1,4 +1,5 @@
 import type { Rider, SurfaceInfo } from '../sim/Rider';
+import type { SnowState } from '../sim/SnowConditions';
 import { Jukebox, type JukeStyle } from './Jukebox';
 import { ChaseAudio } from './ChaseAudio';
 
@@ -350,12 +351,14 @@ export class GameAudio {
    * tiny pitch chirp), powder whumps (low and soft, deeper the more the boot sinks), ice and rock
    * scrape (high and dry). A sprint lands harder.
    */
-  footstep(s: SurfaceInfo, speed: number, sink: number): void {
+  footstep(s: SurfaceInfo, speed: number, sink: number, snow: SnowState): void {
     if (!this.ctx) return;
-    const hard = Math.min(1, s.rock + s.scree);
-    const groomed = s.groomed * (1 - hard);
-    const powder = Math.max(0, 1 - groomed - hard);
+    // FEAT-053: ice scrapes like rock, slush squelches, chop is a soft crunch
+    const hard = Math.min(1, s.rock + s.scree + 0.8 * snow.ice);
+    const groomed = snow.groomed + 0.5 * snow.chop;
+    const powder = snow.powder + 0.5 * snow.chop;
     const g = 0.5 + 0.5 * Math.min(1, speed / 3.8);
+    if (snow.slush > 0.3) this.burst('lowpass', 420, 0.12, 0.3 * snow.slush * g, 0.5, 200);
     if (groomed > 0.3) {
       this.burst('bandpass', 2600, 0.09, 0.22 * groomed * g, 2.2, 1800);
       this.tone(1400 + Math.random() * 500, 0.05, 0.025 * groomed * g, 'triangle', 1900);
@@ -410,19 +413,21 @@ export class GameAudio {
     const lerp = (g: GainNode, target: number) => { g.gain.value += (target - g.gain.value) * k; };
     const spd = r.speed;
     const onSnow = r.onGround && !riding && spd > 0.3 && !r.unstrapped; // board on snow
-    const s = r.surface;
-    const hard = Math.min(1, s.rock + s.scree);
+    const s = r.surface, sn = r.snow;
+    // FEAT-053: the sound follows the snow state. Ice rides on the hardpack scrape layer (dry and
+    // high), slush on the powder hush pitched up (wet), chop on the crust crackle.
+    const hard = Math.min(1, s.rock + s.scree + 0.8 * sn.ice);
     // FEAT-103: on rock there is no snow under the board, so the snow layers duck
     const snowLeft = 1 - Math.min(1, s.rock + 0.6 * s.scree);
-    const groomed = s.groomed * (1 - hard);
-    const powder = Math.max(0, 1 - groomed - hard) * (s.canopy > 0.3 ? 1 : 0.7);
-    const crust = Math.max(0, 1 - groomed - hard) * Math.min(1, Math.max(0, (r.slopeDeg - 25) / 15)) * (s.canopy < 0.3 ? 1 : 0.3);
+    const groomed = sn.groomed;
+    const powder = Math.min(1, sn.powder + 0.8 * sn.slush);
+    const crust = Math.min(1, sn.chop + Math.max(0, 1 - groomed - hard) * Math.min(1, Math.max(0, (r.slopeDeg - 25) / 15)) * (s.canopy < 0.3 ? 1 : 0.3));
     const v = Math.min(1, spd / 25);
     // flow layers
     lerp(this.flowGroom.gain, onSnow ? (0.05 + 0.3 * v * groomed) * snowLeft : 0);
     this.flowGroom.filter.frequency.value = 1800 + 60 * spd;
     lerp(this.flowPow.gain, onSnow ? (0.05 + 0.35 * v * powder) * snowLeft : 0);
-    this.flowPow.filter.frequency.value = 250 + 20 * spd;
+    this.flowPow.filter.frequency.value = 250 + 20 * spd + 350 * sn.slush;
     lerp(this.rumble.gain, onSnow ? 0.08 * v * powder * snowLeft : 0);
     this.rumble.osc.frequency.value = 38 + spd * 0.6;
     lerp(this.flowHard.gain, onSnow ? (0.04 + 0.3 * v * hard) * (0.4 + 0.6 * snowLeft) : 0);

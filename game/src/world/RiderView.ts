@@ -909,8 +909,12 @@ export class RiderView {
    */
   private updateSpray(r: Rider, dt: number, f: THREE.Vector3, right: THREE.Vector3, emitting: boolean): void {
     const pos = this.sprayPos, vel = this.sprayVel, life = this.sprayLife;
-    const emit = emitting && r.onGround ? Math.floor((r.skid * 10 + (r.speed > 8 ? 1 : 0)) * 1.0) : 0;
-    const sheet = emitting && r.onGround && r.speed > 1 ? Math.floor(r.scrape * 18) : 0;
+    // FEAT-053: powder throws a plume off the edge in every turn, slush a heavy spray, ice next to nothing
+    const sn = r.snow;
+    const sprayMul = 1 + 1.4 * sn.powder + 0.5 * sn.slush - 0.75 * sn.ice;
+    const plume = (sn.powder + 0.4 * sn.slush) * Math.min(1, Math.abs(r.edgeAngle)) * Math.min(1, r.speed / 8) * 7;
+    const emit = emitting && r.onGround ? Math.floor((r.skid * 10 + (r.speed > 8 ? 1 : 0)) * sprayMul + plume) : 0;
+    const sheet = emitting && r.onGround && r.speed > 1 ? Math.floor(r.scrape * 18 * sprayMul) : 0;
     let emitted = 0, sheeted = 0;
     const g = this.group.position;
     const sp = Math.max(1e-3, r.speed), dirX = r.vx / sp, dirZ = -r.vy / sp; // travel direction (three.js)
