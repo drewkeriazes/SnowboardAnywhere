@@ -32,3 +32,23 @@ def test_rgba_channels():
     px = to_rgba(one * 0.5, one * HEIGHT_MAX, one * 0.0, one * 0.0)[0, 0]
     assert tuple(px) == (128, 255, 0, 255)   # A is 255 - built-up
     assert smoothstep(0.08, 0.45, np.float32(0.45)) == 1.0
+
+
+def test_osm_pistes_ways_areas_relations(tmp_path):
+    """DATA-019: ways are lines unless closed with area=yes; relation outers are areas; geometry to local"""
+    import json
+    from cover import osm_pistes
+    sq = [{"lon": 0, "lat": 0}, {"lon": 1, "lat": 0}, {"lon": 1, "lat": 1}, {"lon": 0, "lat": 1}, {"lon": 0, "lat": 0}]
+    els = [
+        {"type": "way", "tags": {"piste:type": "downhill", "piste:difficulty": "easy"}, "geometry": sq[:3]},
+        {"type": "way", "tags": {"piste:type": "downhill", "area": "yes"}, "geometry": sq},
+        {"type": "way", "tags": {"piste:type": "downhill", "piste:gladed": "yes"}, "geometry": sq[:2]},
+        {"type": "relation", "tags": {"piste:type": "downhill"}, "members": [
+            {"type": "way", "role": "outer", "geometry": sq}, {"type": "way", "role": "inner", "geometry": sq}]},
+    ]
+    p = tmp_path / "pistes.json"
+    p.write_text(json.dumps({"elements": els}))
+    runs = osm_pistes(str(p), lambda lon, lat: (lon * 10.0, lat * 10.0))
+    assert [r["area"] for r in runs] == [False, True, False, True]
+    assert runs[0]["difficulty"] == "easy" and runs[0]["points"][1][:2] == [10.0, 0.0]
+    assert runs[2]["gladed"] and not runs[0]["gladed"]

@@ -789,5 +789,8 @@ write_meta(out, meta)
 log("cover")
 from cover import build_cover
 meta["cover"] = build_cover(out, raw, cfg, log=log)
+if any(lv["name"] in ("mid", "far") for lv in meta["cover"]["levels"]):   # DATA-019 land cover
+    from cover import ATTRIBUTION as COVER_ATTRIBUTION
+    meta["attribution"] = meta["attribution"] + [a for a in COVER_ATTRIBUTION if a not in meta["attribution"]]
 write_meta(out, meta)
 log("done")

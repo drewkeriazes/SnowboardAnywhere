@@ -119,12 +119,35 @@ fbb = f"{far[0][1]},{far[0][0]},{far[1][1]},{far[1][0]}"
 # peaks+places scan was timing out (502/504) on every Overpass host.
 queries["peaks_far"] = "[out:json][timeout:300][maxsize:536870912];" + f'node["natural"="peak"]["ele"]({fbb});' + "out;"
 # places_far (towns for horizon labels) dropped for now: optional, and it queued for minutes on every host.
+# DATA-019: downhill pistes of every resort in view (Beaver Creek, Copper, Breckenridge, ...), burned into the
+# far land cover as cleared strips. One box cfg["landcover"]["pistes_km"] wide, geometry out.
+lc = cfg.get("landcover", {})
+pk = lc.get("pistes_km", 140) * 500.0
+wide = [to_ll.transform(ox - pk, oy - pk), to_ll.transform(ox + pk, oy + pk)]
+wbb = f"{wide[0][1]},{wide[0][0]},{wide[1][1]},{wide[1][0]}"
+queries["pistes_wide"] = ov(f'(way["piste:type"="downhill"]({wbb});relation["piste:type"="downhill"]({wbb}););')
 for name, q in queries.items():
     # GET rather than POST: .NET's POST sends "Expect: 100-continue", which Overpass rejects
     enc = quote(q, safe="")
     add("https://overpass-api.de/api/interpreter?data=" + enc, f"osm/{name}.json",
         alts=["https://overpass.private.coffee/api/interpreter?data=" + enc,   # kumi.systems removed: 502/504 on every try
               "https://lz4.overpass-api.de/api/interpreter?data=" + enc])
+
+# ---------------------------------------------------------------- land cover for the far terrain (DATA-019)
+# ESA WorldCover 2021 v200 (10 m classes, AWS open data) and the ETH Global Sentinel-2 canopy height 2020
+# (10 m, ETH libdrive), whole 3 x 3 degree COG tiles (80 to 290 MB each) over the far ring, named by their
+# south-west corner. cover.py reads only the windows it needs.
+WC = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/ESA_WorldCover_10m_2021_v200_{t}_Map.tif"
+ETH = "https://libdrive.ethz.ch/index.php/s/cO8or7iOe5dT2Rt/download?path=%2F3deg_cogs&files=ETH_GlobalCanopyHeight_10m_2020_{t}_Map.tif"
+if lc.get("enabled", True):
+    cs = [to_ll.transform(ox + sx * F / 2, oy + sy * F / 2) for sx in (-1, 1) for sy in (-1, 1)]
+    lo0, lo1 = min(c[0] for c in cs), max(c[0] for c in cs); la0, la1 = min(c[1] for c in cs), max(c[1] for c in cs)
+    for la in range(int(math.floor(la0 / 3) * 3), int(math.floor(la1 / 3) * 3) + 1, 3):
+        for lo in range(int(math.floor(lo0 / 3) * 3), int(math.floor(lo1 / 3) * 3) + 1, 3):
+            t = f"{'N' if la >= 0 else 'S'}{abs(la):02d}{'E' if lo >= 0 else 'W'}{abs(lo):03d}"
+            ll = {"sw": [lo, la], "deg": 3}
+            add(WC.format(t=t), f"landcover/worldcover/{t}.tif", meta=ll)
+            add(ETH.format(t=t), f"landcover/eth_canopy/{t}.tif", meta=ll)
 
 os.makedirs(os.path.join(HERE, "manifests"), exist_ok=True)
 out = os.path.join(HERE, "manifests", f"{slug}.json")
