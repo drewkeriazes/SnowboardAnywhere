@@ -21,7 +21,9 @@ interface Pulse { t: number; dur: number; strong: number; weak: number }
 const RENEW_S = 0.08;
 const EFFECT_MS = 140;
 /** bumps: the board's vertical jolt (m/s^2, smoothed) where the rumble starts, and how much more is full */
-export const BUMP_A0 = 4, BUMP_A1 = 30;
+export const BUMP_A0 = 7, BUMP_A1 = 30;
+/** regular riding (bumps, chop, rock) is a background texture: this share of full, so falls, landings and a press stand out */
+export const RIDE_RUMBLE = 0.35;
 /** press: the share of the balance range where the warning starts */
 const PRESS_WARN = 0.35;
 const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -83,7 +85,11 @@ export class PadFeedback {
     this.t += dt;
     const r = f.rider;
     // events from the rider's state
-    if (r.landingShock > this.prevShock + 0.05) { const s = Math.min(1, r.landingShock); this.pulse(0.08 + 0.16 * s, 0.25 + 0.75 * s, 0.2 + 0.4 * s); }
+    // landings: a real landing thumps in full; the small touchdowns between bumps and rollers are riding texture
+    if (r.landingShock > this.prevShock + 0.05) {
+      const s = Math.min(1, r.landingShock), k = RIDE_RUMBLE + (1 - RIDE_RUMBLE) * smooth(0.25, 0.6, s);
+      this.pulse(0.08 + 0.16 * s, k * (0.25 + 0.75 * s), k * (0.2 + 0.4 * s));
+    }
     this.prevShock = r.landingShock;
     if (r.crashed > 0 && this.prevCrash <= 0) this.pulse(0.35, 1, 0.8);
     this.prevCrash = r.crashed;
@@ -93,7 +99,7 @@ export class PadFeedback {
     if (onSnow && r.speed > 1) {
       const v = Math.min(1, r.speed / 18);
       const rock = Math.min(1, r.surface.rock + 0.6 * r.surface.scree);
-      if (rock > 0.05) { tw += rock * v * (0.35 + 0.35 * Math.random()); ts += 0.25 * rock * v; }
+      if (rock > 0.05) { tw += RIDE_RUMBLE * rock * v * (0.35 + 0.35 * Math.random()); ts += RIDE_RUMBLE * 0.25 * rock * v; }
     }
     // bumps at speed: on the snow vz is the surface's vertical speed at every physics step, so its rate of
     // change is how hard the board is being thrown up and dropped (moguls, rollers, lips); smoothed over
@@ -106,9 +112,9 @@ export class PadFeedback {
     // (groomed snow half: smoother under the board, and it keeps the elevation model's noise out of a fast groomer)
     const bump = onSnow ? Math.pow(Math.max(0, Math.min(1, (this.jolt - BUMP_A0) / BUMP_A1)), 0.7) * Math.min(1, r.speed / 8) * (1 - 0.5 * r.surface.groomed) : 0;
     this.bumpEnv = Math.max(this.bumpEnv * Math.exp(-dt * 10), bump);
-    ts += 0.8 * this.bumpEnv; tw += 0.25 * this.bumpEnv;
+    ts += RIDE_RUMBLE * 0.8 * this.bumpEnv; tw += RIDE_RUMBLE * 0.25 * this.bumpEnv;
     // chop: each rattle of the board in tracked-out snow
-    if (onSnow && r.chop > this.prevChop + 0.05) { const c = Math.min(1, (r.chop - this.prevChop) * 2); this.pulse(0.06, 0.25 * c, 0.45 * c); }
+    if (onSnow && r.chop > this.prevChop + 0.05) { const c = Math.min(1, (r.chop - this.prevChop) * 2); this.pulse(0.06, RIDE_RUMBLE * 0.25 * c, RIDE_RUMBLE * 0.45 * c); }
     this.prevChop = r.chop;
     // a press being balanced: a light hum, then a beat that quickens and hardens toward either end; the heavy
     // motor toward the loaded end catching (a slam), the light one toward the board dropping flat

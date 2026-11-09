@@ -239,7 +239,7 @@ console.log('---- session');
   check('near dropping flat: the light motor beats', pb.flat.weak > 0.5 && pb.flat.strong < 0.1, f2(pb.flat));
   check('a tail press near its slam: the heavy motor', pb.tailSlam.strong > 0.5, f2(pb.tailSlam));
   check('a smooth slope at speed is still', pb.smooth.strong < 0.02 && pb.smooth.weak < 0.02, f2(pb.smooth));
-  check('bumps at speed rumble', pb.bumps.strong > 0.4, f2(pb.bumps));
+  check('bumps at speed: a light background rumble, under a crash', pb.bumps.strong > 0.1 && pb.bumps.strong < 0.3, f2(pb.bumps));
   check('the same bumps at a crawl, softer', pb.bumpsSlow.strong < pb.bumps.strong * 0.4, `${f2(pb.bumpsSlow)} vs ${pb.bumps.strong.toFixed(2)}`);
   check('groomed snow, half', Math.abs(pb.bumpsGroomed.strong - pb.bumps.strong * 0.5) < 0.1, `${f2(pb.bumpsGroomed)} vs ${pb.bumps.strong.toFixed(2)}`);
   // the hints follow the hands: a key press brings the keys back, the controller its buttons
