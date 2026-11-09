@@ -6,7 +6,7 @@
 // rose over the rider and looked down at the snow). Letting go must swing back to looking ahead without
 // a jump. Steps the physics and the cameras without rendering, so it runs in seconds on a software GPU.
 // node tools/glancecheck.mjs [pack] [--headed]   (run after `npx vite build`; exit 1 on a failed check)
-const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
+import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,9 +25,7 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(p).pipe(res);
 });
 await new Promise((r) => server.listen(0, r));
-const browser = headed
-  ? await chromium.launch({ headless: false })
-  : await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await launchBrowser();
 const fails = [];
 const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? `: ${detail}` : ''}`); if (!ok) fails.push(name); };
 const deg = (a) => (a * 180 / Math.PI).toFixed(1);

@@ -1,5 +1,5 @@
 // Minimal probe: load, step small batches, report timing of each step. Finds hangs.
-const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
+import { launchBrowser } from './browser.mjs';
 import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
 import { DIST, GAME, PACKS } from './paths.mjs';
 const dist = DIST; const packs = PACKS;
@@ -7,7 +7,7 @@ const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'applic
 const server = http.createServer((req, res) => { const u = decodeURIComponent(req.url.split('?')[0]); const p = u.startsWith('/packs/') ? path.join(packs, u.slice(7)) : path.join(dist, u); if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); res.end(); return; } res.writeHead(200, { 'content-type': types[path.extname(p)] ?? 'application/octet-stream' }); fs.createReadStream(p).pipe(res); });
 await new Promise((r) => server.listen(0, r));
 const port = server.address().port;
-const browser = await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
 page.on('console', (m) => console.log('console.' + m.type() + ':', m.text().slice(0, 200)));
 page.on('pageerror', (e) => console.log('pageerror:', e.message));
