@@ -34,11 +34,13 @@ def slope_window(slope_deg):
     return float(w) if np.ndim(slope_deg) == 0 else w.astype(np.float32)
 
 
-def run_mogul_score(run: dict, slope_med: float, aspect_mean: float | None, groom_frac: float | None,
+def run_mogul_score(run: dict, slope_hi: float, aspect_mean: float | None, groom_frac: float | None,
                     mogul_tag: bool, near_lift_top: bool) -> float:
     """How likely this run carries a mogul field, 0..1.
 
-    slope_med: median slope (deg) along the centre line. aspect_mean: downhill direction in degrees
+    slope_hi: the 75th percentile slope (deg) along the centre line (a run's steep pitch, not its
+    run-out: Highline averages 15 deg end to end). The per-cell slope window then places the bumps on
+    the pitch itself. aspect_mean: downhill direction in degrees
     clockwise from north, None when flat. groom_frac: nights groomed / nights reported, None when the
     resort has no grooming reports. mogul_tag: OSM piste:grooming=mogul. near_lift_top: the run starts
     within 150 m of a lift station (short laps, heavy traffic)."""
@@ -48,24 +50,26 @@ def run_mogul_score(run: dict, slope_med: float, aspect_mean: float | None, groo
         return 0.0
     if NO_MOGUL_NAME.search(run.get("name") or ""):
         return 0.0
-    if slope_med < 12.0:
+    if slope_hi < 12.0:
         return 0.0
+    # grooming: never groomed in the reports is a bump run; a few nights a season (Blue Ox, 3 of 42)
+    # knocks the field back; a regular groomer has none
     if groom_frac is None:
         g = 0.7
     elif groom_frac <= 0:
         g = 1.0
-    elif groom_frac <= 0.2:
-        g = 0.8
-    elif groom_frac <= 0.5:
-        g = 0.4
+    elif groom_frac <= 0.1:
+        g = 0.6
+    elif groom_frac <= 0.3:
+        g = 0.3
     else:
         g = 0.0
     diff = run.get("difficulty")
     if diff == "intermediate":
-        d = 0.5 if (groom_frac is None or groom_frac <= 0) else 0.0
+        d = 0.5 if (groom_frac is None or groom_frac <= 0.1) else 0.0   # a blue left ungroomed (Whistle Pig)
     else:
         d = DIFFICULTY_TERM.get(diff, 0.0)
-    s = slope_window(slope_med)
+    s = float(_smoothstep(12.0, 18.0, slope_hi) * (1.0 - _smoothstep(38.0, 45.0, slope_hi)))
     if aspect_mean is None:
         a = 0.85
     else:

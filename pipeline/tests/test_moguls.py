@@ -31,6 +31,22 @@ def test_unknown_grooming_falls_back():
     assert abs(s - 0.7 * 0.9 * 1.0 * 0.7 * 0.8) < 1e-6
 
 
+def test_occasionally_groomed_scores_lower_than_never():
+    never = run_mogul_score(run(difficulty="advanced"), 28.0, 10.0, 0.0, False, True)
+    few = run_mogul_score(run(difficulty="advanced"), 28.0, 10.0, 3 / 42, False, True)
+    assert never > few > 0.3
+
+
+def test_blue_left_ungroomed_scores_some():
+    assert run_mogul_score(run(difficulty="intermediate"), 28.0, 10.0, 4 / 42, False, True) > 0.2
+
+
+def test_steep_pitch_counts_not_the_runout():
+    # Highline: 75th percentile 24 deg although the whole line averages 15
+    assert run_mogul_score(run(), 24.0, 10.0, 0.0, False, False) > 0.7
+    assert run_mogul_score(run(), 13.0, 10.0, 0.0, False, False) < 0.2
+
+
 def test_cat_track_and_glades_zero():
     assert run_mogul_score(run(name="Minnie's Mile Road"), 28.0, 10.0, 0.0, False, True) == 0.0
     assert run_mogul_score(run(gladed=True), 28.0, 10.0, 0.0, False, True) == 0.0

@@ -534,7 +534,7 @@ for r in runs:
     pts = [(p[0], p[1]) for p in r["points"]]
     rows, cols = line_cells(pts) if len(pts) >= 2 else (np.array([], int), np.array([], int))
     if len(rows):
-        slope_med = float(np.median(slope2[rows, cols]))
+        slope_med = float(np.percentile(slope2[rows, cols], 75))   # the steep pitch, not the run-out
         dx, dy = float(np.mean(-gx[rows, cols])), float(np.mean(gy[rows, cols]))   # downhill (row 0 = north)
         aspect = math.degrees(math.atan2(dx, dy)) % 360.0 if math.hypot(dx, dy) > 1e-4 else None
     else:
