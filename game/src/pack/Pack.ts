@@ -26,6 +26,8 @@ export class Pack {
   readonly mask: MaskSet | null;
   /** sky visibility 0..1 in channel 0 (gullies and cliff feet darker); null in older packs */
   readonly ao: MaskSet | null;
+  /** piste direction set (DATA-002), optional */
+  readonly dir: MaskSet | null;
   /** FEAT-059: mogul amplitude 0..1 m in channel 0; null in older packs */
   readonly moguls: MaskSet | null;
   /** amplitude multiplier (new snow softens the bumps) and uphill creep in metres (season date) */
@@ -41,6 +43,7 @@ export class Pack {
     this.far = meta.terrain.far ? new HeightSet(`${baseUrl}/far`, meta.terrain.far) : null;
     this.mask = meta.mask ? new MaskSet(`${baseUrl}/mask`, meta.mask) : null;
     this.ao = meta.ao ? new MaskSet(`${baseUrl}/ao`, meta.ao) : null;
+    this.dir = meta.dir ? new MaskSet(`${baseUrl}/dir`, meta.dir) : null;
     this.moguls = meta.moguls ? new MaskSet(`${baseUrl}/moguls`, meta.moguls) : null;
   }
 

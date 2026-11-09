@@ -1,7 +1,7 @@
 // Outrun check (FEAT-097 to FEAT-101): starts a chase headless, rides, looks back at the monster,
 // then teleports into it to play the eat sequence, saving screenshots and state along the way.
-// node tools/outruncheck.mjs [pack] [outDir] [--gpu | --headed]
-const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
+// node tools/outruncheck.mjs [pack] [outDir] [--headed | --gpu | --cpu]
+import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,7 +9,6 @@ import { DIST, PACKS } from './paths.mjs';
 
 const args = process.argv.slice(2);
 const headed = args.includes('--headed');
-const gpu = args.includes('--gpu');
 const positional = args.filter((a) => !a.startsWith('--'));
 const pack = positional[0] ?? 'vail';
 const outDir = positional[1] ?? 'shots-outrun';
@@ -25,9 +24,7 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(0, r));
 const port = server.address().port;
-const browser = headed ? await chromium.launch({ headless: false })
-  : gpu ? await chromium.launch({ args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] })
-  : await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(`${m.type()}: ${m.text()}`); });
