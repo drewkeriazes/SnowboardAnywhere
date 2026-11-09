@@ -9,14 +9,16 @@ import * as THREE from 'three';
  * as it would to the screen (tone mapped and sRGB encoded, so the haze, clouds and particles blend as
  * they do without the lens; a linear target blended them in linear light and washed out dark trees
  * behind the storm haze). Then a full-screen pass decodes to display-linear light and applies
- *  - the lens transmission per channel (the lens colour, its brightest channel 1),
+ *  - the lens transmission per channel (the lens colour, normalised to unit luminance),
  *  - a two-band local contrast boost on the lens-weighted luminance: detail against a blur about a
  *    fortieth of the screen across (the shading of bumps, rollers and dips), and that blur against
  *    one eight times wider (the mid-tone contrast of the slope). Both are ratios, so they do not
  *    depend on exposure, and both fade out where the ratio is large (a tree against the sky), so
  *    hard edges do not halo,
- *  - the lens's overall brightness: mirrors dim the view; the warm lenses lose light to the tint and
- *    get it back with a lift that keeps white at white (the eye adapting), so the snow never clips.
+ *  - the lens's overall brightness as a plain gain (the eye adapting: mirrors dim the view, warm
+ *    lenses keep about the light of no lens). A gain keeps the contrast; a lift that held white at
+ *    white flattened bright overcast snow and undid the boost. Only the brightest channel rolls off
+ *    softly above 0.85, so the warm tints do not clip on white snow.
  * The blurs come from the target's mip chain, built once per frame after the last scene pass.
  * Third person and the helmet cam (a GoPro) skip the pass and render straight to the screen.
  */
@@ -79,7 +81,7 @@ const FRAG = /* glsl */ `
 uniform sampler2D tScene;
 uniform vec3 uTint;
 uniform vec3 uW;
-uniform float uGain, uLift;
+uniform float uGain;
 uniform float uLod1, uLod2, uLocal, uMid;
 uniform vec2 uTexel1, uTexel2;
 varying vec2 vUv;
@@ -100,9 +102,9 @@ void main() {
   float r1 = log(L / b1), r2 = log(b1 / b2);
   float g = exp(uLocal * r1 * exp(-r1 * r1 * 60.0) + uMid * r2 * exp(-r2 * r2 * 25.0));
   c *= uTint * g * uGain;
-  // brightness lift on luminance: slope uLift at black, white stays white
-  float Y = dot(c, vec3(0.2126, 0.7152, 0.0722)) + 1e-5;
-  c *= uLift / (1.0 + Y * (uLift - 1.0));
+  // a plain gain keeps the contrast; only the brightest channel rolls off softly above 0.85 (hue kept)
+  float m = max(max(c.r, c.g), c.b);
+  if (m > 0.85) c *= (0.85 + 0.15 * (1.0 - exp((0.85 - m) / 0.15))) / m;
   gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
   #include <colorspace_fragment>
 }`;
@@ -120,12 +122,17 @@ export class GoggleLens {
   private readonly size = new THREE.Vector2();
   /** scene passes still to come into the target this frame */
   private pending = 0;
+  /** what the uniforms were last computed for */
+  private setLens: LensId | null = null;
+  private setStrength = -1;
+  private setW = 0;
+  private setH = 0;
 
   constructor() {
     this.mat = new THREE.ShaderMaterial({
       uniforms: {
         tScene: { value: null }, uTint: { value: new THREE.Vector3(1, 1, 1) }, uW: { value: new THREE.Vector3(...LUMA) },
-        uGain: { value: 1 }, uLift: { value: 1 }, uLod1: { value: 4 }, uLod2: { value: 7 }, uLocal: { value: 0 }, uMid: { value: 0 },
+        uGain: { value: 1 }, uLod1: { value: 4 }, uLod2: { value: 7 }, uLocal: { value: 0 }, uMid: { value: 0 },
         uTexel1: { value: new THREE.Vector2() }, uTexel2: { value: new THREE.Vector2() },
       },
       vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
@@ -175,29 +182,39 @@ export class GoggleLens {
   /** After the scene passes: the lens pass to the screen. */
   end(renderer: THREE.WebGLRenderer): void {
     if (!this.rt) return;
-    const L = LENSES[this.lens], k = this.strength;
-    // the tint with its brightest channel 1, blended toward clear by strength; then the brightness
-    // against no lens: a gain below 1 dims (mirrors), above 1 it is a lift that keeps white at white
-    const mx = Math.max(...L.tint);
-    const t = L.tint.map((c) => 1 + (c / mx - 1) * k);
-    const y = t[0] * LUMA[0] + t[1] * LUMA[1] + t[2] * LUMA[2];
-    const want = (1 + (L.brightness - 1) * k) / y;
-    const u = this.mat.uniforms;
-    u.uTint.value.set(t[0], t[1], t[2]);
-    u.uW.value.set(t[0] * LUMA[0], t[1] * LUMA[1], t[2] * LUMA[2]);
-    u.uGain.value = Math.min(1, want); u.uLift.value = Math.max(1, want);
-    u.uLocal.value = L.local * k; u.uMid.value = L.mid * k;
-    const w = this.rt.width, h = this.rt.height;
-    const maxLod = Math.floor(Math.log2(Math.max(w, h)));
-    const lod1 = Math.min(maxLod - 3, Math.max(1, Math.log2(h / 40)));
-    const lod2 = Math.min(maxLod, lod1 + 3);
-    u.uLod1.value = lod1; u.uLod2.value = lod2;
-    u.uTexel1.value.set(2 ** lod1 / w, 2 ** lod1 / h); u.uTexel2.value.set(2 ** lod2 / w, 2 ** lod2 / h);
+    if (this.lens !== this.setLens || this.strength !== this.setStrength) this.updateLens();
+    if (this.rt.width !== this.setW || this.rt.height !== this.setH) this.updateSize(this.rt.width, this.rt.height);
     renderer.setRenderTarget(null);
     const auto = renderer.autoClear;
     renderer.autoClear = false;
     renderer.render(this.qScene, this.qCam);
     renderer.autoClear = auto;
+  }
+
+  /** the lens uniforms, only when the lens or its strength changes (no per-frame work or allocation) */
+  private updateLens(): void {
+    this.setLens = this.lens; this.setStrength = this.strength;
+    const L = LENSES[this.lens], k = this.strength, tint = L.tint;
+    // the tint normalised to unit luminance, blended toward clear by strength; then the brightness
+    // against no lens as a plain gain
+    const y = tint[0] * LUMA[0] + tint[1] * LUMA[1] + tint[2] * LUMA[2];
+    const t0 = 1 + (tint[0] / y - 1) * k, t1 = 1 + (tint[1] / y - 1) * k, t2 = 1 + (tint[2] / y - 1) * k;
+    const u = this.mat.uniforms;
+    u.uTint.value.set(t0, t1, t2);
+    u.uW.value.set(t0 * LUMA[0], t1 * LUMA[1], t2 * LUMA[2]);
+    u.uGain.value = 1 + (L.brightness - 1) * k;
+    u.uLocal.value = L.local * k; u.uMid.value = L.mid * k;
+  }
+
+  /** the blur levels and their texel sizes, only when the target size changes */
+  private updateSize(w: number, h: number): void {
+    this.setW = w; this.setH = h;
+    const u = this.mat.uniforms;
+    const maxLod = Math.floor(Math.log2(Math.max(w, h)));
+    const lod1 = Math.min(maxLod - 3, Math.max(1, Math.log2(h / 40)));
+    const lod2 = Math.min(maxLod, lod1 + 3);
+    u.uLod1.value = lod1; u.uLod2.value = lod2;
+    u.uTexel1.value.set(2 ** lod1 / w, 2 ** lod1 / h); u.uTexel2.value.set(2 ** lod2 / w, 2 ** lod2 / h);
   }
 
   dispose(): void { this.rt?.dispose(); this.mat.dispose(); this.quad.geometry.dispose(); }

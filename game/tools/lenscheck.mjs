@@ -1,9 +1,11 @@
 // Goggle lens check (FEAT-130): the same first-person view through each lens, in a storm and under
 // overcast, saved as PNGs, with the snow's surface contrast (the spread of log luminance against a
 // local blur, over the snow on the slope below the horizon) and the frame time per lens. Checks that
-// rose and yellow raise that contrast over no lens in the storm and rose does under overcast, that
-// the mirrors darken the view, that clear matches no lens, and that the pass costs under 1.5 ms a
-// frame. Also checks the rider's goggle material takes the lens colour (rose, blue, yellow).
+// rose and yellow raise that contrast over no lens in the storm (under overcast the noise is as big
+// as the effect, so the ratio is only printed), that the mirrors darken the view, that clear matches
+// no lens, that the pass at near-zero strength matches no lens (guards the isXRRenderTarget trick in
+// Lens.ts), and that the pass costs under 1.5 ms a frame. Also checks the rider's goggle material
+// takes the lens colour (rose, blue, yellow).
 // node tools/lenscheck.mjs [pack] [outDir] [--headed]   (run after `npx vite build`; exit 1 on a failed check)
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
@@ -40,13 +42,19 @@ async function open(query) {
   await page.waitForFunction(() => window.__step, null, { timeout: 120000 });
   page.setDefaultTimeout(240000);
   for (let i = 0; i < 8; i++) { await page.evaluate(() => window.__step(10, 1 / 60)); await page.waitForTimeout(400); }
+  // every shot starts from this pose, so each lens sees the same view (the rider drifts and the
+  // first-person arms swing into the measured snow otherwise)
+  await page.evaluate(() => { const r = window.__sim.rider; window.__lensSpot = { x: r.x, y: r.y, h: r.heading }; });
   return page;
 }
 
 /** shot with the given lens: saves it and returns { mean, sd } of log luminance over the lower 2/3 */
-async function shoot(page, lens, label) {
-  const r = await page.evaluate(async (lens) => {
+/** one frame through the lens: its PNG and the metrics */
+async function shootOnce(page, lens) {
+  return page.evaluate(async (lens) => {
     window.__sim.settings.goggleLens = lens;
+    const sp = window.__lensSpot, sim = window.__sim;
+    sim.rider.reset(sp.x, sp.y, sp.h); sim.cam.snapTo(sim.rider);
     window.__step(2, 1 / 60);
     const url = window.__shot();
     const img = new Image(); img.src = url; await img.decode();
@@ -80,8 +88,14 @@ async function shoot(page, lens, label) {
     const m = s / Math.max(1, n);
     return { url, sd: Math.sqrt(Math.max(0, s2 / Math.max(1, n) - m * m)), lum: mean };
   }, lens);
+}
+
+/** the mean over 3 frames (the snow's fine per-frame noise moves the contrast about 20 % frame to frame); saves the last */
+async function shoot(page, lens, label) {
+  let sd = 0, lum = 0, r = null;
+  for (let i = 0; i < 3; i++) { r = await shootOnce(page, lens); sd += r.sd / 3; lum += r.lum / 3; }
   fs.writeFileSync(path.join(outDir, `${label}.png`), Buffer.from(r.url.split(',')[1], 'base64'));
-  return { sd: r.sd, lum: r.lum };
+  return { sd, lum };
 }
 
 /** ms per frame over n frames, the GPU flushed by a pixel read at the end */
@@ -100,12 +114,22 @@ for (const weather of ['storm', 'overcast']) {
   const page = await open(`&cam=fp&weather=${weather}&time=13`);
   const res = {};
   for (const l of LENSES) { res[l] = await shoot(page, l, `fp_${weather}_${l}`); console.log(`${weather} ${l.padEnd(7)} contrast ${res[l].sd.toFixed(4)}  mean lum ${res[l].lum.toFixed(3)}`); }
-  // no lens again at the end: the view settles while it is shot, so the baseline is the higher of the two
+  // no lens again at the end; the baseline is the mean of the two
   const off2 = await shoot(page, 'off', `fp_${weather}_off_end`);
-  const base = Math.max(res.off.sd, off2.sd);
-  for (const l of weather === 'storm' ? ['rose', 'yellow'] : ['rose']) check(`${weather}: ${l} raises the slope contrast over no lens`, res[l].sd > base * 1.1, `${res[l].sd.toFixed(4)} vs ${base.toFixed(4)}`);
+  const base = (res.off.sd + off2.sd) / 2;
+  // the storm is the gate; under overcast the frames without the pass drift about 30 % on their own
+  // (fine snow noise near 8-bit steps), as much as the lens changes, so it is printed, not checked
+  if (weather === 'storm') for (const l of ['rose', 'yellow']) check(`${weather}: ${l} raises the slope contrast over no lens`, res[l].sd > base * 1.25, `${res[l].sd.toFixed(4)} vs ${base.toFixed(4)}`);
+  else console.log(`info ${weather}: rose / no lens contrast ${(res.rose.sd / base).toFixed(2)} (no lens alone varies ${(Math.min(res.off.sd, off2.sd, res.clear.sd) / base).toFixed(2)} to ${(Math.max(res.off.sd, off2.sd, res.clear.sd) / base).toFixed(2)}); judge by eye from the PNGs`);
   for (const l of ['blue', 'purple', 'green']) check(`${weather}: ${l} mirror is darker than no lens`, res[l].lum < res.off.lum * 0.95, `${res[l].lum.toFixed(3)} vs ${res.off.lum.toFixed(3)}`);
   check(`${weather}: clear matches no lens`, Math.abs(res.clear.lum - res.off.lum) < 0.01);
+  // guard for the isXRRenderTarget trick (Lens.ts): the pass with a near-neutral lens must match no
+  // lens. If a three upgrade stops tone mapping and sRGB-encoding the target, the pass decodes linear
+  // values twice and the view comes out much darker (Clear cannot catch it: it skips the pass).
+  await page.evaluate(() => { window.__sim.settings.lensStrength = 0.002; });
+  const neutral = await shoot(page, 'rose', `fp_${weather}_neutral`);
+  await page.evaluate(() => { window.__sim.settings.lensStrength = 1; });
+  check(`${weather}: the lens pass at near-zero strength matches no lens (target tone mapped like the screen)`, Math.abs(neutral.lum - res.off.lum) < 0.01, `${neutral.lum.toFixed(3)} vs ${res.off.lum.toFixed(3)}`);
   if (weather === 'storm') {
     const off = Math.min(await frameMs(page, 'off'), await frameMs(page, 'off'));
     const on = Math.min(await frameMs(page, 'rose'), await frameMs(page, 'rose'));
