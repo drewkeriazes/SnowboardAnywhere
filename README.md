@@ -99,7 +99,7 @@ Fresh corduroy, Mid-season or Spring; New snow; Weather) and Settings > Game (Ti
 the snow under you (Groomed, Powder, Chop, Ice, Slush, Rock); on foot it also shows how deep the
 boots sink.
 
-The snow near you moves. Carving in powder cuts a deep trench with wide lips (a groomer keeps its
+The snow near you moves. Carving in powder cuts a deep, board-wide trench (a groomer keeps its
 shallow groove), the snow around your tracks and footprints sags, and a hockey stop piles a ridge of
 pushed snow. Hard turns throw spray: light wisps on a groomer, clouds that hang and drift in powder, a
 burst when you land. Settings > Graphics > Snow dents turns the sag off (the Low preset turns it off

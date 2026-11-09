@@ -30,8 +30,8 @@ import { DEFORM_GLSL, deformUniforms, laneStampMaterial } from './Deform';
  * fills back in (depth and alpha fade) over FADE seconds.
  *
  * FEAT-044: in soft snow the floor is 0.7 of the loose snow depth (`rider.snow.depth`: 8 to 25 cm in
- * powder), the lips spread wider and the knife-cut collapse is held back (the board sinks and the
- * whole base displaces snow). Near the rider the lanes are also rendered top-down into the
+ * powder) and the knife-cut collapse is held back (the board sinks and the whole base displaces
+ * snow), so a powder carve is a board-wide trench; it is never wider than the board's footprint. Near the rider the lanes are also rendered top-down into the
  * deformation texture (`Deform.ts`, `aStamp` = height offset, packed per vertex); the terrain sags
  * softly around them and the ribbon rides the same sag, so it stays the sharp trench everywhere.
  */
@@ -74,8 +74,8 @@ const UP = [0, 1, 0];
 const SNOW_RGB = [0.83, 0.86, 0.94];
 /** floats stored per section */
 const SEC = 15; // ... + terrain normal (three.js x, y, z) at the centre (BUG-021), soft (FEAT-044)
-/** the berm and lip spread wider when scraping, so the ridge is a mound rather than a spike, and in soft snow (FEAT-044) */
-const lipWidth = (polish: number, soft = 0) => 1 + 2.5 * polish + 2 * soft;
+/** the berm and lip spread wider when scraping, so the ridge is a mound rather than a spike */
+const lipWidth = (polish: number) => 1 + 2.5 * polish;
 /** FEAT-044: how much of the knife-cut collapse soft snow allows (the board sinks, so the whole base cuts) */
 const SOFT_TILT = 0.3;
 /**
@@ -154,7 +154,7 @@ class Lane {
    * across the track (three.js x/z); half width; depth (m); surface(x, z) returns the snow height.
    * Scraping: ridge height (m) of pushed snow, ridgeSide -1..1 (which lip gets it, + = the right
    * side), polish 0..1 (how much the floor is a flat scraped band rather than a cut groove), soft
-   * 0..1 (FEAT-044: how soft the snow is; wider lips).
+   * 0..1 (FEAT-044: how soft the snow is; the floor is packed less).
    */
   add(cx: number, cy: number, cz: number, ax: number, az: number, half: number, depth: number, tilt: number, surface: (x: number, z: number) => number, ridge = 0, ridgeSide = 0, polish = 0, fill = 1, gn: ArrayLike<number> = UP, soft = 0): void {
     const s = this.head;
@@ -164,7 +164,7 @@ class Lane {
     c[o + 11] = gn[0]; c[o + 12] = gn[1]; c[o + 13] = gn[2]; c[o + 14] = soft;
     this.age[s] = FADE * (1 - fill); // fill < 1 (a rock edge, BUG-043) starts part filled in: shallower and fainter
     // snow heights under each profile vertex (follow the slope across the track)
-    const lw = lipWidth(polish, soft);
+    const lw = lipWidth(polish);
     for (let k = 0; k < P; k++) {
       const off = profileOff(k, half, lw, tilt);
       this.ground[s * P + k] = surface(cx + ax * off, cz + az * off);
@@ -191,7 +191,7 @@ class Lane {
   private shape(s: number): void {
     const o = s * SEC;
     const cx = this.secC[o], cz = this.secC[o + 2], ax = this.secC[o + 3], az = this.secC[o + 4], half = this.secC[o + 5];
-    const ridgeSide = this.secC[o + 9], polish = this.secC[o + 10], soft = this.secC[o + 14], lw = lipWidth(polish, soft);
+    const ridgeSide = this.secC[o + 9], polish = this.secC[o + 10], soft = this.secC[o + 14], lw = lipWidth(polish);
     // tilt -1..1: the board on its edge. Positive = the right-hand edge is engaged: that side of the
     // floor is deepest with a near-vertical wall, the other side rises to a shallow shelf, and the
     // displaced snow piles up on the outside of the turn.
@@ -437,7 +437,7 @@ export class Tracks {
     const edge = Math.abs(tilt);
     // a committed carve collapses the trench to a knife cut about 1 cm wide (FEAT-109)
     const ec = edgeCurve(edge);
-    const halfRaw = Math.max(MIN_HALF, 0.5 * (L * gs + W * gc * (1 - 0.95 * ec) * (1 + 0.6 * soft)) + (ski ? 0.05 : 0.15) * skid);
+    const halfRaw = Math.max(MIN_HALF, 0.5 * (L * gs + W * gc * (1 - 0.95 * ec)) + (ski ? 0.05 : 0.15) * skid);
     // BUG-019: ease the width so a stop widens the band over a few sections, not in one long wedge
     const half = moved > 6 || Number.isNaN(this.lastHalf) ? halfRaw : Math.min(halfRaw, this.lastHalf + HALF_GROW_PER_M * moved);
     this.lastHalf = half;

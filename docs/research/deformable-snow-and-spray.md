@@ -114,6 +114,6 @@ All three steps landed in one PR, as one card, and then changed to a hybrid afte
 
 Other differences from the plan:
 - The capture renders proxy meshes (the lanes' geometry under a stamp `ShaderMaterial`, a second `InstancedMesh` sharing the boot prints' instance matrices) in a dedicated scene, instead of swapping materials on the real meshes.
-- In soft snow the knife-cut collapse is held back to 30 % (the board sinks, the whole base cuts) and the trench is 60 % wider than the board; the floor is capped at 25 cm.
+- In soft snow the knife-cut collapse is held back to 30 % (the board sinks, the whole base cuts); the floor is capped at 25 cm. Section 3.5's wider powder lips were tried and dropped: Drew wants the track no wider than the board.
 - No `#ifdef DEFORM`: a uniform branch on `uDeformWin.w` turns the shader work off, so no recompile when the setting changes.
 - Spray: drag and settling speed per kind in the vertex shader, spawn records uploaded through `addUpdateRange`.
