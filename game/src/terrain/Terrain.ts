@@ -94,10 +94,24 @@ export class Terrain {
     u.uSkied.value = Math.max(0, Math.min(1, skied)); u.uSpring.value = Math.max(0, Math.min(1, spring));
   }
 
-  /** FEAT-059: the mogul field's amplitude multiplier and uphill creep (m) for the shaded (coarse) chunks. */
+  /** the mogul scale and creep the fine chunks were last (re)built with */
+  private mogulBuiltScale = 1;
+  private mogulBuiltCreep = 0;
+
+  /**
+   * FEAT-059: the mogul field's amplitude multiplier and uphill creep (m). The shaded (coarse) chunks
+   * read them live as uniforms; the fine chunks bake the bumps into their geometry from Pack.height,
+   * so when either has moved since they were built (a storm softening the field, a season change)
+   * they are marked dirty and rebuilt, throttled by MAX_BUILDS_PER_FRAME, to stay in step with physics.
+   */
   setMoguls(scale: number, creepM: number): void {
     const u = this.material.userData.uniforms as { uMogulScale: { value: number }; uMogulCreep: { value: number } };
-    u.uMogulScale.value = Math.max(0, Math.min(1, scale)); u.uMogulCreep.value = creepM;
+    const sc = Math.max(0, Math.min(1, scale));
+    u.uMogulScale.value = sc; u.uMogulCreep.value = creepM;
+    if (!this.pack.moguls) return;
+    if (Math.abs(sc - this.mogulBuiltScale) <= 0.05 && Math.abs(creepM - this.mogulBuiltCreep) <= 0.3) return;
+    this.mogulBuiltScale = sc; this.mogulBuiltCreep = creepM;
+    for (const c of this.chunks.values()) if (c.mesh && c.res <= MOGUL_MAX_RES) this.dirty.add(c.key);
   }
 
   /** Storm flat light: 0 = normal, 1 = overcast (snow relief and glints fade out). */
