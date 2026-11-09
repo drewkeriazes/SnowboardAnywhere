@@ -86,6 +86,14 @@ if (shots) await page.screenshot({ path: path.join(outDir, 'settings.png') });
 await key('Escape');
 check('Esc closes settings, focus back on Settings', await page.evaluate(() => document.querySelector('#menu .settings:not(.outrun)')?.classList.contains('hidden')) && (await active()) === 'settings', `focused ${await active()}`);
 
+// the Controls button opens settings on the Controls tab (the bindings, read from the keymap)
+await page.evaluate(() => document.querySelector('#menu .tabs button[data-t="audio"]')?.click());
+const hasControls = await page.evaluate(() => !!document.querySelector('#menu button[data-a="controls"]'));
+await page.evaluate(() => document.querySelector('#menu button[data-a="controls"]')?.focus());
+await key('Enter');
+check('Controls opens the Controls tab', hasControls && await page.evaluate(() => !document.querySelector('#menu .settings:not(.outrun)')?.classList.contains('hidden') && document.querySelector('#menu .tabs button.on')?.dataset.t === 'controls'));
+await key('Escape');
+
 // gamepad: D-pad moves focus, hints switch to pad labels
 await page.evaluate(() => document.querySelector('#menu button[data-a="ride"]')?.focus());
 await pad(13); // D-pad down

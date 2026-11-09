@@ -37,6 +37,7 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
         ${start ? `<div class="start"><span class="where"></span><button class="ghost" data-reset="1">Reset to resort start</button></div>` : ''}
         <button data-a="map">Drop in from the map</button>
         <button data-a="settings">Settings</button>
+        <button data-a="controls" class="ghost">Controls</button>
         <div class="settings hidden"></div>
         <div class="hintbar"></div>
         ${hostedLine()}
@@ -107,6 +108,7 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
     wrap.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => b.addEventListener('click', () => {
       audio.start();
       audio.setVolumes(settings.mute ? 0 : settings.sfx, settings.mute ? 0 : settings.music);
+      if (b.dataset.a === 'controls') { sp.openTab('controls'); panel.classList.remove('hidden'); screen.focus(panel.querySelector<HTMLElement>('.tabs button.on')); showHints(); return; } // FEAT-128: the bindings, read from the keymap
       if (b.dataset.a === 'settings') { if (panelOpen()) closePanel(); else { panel.classList.remove('hidden'); screen.focus(panel.querySelector<HTMLElement>('.tabs button.on')); showHints(); } return; }
       closeScreen(screen);
       wrap.remove();

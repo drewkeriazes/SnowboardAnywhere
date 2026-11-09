@@ -74,6 +74,11 @@ A jumps, X squats and grabs (hard carves while steering), B skates, bumpers pres
 the d-pad cycles camera / map / piste lines / track, Select opens the replay and Start pauses.
 The replay viewer lists its own keys on screen.
 
+Menus work with the keyboard, a gamepad, the mouse or touch: arrows or the D-pad move, Enter / Space or A select, Esc or B go back
+(Esc or B resumes from pause), Q / E or LB / RB switch settings tabs, B on the keyboard or X on the pad switches Snowboard / Skis
+on the main menu. The hint bar at the bottom of each menu shows the keys or buttons for whichever you used last.
+The main menu's Controls button opens your current bindings.
+
 Holding a nose or tail press is a balancing act. A small meter shows above the rider with a needle
 that drifts toward the nose or the tail, faster the longer you hold, the faster you go and the
 bumpier the snow. Keep it in the green with W / S (or the left stick up / down, which is analog).

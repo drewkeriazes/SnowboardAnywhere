@@ -37,7 +37,7 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
   - `src/terrain/` quadtree LOD terrain and snow material
   - `src/sim/` rider physics, controls, collisions, lift riding, time trials, replay recording, Outrun, run stats (`RunStats.ts`)
   - `src/world/` trees, rocks, buildings, roads, bridges, lifts and lift-line mazes, landmarks, piste overlay, sky, sun, clouds, snow, rider model and ragdoll, cameras, the Outrun monster
-  - `src/ui/` main menu, pause menu, settings, resort map, horizon labels, goggles, speed lines, Outrun HUD, touch controls, run card (`RunCard.ts`), press balance meter (`PressMeter.ts`), shared speed / height / distance formatters (`Units.ts`)
+  - `src/ui/` menu frame (FEAT-128: `theme.css` style tokens on `:root`, sizes times `--ui-scale`, the Barlow fonts bundled in `public/fonts/`; `MenuNav.ts` the focus manager, a stack of open `Screen`s where only the top one takes keyboard (capture phase, so a handled key never reaches `Controls`), gamepad (its own poll, only while a menu is open, D-pad and stick repeat after 400 ms every 120 ms) and hover input; `MenuKeys.ts` the fixed menu keys, not rebindable; `PadMap.ts` the one gamepad table that `sim/Controls.ts` and every pad hint read; `HintBar.ts` hint rows from those tables), main menu, pause menu, settings, resort map, horizon labels, goggles, speed lines, Outrun HUD, touch controls, run card (`RunCard.ts`), press balance meter (`PressMeter.ts`), shared speed / height / distance formatters (`Units.ts`)
   - `src/audio/` synthesised sound and the music player / jukebox
   - `public/music/` soundtrack, `playlist.json`, credits
 - `pipeline/` data pipeline (Python, plus PowerShell fetch scripts for Windows)
@@ -54,6 +54,7 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 - `rider.mjs [pack] [outDir] [--headed]` rider close-up check: stand, tuck, carves, jump, crash and skis; records the worst boot-to-binding gap and saves side-view shots.
 - `walkcheck.mjs [pack] [outDir] [--headed] [--ski]` on-foot check: unstrap, walk, sprint, turn, strap back in; prints speed, stamina, foot-IK gap and bootprint spacing.
 - `outruncheck.mjs [pack] [outDir] [--gpu | --headed]` Outrun flow: chase, look back, the eat sequence.
+- `menucheck.mjs [pack] [--gpu | --headed] [--shots]` menu navigation (FEAT-128): walks the main menu, settings and pause with the keyboard and a fake gamepad (`window.__pad`); checks focus, tab switching, hints from the key tables, Esc cancelling a rebind, Esc resuming once and A on Resume not jumping. `--shots` saves the three menus to `game/shots/menus/`. About 30 s on the GPU.
 - `views.mjs <pack> <outDir> <views.json> [--headed | --gpu]` stills from fixed free-camera spots for look checks (`views-*.json` in the same folder).
 - `shoot_features.mjs` map, buildings, rocks and lift feature check.
 - `probe.mjs` step timing probe for hangs.
