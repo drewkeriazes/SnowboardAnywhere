@@ -17,7 +17,8 @@ import { PAD, PAD_BUTTONS, setHidSource, type PadButton, type PadState } from '.
 
 /** minimal WebHID types (not in TypeScript's DOM lib) */
 interface HidInputReportEvent extends Event { readonly device: HidDevice; readonly reportId: number; readonly data: DataView }
-interface HidCollection { usagePage?: number; usage?: number; outputReports?: { reportId?: number }[]; inputReports?: { reportId?: number }[] }
+interface HidReportInfo { reportId?: number; items?: { reportSize?: number; reportCount?: number }[] }
+interface HidCollection { usagePage?: number; usage?: number; outputReports?: HidReportInfo[]; inputReports?: HidReportInfo[] }
 interface HidDevice extends EventTarget {
   readonly opened: boolean; readonly vendorId: number; readonly productId: number; readonly productName: string; readonly collections: HidCollection[];
   open(): Promise<void>; close(): Promise<void>;
@@ -95,7 +96,9 @@ export function outputCommon(o: DsOutput): Uint8Array {
 /** The report body to send (without the id): USB report 0x02, or Bluetooth 0x31 with its sequence and CRC. */
 export function outputReport(o: DsOutput, bt: boolean, seq = 0): { id: number; data: Uint8Array } {
   const common = outputCommon(o);
-  if (!bt) { const d = new Uint8Array(63); d.set(common, 0); return { id: 0x02, data: d }; }
+  // USB: exactly the common block (Windows reports the DualSense's output report 0x02 as 47 bytes after the id;
+  // the browser refuses a report of any other size, the Linux driver's 63 included)
+  if (!bt) return { id: 0x02, data: common };
   const d = new Uint8Array(77);
   d[0] = (seq & 0x0f) << 4; d[1] = 0x10; d.set(common, 2);
   const head = new Uint8Array(2 + 73); head[0] = 0xa2; head[1] = 0x31; head.set(d.subarray(0, 73), 2);
@@ -152,6 +155,10 @@ export class DualSenseHID {
   private seq = 0;
   private lastSend = 0;
   private needSetup = false;
+  /** output report length from the descriptor, bytes after the id (0: not known) */
+  private outLen = 0;
+  /** the last write's error, for Settings and ?debug=pad */
+  sendError = '';
 
   static get supported(): boolean { return !!hidApi() && (typeof window === 'undefined' || window.isSecureContext); }
   get connected(): boolean { return !!this.device?.opened; }
@@ -198,6 +205,9 @@ export class DualSenseHID {
     if (!d.opened) await d.open();
     this.device = d;
     this.bt = d.collections.some((c) => c.outputReports?.some((r) => r.reportId === 0x31));
+    // the output report's size from the device's own descriptor (the browser refuses any other size)
+    this.outLen = 0;
+    for (const c of d.collections) for (const r of c.outputReports ?? []) if (r.reportId === (this.bt ? 0x31 : 0x02)) this.outLen = (r.items ?? []).reduce((n, it) => n + (it.reportSize ?? 0) * (it.reportCount ?? 0), 0) / 8;
     // Bluetooth sends a short report until the calibration feature report is read; the firmware report tells the rumble style
     await d.receiveFeatureReport(0x05).catch(() => undefined);
     try {
@@ -248,7 +258,11 @@ export class DualSenseHID {
     const r = outputReport(setup ? { ...this.out, light: null, setupLightbar: true } : this.out, this.bt, this.seq);
     this.seq = (this.seq + 1) & 0x0f;
     if (setup) { this.needSetup = false; this.dirty = true; }
-    try { await d.sendReport(r.id, r.data); } catch { this.dirty = true; } finally { this.sending = false; }
+    let data = r.data;
+    if (this.outLen > 0 && data.length !== this.outLen && !this.bt) { const fit = new Uint8Array(this.outLen); fit.set(data.subarray(0, this.outLen)); data = fit; }
+    try { await d.sendReport(r.id, data); this.sendError = ''; }
+    catch (e) { this.dirty = true; if (!this.sendError) this.setStatus(`Could not write to the controller: ${(e as Error).message}`); this.sendError = (e as Error).message; }
+    finally { this.sending = false; }
   }
 }
 

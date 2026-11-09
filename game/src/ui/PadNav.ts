@@ -1,5 +1,6 @@
 import { PAD, activePad, padButtonName, padTouched, padUi, type PadKind } from '../sim/Pad';
 import { dualSense } from '../sim/DualSense';
+import { padFx } from '../sim/PadFeedback';
 import { padGlyph } from './PadGlyphs';
 
 /**
@@ -123,11 +124,12 @@ function debug(): void {
     lines.push(`[${p.index}] ${p.id}\n    mapping '${p.mapping}' · ${p.buttons.length} buttons · ${p.axes.length} axes · rumble ${(p as Gamepad & { vibrationActuator?: unknown }).vibrationActuator ? 'yes' : 'no'}\n    pressed: ${on || '-'}\n    axes: ${p.axes.map((a) => a.toFixed(2)).join(' ')}`);
   }
   if (!lines.length) lines.push('no gamepad seen yet (press a button)');
-  lines.push(`WebHID: ${dualSense.connected ? `${dualSense.bt ? 'Bluetooth' : 'USB'}, ${dualSense.live ? 'live' : 'silent'}, ${dualSense.reports} reports, battery ${dualSense.battery}%` : 'not connected'}`);
+  lines.push(`WebHID: ${dualSense.connected ? `${dualSense.bt ? 'Bluetooth' : 'USB'}, ${dualSense.live ? 'live' : 'silent'}, ${dualSense.reports} reports, battery ${dualSense.battery}%${dualSense.sendError ? `, write error: ${dualSense.sendError}` : ''}` : 'not connected'}`);
   if (dualSense.connected) {
     const g = dualSense.gyro, t = dualSense.touch;
     lines.push(`    gyro ${g.map((v) => v.toFixed(0).padStart(5)).join(' ')} deg/s · touch ${t.active ? `${t.x}, ${t.y}` : 'none'}`);
   }
+  lines.push(`rumble: ${padFx.rumbleStatus}`);
   const a = activePad();
   if (a) lines.push(`reading: ${a.source} · ${a.kind} · pressed ${a.buttons.map((b, i) => (b.pressed ? padButtonName(a.kind, i) : '')).filter(Boolean).join(', ') || '-'}`);
   debugEl.textContent = lines.join('\n');

@@ -29,6 +29,10 @@ const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math
 const RIGHT_CLICK = triggerWeapon(2, 4, 3);
 const LEFT_FX = Array.from({ length: 8 }, (_, i) => triggerFeedback(1, 1 + i));
 
+interface Actuator { effects?: string[]; playEffect?: (t: string, p: object) => Promise<unknown>; reset?: () => Promise<unknown> }
+const actuator = (pad: PadState): Actuator | null => (pad.gp as (Gamepad & { vibrationActuator?: Actuator }) | null)?.vibrationActuator ?? null;
+const hidSupported = () => typeof navigator !== 'undefined' && 'hid' in navigator && typeof window !== 'undefined' && window.isSecureContext;
+
 export interface PadFxFrame {
   rider: Rider;
   /** the rider is on the board on the snow (not on a lift, unstrapped, frozen or in a menu) */
@@ -140,9 +144,41 @@ export class PadFeedback {
   /** Session over. */
   stop(): void { this.idle(this.pad); this.prevShock = 0; this.prevCrash = 0; this.vzPrev = NaN; this.jolt = this.bumpEnv = 0; this.prevPressing = false; this.prevChop = 0; }
 
+  /** how rumble goes out right now, for Settings and ?debug=pad */
+  rumbleStatus = 'no controller';
+  /** a Settings test is playing until then (ms, performance.now): the game's own output stands aside */
+  private testUntil = 0;
+
+  /** Settings > Controller > Test vibration: half a second at full strength through whatever path there is; says what happened. */
+  async test(pad: PadState | null): Promise<string> {
+    this.testUntil = performance.now() + 600;
+    if (dualSense.connected) {
+      dualSense.setRumble(1, 1); dualSense.flush();
+      setTimeout(() => { dualSense.setRumble(0, 0); dualSense.flush(); setTimeout(() => dualSense.flush(), 40); }, 500);
+      return dualSense.live ? 'Rumbling through the DualSense extras (WebHID).' : 'The DualSense extras are connected but not reporting: unplug and replug it, or reconnect.';
+    }
+    if (!pad) return 'No controller seen: press a button on it with the game in front first.';
+    const act = actuator(pad);
+    const ds = pad.kind === 'ps';
+    const noRumble = `This browser gives no rumble for this controller${ds && hidSupported() ? '. Connect the DualSense extras below to rumble through its own motors.' : '.'}`;
+    if (!act?.playEffect || (act.effects && !act.effects.includes('dual-rumble'))) { this.rumbleStatus = 'none (browser has no rumble for it)'; return noRumble; }
+    try {
+      const r = await act.playEffect('dual-rumble', { startDelay: 0, duration: 500, strongMagnitude: 1, weakMagnitude: 1 });
+      this.rumbleStatus = `Gamepad API (test: ${String(r)})`;
+      return `Sent through the browser's Gamepad API (it answered "${String(r)}"). Felt nothing?${ds && hidSupported() ? ' Connect the DualSense extras below: they drive its motors directly.' : ''}`;
+    } catch (e) {
+      this.rumbleStatus = `Gamepad API failed: ${(e as Error).message}`;
+      return `The browser refused the rumble (${(e as Error).message}).${ds && hidSupported() ? ' Connect the DualSense extras below instead.' : ''}`;
+    }
+  }
+
   private output(dt: number, strong: number, weak: number): void {
-    if (dualSense.live) { dualSense.setRumble(strong, weak); return; }
-    const act = (this.pad?.gp as (Gamepad & { vibrationActuator?: { playEffect?: (t: string, p: object) => Promise<unknown>; reset?: () => Promise<unknown> } }) | null)?.vibrationActuator;
+    if (performance.now() < this.testUntil) return;
+    if (dualSense.live) { dualSense.setRumble(strong, weak); this.rumbleStatus = 'DualSense extras (WebHID)'; return; }
+    const act = this.pad ? actuator(this.pad) : null;
+    if (!this.pad) this.rumbleStatus = 'no controller';
+    else if (!act?.playEffect || (act.effects && !act.effects.includes('dual-rumble'))) { this.rumbleStatus = 'none (browser has no rumble for it)'; return; }
+    else if (!this.rumbleStatus.startsWith('Gamepad API')) this.rumbleStatus = 'Gamepad API';
     if (!act?.playEffect) return;
     this.renew -= dt;
     const off = strong < 0.02 && weak < 0.02;
@@ -153,7 +189,7 @@ export class PadFeedback {
     const changed = Math.abs(strong - this.lastStrong) > 0.08 || Math.abs(weak - this.lastWeak) > 0.08;
     if (!changed && this.renew > 0) return;
     this.renew = RENEW_S; this.lastStrong = strong; this.lastWeak = weak;
-    void act.playEffect('dual-rumble', { startDelay: 0, duration: EFFECT_MS, strongMagnitude: strong, weakMagnitude: weak }).catch(() => undefined);
+    void act.playEffect('dual-rumble', { startDelay: 0, duration: EFFECT_MS, strongMagnitude: strong, weakMagnitude: weak }).catch((e: Error) => { this.rumbleStatus = `Gamepad API failed: ${e.message}`; });
   }
 
   private extras(dt: number, f: PadFxFrame): void {

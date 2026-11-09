@@ -2,6 +2,7 @@ import { PLAYLISTS, SHUFFLE_ALL } from '../audio/Audio';
 import { DEFAULT_PAD, PAUSE_BUTTONS, activePad, lastPadKind, migratePadKeys, padButtonName, padUi } from '../sim/Pad';
 import { DualSenseHID, dualSense } from '../sim/DualSense';
 import { padGlyph } from './PadGlyphs';
+import { padFx } from '../sim/PadFeedback';
 /**
  * Player settings, persisted in localStorage under one versioned key. `renderPanel` builds the
  * same settings UI for the main menu and the pause menu; `onChange` fires on every edit so the
@@ -242,6 +243,8 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
       <div class="hint" style="margin-top:14px;font-weight:600;opacity:.9">Controller</div>
       <div class="hint">The left stick steers and leans (up / down tuck and brake), the right stick looks, Options / Start or the PS button pauses. In menus: D-pad or stick to move, Cross / A to pick, Circle / B to go back, L1 / R1 for the tabs.</div>
       <div class="row"><label>Vibration</label><input type="range" data-k="vibration" min="0" max="1" step="0.05"><span class="val" data-v="vibration"></span></div>
+      <div class="row"><button data-a="rumble-test">Test vibration</button></div>
+      <div class="hint" data-rumble-status></div>
       <div class="row"><label>Stick dead zone</label><input type="range" data-k="padDead" min="0.05" max="0.4" step="0.01"><span class="val" data-v="padDead"></span></div>
       <div class="row"><label>Trigger dead zone</label><input type="range" data-k="padTrigDead" min="0.05" max="0.7" step="0.05"><span class="val" data-v="padTrigDead"></span></div>
       <div class="row"><label>Look speed</label><input type="range" data-k="lookSens" min="0.25" max="3" step="0.05"><span class="val" data-v="lookSens"></span></div>
@@ -428,6 +431,11 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
   });
   host.querySelector('[data-a="keys-reset"]')!.addEventListener('click', () => {
     s.keys = migrateKeys(undefined).keys; s.keysNote = false; saveSettings(s); fill(); onChange(s, 'keys');
+  });
+  const rumbleOut = host.querySelector<HTMLElement>('[data-rumble-status]')!;
+  host.querySelector('[data-a="rumble-test"]')!.addEventListener('click', () => {
+    rumbleOut.textContent = 'Testing...';
+    void padFx.test(activePad()).then((msg) => { rumbleOut.textContent = msg; });
   });
   host.querySelector('[data-a="pad-reset"]')!.addEventListener('click', () => {
     s.padKeys = migratePadKeys(undefined); saveSettings(s); fill(); onChange(s, 'padKeys');

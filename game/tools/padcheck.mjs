@@ -42,7 +42,7 @@ console.log('---- DualSense reports');
   check('trigger off', ds.triggerOff()[0] === 0x05 && ds.triggerFeedback(3, 0)[0] === 0x05);
   const o = { strong: 1, weak: 0.5, light: [10, 20, 30], left: fb, right: wp, vibrationV2: true };
   const usb = ds.outputReport(o, false);
-  check('USB report id and size', usb.id === 0x02 && usb.data.length === 63, `${usb.id} ${usb.data.length}`);
+  check('USB report id and size (47 after the id, as Windows reports it)', usb.id === 0x02 && usb.data.length === 47, `${usb.id} ${usb.data.length}`);
   check('USB flags', usb.data[0] === 0x0e && usb.data[1] === 0x04 && usb.data[38] === 0x04, hex(usb.data.subarray(0, 2)) + ' / ' + usb.data[38]);
   check('USB motors (right weak, left strong)', usb.data[2] === 128 && usb.data[3] === 255, `${usb.data[2]} ${usb.data[3]}`);
   check('USB triggers at 10 (R2) and 21 (L2)', usb.data[10] === 0x25 && usb.data[21] === 0x21);
