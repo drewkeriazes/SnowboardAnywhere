@@ -106,10 +106,14 @@ Check each on Drew's GPU with `--headed` runs; SwiftShader is too slow for a mea
 
 ## 6. What was built (2026-11-09)
 
-All three steps landed in one PR, as one card:
-- The capture renders proxy meshes (the lanes' geometry under a stamp `ShaderMaterial`, a second `InstancedMesh` sharing the boot prints' instance matrices) in a dedicated scene, instead of swapping materials on the real meshes. `Lane.shape` writes `aStamp` = (height offset, packed, hide) per vertex.
-- The ribbon hides inside the window only where the section is deeper than 6 cm (fully by 12 cm), so a groomer's 5 cm groove and a knife cut stay ribbons everywhere; the terrain carries the deep powder trench.
-- In soft snow the knife-cut collapse is held back to 30 % (the board sinks, the whole base cuts) and the trench is 60 % wider than the board, so the stamp is several texels wide and does not alias.
+All three steps landed in one PR, as one card, and then changed to a hybrid after testing on Drew's GPU.
+
+**The first build** followed sections 3.1 to 3.4: the terrain split to 25 cm inside the window, displaced from the full-resolution texture and took the trench walls from it, and the ribbon hid where the trench was deep. It looked jagged. A texture dump showed why: a powder carve stamps a trench about 3 texels (37 cm) wide with walls narrower than a texel, and the 25 cm vertex grid samples it about one and a half vertices across, so a track running diagonally to the grid aliased into beads and stair-steps while one along an axis looked smooth. Where the window jumped (slowing, stopping), the coarser 1 m chunk showed the same texture until the 25 cm chunks were built, which is why the beads sometimes resolved after a moment. It also added about 120 terrain draw calls and a stream of CPU chunk builds. Section 3.3's estimate that 25 cm vertices would carry the broad trench was wrong for these widths.
+
+**The hybrid** keeps the ribbon as the visible trench everywhere (it is built along the track, so it has no resolution limit) and uses the texture only for a soft sag: shaders read its mipmap at about 1 m per texel, so the GPU's box filter pre-blurs the stamp to the terrain's own vertex spacing. The terrain, the ribbon and the boot prints all sink by the same sag at their vertices, so they stay together. No terrain split, no packed-snow shading, and the boot prints keep their own rims (BUG-020's single packed surface is not delivered by this).
+
+Other differences from the plan:
+- The capture renders proxy meshes (the lanes' geometry under a stamp `ShaderMaterial`, a second `InstancedMesh` sharing the boot prints' instance matrices) in a dedicated scene, instead of swapping materials on the real meshes.
+- In soft snow the knife-cut collapse is held back to 30 % (the board sinks, the whole base cuts) and the trench is 60 % wider than the board; the floor is capped at 25 cm.
 - No `#ifdef DEFORM`: a uniform branch on `uDeformWin.w` turns the shader work off, so no recompile when the setting changes.
-- Spray: drag and settling speed per kind in the vertex shader (`p = p0 + v0 (1 - e^-kt) / k - vt (t - e) up + wind (t - e)`), spawn records uploaded through `addUpdateRange`.
-- The capture runs every frame; the 2 Hz idle rate from section 3.2 was not needed (the pass is a few draw calls).
+- Spray: drag and settling speed per kind in the vertex shader, spawn records uploaded through `addUpdateRange`.

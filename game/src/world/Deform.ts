@@ -1,21 +1,23 @@
 import * as THREE from 'three';
 
 /**
- * FEAT-044: snow deformation around the rider. A square window of DEFAULT_SIZE metres that follows the
- * rider (leading a little along the travel direction) is rendered top-down every frame into a small
- * render target: the board-track lanes (`Tracks.ts`) and the boot prints (`Bootprints.ts`) are drawn
- * with a stamp material that writes, per texel,
+ * FEAT-044: the soft sag of the snow around tracks and boot prints, near the rider. A square window of
+ * DEFAULT_SIZE metres that follows the rider (leading a little along the travel direction) is rendered
+ * top-down every frame into a small render target: the board-track lanes (`Tracks.ts`) and the boot
+ * prints (`Bootprints.ts`) are drawn with a stamp material that writes, per texel,
  *
  *   R = depression below the snow surface (m / HEIGHT_SCALE, so 0..0.5 m)
  *   G = snow pushed up (lips, the braking ridge; the same units)
  *   B = how packed the snow is (0 fresh, 1 a polished floor)
  *
  * with MAX blending, so overlapping passes take the deepest cut and the highest lip without any
- * ordering. The terrain (`TerrainMaterial.ts`) displaces its vertices by lip - depression inside the
- * window and takes a detail normal from the texture, so a trench is real geometry with walls; the
- * ribbon tracks hide themselves inside the window where the stamp is deep and show again beyond it,
- * so the far trail stays the ribbon. The texture holds no state: the lanes and prints are the
- * persistence and the fill-in, so nothing scrolls or ages here.
+ * ordering. The texture holds no state: the lanes and prints are the persistence and the fill-in.
+ *
+ * Hybrid (after the first build aliased): the sharp trench stays the ribbon mesh (`Tracks.ts`), which
+ * has no resolution limit. The texture only adds a soft, wide sag: `deformSag` reads its mipmap at
+ * about SAG_TEXEL metres per texel, so the GPU's own box filter pre-blurs the stamp to the terrain's
+ * 1 m vertex spacing and nothing can alias. The terrain, the ribbon and the boot prints all add the
+ * same sag at their vertices, so they move together; the terrain also takes its slope as a soft normal.
  *
  * All shaders that read the texture share `deformUniforms` and `DEFORM_GLSL`; `Deform.update`
  * writes the window into them. Texture v runs the other way from three.js z (the capture camera
@@ -23,10 +25,12 @@ import * as THREE from 'three';
  */
 export const DEFAULT_SIZE = 64; // m
 export const DEFAULT_RES = 512; // px
-/** the near terrain is split to this vertex spacing (m) inside the window (Terrain.select) */
-export const NEAR_RES = 0.25;
-/** the displacement fades to zero over this many metres inside the window edge */
-const EDGE_FADE = 3;
+/** the sag fades to zero over this many metres inside the window edge */
+const EDGE_FADE = 6;
+/** the sag is the stamp averaged over about this many metres (the mip level read), the terrain's near vertex spacing */
+const SAG_TEXEL = 1;
+/** how much of the averaged depression the snow around a track sinks by */
+const SAG_K = 1;
 /** units of the R and G channels: metres per 1.0 */
 export const HEIGHT_SCALE = 0.5;
 
@@ -34,14 +38,14 @@ export const deformUniforms = {
   uDeform: { value: null as THREE.Texture | null },
   /** window origin x, z (three.js), 1 / size, strength (0 = off) */
   uDeformWin: { value: new THREE.Vector4(0, 0, 1 / DEFAULT_SIZE, 0) },
-  /** one texel in uv, one texel in metres */
-  uDeformPx: { value: new THREE.Vector2(1 / DEFAULT_RES, DEFAULT_SIZE / DEFAULT_RES) },
+  /** one texel in uv, one texel in metres, the mip level whose texel is SAG_TEXEL */
+  uDeformPx: { value: new THREE.Vector3(1 / DEFAULT_RES, DEFAULT_SIZE / DEFAULT_RES, Math.log2(DEFAULT_RES / DEFAULT_SIZE * SAG_TEXEL)) },
 };
 
 export const DEFORM_GLSL = /* glsl */ `
   uniform sampler2D uDeform;
   uniform vec4 uDeformWin;
-  uniform vec2 uDeformPx;
+  uniform vec3 uDeformPx;
   vec2 deformUV(vec2 xz) { return vec2((xz.x - uDeformWin.x) * uDeformWin.z, 1.0 - (xz.y - uDeformWin.y) * uDeformWin.z); }
   // 1 well inside the window, 0 at its edge and outside, times the strength
   float deformFade(vec2 uv) {
@@ -50,18 +54,14 @@ export const DEFORM_GLSL = /* glsl */ `
     float d = min(e.x, e.y);
     return smoothstep(0.0, m, d) * uDeformWin.w;
   }
-  // height change of the snow surface (m): lips only where there is no depression (RoTR's reconstruction)
-  float deformH(vec4 d) {
-    float dep = d.r * ${HEIGHT_SCALE.toFixed(2)}, lip = d.g * ${HEIGHT_SCALE.toFixed(2)};
-    return lip * (1.0 - smoothstep(0.0, 0.02, dep)) - dep;
-  }
-  // the height change smoothed over about two vertex spacings (a 3 x 3 box of bilinear taps 2.5 texels
-  // apart, so about 60 cm wide), for the vertex displacement: the 25 cm grid carries only a soft trough
-  // (a sharper one scallops along the grid); the fragment normal (unsmoothed) carries the walls and lips
-  float deformHSmooth(vec2 uv) {
-    float o = 2.5 * uDeformPx.x, sum = 0.0;
-    for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) sum += deformH(texture2D(uDeform, uv + vec2(float(i), float(j)) * o));
-    return sum / 9.0;
+  // the soft sag (m, <= 0): the depression averaged over about SAG_TEXEL metres by the mipmap
+  float deformSag(vec2 uv) { return -textureLod(uDeform, uv, uDeformPx.z).r * ${(HEIGHT_SCALE * SAG_K).toFixed(3)}; }
+  // its slope (d/dx, d/dz in three.js axes) by central differences SAG_TEXEL apart
+  vec2 deformSagSlope(vec2 uv) {
+    float o = ${SAG_TEXEL.toFixed(1)} * uDeformWin.z;
+    float dx = deformSag(uv + vec2(o, 0.0)) - deformSag(uv - vec2(o, 0.0));
+    float dz = deformSag(uv - vec2(0.0, o)) - deformSag(uv + vec2(0.0, o)); // v runs against z
+    return vec2(dx, dz) / ${(2 * SAG_TEXEL).toFixed(1)};
   }
 `;
 
@@ -82,13 +82,13 @@ function stampMaterial(vertex: string): THREE.ShaderMaterial {
   });
 }
 
-/** stamp material for the track lanes: `aStamp` = (height offset m, packed, hide) per vertex (Lane.shape) */
+/** stamp material for the track lanes: `aStamp` = (height offset m, packed) per vertex (Lane.shape) */
 export function laneStampMaterial(): THREE.ShaderMaterial {
   return stampMaterial(/* glsl */ `
-    attribute vec3 aStamp;
+    attribute vec2 aStamp;
     varying vec3 vS;
     void main() {
-      vS = aStamp;
+      vS = vec3(aStamp, 0.0);
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }`);
 }
@@ -133,22 +133,18 @@ export class Deform {
   /** texture size (px) and window size (m); recreates the target when the resolution changes */
   configure(res: number, size: number): void {
     this.size = size;
-    if (this.target && this.res === res) { deformUniforms.uDeformPx.value.set(1 / res, size / res); return; }
+    const lod = Math.max(0, Math.log2(res / size * SAG_TEXEL));
+    if (this.target && this.res === res) { deformUniforms.uDeformPx.value.set(1 / res, size / res, lod); return; }
     this.target?.dispose();
     this.res = res;
-    this.target = new THREE.WebGLRenderTarget(res, res, { format: THREE.RGBAFormat, type: THREE.UnsignedByteType, depthBuffer: false, stencilBuffer: false, generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+    this.target = new THREE.WebGLRenderTarget(res, res, { format: THREE.RGBAFormat, type: THREE.UnsignedByteType, depthBuffer: false, stencilBuffer: false, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
     this.target.texture.name = 'snow deformation';
     deformUniforms.uDeform.value = this.target.texture;
-    deformUniforms.uDeformPx.value.set(1 / res, size / res);
+    deformUniforms.uDeformPx.value.set(1 / res, size / res, lod);
   }
 
   get resolution(): number { return this.res; }
   get texture(): THREE.Texture | null { return this.target?.texture ?? null; }
-
-  /** the window's box in pack metres (x east, y north), for the terrain's near split */
-  get packBox(): { minX: number; minY: number; size: number } {
-    return { minX: this.origin.x, minY: -(this.origin.y + this.size), size: this.size };
-  }
 
   /**
    * Place the window around the rider ((x, y, z) three.js, (vx, vz) velocity) and render the stamps

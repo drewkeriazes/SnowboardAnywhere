@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Plant } from './Gait';
 import { FADE, trackFillRate } from './Tracks';
-import { printStampMaterial } from './Deform';
+import { DEFORM_GLSL, deformUniforms, printStampMaterial } from './Deform';
 
 /**
  * Bootprints (FEAT-067): one dent per foot plant, stamped where the gait put the boot down, as one
@@ -131,14 +131,17 @@ export class Bootprints {
     // Lambert material came out whiter than the terrain and the prints read as raised slabs)
     this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, depthWrite: true, roughness: 0.9 });
     this.mat.onBeforeCompile = (shader) => {
-      shader.vertexShader = 'attribute float aDepth;\nattribute float aFill;\nattribute float aKick;\nattribute vec2 aSmear;\nattribute float toe;\n' + shader.vertexShader
+      Object.assign(shader.uniforms, deformUniforms);
+      shader.vertexShader = 'attribute float aDepth;\nattribute float aFill;\nattribute float aKick;\nattribute vec2 aSmear;\nattribute float toe;\n' + DEFORM_GLSL + shader.vertexShader
         .replace('#include <begin_vertex>', `#include <begin_vertex>
           // scale the nominal hollow to this print's depth as it fills in; kicked snow at the toe
           transformed.y *= aDepth * aFill / ${NOMINAL.toFixed(3)};
           transformed.y += toe * aKick * aFill * 0.035;
           // smear: the downhill side of the print drawn out along aSmear (local x/z)
           float sl = length(aSmear);
-          if (sl > 1e-4) transformed.xz += aSmear * clamp(dot(position.xz, aSmear / sl) / ${HL.toFixed(3)}, 0.0, 1.0);`)
+          if (sl > 1e-4) transformed.xz += aSmear * clamp(dot(position.xz, aSmear / sl) / ${HL.toFixed(3)}, 0.0, 1.0);
+          // FEAT-044: ride the soft sag the terrain takes around the prints (Deform.ts)
+          if (uDeformWin.w > 0.0) { vec2 duv = deformUV((modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xz); transformed.y += deformSag(duv) * deformFade(duv); }`)
         .replace('#include <color_vertex>', '#include <color_vertex>\n  vColor.a *= min(1.0, aFill * 3.0);')
         // the hollow is below the terrain surface: pull its depth toward the camera by about its
         // own depth so the terrain does not cover it (nearer objects still do), as the tracks do

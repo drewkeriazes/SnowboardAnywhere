@@ -865,9 +865,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       (puffs.points.material as THREE.PointsMaterial).color.copy(pl);
       veg.setSun(env.sun.color, env.sun.intensity);
       const cp = cam.camera.position;
-      // FEAT-044: stamp the tracks and prints near the rider into the deformation texture; the terrain splits finer inside its window
+      // FEAT-044: stamp the tracks and prints near the rider into the deformation texture (the soft sag around them)
       deform.update(renderer, rider.x, rider.z, -rider.y, rider.vx, -rider.vy);
-      terrain.setDeformWindow(deform.enabled ? deform.packBox : null);
       terrain.update(cp.x, -cp.z, cp.y);
       const fx = detached ? cp.x : rider.x, fy = detached ? -cp.z : rider.y;
       // terrain, mask and instance tiles stream ahead along the direction of travel

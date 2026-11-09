@@ -1,8 +1,8 @@
 // Deformable snow check (FEAT-044): on a powder day, tucks to speed, links two carves and brakes to a
 // stop; saves shots from the chase camera and straight down with the deformation on and off
 // (`*_nodeform.png`), and checks that the deformation texture holds a depression under the track,
-// that the terrain split to its near resolution inside the window, that the spray spawned particles
-// in the turns, and that the console stayed clean.
+// that the terrain chunk count does not change with it (no extra split), that the spray spawned
+// particles in the turns, and that the console stayed clean.
 // node tools/trailcheck.mjs [pack] [outDir] [--headed]   (run after `npx vite build`; exit 1 on a failed check)
 const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
 import http from 'node:http';
@@ -54,7 +54,7 @@ const ride = (n) => page.evaluate((n) => {
 }, n);
 const state = () => page.evaluate(() => {
   const r = window.__sim.rider, t = window.__sim.terrain;
-  return { speed: +r.speed.toFixed(2), edgeDeg: +(Math.abs(r.edge) * 180 / Math.PI).toFixed(0), skid: +r.skid.toFixed(2), kind: r.snow.kind, depth: +(r.snow.depth * 100).toFixed(0), near: t.stats.near, chunks: t.stats.chunks, tris: t.stats.triangles };
+  return { speed: +r.speed.toFixed(2), edgeDeg: +(Math.abs(r.edge) * 180 / Math.PI).toFixed(0), skid: +r.skid.toFixed(2), kind: r.snow.kind, depth: +(r.snow.depth * 100).toFixed(0), chunks: t.stats.chunks, tris: t.stats.triangles };
 });
 /** camera `back` m behind the rider along travel (negative = ahead), `side` m right, `up` m above, looking at a point `ahead` m along travel */
 async function shot(label, back, side, up, ahead = 0) {
@@ -122,27 +122,26 @@ console.log('texture behind the board, after the carves:', JSON.stringify(carve)
 await ride(20);
 await shot('03_trench_behind', -2, 0.9, 1.1, -6);
 await shot('04_trench_overhead', 4, 0.2, 9);
-const nearOn = (await state()).near;
 await page.keyboard.down('ArrowDown');
 let stopSpawned = 0;
 for (let i = 0; i < 30; i++) { stopSpawned += await ride(6); if ((await state()).speed < 0.5) break; }
 await page.keyboard.up('ArrowDown');
 await shot('05_stop', 4, 2, 1.5);
+const chunksOn = (await state()).chunks;
 const stop = await probe(2);
 console.log('texture behind the board, after the stop:', JSON.stringify(stop));
 // the same views without the deformation (the ribbon alone)
 await page.evaluate(() => { const s = window.__sim; s.settings.snowDeform = false; s.applySettings('snowDeform'); });
 await ride(3);
 await shot('05_stop_nodeform', 4, 2, 1.5);
-const nearOff = (await state()).near;
+const chunksOff = (await state()).chunks;
 await page.evaluate(() => { const s = window.__sim; s.settings.snowDeform = true; s.applySettings('snowDeform'); });
 
 console.log(`max edge ${maxEdge} deg, spray spawned in the carves ${spawned}, in the stop ${stopSpawned}`);
 check('deformation texture holds the trench behind the board', !!carve && carve.inWindow && carve.depCm >= 4, carve ? `${carve.depCm} cm deep, lip ${carve.lipCm} cm, packed ${carve.packed}` : 'no texture');
 check('a powder trench is deeper than a groomer groove', !!carve && carve.maxDepCm >= 8, carve ? `max ${carve.maxDepCm} cm, ${carve.filled} texels stamped` : '');
 check('the stop leaves a pushed-up ridge', !!stop && stop.maxLipCm >= 1, stop ? `max lip ${stop.maxLipCm} cm` : '');
-check('terrain split to the near resolution inside the window', nearOn > 0, `${nearOn} near chunks`);
-check('near split off with the deformation off', nearOff === 0, `${nearOff} near chunks`);
+check('no extra terrain chunks for the deformation', Math.abs(chunksOn - chunksOff) <= 20, `${chunksOn} on, ${chunksOff} off`);
 check('spray spawned in the carves', spawned > 50, `${spawned} particles`);
 check('spray sheet in the stop', stopSpawned > 50, `${stopSpawned} particles`);
 check('no console errors', errors.length === 0, errors.slice(0, 3).map((e) => e.slice(0, 200)).join(' | ') || (missing.length ? `${missing.length} missing resource(s) ignored` : ''));

@@ -29,12 +29,11 @@ import { DEFORM_GLSL, deformUniforms, laneStampMaterial } from './Deform';
  * side that grows as the rider slows. Ring buffer of MAX sections per lane (about 3 km); old track
  * fills back in (depth and alpha fade) over FADE seconds.
  *
- * FEAT-044: in soft snow the floor is 0.7 of the loose snow depth (`rider.snow.depth`: 8 to 28 cm in
+ * FEAT-044: in soft snow the floor is 0.7 of the loose snow depth (`rider.snow.depth`: 8 to 25 cm in
  * powder), the lips spread wider and the knife-cut collapse is held back (the board sinks and the
  * whole base displaces snow). Near the rider the lanes are also rendered top-down into the
- * deformation texture (`Deform.ts`, `aStamp` = height offset, packed, hide per vertex) and the terrain
- * itself takes the trench; the ribbon hides inside that window where the stamp is deep enough to
- * show as geometry (`HIDE_FROM`..`HIDE_FULL`) and stays visible for the shallow groomer grooves.
+ * deformation texture (`Deform.ts`, `aStamp` = height offset, packed per vertex); the terrain sags
+ * softly around them and the ribbon rides the same sag, so it stays the sharp trench everywhere.
  */
 const MAX = 6000;
 const STEP = 0.5; // m between sections
@@ -77,8 +76,6 @@ const SNOW_RGB = [0.83, 0.86, 0.94];
 const SEC = 15; // ... + terrain normal (three.js x, y, z) at the centre (BUG-021), soft (FEAT-044)
 /** the berm and lip spread wider when scraping, so the ridge is a mound rather than a spike, and in soft snow (FEAT-044) */
 const lipWidth = (polish: number, soft = 0) => 1 + 2.5 * polish + 2 * soft;
-/** FEAT-044: section depth (m) at which the ribbon starts to hide inside the deformation window, and is fully hidden */
-const HIDE_FROM = 0.06, HIDE_FULL = 0.12;
 /** FEAT-044: how much of the knife-cut collapse soft snow allows (the board sinks, so the whole base cuts) */
 const SOFT_TILT = 0.3;
 /**
@@ -109,7 +106,7 @@ class Lane {
   private readonly col: Float32Array;
   /** per vertex: unit outward across vector (three.js x, y, z) and the vertex's across offset, for the minimum on-screen width */
   private readonly spr: Float32Array;
-  /** FEAT-044 per vertex: height offset from the snow surface (m), packed amount, hide weight inside the deformation window */
+  /** FEAT-044 per vertex: height offset from the snow surface (m), packed amount (for the deformation stamp) */
   private readonly stp: Float32Array;
   private readonly idx: Uint32Array;
   // per section: the data needed to re-shape it as it fills in
@@ -125,7 +122,7 @@ class Lane {
     this.nor = new Float32Array(MAX * P * 3);
     this.col = new Float32Array(MAX * P * 4);
     this.spr = new Float32Array(MAX * P * 4);
-    this.stp = new Float32Array(MAX * P * 3);
+    this.stp = new Float32Array(MAX * P * 2);
     this.idx = new Uint32Array(MAX * (P - 1) * 6);
     this.secC = new Float32Array(MAX * SEC);
     this.age = new Float32Array(MAX).fill(1e9);
@@ -134,7 +131,7 @@ class Lane {
     this.geo.setAttribute('normal', new THREE.BufferAttribute(this.nor, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 4).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('aSpread', new THREE.BufferAttribute(this.spr, 4).setUsage(THREE.DynamicDrawUsage));
-    this.geo.setAttribute('aStamp', new THREE.BufferAttribute(this.stp, 3).setUsage(THREE.DynamicDrawUsage));
+    this.geo.setAttribute('aStamp', new THREE.BufferAttribute(this.stp, 2).setUsage(THREE.DynamicDrawUsage));
     this.geo.setIndex(new THREE.BufferAttribute(this.idx, 1).setUsage(THREE.DynamicDrawUsage));
     this.mesh = new THREE.Mesh(this.geo, material);
     this.mesh.name = 'board tracks';
@@ -205,9 +202,6 @@ class Lane {
     const ridge = this.secC[o + 8] * fill;
     // ec 0..1: how far the trench has collapsed into the knife cut of a committed carve (FEAT-109)
     const ec = edgeCurve(Math.abs(tilt));
-    // FEAT-044: inside the deformation window the terrain carries a trench this deep itself
-    const hideT = Math.min(1, Math.max(0, (depth - HIDE_FROM) / (HIDE_FULL - HIDE_FROM)));
-    const hide = hideT * hideT * (3 - 2 * hideT);
     const xs: number[] = [], ys: number[] = [];
     for (let k = 0; k < P; k++) {
       const pr = PROFILE[k];
@@ -233,7 +227,8 @@ class Lane {
       this.spr[q] = ax * side; this.spr[q + 1] = 0; this.spr[q + 2] = az * side; this.spr[q + 3] = Math.abs(off);
       // FEAT-044 stamp: the floor is packed (polished when scraped, less so in soft snow), the wall top half, the lips loose
       const packed = (pr.h < 0 ? 0.6 + 0.4 * polish : pr.h < 0.2 ? 0.3 : 0) * (1 - 0.5 * soft) * Math.min(1, fill * 3);
-      this.stp[v] = h * depth + rh; this.stp[v + 1] = packed; this.stp[v + 2] = hide;
+      const w = (s * P + k) * 2;
+      this.stp[w] = h * depth + rh; this.stp[w + 1] = packed;
     }
     // normals from the profile slope across the track (smoothed between neighbours); the wall
     // vertices of a carve take the wall's own slope so a 1 cm wall still catches the light
@@ -332,15 +327,13 @@ export class Tracks {
       // minimum on-screen width (FEAT-109): a 1 cm carve line is thinner than a pixel at range, so
       // each vertex is held at least 1.5 mm per metre of distance off the centre line; the line
       // widens a little with distance and stays a stable thin line instead of flickering.
-      // FEAT-044: inside the deformation window a deep section is the terrain's own trench, so the ribbon fades out there
-      shader.vertexShader = 'attribute vec4 aSpread;\nattribute vec3 aStamp;\nvarying float vHide;\n' + DEFORM_GLSL + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+      // FEAT-044: the ribbon rides the soft sag the terrain takes around it (Deform.ts), so the two move together
+      shader.vertexShader = 'attribute vec4 aSpread;\n' + DEFORM_GLSL + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
         {
           float camDist = length((modelViewMatrix * vec4(position, 1.0)).xyz);
           transformed += aSpread.xyz * max(0.0, 0.0015 * camDist - aSpread.w);
-          vHide = aStamp.z * deformFade(deformUV((modelMatrix * vec4(position, 1.0)).xz));
+          if (uDeformWin.w > 0.0) { vec2 duv = deformUV((modelMatrix * vec4(transformed, 1.0)).xz); transformed.y += deformSag(duv) * deformFade(duv); }
         }`);
-      shader.fragmentShader = 'varying float vHide;\n' + shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
-        diffuseColor.a *= 1.0 - vHide;`);
       shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
         {
           vec3 toCam = normalize(-mvPosition.xyz);
