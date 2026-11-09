@@ -152,12 +152,12 @@ const HARD_IN = 0.12, HARD_PSI = 80 * D2R, HARD_ROLL = 1.5, HARD_ROLL_V = 10, HA
  * FEAT-148: the press drives the turn in over HARD_DRIVE_T s from when the edge is on the steer's side
  * (it asks for the turn of the target edge, not the edge the board has got to). The edge holds
  * g tan(lean) of its real angle, so an edge that lags (pressed at speed from flat, on ice) cannot hold
- * the turn asked of it: the tail slides out. Short of it by more than WASH_SHORT g fills a washout
- * meter at WASH_RATE per g per s, times the speed past WASH_V0 over WASH_SPAN m/s (1 at 20 m/s, more
- * beyond); full, the edge lets go and the rider goes down on the inside of the turn. It drains at
- * WASH_DRAIN per s.
+ * the turn asked of it: the tail slides out. Short of it by more than WASH_SHARE of the turn asked (a
+ * share, so softer snow that asks less washes out alike) fills a washout meter at WASH_RATE per s per
+ * share past it, times the speed past WASH_V0 over WASH_SPAN m/s (1 at 20 m/s, more beyond); full, the
+ * edge lets go and the rider goes down on the inside of the turn. It drains at WASH_DRAIN per s.
  */
-const HARD_DRIVE_T = 0.15, WASH_SHORT = 0.6, WASH_V0 = 8, WASH_SPAN = 12, WASH_RATE = 8, WASH_DRAIN = 3;
+const HARD_DRIVE_T = 0.15, WASH_SHARE = 0.35, WASH_V0 = 8, WASH_SPAN = 12, WASH_RATE = 38, WASH_DRAIN = 3;
 /** extra sideways grip on groomed corduroy (gripBase is GROOMED_GRIP there): HARD_G is in g on corduroy */
 const GROOMED_BONUS = 0.4, GROOMED_GRIP = 1 + GROOMED_BONUS;
 /** FEAT-148: a committed edge holds this much over the turn it balances, so it bites clean instead of riding the grip limit */
@@ -166,6 +166,9 @@ const HARD_SLACK = 1.2;
 const HARD_DRAG = 0.06;
 /** FEAT-148: forced past its hold the edge scrapes and chatters: a full skid (spray, sound, scrub) at HARD_SKID g short */
 const HARD_SKID = 1.2;
+/** FEAT-148: powder this deep (m) planes the board fully in a hard carve: the edge cap drops toward the
+ *  powder cap and the washout stops, a deep surfy turn. Shallower powder, chop and slush do not (BUG-066 follow-up) */
+const HARD_DEEP = 0.3;
 /** FEAT-148: steer under this does not start a hard carve, and below HARD_MIN_SPEED m/s it is just a squat pivot */
 const HARD_STEER = 0.3, HARD_MIN_SPEED = 3;
 
@@ -763,6 +766,7 @@ export class Rider {
     const rock = this.surface.rock;
     const snow = this.snow;
     const powder = Math.min(1, snow.powder + 0.5 * snow.chop + 0.5 * snow.slush); // soft snow the board planes in, so the edge cap is lower
+    const deepPow = snow.powder * Math.min(1, snow.depth / HARD_DEEP); // FEAT-148: only deep powder planes a hard carve
     const gripBase = (1.0 + GROOMED_BONUS * groomed - 0.5 * rock) * snow.grip * (1 + SQUAT_GRIP * this.squat) * (1 - PRESS_GRIP * Math.abs(this.lean)) // low centre of mass bites a little more; on a press you can't carve
       * (this.switch ? 1 - SWITCH_GRIP : 1); // FEAT-139: a touch weaker switch
 
@@ -774,7 +778,7 @@ export class Rider {
     // ---- FEAT-127 edge and carve. Steer sets a target edge angle up to what can be held here; the
     // edge rolls toward it at F.roll, quicker through the flat while it changes sides (BUG-053), so
     // edge to edge takes about 0.3 s. A brake takes the edge over.
-    const want = input.steer * this.edgeCap(input, F, powder, spd) * (1 - this.brakeAmt);
+    const want = input.steer * this.edgeCap(input, F, powder, spd, deepPow) * (1 - this.brakeAmt);
     this.edgeTarget = want;
     const roll = this.rollRate(F, spd) * dt * (want * this.edge < 0 ? EDGE_SNAP : 1);
     this.edge += Math.max(-roll, Math.min(roll, (want - this.edge) * Math.min(1, dt * EDGE_EASE)));
@@ -801,12 +805,13 @@ export class Rider {
       this.hardDrive = this.edge * want > 0 ? Math.min(1, this.hardDrive + dt / HARD_DRIVE_T) : 0;
       const psiAsk = psi + Math.max(0, Math.abs(want) - psi) * this.hardDrive;
       const aAsk = Math.min(HARD_G * G, this.balance(psiAsk, spd, snow.turn, F, phiMax, n[2], gIn));
-      hardHold = Math.min(aLat, HARD_G * G * gripBase / (GROOMED_GRIP * (1 + SQUAT_GRIP * this.squat)));
+      // the snow's grip scales what the edge holds as well as the ceiling: chop and ice let go sooner (1 on corduroy)
+      hardHold = Math.min(aLat * Math.min(1, snow.grip), HARD_G * G * gripBase / (GROOMED_GRIP * (1 + SQUAT_GRIP * this.squat)));
       this.carveShort = H * Math.max(0, aAsk - hardHold) / G;
       aLat += (aAsk - aLat) * H;
-      // the washout meter: soft snow lets the board plane instead (a deep surfy turn)
-      const fast = Math.max(0, (spd - WASH_V0) / WASH_SPAN) * (1 - powder);
-      const over = this.carveShort - WASH_SHORT;
+      // the washout meter: deep powder lets the board plane instead (a deep surfy turn); tracked-out chop and ice do not
+      const fast = Math.max(0, (spd - WASH_V0) / WASH_SPAN) * (1 - deepPow);
+      const over = (aAsk > 0.5 ? H * Math.max(0, aAsk - hardHold) / aAsk : 0) - WASH_SHARE;
       this.washout = over > 0 && fast > 0 ? this.washout + over * fast * WASH_RATE * dt : Math.max(0, this.washout - WASH_DRAIN * dt);
       if (this.washout >= 1) {
         // the edge lets go: down on the inside of the turn, on the butt heelside or the hip toeside
@@ -1322,12 +1327,12 @@ export class Rider {
    * force to lean against, so past what the knees and hips angulate a high edge would tip the
    * rider into the hill: the cap is that plus the lean the sidecut's arc needs.
    */
-  private edgeCap(input: Input, F: Feel, powder: number, spd: number): number {
+  private edgeCap(input: Input, F: Feel, powder: number, spd: number, deepPow = powder): number {
     let cap = F.psiMax - (F.psiMax - F.psiPowder) * Math.min(1, powder);
     if (input.tuck) cap *= TUCK_EDGE;
     cap = (cap + SQUAT_EDGE * this.squat) * (1 - PRESS_EDGE * Math.abs(this.lean));
-    // FEAT-148: a hard carve drives the edge to HARD_PSI (less in soft snow, where the board planes)
-    const hardCap = HARD_PSI - (F.psiMax - F.psiPowder) * Math.min(1, powder);
+    // FEAT-148: a hard carve drives the edge to HARD_PSI (less in deep powder, where the board planes)
+    const hardCap = HARD_PSI - (F.psiMax - F.psiPowder) * Math.min(1, deepPow);
     cap += Math.max(0, hardCap - cap) * this.hardCarve;
     const slow = ANG_SLOW + Math.atan((spd * spd) / (G * F.sidecut * Math.cos(Math.abs(this.edge))));
     return Math.max(0, Math.min(cap, slow));
