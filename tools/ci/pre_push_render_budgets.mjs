@@ -17,7 +17,6 @@ import { fileURLToPath } from 'node:url';
 import { BUDGET_PATHS, PUSH_GUARD, Stop, defaultCache, findPr, prepare, runCheck, tryOut } from './render_budgets_lib.mjs';
 
 const say = (s) => console.log(`render-budgets: ${s}`);
-const ZERO = /^0+$/;
 
 function main() {
   if (process.env[PUSH_GUARD]) return; // local_render_budgets.mjs --push: checked already
@@ -35,7 +34,7 @@ function main() {
   try { input = fs.readFileSync(0, 'utf8'); } catch { /* no stdin */ }
   // the branch this worktree's HEAD goes to (a push of other refs, a delete or a tag isn't checked)
   const line = input.split('\n').map((l) => l.trim().split(/\s+/))
-    .find((f) => f.length === 4 && f[1] === HEAD && !ZERO.test(f[1]) && f[2].startsWith('refs/heads/'));
+    .find((f) => f.length === 4 && f[1] === HEAD &&f[2].startsWith('refs/heads/'));
   if (!line) return;
   const branch = line[2].slice('refs/heads/'.length);
   if (branch === 'main') return;
