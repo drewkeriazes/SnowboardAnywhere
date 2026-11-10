@@ -115,11 +115,27 @@ export function readJsonPost(req, res, max, cb) {
   });
 }
 
-/** POST /__attract/shot { pack, shot } (the eye camera's Shift+P with ?debug) */
+/** the work folder of tools/ghost_lines.mjs for a resort (gitignored), from the attract folder */
+export const workRoot = (dir, pack) => path.resolve(dir, '..', '..', 'shots', 'ghost-lines', pack);
+export function readCandidates(dir, pack) {
+  const f = path.join(workRoot(dir, pack), 'candidates.json');
+  return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : [];
+}
+/** Keep a shot as a candidate to compare (the work folder; the menu's shot is untouched). Same name replaces. */
+export function saveCandidate(dir, pack, posted) {
+  const shot = cleanShot(posted), d = workRoot(dir, pack);
+  fs.mkdirSync(d, { recursive: true });
+  const all = readCandidates(dir, pack).filter((c) => c.id !== shot.id);
+  all.push(shot);
+  fs.writeFileSync(path.join(d, 'candidates.json'), JSON.stringify(all, null, 2) + '\n');
+  return { file: `game/shots/ghost-lines/${pack}/candidates.json`, shot, candidates: all.length, removed: [] };
+}
+
+/** POST /__attract/shot { pack, shot, candidate? } (the eye camera's Shift+P with ?debug) */
 export function handleShotPost(dir, req, res) {
   readJsonPost(req, res, 1e5, (body) => {
     if (typeof body.pack !== 'string' || !SLUG.test(body.pack)) throw new Error('bad pack');
-    return saveShot(dir, body.pack, body.shot);
+    return body.candidate ? saveCandidate(dir, body.pack, body.shot) : saveShot(dir, body.pack, body.shot);
   });
 }
 /** POST /__attract/save { pack, take } (the replay viewer's L with ?debug) */

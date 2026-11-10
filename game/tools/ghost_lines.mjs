@@ -1,9 +1,15 @@
 // FEAT-181: a resort's main menu, from no backdrop to a still and ghost riders following lines drawn on it.
 //   node tools/ghost_lines.mjs <pack>                 the wizard: picks up where the resort got to (rerun any time)
-//   node tools/ghost_lines.mjs <pack> <step> [image]  one step: shot | still | lines [image] | ride | check | status
+//   node tools/ghost_lines.mjs <pack> <step> [image]  one step: shot | candidates [file ...] | pick <name> | still |
+//                                                     lines [image] | ride | check | status
 // (after `npx vite build`; on Drew's GPU.) The steps:
 //   shot   opens the game headed in the eye camera (?debug): fly to a view, Shift+P, name it (writes
-//          game/public/attract/<pack>/shots.json; a new shot replaces the old one and the riders made for it)
+//          game/public/attract/<pack>/shots.json; a new shot replaces the old one and the riders made for it), or
+//          Keep as a candidate to compare several
+//   candidates  renders every candidate (and the menu's shot) as the menu would show it, to compare, into
+//          game/shots/ghost-lines/<pack>/candidates/; [file ...] adds shots.json files first (a Shift+P that
+//          downloaded instead of saving)
+//   pick   makes a candidate the menu's shot (then: still)
 //   still  renders the menu still (shoot_attract.mjs) and a clean frame to draw on, draw-<shot>.png (1920 x 1080,
 //          no UI, the drift at its start), and opens its folder: draw downhill lines on it in Paint, one colour per
 //          line (a colour can be used twice, far apart), and save
@@ -20,7 +26,7 @@
 import { launchBrowser } from './browser.mjs';
 import { DIST, PACKS, REPO } from './paths.mjs';
 import { fitShot, alignRender, extractLines, grey, edges, resize } from './ghost_lines/image.mjs';
-import { readIndex, writeIndex, readShots, handleShotPost, handleTakePost } from './attract_files.mjs';
+import { readIndex, writeIndex, readShots, handleShotPost, handleTakePost, readCandidates, saveCandidate, saveShot, workRoot } from './attract_files.mjs';
 import * as P from './ghost_lines/page.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -28,7 +34,7 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import { spawn, spawnSync } from 'node:child_process';
 
-const STEPS = ['shot', 'still', 'lines', 'ride', 'check', 'status'];
+const STEPS = ['shot', 'candidates', 'pick', 'still', 'lines', 'ride', 'check', 'status'];
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(`--${n}`);
 const opt = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
@@ -355,6 +361,46 @@ async function stepCheck(shot) {
   return bad === 0;
 }
 
+// ---- step: candidates (several shots to compare) and pick ----
+async function stepCandidates(files) {
+  for (const f of files) {
+    const shots = readJson(path.resolve(f));
+    for (const s of Array.isArray(shots) ? shots : [shots]) { const r = saveCandidate(ATTRACT, pack, s); console.log(`  added ${r.shot.id} from ${f}`); }
+  }
+  const menu = shotNow(), all = [...(menu ? [{ ...menu, menu: true }] : []), ...readCandidates(ATTRACT, pack).filter((c) => c.id !== menu?.id)];
+  if (!all.length) { console.log(`${pack}: no candidates yet (Shift+P > Keep as a candidate)`); return false; }
+  const out = path.join(workRoot(ATTRACT, pack), 'candidates');
+  fs.mkdirSync(out, { recursive: true });
+  await serve();
+  const shotsFile = path.join(DIST, 'attract', pack, 'shots.json');
+  fs.mkdirSync(path.dirname(shotsFile), { recursive: true });
+  console.log(`\ncandidates: rendering ${all.length} shots of ${pack} as the menu shows them (where its drift starts, in each one's conditions)`);
+  for (const c of all) {
+    // the build's copy of shots.json holds just this one while its page loads (public/ is untouched)
+    const { menu: _m, ...shot } = c;
+    fs.writeFileSync(shotsFile, JSON.stringify([shot]));
+    const { page } = await shotPage(1920, 1080);
+    await page.evaluate(P.poseAt, 0);
+    await page.evaluate(() => window.__step(3, 1 / 60));
+    const g = await page.evaluate(P.grab);
+    await page.close();
+    const f = path.join(out, `${c.menu ? 'menu-' : ''}${c.id}.png`);
+    writePng(f, g.png);
+    console.log(`  ${c.menu ? 'menu shot ' : 'candidate '} ${c.id.padEnd(24)} ${c.place}${c.region ? `, ${c.region}` : ''}: x ${c.x}, y ${c.y}, heading ${c.h}, pitch ${c.pitch}, fov ${c.fov}, ${c.eye} m up, ${c.conditions.clouds} -> ${rel(f)}`);
+  }
+  syncDist();
+  console.log(`\nCompare them in ${out}; make one the menu's shot: node tools/ghost_lines.mjs ${pack} pick <name>`);
+  openFolder(out);
+  return true;
+}
+async function stepPick(id) {
+  const c = readCandidates(ATTRACT, pack).find((s) => s.id === id);
+  if (!c) { console.log(`no candidate ${id} (candidates: ${readCandidates(ATTRACT, pack).map((s) => s.id).join(', ') || 'none'})`); return false; }
+  const r = saveShot(ATTRACT, pack, c);
+  console.log(`${pack}: ${c.id} is the menu's shot (${r.file})${r.removed.length ? `; removed the old shot's ${r.removed.join(', ')}` : ''}`);
+  return stepStill(shotNow());
+}
+
 function status(shot) {
   const man = readIndex(ATTRACT)[pack] ?? {};
   if (!shot) { console.log(`${pack}: no menu shot yet (step: shot)`); return; }
@@ -367,6 +413,8 @@ let shot = shotNow();
 if (stepArg) {
   if (stepArg === 'shot') { const ok = await stepShot(); await done(ok ? 0 : 1); }
   if (stepArg === 'status') { status(shot); await done(0); }
+  if (stepArg === 'candidates') await done((await stepCandidates(pos.slice(2))) ? 0 : 1);
+  if (stepArg === 'pick') await done((await stepPick(imageArg)) ? 0 : 1);
   if (!shot) { console.log(`${pack} has no menu shot yet: node tools/ghost_lines.mjs ${pack} shot`); await done(1); }
   if (stepArg === 'still') await done((await stepStill(shot)) ? 0 : 1);
   if (stepArg === 'lines') await done((await stepLines(shot, imageArg)) ? 0 : 1);

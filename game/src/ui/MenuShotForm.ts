@@ -5,7 +5,7 @@
  */
 export interface MenuShotLabels { id: string; place: string; region: string }
 
-export function askMenuShot(defaults: MenuShotLabels, onSave: (l: MenuShotLabels) => void): void {
+export function askMenuShot(defaults: MenuShotLabels, onSave: (l: MenuShotLabels, candidate: boolean) => void): void {
   if (document.getElementById('menu-shot-form')) return;
   const form = document.createElement('form');
   form.id = 'menu-shot-form';
@@ -26,24 +26,26 @@ export function askMenuShot(defaults: MenuShotLabels, onSave: (l: MenuShotLabels
   const place = field('Place', defaults.place, 'the big title, e.g. Back Bowls');
   const region = field('Region', defaults.region, 'the line above it, e.g. Vail · Colorado');
   const note = document.createElement('div');
-  note.textContent = 'Replaces the resort\'s menu shot, and the riders made for the old one. Enter saves, Esc cancels.';
+  note.textContent = 'Use as menu shot replaces the resort\'s shot and the riders made for the old one. Keep as a candidate saves it to compare (ghost_lines.mjs <pack> candidates). Enter uses it, Esc cancels.';
   note.style.cssText = 'grid-column:1/3;opacity:0.7;font-size:12px;max-width:340px';
   const buttons = document.createElement('div');
   buttons.style.cssText = 'grid-column:1/3;display:flex;gap:8px;justify-content:flex-end';
-  const save = document.createElement('button'); save.type = 'submit'; save.textContent = 'Save';
+  const save = document.createElement('button'); save.type = 'submit'; save.textContent = 'Use as menu shot';
+  const keep = document.createElement('button'); keep.type = 'button'; keep.textContent = 'Keep as a candidate';
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Cancel';
-  buttons.append(cancel, save);
+  buttons.append(cancel, keep, save);
   form.append(note, buttons);
   const close = () => form.remove();
   cancel.onclick = close;
   form.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') close(); });
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
+  const done = (candidate: boolean) => {
     const slug = id.value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
     if (!slug) { id.focus(); return; }
     close();
-    onSave({ id: slug, place: place.value.trim(), region: region.value.trim() });
-  });
+    onSave({ id: slug, place: place.value.trim(), region: region.value.trim() }, candidate);
+  };
+  keep.onclick = () => done(true);
+  form.addEventListener('submit', (e) => { e.preventDefault(); done(false); });
   document.body.append(form);
   if (document.pointerLockElement) document.exitPointerLock();
   id.focus(); id.select();

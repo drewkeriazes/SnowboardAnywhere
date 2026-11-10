@@ -362,10 +362,10 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     };
     /** Save the canvas: into docs/compare through the dev server when ?spot= is set, else a browser download. */
     /** FEAT-181 (?debug): the eye camera's view as the resort's menu shot, in the conditions on screen now */
-    const menuShot = params.debug === null ? null : () => askMenuShot({ id: shot.id === 'start' ? '' : shot.id, place: shot.place === pack.meta.name ? '' : shot.place, region: shot.region || pack.meta.name }, (labels) => {
+    const menuShot = params.debug === null ? null : () => askMenuShot({ id: shot.id === 'start' ? '' : shot.id, place: shot.place === pack.meta.name ? '' : shot.place, region: shot.region || pack.meta.name }, (labels, candidate) => {
       const c = conditions();
       const hour = c.timeOfDay === 'now' ? new Date().getHours() + new Date().getMinutes() / 60 : c.timeOfDay;
-      saveMenuShot({ slug: pack.meta.slug, eye: cam.eyePose(), labels, hosted, toast: (t, ms) => showToast(t, ms),
+      saveMenuShot({ slug: pack.meta.slug, eye: cam.eyePose(), labels, hosted, candidate, toast: (t, ms) => showToast(t, ms),
         conditions: { clouds: c.clouds, timeOfDay: hour, month: c.month, newSnow: c.newSnow ?? 'none', snowDay: c.snowDay, valleyFog: c.valleyFog, cloudTime: 0 } });
     });
     const saveShot = (dataUrl: string, jpgUrl: string) =>

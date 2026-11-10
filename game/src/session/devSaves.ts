@@ -69,6 +69,8 @@ export function saveShot(o: {
 export function saveMenuShot(o: {
   slug: string; eye: EyePose; labels: { id: string; place: string; region: string };
   conditions: Record<string, unknown>; hosted: boolean; toast: (text: string, ms?: number) => void;
+  /** keep it to compare (tools/ghost_lines.mjs <pack> candidates) instead of making it the menu shot */
+  candidate?: boolean;
 }): void {
   const pan = 1.5;
   const shot = { ...o.labels, x: o.eye.x, y: o.eye.y, h: o.eye.h + pan / 2, pitch: o.eye.pitch, fov: o.eye.fov, eye: o.eye.eye, dolly: 4, pan, period: 26, conditions: o.conditions };
@@ -78,11 +80,12 @@ export function saveMenuShot(o: {
     o.toast(`Saved shots.json to Downloads: put it in game/public/attract/${o.slug}/`);
   };
   if (o.hosted) { download(); return; }
-  fetch('/__attract/shot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack: o.slug, shot }) })
+  fetch('/__attract/shot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack: o.slug, shot, candidate: !!o.candidate }) })
     .then(async (r) => {
       if (!r.ok) throw new Error(await r.text());
-      const { file, removed } = await r.json() as { file: string; removed: string[] };
-      o.toast(`Menu shot saved: ${file}${removed.length ? ` (removed the old shot's ${removed.length} files)` : ''}`, 6000);
+      const { file, removed, candidates } = await r.json() as { file: string; removed: string[]; candidates?: number };
+      o.toast(o.candidate ? `Kept ${shot.id} as a candidate (${candidates} so far): node tools/ghost_lines.mjs ${o.slug} candidates`
+        : `Menu shot saved: ${file}${removed.length ? ` (removed the old shot's ${removed.length} files)` : ''}`, 6000);
     })
     .catch((e) => { console.warn('menu shot save failed, downloading instead', e); download(); });
 }
