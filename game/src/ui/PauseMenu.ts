@@ -111,7 +111,8 @@ export class PauseMenu {
       onInputKind: () => this.hints(),
     });
     this.modeScreen = new Screen(this.modeEl, {
-      primary: () => this.modeEl.querySelector<HTMLElement>(`.mbody[data-m="${this.modeTab}"] :is(button:not([hidden]), .qrow)`),
+      // the tab's action first (Start the chase, the course you are on), then its first item
+      primary: () => { const b = this.modeEl.querySelector<HTMLElement>(`.mbody[data-m="${this.modeTab}"]`)!; return b.querySelector<HTMLElement>('[data-go]:not([hidden]), .course.on') ?? b.querySelector<HTMLElement>('button, .qrow'); },
       onBack: () => this.closeMode(),
       onIntent: (i, down) => {
         if (!down) return false;
@@ -126,7 +127,7 @@ export class PauseMenu {
 
   // ---------------------------------------------------------------- the menu
   private press(a: string): void {
-    if (a === 'settings') { openSettings(this.settings, { overGame: true, onChange: this.onChange, fps: this.extras.fps, credits: this.extras.credits }); return; }
+    if (a === 'settings') { openSettings(this.settings, { overGame: true, onChange: this.onChange, fps: this.extras.fps, credits: this.extras.credits, onClose: () => this.refresh() }); return; }
     if (a === 'mode') { this.openMode(); return; }
     if (a === 'replay' && this.info?.replayBlocked) return;
     if (a === 'quit' && performance.now() - this.quitArmed > 3000) {
@@ -229,6 +230,9 @@ export class PauseMenu {
     this.drawCourses();
     this.fillRows();
   }
+
+  /** After Settings closes: the quick toggles and the units can have changed there. */
+  private refresh(): void { if (this.info) this.fill({ ...this.info, metric: this.settings.units === 'metric' }); }
 
   private hints(): void {
     const h: Hint[] = [['select', 'Select'], ['move', 'Move'], ['adjust', 'Change']];

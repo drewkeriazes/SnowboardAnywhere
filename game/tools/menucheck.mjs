@@ -226,6 +226,9 @@ const modeOpen = await page.evaluate(() => !document.querySelector('#pause .mode
 await key('KeyE');
 const tab = await page.evaluate(() => document.querySelector('#pause .modep .tabs button.on')?.dataset.m);
 check('Mode opens its screen, E switches mode', modeOpen && tab === 'trial', `open ${modeOpen}, tab ${tab}`);
+await key('KeyE');
+const startFocus = await page.evaluate(() => document.activeElement?.dataset.go ?? document.activeElement?.className);
+check('the Outrun tab focuses Start the chase', startFocus === 'outrunStart', startFocus);
 await key('Escape');
 check('Esc closes Mode onto its button, pause stays', (await active()) === 'mode' && await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display !== 'none'), `focused ${await active()}`);
 // pick a time trial course: the gates come on for the session and the rider starts above the gate
@@ -275,13 +278,22 @@ await page.evaluate(() => document.querySelector('#pause .qrow[data-q="outrun.di
 await key('Escape');
 await page.evaluate(() => document.querySelector('#pause button[data-a="settings"]')?.click());
 await page.waitForTimeout(200);
+// a change made in Settings shows in the pause menu's quick toggles once Settings closes
+await openCat('conditions'); await focusRow('clouds'); await key('ArrowRight');
+const wantW = await page.evaluate(() => document.querySelector('#settings [data-row="clouds"] .pv').textContent);
+await key('Escape');
+const shownW = await page.evaluate(() => document.querySelector('#pause .qrow[data-q="clouds"] .pv').textContent);
+check('quick toggles follow a change made in Settings', shownW === wantW, `${shownW} vs ${wantW}`);
+await page.evaluate(() => document.querySelector('#pause .qrow[data-q="clouds"] button.arr[data-d="-1"]').click());
+await page.evaluate(() => document.querySelector('#pause button[data-a="settings"]')?.click());
+await page.waitForTimeout(200);
 // typing in search never reaches the game behind (M is the map)
 await page.focus('#settings .search');
 await page.keyboard.type('m', { delay: 20 });
 check('typing in search does not open the map', await page.evaluate(() => !window.__sim.map.fullOpen));
 await key('Escape');
 // Peek: hold V (or Y) hides the screen, release brings it back (V typed in the search box is a letter, so from a row)
-await focusRow('fov');
+await openCat('camera'); await focusRow('fov');
 await page.keyboard.down('KeyV'); await page.waitForTimeout(150);
 const peekOn = await page.evaluate(() => document.body.classList.contains('peeking'));
 await page.keyboard.up('KeyV'); await page.waitForTimeout(150);

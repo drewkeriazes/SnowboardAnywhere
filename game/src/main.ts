@@ -400,6 +400,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       riderView.setOutfit(s.outfit);
       riderView.setDiscipline(s.discipline);
       tracks.setDiscipline(s.discipline);
+      if (what === 'timeTrials' && !s.timeTrials) trialMode = ''; // turning them off ends a course picked in Mode too
       trialWorld.setEnabled(trialsOn());
       if (!trialsOn()) trial.cancel('Time trials off');
       refreshCourseFlags();
@@ -522,7 +523,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         setTrialMode(c.id);
         goToCourse(c);
       }
-      else if (a === 'restart') { setPaused(false); if (outrun.active) stopOutrun(); liftRide.cancel(); runStats.end(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      else if (a === 'restart') { setPaused(false); if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); runStats.end(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
       else if (a === 'map') { setPaused(false); map.open(); }
       else if (a === 'outrunStart') { setPaused(false); setTrialMode(''); startOutrun(); }
       else if (a === 'outrunStop') { setPaused(false); stopOutrun(); }
@@ -783,7 +784,11 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         rewindT = 0;
       }
       const frozen = replayOpen || rewinding;
-      if (!replayOpen && (controls.action('camera') || touch?.once('camera'))) cam.cycle();
+      if (!replayOpen && (controls.action('camera') || touch?.once('camera'))) {
+        cam.cycle();
+        // FEAT-128: the camera you cycle to is the one you come back to (and the pause menu's Camera row shows it)
+        if (cam.mode !== 'free' && cam.mode !== 'eye' && cam.mode !== settings.camera) { settings.camera = cam.mode; saveSettings(settings); }
+      }
       if (!replayOpen && (controls.action('map') || touch?.once('map'))) { map.toggle(); if (!map.fullOpen) controls.padMute(); }
       // FEAT-137: the full map on a controller: the stick pans under a crosshair, R2 / L2 zoom, Cross drops in, Circle closes
       if (map.fullOpen && controls.pad) {
