@@ -28,6 +28,8 @@ export interface CoverLevelMeta {
   w: number;
   h: number;
   file: string;
+  /** BUG-069: optional greyscale PNG, same grid: the forest share under closed stands of drawn trees (the near view) */
+  stands?: string;
 }
 
 export interface CoverMeta {

@@ -82,7 +82,7 @@ export const LIFT_RAMP = 2000;
 export const COVER_SLOTS = 3;
 const EMPTY_RECT = new THREE.Vector4(-1e7, -1e7, -1e7 + 1000, -1e7 + 1000); // weight 0 everywhere, finite uv
 function coverUniforms() {
-  const blank = new THREE.DataTexture(new Uint8Array(1), 1, 1, THREE.RedFormat, THREE.UnsignedByteType);
+  const blank = new THREE.DataTexture(new Uint8Array(2), 1, 1, THREE.RGFormat, THREE.UnsignedByteType);
   blank.needsUpdate = true;
   return {
     uCov0: { value: blank as THREE.Texture }, uCov1: { value: blank as THREE.Texture }, uCov2: { value: blank as THREE.Texture },
@@ -216,12 +216,18 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         #define COVER_FULL 600.0
         float covW(vec2 p, vec4 r) { vec2 d = min(p - r.xy, r.zw - p); return smoothstep(0.0, uCovBlend, min(d.x, d.y)); }
         vec2 covUV(vec2 p, vec4 r) { return vec2((p.x - r.x) / (r.z - r.x), (r.w - p.y) / (r.w - r.y)); }
+        // BUG-069: G of a level is its forest under closed stands of drawn trees only, shown while single
+        // trees read (to STAND_NEAR m); R, the forest as a mass, takes over by STAND_FAR
+        #define STAND_NEAR 1200.0
+        #define STAND_FAR 2800.0
         // forest share (x) blended finest over coarsest, and how much of it is data (y). All three are
         // sampled unconditionally so the mip selection never sits in non-uniform control flow.
-        vec2 coverForest(vec2 p) {
-          float f0 = texture2D(uCov0, covUV(p, uCovRect[0])).r;
-          float f1 = texture2D(uCov1, covUV(p, uCovRect[1])).r;
-          float f2 = texture2D(uCov2, covUV(p, uCovRect[2])).r;
+        vec2 coverForest(vec2 p, float dist) {
+          float farK = smoothstep(STAND_NEAR, STAND_FAR, dist);
+          vec2 t0 = texture2D(uCov0, covUV(p, uCovRect[0])).rg;
+          vec2 t1 = texture2D(uCov1, covUV(p, uCovRect[1])).rg;
+          vec2 t2 = texture2D(uCov2, covUV(p, uCovRect[2])).rg;
+          float f0 = mix(t0.g, t0.r, farK), f1 = mix(t1.g, t1.r, farK), f2 = mix(t2.g, t2.r, farK);
           float w0 = covW(p, uCovRect[0]), w1 = covW(p, uCovRect[1]), w2 = covW(p, uCovRect[2]);
           float f = f0 * w0, c = w0;
           f = mix(f, f1, w1); c = mix(c, 1.0, w1);
@@ -402,7 +408,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         // cover is low in the data (BUG-028), so it is lifted; runs and bowls (no canopy) stay white.
         // FEAT-153: past COVER_NEAR the forest comes per pixel from the cover levels (already a share of
         // ground under closed canopy, so only a mild S curve keeps mip-averaged trail edges from greying)
-        vec2 cov = coverForest(vec2(wp.x, -wp.z));
+        vec2 cov = coverForest(vec2(wp.x, -wp.z), dist);
         float covK = cov.y * smoothstep(COVER_NEAR, COVER_FULL, dist);
         float forestV = mix(vForest, cov.x, covK);
         float forestK = mix(smoothstep(FOREST_LO, FOREST_HI, vForest), smoothstep(0.1, 0.9, cov.x), covK);

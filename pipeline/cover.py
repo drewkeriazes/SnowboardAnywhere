@@ -43,11 +43,17 @@ PACK_RUN_K = 0.6
 # far the far ring's data (cfg far_ring size_m)
 LC_LEVELS = (("mid", 16.0, 4), ("far", 100.0, 3))
 # BUG-069: the lifted lidar canopy reads a sparse stand (a tree every 10 m or so) as closed canopy, so far off
-# its snow went black between the few trees drawn there. The pack level's forest is kept only where the drawn
-# trees make a closed stand: the share of the ground under their crowns (averaged over CROWN_SIGMA m) passes
-# CROWN_LO..CROWN_HI (dense timber on Vail draws 0.2 to 0.4, sparse bowl stands 0.05 to 0.15), and the stand
-# is at least 2 x STAND_MIN_R m across (a grey opening), so a clump of a dozen trees on open snow is carried
-# by its trees alone instead of a dark patch around them.
+# its snow went black between the few trees drawn there. The pack level's forest is weighted by the trees the
+# client draws, twice:
+#   R (seen from far off, where single trees no longer read): by the share of the ground under their crowns,
+#     averaged over FAR_SIGMA m, full weight from CROWN_FULL up (dense timber on Vail draws 0.2 to 0.4, sparse
+#     bowl stands 0.05 to 0.15), so timber stays a solid dark mass and sparse stands fade to mostly white.
+#   stands (seen from near, where every tree shows): only closed stands keep it: the crown share (averaged
+#     over CROWN_SIGMA m) passes CROWN_LO..CROWN_HI and the stand is at least 2 x STAND_MIN_R m across (a grey
+#     opening, then a closing to fill the holes), so a clump of a dozen trees on open snow is carried by its
+#     trees alone instead of a dark patch around them.
+FAR_SIGMA = 16.0
+CROWN_FULL = 0.2
 CROWN_SIGMA = 10.0
 CROWN_LO, CROWN_HI = 0.05, 0.14
 STAND_MIN_R = 20.0
@@ -133,10 +139,10 @@ def tree_heights(pack_dir, meta, cell, w, h):
     return np.repeat(np.repeat(mean, k, 0), k, 1)[:h, :w]
 
 
-def crown_share(pack_dir, meta, w, h):
-    """BUG-069: the share of the ground (0..1) under the crowns the client draws, per PACK_RES cell over the
-    pack bounds (row 0 = north), averaged over CROWN_SIGMA. Crown radii as game/src/world/trees/species.ts
-    crownRadius: the species' natural radius times the height, pulled 0.85..1.25x toward the record's crown."""
+def crown_area(pack_dir, meta, w, h):
+    """BUG-069: the share of each PACK_RES cell over the pack bounds (row 0 = north) under the crowns the
+    client draws, unsmoothed (a cell can pass 1). Crown radii as game/src/world/trees/species.ts crownRadius:
+    the natural radius of the species times the height, pulled 0.85..1.25x toward the crown in the record."""
     b = meta["bounds"]
     area = np.zeros((h, w), np.float64)
     for t in tree_records(pack_dir, meta):
@@ -147,12 +153,11 @@ def crown_share(pack_dir, meta, w, h):
         c = ((t[:, 0] - b["minX"]) / PACK_RES).astype(int); r = ((b["maxY"] - t[:, 1]) / PACK_RES).astype(int)
         ok = (c >= 0) & (c < w) & (r >= 0) & (r < h)
         np.add.at(area, (r[ok], c[ok]), np.pi * cr[ok] ** 2)
-    from scipy import ndimage
-    return ndimage.gaussian_filter((area / PACK_RES ** 2).astype(np.float32), CROWN_SIGMA / PACK_RES)
+    return (area / PACK_RES ** 2).astype(np.float32)
 
 
 def closed_stand(crowns):
-    """BUG-069: 0..1 weight of the ground that is under a closed stand of drawn trees (see CROWN_LO above)"""
+    """BUG-069: 0..1 weight of the ground under a closed stand of drawn trees, from their smoothed crown share"""
     from scipy import ndimage
     dense = smoothstep(CROWN_LO, CROWN_HI, crowns).astype(np.float32)
     r = int(round(STAND_MIN_R / PACK_RES))
@@ -191,13 +196,21 @@ def pack_level(pack_dir, meta, runs, log=print):
     log(f"  pack cover {w} x {h} at {PACK_RES:g} m: forest {forest.mean()*100:.1f}%, "
         f"runs clear {(forest * burn).sum() / max(forest.sum(), 1) * 100:.1f}% of it")
     forest *= 1 - burn
-    crowns = crown_share(pack_dir, meta, w, h)
+    crowns = crown_area(pack_dir, meta, w, h)
+    stands = None
     if crowns.any():   # a pack without tree instances keeps its canopy (the ground then carries the forest)
+        from scipy import ndimage
         before = forest.sum()
-        forest *= closed_stand(crowns)
-        log(f"  closed stands of drawn trees keep {forest.sum() / max(before, 1) * 100:.1f}% of the forest (BUG-069)")
+        stands = forest * closed_stand(ndimage.gaussian_filter(crowns, CROWN_SIGMA / PACK_RES))
+        forest *= np.clip(ndimage.gaussian_filter(crowns, FAR_SIGMA / PACK_RES) / CROWN_FULL, 0, 1)
+        log(f"  drawn trees keep {forest.sum() / max(before, 1) * 100:.1f}% of the forest from far off, "
+            f"closed stands {stands.sum() / max(before, 1) * 100:.1f}% from near (BUG-069)")
     height = tree_heights(pack_dir, meta, 16.0, w, h)
-    return write_level(pack_dir, "pack", to_rgba(forest, height, rock, np.zeros_like(forest)), PACK_RES, b["minX"], b["minY"])
+    lv = write_level(pack_dir, "pack", to_rgba(forest, height, rock, np.zeros_like(forest)), PACK_RES, b["minX"], b["minY"])
+    if stands is not None:
+        lv["stands"] = "cover/pack-stands.png"
+        Image.fromarray((np.clip(stands, 0, 1) * 255 + 0.5).astype(np.uint8), "L").save(os.path.join(pack_dir, lv["stands"]), optimize=True)
+    return lv
 
 
 # ------------------------------------------------------------------ DATA-019: land cover outside the pack
