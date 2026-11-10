@@ -106,14 +106,16 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
       onChange(settings, 'discipline');
       try { localStorage.setItem('settings', JSON.stringify(settings)); } catch { /* ignore */ }
     }));
-    wrap.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => b.addEventListener('click', () => {
+    // the menu's own buttons, not the settings panel's (Reset keys, Test vibration, ...), which act inside the panel
+    wrap.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => { if (!b.closest('.settings')) b.addEventListener('click', () => {
       audio.start();
       audio.setVolumes(settings.mute ? 0 : settings.sfx, settings.mute ? 0 : settings.music);
       if (b.dataset.a === 'controls') { sp.openTab('controls'); panel.classList.remove('hidden'); screen.focus(panel.querySelector<HTMLElement>('.tabs button.on')); showHints(); return; } // FEAT-128: the bindings, read from the keymap
       if (b.dataset.a === 'settings') { if (panelOpen()) closePanel(); else { panel.classList.remove('hidden'); screen.focus(panel.querySelector<HTMLElement>('.tabs button.on')); showHints(); } return; }
+      sp.cancel();
       closeScreen(screen);
       wrap.remove();
       resolve({ action: b.dataset.a as 'ride' | 'map' });
-    }));
+    }); });
   });
 }

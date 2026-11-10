@@ -106,6 +106,10 @@ let onKeySlot = false;
 const walk = [];
 for (let i = 0; i < 14; i++) { await pad(13, 50); const w = await page.evaluate(() => { const a = document.activeElement; return (a?.matches('.keys button.key, input[type=color]') ? 'SLOT ' : '') + (a?.className + ':' + (a?.dataset.k ?? a?.dataset.paction ?? a?.textContent?.slice(0, 12))); }); walk.push(w); if (w.startsWith('SLOT')) onKeySlot = true; }
 check('pad focus skips keyboard key slots', !onKeySlot, walk.join(' > '));
+// buttons inside the settings panel (Reset keys, Test vibration, ...) act in the panel, they don't start a ride
+await page.evaluate(() => document.querySelector('#menu .settings button[data-a="keys-reset"]')?.click());
+await page.waitForTimeout(150);
+check('settings buttons stay in the menu', await page.evaluate(() => !!document.querySelector('#menu') && !document.querySelector('#menu .settings:not(.outrun)')?.classList.contains('hidden')));
 await key('Escape');
 
 // gamepad: D-pad moves focus, hints switch to pad labels
@@ -113,7 +117,7 @@ await page.evaluate(() => document.querySelector('#menu button[data-a="ride"]')?
 await pad(13); // D-pad down
 check('pad D-pad moves focus', (await active()) !== 'ride', `focused ${await active()}`);
 if (shots) await page.screenshot({ path: path.join(outDir, 'main-pad.png') });
-check('hints switch to pad labels', /\[A\] Select/.test(await hints()) && !/Enter/.test(await hints()), await hints());
+check('hints switch to pad labels', /\[A\] Select/.test(await hints()) && !/Enter/.test(await hints()) && await page.evaluate(() => document.querySelectorAll('#menu .hintbar kbd.pad svg').length >= 3), await hints());
 await key('ArrowUp');
 
 // ---- into a session: Free ride
@@ -127,6 +131,37 @@ if (shots) await page.screenshot({ path: path.join(outDir, 'pause.png') });
 await key('Escape');
 await page.waitForTimeout(300);
 check('Esc resumes once', await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display === 'none'));
+
+// a stick already held down (braking) when pause opens doesn't walk the focus off Resume
+await page.evaluate(() => { window.__pad.axes[1] = 1; });
+await key('Escape');
+await page.waitForTimeout(1000);
+const heldFocus = await active();
+await page.evaluate(() => { window.__pad.axes[1] = 0; });
+await page.waitForTimeout(150);
+check('held stick keeps focus on Resume', heldFocus === 'resume', `focused ${heldFocus}`);
+// pause > Settings > Controls: Esc on a listening key slot cancels the slot, pause and panel stay open
+await page.evaluate(() => document.querySelector('#pause button[data-a="settings"]')?.click());
+await page.evaluate(() => document.querySelector('#pause .tabs button[data-t="controls"]')?.click());
+const kslot = page.locator('#pause .keys button.key').first();
+const kBefore = await kslot.textContent();
+await kslot.click();
+await key('Escape');
+await page.waitForTimeout(150);
+check('pause rebind Esc cancels only the slot', (await kslot.textContent()) === kBefore && await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display !== 'none' && !document.querySelector('#pause .settings:not(.outrun)')?.classList.contains('hidden')));
+// a slot still listening when the pause closes (Start) stops listening: the next key while riding is not bound, and the menus answer keys again
+const keysBefore = await page.evaluate(() => JSON.stringify(window.__sim.settings.keys));
+await kslot.click();
+await pad(9); // Start
+await page.waitForTimeout(200);
+await key('KeyJ');
+const keysAfter = await page.evaluate(() => JSON.stringify(window.__sim.settings.keys));
+await key('Escape');
+const f0 = await active();
+await key('ArrowDown');
+check('closing pause cancels a listening slot', keysAfter === keysBefore && f0 === 'resume' && (await active()) !== 'resume', `keys same ${keysAfter === keysBefore}, focus ${f0} -> ${await active()}`);
+await key('Escape');
+await page.waitForTimeout(300);
 
 // A on Resume with the pad, A still held: no jump charge, no jump on release
 await key('Escape');

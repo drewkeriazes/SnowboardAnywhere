@@ -215,7 +215,7 @@ export function playlistSelect(): string {
 
 export type SettingsTab = 'audio' | 'graphics' | 'controls' | 'rider' | 'game';
 /** FEAT-128: what the menus drive on a rendered panel (LB / RB and Q / E switch tabs, Controls opens its tab). */
-export interface SettingsPanel { openTab(t: SettingsTab): void; cycleTab(d: number): void }
+export interface SettingsPanel { openTab(t: SettingsTab): void; cycleTab(d: number): void; /** stop a key or controller slot waiting for a press (the menu closed) */ cancel(): void }
 
 /**
  * Render the settings panel into `host`. Every edit mutates `s`, saves, and calls `onChange`.
@@ -490,6 +490,7 @@ export function renderPanel(host: HTMLElement, s: Settings, onChange: (s: Settin
   });
   return {
     openTab,
+    cancel: () => { if (cancelListen) fill(); }, // fill() stops the listening slot and redraws its binding
     cycleTab: (d: number) => {
       const i = tabs.findIndex((x) => x.classList.contains('on'));
       openTab(tabs[(i + d + tabs.length) % tabs.length].dataset.t!);
