@@ -248,6 +248,17 @@ const ghost = await page.evaluate(async () => {
   return { count: s.ghosts.count, a, b };
 });
 check('a ghost take rides behind the menu', ghost.count >= 1 && ghost.a !== null && ghost.b !== null && ghost.b !== ghost.a, JSON.stringify(ghost));
+// Outrun with "or drop in from the map": the map can drop you in, and the chase starts once it closes
+await page.evaluate(() => { document.querySelector('#menu .card[data-mode="outrun"]').click(); document.querySelector('#menu .pop [data-ok]').click(); document.querySelector('#menu button[data-a="map"]').click(); });
+await page.waitForTimeout(300);
+const om = await page.evaluate(() => ({ map: window.__sim.map.fullOpen, pick: !!window.__sim.map.onPick, outrun: window.__sim.outrun.active }));
+await page.evaluate(() => window.__sim.map.close());
+await page.waitForTimeout(300);
+const om2 = await page.evaluate(() => window.__sim.outrun.active);
+check('Outrun from the map: drop in first, then the chase', om.map && om.pick && !om.outrun && om2, JSON.stringify({ ...om, after: om2 }));
+await key('Escape');
+await page.evaluate(() => { const q = document.querySelector('#pause .foot .quit'); q.click(); q.click(); });
+await page.waitForTimeout(300);
 await page.evaluate(() => { document.querySelector('#menu .card[data-mode="free"]').click(); document.querySelector('#menu button.ride').click(); });
 await page.waitForTimeout(1500);
 check('RIDE again from the same session', await page.evaluate(() => !window.__sim.attract && !window.__sim.trialWorld.enabled && window.__sim.riderView.group.visible));
@@ -401,6 +412,23 @@ await page.waitForTimeout(200);
 await page.evaluate(() => { document.querySelector('#pause .foot .quit').click(); document.querySelector('#pause .foot .quit').click(); });
 await page.waitForTimeout(300);
 check('Quit pressed twice goes to the main menu', await page.evaluate(() => getComputedStyle(document.querySelector('#menu')).display !== 'none' && window.__sim.attract));
+// an eye link (?cam=eye) opens at its view; Quit then goes to a menu that is ready (it loaded behind the loading screen)
+{
+  const eye = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  eye.on('pageerror', (e) => errors.push(`eye pageerror: ${e.message}`));
+  await eye.goto(url + '&cam=eye');
+  await eye.waitForFunction(() => window.__sim && window.__sim.cam.mode === 'eye' && !window.__sim.attract, null, { timeout: 120000 });
+  await eye.waitForTimeout(800);
+  await eye.keyboard.press('Escape'); await eye.waitForTimeout(200);
+  await eye.evaluate(() => { const q = document.querySelector('#pause .foot .quit'); q.click(); q.click(); });
+  await eye.waitForTimeout(500);
+  const st = await eye.evaluate(() => ({ attract: window.__sim.attract, live: document.querySelector('#menu').classList.contains('live'), shown: getComputedStyle(document.querySelector('#menu')).display !== 'none' }));
+  await eye.evaluate(() => document.querySelector('#menu button.ride').click());
+  await eye.waitForTimeout(400);
+  const rode = await eye.evaluate(() => !window.__sim.attract);
+  check('eye link, then Quit: the menu is ready and RIDE goes', st.attract && st.live && st.shown && rode, JSON.stringify({ ...st, rode }));
+  await eye.close();
+}
 check('no console errors', errors.length === 0, errors.slice(0, 3).join(' / '));
 await browser.close();
 server.close();

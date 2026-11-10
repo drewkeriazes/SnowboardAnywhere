@@ -256,6 +256,7 @@ export class Controls {
   suspendFrame(): void {
     this.pressed.clear(); this.padPressed.clear(); this.keys.clear();
     this.padDown.fill(false);
+    this.padLookX = this.padLookY = 0; this.gyroDx = this.gyroDy = 0; // the right stick and the gyro don't turn the backdrop
     this.input.jumpReleased = false;
   }
 

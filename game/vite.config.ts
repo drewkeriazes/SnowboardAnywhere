@@ -89,18 +89,24 @@ function saveAttractTakes(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         if (req.url !== '/__attract/save' || req.method !== 'POST') return next();
+        // the dev server listens on the home network (host: true): only the game's own page, JSON, a few MB
+        const origin = req.headers.origin, host = req.headers.host;
+        if (!String(req.headers['content-type'] ?? '').startsWith('application/json') || (origin && host && new URL(origin).host !== host)) { res.statusCode = 403; res.end('forbidden'); return; }
         const chunks: Buffer[] = [];
-        req.on('data', (c: Buffer) => chunks.push(c));
+        let size = 0;
+        req.on('data', (c: Buffer) => { size += c.length; if (size > 8e6) { res.statusCode = 413; res.end('too big'); req.destroy(); return; } chunks.push(c); });
         req.on('end', () => {
+          if (size > 8e6) return;
           try {
             const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-            if (!/^[A-Za-z0-9_-]+$/.test(body.pack)) throw new Error('bad pack');
+            if (typeof body.pack !== 'string' || !/^[a-z0-9][a-z0-9_-]*$/.test(body.pack)) throw new Error('bad pack');
             const take = JSON.parse(String(body.take));
-            if (take.version !== 1 || !Array.isArray(take.samples)) throw new Error('not a take');
+            const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+            if (take.version !== 1 || !Array.isArray(take.samples) || !take.samples.length || !take.samples.every((s: Record<string, unknown>) => num(s.t) && num(s.x) && num(s.y) && num(s.z))) throw new Error('not a take');
             const d = path.join(dir, body.pack);
             fs.mkdirSync(d, { recursive: true });
             const idxFile = path.join(dir, 'index.json');
-            const all = fs.existsSync(idxFile) ? JSON.parse(fs.readFileSync(idxFile, 'utf8')) : {};
+            const all: Record<string, { stills?: string[]; ghosts?: string[] }> = Object.assign(Object.create(null), fs.existsSync(idxFile) ? JSON.parse(fs.readFileSync(idxFile, 'utf8')) : {});
             const idx = (all[body.pack] ??= {});
             let n = 1; while (fs.existsSync(path.join(d, `take-${n}.json`))) n++;
             const name = `take-${n}.json`;

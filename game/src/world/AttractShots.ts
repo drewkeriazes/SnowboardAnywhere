@@ -12,8 +12,8 @@ export interface AttractShot {
   x: number; y: number; h: number; pitch: number; fov: number; eye: number;
   /** the big title (the place in the shot) and the line above it */
   place: string; region: string;
-  /** a line of facts about the place itself, from a source named here (resort numbers are counted from the pack) */
-  facts: string;
+  /** the place's elevation (m) and where it is measured, from a source named in the table (resort numbers are counted from the pack) */
+  elev?: { m: number; where: string };
   /** the drift: metres of dolly along the view and degrees of pan, over one cycle of `period` seconds */
   dolly: number; pan: number; period: number;
 }
@@ -25,7 +25,7 @@ export const ATTRACT_SHOTS: Record<string, AttractShot[]> = {
       // sign on the right, the bowls opening on the left (the pose from the FEAT-128 mockups)
       id: 'back-bowls', x: -727, y: 524, h: 150, pitch: -12, fov: 50, eye: 9,
       place: 'Back Bowls', region: 'Vail · Colorado',
-      facts: 'Elev. 11,250 ft at the gateway', // the sign's own "ELEV. 11,250" (Landmarks.ts)
+      elev: { m: 11250 * 0.3048, where: 'at the gateway' }, // the sign's own "ELEV. 11,250" ft (Landmarks.ts)
       dolly: 4, pan: 1.5, period: 26,
     },
   ],
@@ -44,7 +44,7 @@ export function attractShot(pack: Pack, start: { x: number; y: number; heading: 
   if (s) return s;
   return {
     id: 'start', x: start.x, y: start.y, h: start.heading * 180 / Math.PI, pitch: -10, fov: 55, eye: 15,
-    place: pack.meta.name, region: '', facts: '', dolly: 4, pan: 1.5, period: 26,
+    place: pack.meta.name, region: '', dolly: 4, pan: 1.5, period: 26,
   };
 }
 

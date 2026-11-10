@@ -551,6 +551,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     ghosts.setVisible(false);
     void ghosts.load(import.meta.env.BASE_URL, opts.attractFiles[pack.meta.slug]?.ghosts ?? []);
     let attract = false, attractT = 0;
+    /** Outrun picked with "or drop in from the map": the chase starts when the map closes */
+    let outrunAfterMap = false;
     const startLabel = () => { const lm = landmarkStart(pack.meta.slug); return lm ? lm.label : pack.meta.start.run ? `Starts on ${pack.meta.start.run}` : 'Starts at the resort start'; };
     const menuCourses = () => courses.map((c) => ({ id: c.id, name: c.name, length: c.length, best: trial.loadBest(c)?.time ?? null }));
     const enterAttract = () => {
@@ -561,6 +563,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       cam.setEye(p.x, p.y, p.h, p.pitch, p.fov, p.eye);
       pack.fine?.request(shot.x - 600, shot.y - 600, shot.x + 600, shot.y + 600); pack.mask?.request(shot.x - 600, shot.y - 600, shot.x + 600, shot.y + 600);
       ghosts.setVisible(true);
+      runCard.hide(); // the run that just ended is behind us
       document.body.classList.add('attract');
       controls.guardLeave = false; // nothing to lose in the menu
       menu.setStart(startLabel(), hasCustomStart(pack.meta.slug));
@@ -579,11 +582,13 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       const course = c.mode.kind === 'trial' ? courses.find((x) => x.id === (c.mode as { course: string }).course) : undefined;
       setTrialMode(course ? course.id : '');
       if (course) goToCourse(course);
-      if (c.mode.kind === 'outrun') startOutrun();
-      if (c.action === 'map') map.open();
+      if (c.action === 'map') { map.open(); outrunAfterMap = c.mode.kind === 'outrun'; } // Outrun starts once the map has dropped you in (or closed)
+      else if (c.mode.kind === 'outrun') startOutrun();
     };
     /** Quit to main menu: ends an Outrun or time trial and this run's stats; RIDE then starts at the saved start. */
     const backToMenu = () => {
+      if (rewinding) { replay.restore(rider); rewinding = false; rewindT = 0; } // else the next frame carries the rewind on from the reset
+      outrunAfterMap = false;
       if (replayOpen) closeReplay();
       if (outrun.active) stopOutrun();
       trial.cancel('Quit'); setTrialMode('');
@@ -819,6 +824,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         if (!headless) requestAnimationFrame(frame); return;
       }
       touch?.setVisible(!map.fullOpen && !attract);
+      if (outrunAfterMap && !map.fullOpen) { outrunAfterMap = false; startOutrun(); }
       elapsed += dt;
       // FEAT-124: restart needs a 0.6 s hold (a fill ring), so a stray tap next to E or W doesn't reset the run
       if (!replayOpen && controls.held('restart') && !paused) {
@@ -1252,7 +1258,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       lifts.buildMarkers(pack);
       cam.snapTo(rider);
       if (opts.attract) enterAttract();
-      if (loading && alive) { await warmUp(loading); hideLoading = loading; }
+      if (loading && alive) { await warmUp(loading); hideLoading = loading; if (menu) menuReadyIn = HIDE_AFTER_FRAMES; } // ?cam=eye: the menu (shown on Quit) is ready too
       else if (opts.attract && menu && alive) { await warmUp({ set: (f, l) => menu.setProgress(f, l) }); menuReadyIn = HIDE_AFTER_FRAMES; }
       if (!alive) return;
       status.textContent = '';

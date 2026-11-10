@@ -54,7 +54,7 @@ export class AttractGhosts {
     rider.discipline = take.discipline; rider.goofy = take.stance === 'goofy';
     const view = new RiderView();
     view.setDiscipline(take.discipline);
-    view.setOutfit({ ...(OUTFIT_PRESETS[take.outfit] ?? Object.values(OUTFIT_PRESETS)[this.ghosts.length % 6]) });
+    view.setOutfit({ ...(OUTFIT_PRESETS[take.outfit] ?? Object.values(OUTFIT_PRESETS)[this.ghosts.length % Object.values(OUTFIT_PRESETS).length]) });
     view.group.visible = false; view.sprayObject.visible = false;
     this.group.add(view.group, view.sprayObject);
     this.ghosts.push({ replay, rider, view, offset: this.ghosts.length * STAGGER, dur: replay.end });

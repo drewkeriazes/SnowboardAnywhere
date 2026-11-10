@@ -56,7 +56,8 @@ export class MainMenu {
   private courses: PauseCourse[] = [];
   private metric = false;
   private ready = false;
-  private waiting: MenuChoice | null = null;
+  /** RIDE or the map pressed while loading (the mode is read when it goes) */
+  private waiting: MenuChoice['action'] | null = null;
   private shown = false;
   private readonly screen: Screen;
   private readonly sub: Screen;
@@ -69,7 +70,8 @@ export class MainMenu {
     this.onSettingsChange = (st) => { o.audio.setVolumes(st.mute ? 0 : st.sfx, st.mute ? 0 : st.music); o.audio.setSource(st.musicSource); o.audio.setPlaylist(st.playlist); };
     this.metric = s.units === 'metric';
     const n = o.numbers, m = this.metric;
-    const facts = [o.shot.facts, n.runs ? `${n.runs} runs` : '', n.lifts ? `${n.lifts} lifts` : '', n.vertical ? `${fmtHeight(n.vertical, m)} vertical` : ''].filter(Boolean).join(' · ');
+    const elev = o.shot.elev ? `Elev. ${fmtHeight(o.shot.elev.m, m)} ${o.shot.elev.where}` : '';
+    const facts = [elev, n.runs ? `${n.runs} runs` : '', n.lifts ? `${n.lifts} lifts` : '', n.vertical ? `${fmtHeight(n.vertical, m)} vertical` : ''].filter(Boolean).join(' · ');
     this.el = document.createElement('div');
     this.el.id = 'menu';
     this.el.innerHTML = `
@@ -82,7 +84,7 @@ export class MainMenu {
       </header>
       <section class="go">
         <div class="ride-row"><button data-a="ride" class="primary ride">Ride</button><button data-a="map" class="link">or drop in from the map</button></div>
-        <div class="start"><span class="where"></span><button class="link" data-reset>reset to resort start</button></div>
+        <div class="start"><span class="where"></span><button class="link" data-reset hidden>reset to resort start</button></div>
         <div class="ds-connect" style="display:none"><button data-ds-connect class="link">Turn on DualSense rumble and lightbar</button><div class="hint ds-status">Click it with the mouse and pick the controller (once: it reconnects by itself after that).</div></div>
       </section>
       <nav class="corner"><button data-a="settings" class="link">Settings</button><button data-a="controls" class="link">Controls</button><button data-a="credits" class="link">Credits</button></nav>
@@ -160,7 +162,7 @@ export class MainMenu {
     this.el.classList.add('live');
     this.el.querySelector<HTMLElement>('.ride')!.textContent = 'Ride';
     const w = this.waiting; this.waiting = null;
-    if (w) this.choose(w);
+    if (w) this.choose({ action: w, mode: this.mode });
   }
   get isReady(): boolean { return this.ready; }
   /** Where RIDE starts (BUG-037): the resort start, or a map drop-in with "reset to resort start". */
@@ -203,7 +205,7 @@ export class MainMenu {
   private choose(c: MenuChoice): void {
     if (!this.ready) {
       // pressed while loading: says so and goes as soon as the session is ready
-      this.waiting = c;
+      this.waiting = c.action;
       this.el.querySelector<HTMLElement>('.ride')!.textContent = 'Loading...';
       return;
     }
