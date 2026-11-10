@@ -17,9 +17,6 @@ import { SpeedLines } from '../ui/SpeedLines';
 import { ChaseCamera } from '../world/ChaseCamera';
 import { FILL_RATE, setTrackFillRate } from '../world/Tracks';
 import { setDeformHold } from '../world/Deform';
-import { Outrun } from '../sim/Outrun';
-import { OutrunUI } from '../ui/OutrunUI';
-import { TimeTrial } from '../sim/TimeTrial';
 import { ResortMap } from '../ui/ResortMap';
 import { LiftRide } from '../sim/LiftRide';
 import { Prefetch } from '../sim/Prefetch';
@@ -30,12 +27,11 @@ import { LoadingScreen } from '../ui/Loading';
 import { PauseMenu, type PauseInfo } from '../ui/PauseMenu';
 import { Labels } from '../ui/Labels';
 import { TouchControls } from '../ui/TouchControls';
-import { keysOf, saveSettings, FALL_LINE, type Settings } from '../ui/Settings';
+import { saveSettings, FALL_LINE, type Settings } from '../ui/Settings';
 import { switchName, type PressEnd } from '../sim/Rider';
 import { PressMeter } from '../ui/PressMeter';
 import { hasCustomStart, resetStart, spawnFromUrl, spawnKey } from '../spawn';
 import { GameLoop } from '../core/GameLoop';
-import { TrialHud } from '../ui/TrialHud';
 import { ReplayBar } from '../ui/ReplayBar';
 import { KeyLabels } from '../ui/KeyLabels';
 import { keyHints } from '../ui/KeyHints';
@@ -53,6 +49,8 @@ import type { GameContext } from '../core/GameContext';
 import { PAD } from '../sim/Pad';
 import { padFx } from '../sim/PadFeedback';
 import { stickGlyph } from '../ui/PadGlyphs';
+import { Modes } from '../modes/Modes';
+import { OutrunUI } from '../ui/OutrunUI';
 
 /** FEAT-105: the New snow setting as a snow cover amount */
 const NEW_SNOW: Record<string, number> = { none: 0, dusting: 0.25, '6in': 0.6, powder: 1 };
@@ -78,27 +76,9 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     const status = document.getElementById('status')!;
     const world = buildWorld(ctx);
     const { zr, env, clouds, snow, terrain, collider, veg, treeFade, rocks, lifts, liftLines, resortTop, runs, roads, landmarks, bridges,
-      tracks, bootprints, riderChair, puffs, particleLight, bigprints, deform, monsters, eat, courses, trialWorld, riderView } = world;
-    // Outrun (FEAT-097 to FEAT-101): the chase sim and the HUD (the monsters and the eat sequence are in the world)
-    const outrun = new Outrun(pack, lifts);
-    const outrunUI = new OutrunUI();
-    let chase = audio.chase();
-    const eatPosing = new Set<number>();
-    const eatLook = new THREE.Vector3();
-    let countLast = -1;
+      tracks, bootprints, riderChair, puffs, particleLight, bigprints, deform, monsters, eat, trialWorld, riderView } = world;
     const chairPos = new THREE.Vector3();
-    /** FEAT-128: the course picked in pause > Mode (the gates are on for the session), '' in Free ride */
-    let trialMode = '';
-    const trialsOn = () => settings.timeTrials || !!trialMode;
-    const trial = new TimeTrial(pack.meta.slug, courses);
-    const trialHud = new TrialHud(settings);
-    trial.onEvent = (e) => {
-      trialHud.onEvent(e, trial.candidates.length);
-      if (e.kind === 'start') { audio.chime(); padFx.trialEvent('start'); }
-      else if (e.kind === 'split') padFx.trialEvent('split');
-      else if (e.kind === 'finish') { audio.chime(); padFx.trialEvent('finish', e.isBest); }
-    };
-    const refreshCourseFlags = () => { map.courseStarts = trialsOn() ? courses.map((c) => ({ x: c.start[0], y: c.start[1], name: c.name, best: trial.loadBest(c)?.time ?? null })) : []; };
+    const outrunUI = new OutrunUI(); // FEAT-164: built here, before the labels, so its HUD stacks as it always has
     const labels = new Labels(pack);
     if (debugHud) mountLeadTunePanel(riderView);
 
@@ -138,11 +118,11 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     const MIN_REPLAY_SAMPLES = 20;
     /** Why the replay viewer can't open now, or null when it can (the K key and the pause menu's Replay both ask). */
     const replayBlockedReason = (): string | null =>
-      outrun.active ? 'not during Outrun' : liftRide.riding ? 'not on a lift' : rider.unstrapped ? 'strap in first' : replay.samples.length <= MIN_REPLAY_SAMPLES ? 'ride a little first' : null;
+      modes.replayBlocked ?? (liftRide.riding ? 'not on a lift' : rider.unstrapped ? 'strap in first' : replay.samples.length <= MIN_REPLAY_SAMPLES ? 'ride a little first' : null);
     const openReplay = () => {
       replayOpen = true; replayT = Math.max(replay.start, replay.end - 30); replayPlay = true; replaySpeed = 1; replayCam = 'follow'; trackSet = false; photoFov = 0;
       replayHour = typeof settings.timeOfDay === 'number' ? settings.timeOfDay : 12;
-      trial.cancel('Replay');
+      modes.interrupt('Replay');
     };
     const closeReplay = () => {
       replayOpen = false; replayClean = false; replayBar.hide();
@@ -154,7 +134,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       rider.x = s.x; rider.y = s.y; rider.z = pack.groundHeight(s.x, s.y, s.z); rider.vx = s.vx; rider.vy = s.vy; rider.vz = 0;
       rider.heading = s.hd; rider.boardYaw = s.h; rider.switch = !!(s.f & 8); rider.onGround = true; rider.onFoot = !!s.on; rider.crashed = 0;
       rider.flip = 0; rider.flipRate = 0; rider.spin = 0; rider.airTime = 0; rider.jumpCharge = 0; rider.landingShock = 0; rider.washout = 0; rider.crashSide = 0;
-      replay.truncate(s.t); trial.cancel('Rewound');
+      replay.truncate(s.t); modes.interrupt('Rewound');
     };
     // first person redraws the body with a close near plane so knees, gloves and the board are not clipped
     const sceneRender = new SceneRender(renderer, scene, env, lens);
@@ -245,10 +225,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       riderView.setOutfit(s.outfit);
       riderView.setDiscipline(s.discipline);
       tracks.setDiscipline(s.discipline);
-      if (what === 'timeTrials' && !s.timeTrials) trialMode = ''; // turning them off ends a course picked in Mode too
-      trialWorld.setEnabled(trialsOn());
-      if (!trialsOn()) trial.cancel('Time trials off');
-      refreshCourseFlags();
+      modes.applySettings(s, what);
       rider.discipline = s.discipline;
       rider.goofy = s.stance === 'goofy'; // FEAT-139 (the rider view follows it)
       rider.fallLine = FALL_LINE[s.fallLine] ?? 1; // FEAT-134
@@ -277,7 +254,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     map.setDebug(debugHud); // FEAT-059: mogul runs under-stroked on the map
     map.spawnPos = [sx, sy];
     const pickHandler = (x: number, y: number) => {
-      trial.cancel('Moved');
+      modes.interrupt('Moved');
       const n = pack.groundNormal(x, y) as number[];
       const h = Math.hypot(n[0], n[1]) > 0.02 ? Math.atan2(n[0], n[1]) : 0;
       setSpawn(x, y, h);
@@ -301,44 +278,10 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       if (p) pause.show(pauseInfo()); else { pause.hide(); controls.padMute(); }
       audio.setDuck(p ? 0.3 : 1);
     };
-    // ---------------------------------------------------------------- Outrun
-    /** Start a run from where the rider is: trials off, no map teleport, no lift skip. */
-    const startOutrun = () => {
-      trial.cancel('Outrun');
-      eat.end(); monsters.clear(); outrunUI.hideCard();
-      riderView.group.visible = true;
-      outrun.start(settings.outrun, rider);
-      map.onPick = null; map.baseMarker = outrun.base;
-      chase = audio.chase();
-      countLast = -1;
-      showToast(outrun.baseMissing ? 'Outrun: no base on this pack, so it is endless' : outrun.cfg.escape === 'base' ? 'Outrun: reach the base' : 'Outrun: survive', 3000);
-    };
-    const stopOutrun = () => {
-      outrun.stop(); eat.end(); monsters.clear(); outrunUI.hideCard();
-      map.onPick = pickHandler; map.baseMarker = null; map.monsters = [];
-      chase?.stop(); audio.resumeMusic();
-      rider.boost = false; riderView.group.visible = true;
-    };
-    outrunUI.onRetry = () => {
-      eat.end(); monsters.clear(); chase?.stop(); audio.resumeMusic();
-      liftRide.cancel(); rider.reset(sx, sy, sh); cam.snapTo(rider);
-      startOutrun();
-    };
-    outrunUI.onExit = () => stopOutrun();
-    eat.onSound = (k) => {
-      if (!chase) return;
-      if (k === 'roar') chase.roar('angry'); else if (k === 'pop') chase.pop(); else if (k === 'gulp') chase.gulp();
-      else if (k === 'burp') chase.burp(); else if (k === 'spit') chase.spit(); else if (k === 'sting') chase.sting();
-    };
-    monsters.onCrack = () => chase?.crack();
-
-    /** a few metres above a course's start gate on its line, facing down it */
-    const goToCourse = (c: (typeof courses)[number]) => {
-      const x = c.start[0] - c.dir[0] * 6, y = c.start[1] - c.dir[1] * 6;
-      liftRide.cancel(); trial.cancel('Moved');
-      pack.fine?.request(x - 600, y - 600, x + 600, y + 600); pack.mask?.request(x - 600, y - 600, x + 600, y + 600);
-      rider.reset(x, y, Math.atan2(c.dir[0], c.dir[1])); cam.snapTo(rider);
-    };
+    // ---------------------------------------------------------------- FEAT-164: Free ride, Time trial and Outrun on top of riding
+    const toSpawn = () => { liftRide.cancel(); rider.reset(sx, sy, sh); cam.snapTo(rider); };
+    const modes = new Modes(ctx, world, { rider, liftRide, cam, map, keyLabels, toast: (t, ms) => showToast(t, ms), pick: pickHandler, toSpawn }, outrunUI);
+    const restartRun = () => { modes.restart(); liftRide.cancel(); runStats.end(); rider.reset(sx, sy, sh); cam.snapTo(rider); };
     /** FEAT-128: what the pause menu shows (read when it opens) */
     const pauseInfo = (): PauseInfo => ({
       resort: pack.meta.name,
@@ -346,33 +289,19 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       run: runStats.active ? { time: runStats.time, distance: runStats.distance, vertical: runStats.vertical, topSpeed: runStats.topSpeed } : null,
       day: { runs: runStats.day.runs, vertical: runStats.day.vertical },
       metric: settings.units === 'metric',
-      mode: outrun.active ? { kind: 'outrun' } : trialMode ? { kind: 'trial', course: trialMode } : { kind: 'free' },
+      mode: modes.current,
       replayBlocked: replayBlockedReason(),
-      courses: courses.map((c) => ({ id: c.id, name: c.name, length: c.length, best: trial.loadBest(c)?.time ?? null })),
+      courses: modes.trials.list(),
     });
-    /** Mode: back to Free ride, or a time trial course (gates on for the session, the rider at its start) */
-    const setTrialMode = (id: string) => {
-      trialMode = id;
-      trialWorld.setEnabled(trialsOn());
-      if (!trialsOn()) trial.cancel('Free ride');
-      refreshCourseFlags();
-    };
     pause.onAction = (a, arg) => {
       if (a === 'resume') setPaused(false);
       else if (a === 'replay') { setPaused(false); openReplay(); }
-      else if (a === 'freeride') { setPaused(false); if (outrun.active) stopOutrun(); setTrialMode(''); }
-      else if (a === 'trial') {
-        const c = courses.find((x) => x.id === arg);
-        setPaused(false);
-        if (!c) return;
-        if (outrun.active) stopOutrun();
-        setTrialMode(c.id);
-        goToCourse(c);
-      }
-      else if (a === 'restart') { setPaused(false); if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); runStats.end(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      else if (a === 'freeride') { setPaused(false); modes.freeRide(); }
+      else if (a === 'trial') { setPaused(false); modes.rideCourse(arg); }
+      else if (a === 'restart') { setPaused(false); restartRun(); }
       else if (a === 'map') { setPaused(false); map.open(); }
-      else if (a === 'outrunStart') { setPaused(false); setTrialMode(''); startOutrun(); }
-      else if (a === 'outrunStop') { setPaused(false); stopOutrun(); }
+      else if (a === 'outrunStart') { setPaused(false); modes.startOutrun(); }
+      else if (a === 'outrunStop') { setPaused(false); modes.outrun.end(); }
       else if (a === 'quit') { setPaused(false); if (menu) backToMenu(); else { dispose(); resolveQuit(); } }
     };
 
@@ -385,10 +314,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     ghosts.setVisible(false);
     void ghosts.load(import.meta.env.BASE_URL, opts.attractFiles[pack.meta.slug]?.ghosts ?? []);
     let attract = false, attractT = 0;
-    /** Outrun picked with "or drop in from the map": the chase starts when the map closes */
-    let outrunAfterMap = false;
     const startLabel = () => { const lm = landmarkStart(pack.meta.slug); return lm ? lm.label : pack.meta.start.run ? `Starts on ${pack.meta.start.run}` : 'Starts at the resort start'; };
-    const menuCourses = () => courses.map((c) => ({ id: c.id, name: c.name, length: c.length, best: trial.loadBest(c)?.time ?? null }));
     const enterAttract = () => {
       if (!menu) return;
       attract = true; attractT = 0;
@@ -401,7 +327,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       document.body.classList.add('attract');
       controls.guardLeave = false; // nothing to lose in the menu
       menu.setStart(startLabel(), hasCustomStart(pack.meta.slug));
-      menu.setCourses(menuCourses(), settings.units === 'metric');
+      menu.setCourses(modes.trials.list(), settings.units === 'metric');
       menu.show();
     };
     const leaveAttract = (c: MenuChoice) => {
@@ -412,20 +338,13 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       controls.padMute(); // the Cross that pressed RIDE is not a jump
       cam.mode = settings.camera;
       cam.snapTo(rider);
-      // the mode RIDE starts: a course puts the rider above its start gate for this ride (BUG-037's start otherwise)
-      const course = c.mode.kind === 'trial' ? courses.find((x) => x.id === (c.mode as { course: string }).course) : undefined;
-      setTrialMode(course ? course.id : '');
-      if (course) goToCourse(course);
-      if (c.action === 'map') { map.open(); outrunAfterMap = c.mode.kind === 'outrun'; } // Outrun starts once the map has dropped you in (or closed)
-      else if (c.mode.kind === 'outrun') startOutrun();
+      modes.fromMenu(c); // the mode RIDE starts (BUG-037's start when it is not a course)
     };
     /** Quit to main menu: ends an Outrun or time trial and this run's stats; RIDE then starts at the saved start. */
     const backToMenu = () => {
       if (rewinding) { replay.restore(rider); rewinding = false; rewindT = 0; } // else the next frame carries the rewind on from the reset
-      outrunAfterMap = false;
       if (replayOpen) closeReplay();
-      if (outrun.active) stopOutrun();
-      trial.cancel('Quit'); setTrialMode('');
+      modes.quit();
       liftRide.cancel(); runStats.end();
       rider.reset(sx, sy, sh);
       enterAttract();
@@ -525,10 +444,9 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       labels.destroy();
       tracks.dispose(); deform.dispose();
       trialWorld.dispose();
-      if (outrun.active) stopOutrun();
+      modes.dispose();
       padFx.stop();
-      outrunUI.destroy(); runCard.dispose(); speedLines.dispose(); pressMeter.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
-      trialHud.hide();
+      runCard.dispose(); speedLines.dispose(); pressMeter.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
       audio.onTrack = null;
       showPrompt('');
       hud.innerHTML = '';
@@ -586,20 +504,17 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
         return;
       }
       touch?.setVisible(!map.fullOpen && !attract);
-      if (outrunAfterMap && !map.fullOpen) { outrunAfterMap = false; startOutrun(); }
+      modes.frameStart();
       elapsed += dt;
       // FEAT-124: restart needs a 0.6 s hold (a fill ring), so a stray tap next to E or W doesn't reset the run
       if (!replayOpen && controls.held('restart') && !paused) {
         restartHold += dt;
-        if (restartHold >= RESTART_HOLD && !restartDone) { restartDone = true; if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); runStats.end(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+        if (restartHold >= RESTART_HOLD && !restartDone) { restartDone = true; restartRun(); }
       } else { restartHold = 0; restartDone = false; }
       controls.action('restart'); // the press itself does nothing
       restartRing.style.display = restartHold > 0.05 && !restartDone ? 'block' : 'none';
       if (restartHold > 0.05) restartRing.style.background = `conic-gradient(#ffd166 ${Math.min(1, restartHold / RESTART_HOLD) * 360}deg, rgba(255,255,255,.18) 0)`;
-      if (!replayOpen && controls.action('trial') && trialsOn() && !outrun.active) {
-        const c = trial.nearestStart(rider.x, rider.y);
-        if (c) goToCourse(c);
-      }
+      if (!replayOpen && controls.action('trial')) modes.trialKey();
       // ---- FEAT-043: replay viewer (the sim is frozen and the recording plays on the rider). While it is open,
       // restart / trial / map / piste / fly / board are ignored so the viewer acts like a modal (P is the photo key here)
       if (controls.action('replay') && !replayBlockedReason()) { if (replayOpen) closeReplay(); else openReplay(); }
@@ -644,7 +559,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       }
       // ---- FEAT-043: rewind (hold): scrub back along the recording, let go to carry on from the
       // last moment on the snow before there (not mid-air, not crashed)
-      const rewindHeld = !replayOpen && controls.held('rewind') && !outrun.active && !liftRide.riding && replay.samples.length > 1 && rider.strapState === 'none';
+      const rewindHeld = !replayOpen && controls.held('rewind') && !modes.rewindBlocked && !liftRide.riding && replay.samples.length > 1 && rider.strapState === 'none';
       if (rewindHeld) {
         rewinding = true;
         rewindT = Math.min(rewindT + dt * 2, replay.t - replay.start);
@@ -692,23 +607,22 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       const strapAsk = controls.action('board') || !!touch?.once('board') || (interact && !liftRide.riding && !liftRide.nearby);
       if (!replayOpen && strapAsk && !detached && !liftRide.riding && !map.fullOpen) {
         const why = rider.toggleBoard();
-        if (why === '' && rider.strapState === 'off') trial.cancel('Unstrapped');
+        if (why === '' && rider.strapState === 'off') modes.interrupt('Unstrapped');
         boardMsg = why === 'fast' ? 'slow down to unstrap' : why === 'moving' ? 'stand still to strap in' : why === 'air' ? 'land first' : '';
         boardMsgT = boardMsg ? 1.5 : 0;
       }
       boardMsgT -= dt;
       // Outrun: no lift skip while it runs (the monster is on the towers behind you), the boost key
-      const boardPressed = interact && !detached && !(outrun.running && liftRide.riding);
-      if (controls.action('boost') && outrun.active && outrun.boost()) chase?.boostWhoosh(); // FEAT-124: F, Outrun only
-      rider.boost = outrun.boosting;
-      const eating = outrun.phase === 'caught';
+      const boardPressed = interact && !detached && !(modes.liftSkipBlocked && liftRide.riding);
+      modes.boostKey(controls.action('boost'));
+      const eating = modes.holdsRider;
       const onLift = !detached && !eating && !frozen && liftRide.update(rider, dt, boardPressed, input.tuck);
       if (!detached && !onLift && !map.fullOpen && !eating && !frozen) rider.update(dt, input);
       if (!frozen && !onLift && !eating && !attract) replay.record(dt, rider, input.tuck); // FEAT-043 (not the still rider behind the menu)
-      if (!frozen && !eating && !outrun.active) runStats.update(dt, rider, onLift); // FEAT-055
+      if (!frozen && !eating && modes.countsRunStats) runStats.update(dt, rider, onLift); // FEAT-055
       runCard.update(dt);
       // FEAT-137: rumble (landings, crashes, rock, moguls), the DualSense lightbar and adaptive triggers
-      padFx.update(dt, controls.pad, { rider, riding: !detached && !onLift && !eating && !frozen && !map.fullOpen && !rider.unstrapped, monsterDist: outrun.running ? outrun.dist : Infinity, lens: riderView.mats.goggles.color.getHex() });
+      padFx.update(dt, controls.pad, { rider, riding: !detached && !onLift && !eating && !frozen && !map.fullOpen && !rider.unstrapped, monsterDist: modes.monsterDist, lens: riderView.mats.goggles.color.getHex() });
       // visuals draw the pose interpolated between the last two 120 Hz physics steps; gameplay
       // (trials, lifts, audio) keeps reading the sim pose
       riderView.setFirstPerson(cam.firstPerson);
@@ -717,49 +631,8 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       if (!frozen) tracks.update(rider, dt, onLift && liftRide.airborneRide);
       bootprints.update(dt); bigprints.update(dt); puffs.update(dt);
       rider.restoreSimPose();
-      // ---- Outrun: sim, events to sound and effects, the eat sequence, the monsters
-      if (outrun.active) {
-        outrun.update(dt, rider, onLift ? liftRide : null);
-        for (const e of outrun.events) {
-          if (e.kind === 'wake') chase?.roar('wake');
-          else if (e.kind === 'spawn') { if (e.m && e.m.id > 1) chase?.roar('spawn'); }
-          else if (e.kind === 'roar') chase?.roar('spawn');
-          else if (e.kind === 'sight') chase?.roar('sight');
-          else if (e.kind === 'closecall') { chase?.roar('angry'); chase?.closeCall(); }
-          else if (e.kind === 'footfall' && e.m) { chase?.footfall(e.m.dist); padFx.footfall(e.m.dist); if (e.m.dist < 30) cam.kick = Math.max(cam.kick, 0.7 * (1 - e.m.dist / 30)); }
-          else if (e.kind === 'second') showToast('Another one.', 2500);
-          else if (e.kind === 'escaped') { chase?.roar('giveup'); chase?.stop(); audio.resumeMusic(); chase?.fanfare(); }
-          else if (e.kind === 'caught' && e.m) {
-            const view = monsters.view(e.m.id);
-            audio.scratchStop(); chase?.stop();
-            if (view) eat.start(e.m, view, rider, riderView, settings.outfit, settings.discipline, outrun.cfg.gentle);
-          }
-        }
-        if (outrun.phase === 'countdown') { const n = Math.ceil(3 - outrun.t); if (n !== countLast) { countLast = n; chase?.countBeep(false); } }
-        else if (outrun.phase === 'headstart' && countLast !== 0) { countLast = 0; chase?.countBeep(true); }
-        eatPosing.clear();
-        if (eat.active) { eat.update(dt); if (outrun.nearest) eatPosing.add(outrun.nearest.id); }
-        monsters.update(outrun, dt, eatPosing);
-        if (eat.done && !outrunUI.cardOpen) outrunUI.showCard(outrun, 'eaten');
-        if (outrun.phase === 'escaped' && outrun.t > 2.5 && !outrunUI.cardOpen) outrunUI.showCard(outrun, 'escaped');
-        map.monsters = outrun.monsters.map((m) => [m.x, m.y]);
-        if (chase) {
-          const n = outrun.nearest;
-          if (n) chase.setMonster(n.x, n.z + 1.5, -n.y);
-          chase.update(dt, outrun.dist, outrun.phase === 'chase', outrun.boosting);
-        }
-      }
-      outrunUI.update(outrun, settings.units === 'metric', padKey('boost') || keysOf(settings, 'boost'));
-      if (trialsOn()) {
-        if (onLift) trial.cancel('On a lift'); else if (rider.unstrapped) trial.cancel('Unstrapped'); else if (!frozen) trial.update(rider, dt, input.tuck);
-        trialWorld.updateGates(rider.x, rider.y);
-        trialWorld.updateGhost(trial.ghostAt(trial.time), dt);
-        const active = trial.state !== 'idle' ? trial.course : null;
-        const showWalls = trial.state === 'running' || (trial.state === 'armed' && trial.candidates.length === 1);
-        trialWorld.updateRoute(showWalls ? active : null, trial.along, trial.nextTarget, elapsed, trial.outside > 0);
-        map.trialRoute = active ? active.points : null;
-        trialHud.update(dt, trial, pack, cam.camera);
-      } else { trialHud.hide(); map.trialRoute = null; }
+      // ---- FEAT-164: the modes (Outrun's chase and eat, the trial gates) and their HUDs
+      modes.update({ dt, tuck: input.tuck, onLift, frozen, elapsed });
       audio.update(rider, input.tuck, onLift, dt, liftRide.passedTower);
       rider.lastHit = '';
       rider.applyRenderPose();
@@ -776,10 +649,8 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
         cam.camera.position.copy(trackPos); cam.camera.lookAt(rider.x, rider.z + 1, -rider.y);
         cam.camera.fov = Math.max(15, settings.fov - 25 + photoFov); cam.camera.updateProjectionMatrix();
       }
-      else { cam.freeLook(controls.looking, dt, mouseDx, mouseDy, controls.glancing); mouseDx = mouseDy = 0; cam.baseFov = settings.fov + (outrun.boosting ? 12 : 0) + (replayOpen ? photoFov : 0); cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); } // FEAT-124: look behind (G) in every mode
-      // the eat sequence owns the camera: high in front of the monster, looking down at it (FEAT-104)
-      if (eat.active) { eat.cameraPose(cam.camera.position, eatLook); cam.camera.lookAt(eatLook); if (cam.camera.fov !== 60) { cam.camera.fov = 60; cam.camera.updateProjectionMatrix(); } }
-      chase?.setListener(cam.camera);
+      else { cam.freeLook(controls.looking, dt, mouseDx, mouseDy, controls.glancing); mouseDx = mouseDy = 0; cam.baseFov = settings.fov + modes.fovBoost + (replayOpen ? photoFov : 0); cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); } // FEAT-124: look behind (G) in every mode
+      modes.afterCamera(cam.camera); // the eat sequence owns the camera (FEAT-104); the chase sounds hear from it
       goggles.strength = settings.goggleStrength;
       {
         // FEAT-130: the lens follows the setting (Auto: the weather and the sun); the rider and the frame wear it
@@ -875,7 +746,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       cam.glance = controls.glancing;
       if (helpEl && helpT <= 0) {
         helpT = 0.25;
-        let h = keyHints(keyLabels, controls.usingPad, { onLift: liftRide.riding, outrunRunning: outrun.running, onFoot: rider.onFoot, onGround: rider.onGround, liftNearby: !!liftRide.nearby });
+        let h = keyHints(keyLabels, controls.usingPad, { onLift: liftRide.riding, outrunRunning: modes.outrun.running, onFoot: rider.onFoot, onGround: rider.onGround, liftNearby: !!liftRide.nearby });
         if (boardMsgNote) h = `<b>${boardMsgNote}</b><br>` + h;
         if (h !== helpShown) { helpShown = h; helpEl.innerHTML = h; }
       }
@@ -913,7 +784,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       else if (opts.attract && menu && alive) { await warmUp({ set: (f, l) => menu.setProgress(f, l) }); menuReadyIn = HIDE_AFTER_FRAMES; }
       if (!alive) return;
       status.textContent = '';
-      installSimDebug({ ghosts, menu, shot, rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, eyeAt, outrun, monsters, startOutrun, stopOutrun, treeFadeUniforms,
+      installSimDebug({ ghosts, menu, shot, rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, eyeAt, outrun: modes.outrun.sim, monsters, startOutrun: () => modes.outrun.start(), stopOutrun: () => modes.outrun.end(), treeFadeUniforms,
         /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
         setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
         /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */
