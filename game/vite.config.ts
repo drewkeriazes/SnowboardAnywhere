@@ -78,9 +78,46 @@ function saveCompareShots(): Plugin {
   };
 }
 
+/**
+ * Dev only (FEAT-128): the replay viewer's L key (with ?debug) posts a marked span here as a main menu ghost.
+ * Saves game/public/attract/<pack>/take-<n>.json and lists it under the pack in game/public/attract/index.json.
+ */
+function saveAttractTakes(): Plugin {
+  const dir = path.resolve(__dirname, 'public', 'attract');
+  return {
+    name: 'save-attract-takes',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url !== '/__attract/save' || req.method !== 'POST') return next();
+        const chunks: Buffer[] = [];
+        req.on('data', (c: Buffer) => chunks.push(c));
+        req.on('end', () => {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            if (!/^[A-Za-z0-9_-]+$/.test(body.pack)) throw new Error('bad pack');
+            const take = JSON.parse(String(body.take));
+            if (take.version !== 1 || !Array.isArray(take.samples)) throw new Error('not a take');
+            const d = path.join(dir, body.pack);
+            fs.mkdirSync(d, { recursive: true });
+            const idxFile = path.join(dir, 'index.json');
+            const all = fs.existsSync(idxFile) ? JSON.parse(fs.readFileSync(idxFile, 'utf8')) : {};
+            const idx = (all[body.pack] ??= {});
+            let n = 1; while (fs.existsSync(path.join(d, `take-${n}.json`))) n++;
+            const name = `take-${n}.json`;
+            fs.writeFileSync(path.join(d, name), JSON.stringify(take) + '\n');
+            idx.ghosts = [...(idx.ghosts ?? []), name];
+            fs.writeFileSync(idxFile, JSON.stringify(all, null, 2) + '\n');
+            res.statusCode = 200; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ file: `game/public/attract/${body.pack}/${name}` }));
+          } catch (e) { res.statusCode = 400; res.end(String((e as Error).message ?? e)); }
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig({
   base: './',
-  plugins: [servePacks(), saveCompareShots()],
+  plugins: [servePacks(), saveCompareShots(), saveAttractTakes()],
   server: { host: true, port: 5173 },
   build: { target: 'es2022', sourcemap: false, chunkSizeWarningLimit: 1500 },
 });

@@ -31,6 +31,13 @@ export const ATTRACT_SHOTS: Record<string, AttractShot[]> = {
   ],
 };
 
+/** `game/public/attract/index.json`: per resort, the shot ids with a rendered still and the ghost take files. */
+export type AttractManifest = Record<string, { stills?: string[]; ghosts?: string[] }>;
+/** The manifest ({} when missing, so nothing else is requested and nothing 404s). */
+export async function loadAttractManifest(base: string): Promise<AttractManifest> {
+  try { const r = await fetch(`${base}attract/index.json`, { cache: 'no-cache' }); return r.ok ? await r.json() as AttractManifest : {}; } catch { return {}; }
+}
+
 /** The shot for a resort: its first hand-picked one, else the start looking downhill from 15 m up. */
 export function attractShot(pack: Pack, start: { x: number; y: number; heading: number }): AttractShot {
   const s = ATTRACT_SHOTS[pack.meta.slug]?.[0];

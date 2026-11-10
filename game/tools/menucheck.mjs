@@ -42,7 +42,9 @@ await page.addInitScript(() => {
   if (!sessionStorage.getItem('menucheck')) { localStorage.clear(); sessionStorage.setItem('menucheck', '1'); }
 });
 await page.goto(url);
-await page.waitForSelector('#menu .panel', { timeout: 60000 });
+await page.waitForSelector('#menu .title', { timeout: 60000 });
+// FEAT-128: the menu shows at once (over the shot's still) while the session loads behind it
+const early = await page.evaluate(() => ({ shown: getComputedStyle(document.querySelector('#menu')).display !== 'none', live: document.querySelector('#menu').classList.contains('live') }));
 await page.waitForTimeout(300);
 
 /** the focused item: a settings row by its id, else the button's data-a / data-cat, else the tag */
@@ -57,8 +59,10 @@ const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem('setting
 const focusRow = (id) => page.evaluate((id) => { const el = document.querySelector(`#settings [data-row="${id}"][data-nav]`); el?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, movementX: 2, movementY: 2 })); el?.focus(); return !!el; }, id);
 const openCat = (c) => page.evaluate((c) => document.querySelector(`#settings .cats button[data-cat="${c}"]`)?.click(), c);
 
-// ---- main menu
+// ---- main menu (layout B), a state inside the session
+check('the menu shows before the session is ready', early.shown, JSON.stringify(early));
 check('focus starts on primary', (await active()) === 'ride', `focused ${await active()}`);
+check('the title names the place', await page.evaluate(() => (document.querySelector('#menu h1')?.textContent ?? '').length > 0));
 await key('ArrowDown');
 const afterDown = await active();
 check('arrow down moves focus', afterDown !== 'ride' && afterDown !== null && afterDown !== 'BODY', `focused ${afterDown}`);
@@ -188,10 +192,61 @@ if (shots) {
 }
 await key('Escape');
 
-// ---- into a session: Free ride
-await page.evaluate(() => document.querySelector('#menu button[data-a="ride"]')?.click());
-await page.waitForFunction(() => window.__sim, null, { timeout: 120000 });
+// ---- the live backdrop: the session runs behind the menu (attract): riding keys do nothing, Esc doesn't pause
+await page.waitForSelector('#menu.live', { timeout: 180000 });
+await page.waitForFunction(() => window.__sim?.attract === true, null, { timeout: 30000 });
+check('the session is live behind the menu', await page.evaluate(() => window.__sim.cam.mode === 'eye' && !window.__sim.riderView.group.visible));
+await page.evaluate(() => document.querySelector('#menu button.ride')?.focus());
+await key('KeyM'); await key('Escape');
+await page.waitForTimeout(200);
+check('riding keys do nothing behind the menu', await page.evaluate(() => !window.__sim.map.fullOpen && getComputedStyle(document.querySelector('#pause')).display === 'none' && window.__sim.attract));
+// the card row: Snowboard / Skis on the resort card (B), the mode cards, Change resort
+await key('KeyB');
+const disc = await page.evaluate(() => ({ s: window.__sim.settings.discipline, on: document.querySelector('#menu .card.resort .seg button.on')?.dataset.d }));
+await key('KeyB');
+check('B switches Snowboard / Skis on the resort card', disc.s === 'ski' && disc.on === 'ski', JSON.stringify(disc));
+await page.evaluate(() => document.querySelector('#menu .card[data-mode="trial"]').focus());
+await key('Enter');
+const coursePop = await page.evaluate(() => ({ open: !document.querySelector('#menu .pop').hidden, n: document.querySelectorAll('#menu .pop button[data-course]').length }));
+check('Time trial opens the course list', coursePop.open && coursePop.n > 0, JSON.stringify(coursePop));
+await key('Escape');
+check('Esc closes the list onto its card', await page.evaluate(() => document.querySelector('#menu .pop').hidden && document.activeElement?.dataset.mode === 'trial'));
+await page.evaluate(() => document.querySelector('#menu .card[data-mode="outrun"]').click());
+await page.evaluate(() => document.querySelector('#menu .pop [data-ok]').click());
+check('Outrun card picks Outrun', await page.evaluate(() => document.querySelector('#menu .card[data-mode="outrun"]').classList.contains('on') && document.querySelector('#menu button.ride').dataset.mode === 'Outrun'));
+await page.evaluate(() => document.querySelector('#menu .card[data-a="resort"]').click());
+check('Change resort lists the built resorts', await page.evaluate(() => document.querySelectorAll('#menu .pop button[data-pack]').length >= 1));
+await key('Escape');
+// a time trial course from the card row: RIDE puts the rider above its start gate, gates on for the session
+await page.evaluate(() => { document.querySelector('#menu .card[data-mode="trial"]').click(); document.querySelector('#menu .pop button[data-course]').click(); });
+check('a course from the card row sets the mode', await page.evaluate(() => document.querySelector('#menu .card[data-mode="trial"]').classList.contains('on') && document.querySelector('#menu button.ride').dataset.mode === 'Time trial'));
+if (shots) await page.screenshot({ path: path.join(outDir, 'main.png') });
+await page.evaluate(() => document.querySelector('#menu button.ride').click());
+await page.waitForTimeout(400);
+const rode = await page.evaluate(() => ({ attract: window.__sim.attract, gates: window.__sim.trialWorld.enabled, cam: window.__sim.cam.mode, menu: getComputedStyle(document.querySelector('#menu')).display }));
+check('RIDE starts the time trial from the menu', !rode.attract && rode.gates && rode.cam !== 'eye' && rode.menu === 'none', JSON.stringify(rode));
+// Quit (twice) goes back to the menu without tearing the session down; RIDE again in Free ride
+await key('Escape');
+await page.evaluate(() => { const q = document.querySelector('#pause .foot .quit'); q.click(); q.click(); });
+await page.waitForTimeout(300);
+const back = await page.evaluate(() => ({ attract: window.__sim.attract, shown: getComputedStyle(document.querySelector('#menu')).display !== 'none', gates: window.__sim.trialWorld.enabled, live: document.querySelector('#menu').classList.contains('live') }));
+check('Quit returns to the live menu, the course ended', back.attract && back.shown && back.live && !back.gates, JSON.stringify(back));
+// ghosts: a take steps a full rider through the backdrop (a synthetic line down the fall line here)
+const ghost = await page.evaluate(async () => {
+  const s = window.__sim, p = s.pack, x0 = s.rider.x, y0 = s.rider.y;
+  const samples = Array.from({ length: 60 }, (_, i) => { const x = x0 + i * 0.6, y = y0 - i * 0.6; return { t: i * 0.05, x, y, z: p.groundHeight(x, y), h: 0, lg: 0, e: 0, f: 1, hd: 0, vx: 12, vy: -12, vz: 0, ln: 0, fl: 0, sq: 0, jc: 0, on: 0, hc: 0, cf: 0, cs: 0 }; });
+  s.ghosts.add({ version: 1, pack: p.meta.slug, discipline: 'board', stance: 'regular', outfit: 'Neon 90s', samples });
+  const view = () => s.ghosts.group.children.find((c) => c.visible && c.type === 'Group');
+  await new Promise((r) => setTimeout(r, 400));
+  const a = view()?.position.x ?? null;
+  await new Promise((r) => setTimeout(r, 600));
+  const b = view()?.position.x ?? null;
+  return { count: s.ghosts.count, a, b };
+});
+check('a ghost take rides behind the menu', ghost.count >= 1 && ghost.a !== null && ghost.b !== null && ghost.b !== ghost.a, JSON.stringify(ghost));
+await page.evaluate(() => { document.querySelector('#menu .card[data-mode="free"]').click(); document.querySelector('#menu button.ride').click(); });
 await page.waitForTimeout(1500);
+check('RIDE again from the same session', await page.evaluate(() => !window.__sim.attract && !window.__sim.trialWorld.enabled && window.__sim.riderView.group.visible));
 await key('Escape');
 const pauseOpen = await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display !== 'none');
 check('Esc opens pause on Resume', pauseOpen && (await active()) === 'resume', `open ${pauseOpen}, focused ${await active()}`);
@@ -340,8 +395,8 @@ check('pad A on Resume does not jump', closed && charge === 0 && !air, `closed $
 await key('Escape');
 await page.waitForTimeout(200);
 await page.evaluate(() => { document.querySelector('#pause .foot .quit').click(); document.querySelector('#pause .foot .quit').click(); });
-await page.waitForSelector('#menu .panel', { timeout: 30000 }).catch(() => {});
-check('Quit pressed twice goes to the main menu', await page.evaluate(() => !!document.querySelector('#menu .panel')));
+await page.waitForTimeout(300);
+check('Quit pressed twice goes to the main menu', await page.evaluate(() => getComputedStyle(document.querySelector('#menu')).display !== 'none' && window.__sim.attract));
 check('no console errors', errors.length === 0, errors.slice(0, 3).join(' / '));
 await browser.close();
 server.close();

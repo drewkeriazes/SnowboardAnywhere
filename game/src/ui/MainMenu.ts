@@ -26,7 +26,7 @@ export interface MainMenuOpts {
   shot: AttractShot;
   /** counted from the pack (world/AttractShots.ts resortNumbers) */
   numbers: { runs: number; lifts: number; top: number | null; vertical: number | null };
-  /** the still rendered from the shot's pose, shown until the live view is ready */
+  /** the still rendered from the shot's pose, shown until the live view is ready ('' when there is none) */
   still: string;
   resorts: { slug: string; name: string }[];
   audio: GameAudio;
@@ -73,7 +73,7 @@ export class MainMenu {
     this.el = document.createElement('div');
     this.el.id = 'menu';
     this.el.innerHTML = `
-      <img class="still" alt="" src="${esc(o.still)}">
+      ${o.still ? `<img class="still" alt="" src="${esc(o.still)}">` : ''}
       <div class="shade"></div>
       <header class="title">
         ${o.shot.region ? `<div class="region">${esc(o.shot.region)}</div>` : ''}
@@ -83,6 +83,7 @@ export class MainMenu {
       <section class="go">
         <div class="ride-row"><button data-a="ride" class="primary ride">Ride</button><button data-a="map" class="link">or drop in from the map</button></div>
         <div class="start"><span class="where"></span><button class="link" data-reset>reset to resort start</button></div>
+        <div class="ds-connect" style="display:none"><button data-ds-connect class="link">Turn on DualSense rumble and lightbar</button><div class="hint ds-status">Click it with the mouse and pick the controller (once: it reconnects by itself after that).</div></div>
       </section>
       <nav class="corner"><button data-a="settings" class="link">Settings</button><button data-a="controls" class="link">Controls</button><button data-a="credits" class="link">Credits</button></nav>
       <div class="cards">
@@ -100,11 +101,12 @@ export class MainMenu {
       <div class="pop" hidden></div>
       <footer class="foot"><div class="hintbar"></div><div class="sound">Click or press any key for sound</div>${hostedLine()}</footer>
       <div class="loadbar"><div class="fill"></div><span class="label">Loading</span></div>`;
+    this.el.style.display = 'none'; // show() puts it up
     document.body.appendChild(this.el);
     this.hintEl = this.el.querySelector('.hintbar')!;
     this.pop = this.el.querySelector('.pop')!;
-    const still = this.el.querySelector<HTMLImageElement>('.still')!;
-    still.addEventListener('error', () => still.remove()); // no still yet: the dark gradient
+    const still = this.el.querySelector<HTMLImageElement>('.still');
+    still?.addEventListener('error', () => still.remove()); // no still: the dark gradient
 
     // sound: browsers allow audio after a click, tap or key press (a controller button doesn't count)
     const unlock = () => {

@@ -7,7 +7,7 @@ import { RiderView } from './RiderView';
 
 /**
  * FEAT-128: riders dropping a line behind the main menu. Each ghost replays a take Drew recorded and
- * ships with the game (`game/public/attract/<slug>/index.json` lists the files, each an `AttractTake`):
+ * ships with the game (`game/public/attract/index.json` lists each resort's files, each an `AttractTake`):
  * the samples step a full `RiderView` the way the replay viewer poses the rider (no physics). The takes
  * start a couple of seconds apart and loop together.
  */
@@ -35,12 +35,9 @@ export class AttractGhosts {
 
   constructor(private readonly pack: Pack) { this.group.name = 'attract ghosts'; }
 
-  /** Load the resort's takes (none is fine: the backdrop rides empty). */
-  async load(base: string): Promise<number> {
+  /** Load the resort's takes, `files` from the attract manifest (none is fine: the backdrop rides empty). */
+  async load(base: string, ghosts: string[]): Promise<number> {
     try {
-      const res = await fetch(`${base}attract/${this.pack.meta.slug}/index.json`, { cache: 'no-cache' });
-      if (!res.ok) return 0;
-      const { ghosts } = await res.json() as { ghosts: string[] };
       const takes = await Promise.all(ghosts.map(async (f) => { try { const r = await fetch(`${base}attract/${this.pack.meta.slug}/${f}`); return r.ok ? await r.json() as AttractTake : null; } catch { return null; } }));
       for (const t of takes) if (t) this.add(t);
     } catch { /* no takes yet */ }

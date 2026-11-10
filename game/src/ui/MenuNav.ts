@@ -102,9 +102,14 @@ export class Screen {
       const b = el.getBoundingClientRect();
       const dx = b.left + b.width / 2 - ax, dy = b.top + b.height / 2 - ay;
       const along = dir === 'up' ? -dy : dir === 'down' ? dy : dir === 'left' ? -dx : dx;
-      const across = dir === 'up' || dir === 'down' ? Math.abs(dx) : Math.abs(dy);
       if (along <= 1) continue;
-      const score = along + 2 * across;
+      let score: number;
+      if (dir === 'up' || dir === 'down') score = along + 2 * Math.abs(dx);
+      else {
+        // left / right stay on the row: a box that doesn't share the row's height is a far second choice (as FEAT-137's PadNav)
+        const gap = Math.max(0, Math.max(a.top, b.top) - Math.min(a.bottom, b.bottom));
+        score = along + 2 * Math.abs(dy) + (gap > 0 ? 400 : 0);
+      }
       if (score < bestScore) { bestScore = score; best = el; }
     }
     if (best) this.focus(best);
