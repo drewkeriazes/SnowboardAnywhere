@@ -52,7 +52,7 @@ export function setTreeSnow(s: TreeSnowState): void {
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 const smooth = (a: number, b: number, x: number): number => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 
-/** how deep in the winter a month is: 1 Dec to Feb, less either side, 0 in summer */
+/** how deep in the winter a month is (1..12; index 0 repeats Dec): 1 Jan to Mar, 0.7 in Dec (early season, so only a partial ghost), 0 in summer */
 export function winterDepth(month: number): number {
   return [0.7, 1, 1, 1, 0.75, 0.4, 0.15, 0, 0, 0, 0.15, 0.6, 0.7][Math.round(month)] ?? 0;
 }
