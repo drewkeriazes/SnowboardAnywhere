@@ -44,7 +44,26 @@ export const deformUniforms = {
   uDeformWin: { value: new THREE.Vector4(0, 0, 1 / DEFAULT_SIZE, 0) },
   /** one texel in uv, one texel in metres, the mip level whose texel is SAG_TEXEL */
   uDeformPx: { value: new THREE.Vector3(1 / DEFAULT_RES, DEFAULT_SIZE / DEFAULT_RES, Math.log2(DEFAULT_RES / DEFAULT_SIZE * SAG_TEXEL)) },
+  /** FEAT-152: the board set down in deep powder: its centre (three.js x, z) and travel direction (unit x, z) */
+  uDeformHold: { value: new THREE.Vector4(0, 0, 0, -1) },
+  /** FEAT-152: 0..1 how much of the sag is held back ahead of and beside the board (0 = off) */
+  uDeformHoldK: { value: 0 },
 };
+
+/** FEAT-152: the held region: from HOLD_BACK m behind the board's centre (none) to HOLD_FRONT m ahead
+ *  (all of it), out to HOLD_R m from the centre, gone by HOLD_R + HOLD_FADE */
+const HOLD_BACK = -0.4, HOLD_FRONT = 0.3, HOLD_R = 1.4, HOLD_FADE = 1;
+
+/**
+ * FEAT-152: keep the snow wall ahead of a board buried in deep powder. The sag is the stamp blurred
+ * over about a metre, so it would open a dip around the nose and the boots; ahead of and beside the
+ * board it is held back by `k` (0..1), and it stays behind and under the board where the trench is.
+ * `x, z` the board's centre, `fx, fz` its travel direction (three.js, unit).
+ */
+export function setDeformHold(x: number, z: number, fx: number, fz: number, k: number): void {
+  deformUniforms.uDeformHold.value.set(x, z, fx, fz);
+  deformUniforms.uDeformHoldK.value = k;
+}
 
 export const DEFORM_GLSL = /* glsl */ `
   uniform sampler2D uDeform;
@@ -58,8 +77,18 @@ export const DEFORM_GLSL = /* glsl */ `
     float d = min(e.x, e.y);
     return smoothstep(0.0, m, d) * uDeformWin.w;
   }
+  uniform vec4 uDeformHold;
+  uniform float uDeformHoldK;
+  // FEAT-152: 1 where the sag applies, less ahead of and beside a board buried in deep powder
+  float deformHold(vec2 uv) {
+    if (uDeformHoldK <= 0.0) return 1.0;
+    vec2 xz = vec2(uv.x / uDeformWin.z + uDeformWin.x, (1.0 - uv.y) / uDeformWin.z + uDeformWin.y);
+    vec2 d = xz - uDeformHold.xy;
+    float h = smoothstep(${HOLD_BACK.toFixed(2)}, ${HOLD_FRONT.toFixed(2)}, dot(d, uDeformHold.zw)) * (1.0 - smoothstep(${HOLD_R.toFixed(2)}, ${(HOLD_R + HOLD_FADE).toFixed(2)}, length(d)));
+    return 1.0 - uDeformHoldK * h;
+  }
   // the soft sag (m, <= 0): the depression averaged over about SAG_TEXEL metres by the mipmap
-  float deformSag(vec2 uv) { return -textureLod(uDeform, uv, uDeformPx.z).r * ${(HEIGHT_SCALE * SAG_K).toFixed(3)}; }
+  float deformSag(vec2 uv) { return -textureLod(uDeform, uv, uDeformPx.z).r * ${(HEIGHT_SCALE * SAG_K).toFixed(3)} * deformHold(uv); }
   // its slope (d/dx, d/dz in three.js axes) by central differences SAG_TEXEL apart
   vec2 deformSagSlope(vec2 uv) {
     float o = ${SAG_TEXEL.toFixed(1)} * uDeformWin.z;
