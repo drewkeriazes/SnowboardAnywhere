@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
 import { TreeKit, SPECIES_COUNT, VARIANTS, speciesFor, variantFor, crownRadius, hash01, fadeWidth, farAttrs, farGeometry, type FarAttrs } from './trees';
+import { TreeShade } from './TreeShade';
 
 /**
  * Streams tree instances per 1 km cell around the rider and draws them with the FEAT-156 tree kit
@@ -62,6 +63,8 @@ interface Cell {
   imp: THREE.Mesh | null;
   loading: boolean;
   missing: boolean;
+  /** FEAT-171: handed to the shade map */
+  shaded: boolean;
 }
 
 /** one near LOD: an InstancedMesh per species x variant, filled from the trees within `radius` of where it was gathered */
@@ -98,6 +101,11 @@ export class Vegetation {
   private bandSeen = -1;
   /** the cells in range this update (reused, so update() allocates no set per frame) */
   private readonly keep = new Set<string>();
+  /** FEAT-171: the drawn trees' shadows past the shadow map, for the terrain shader (after `enableImpostors`) */
+  shade: TreeShade | null = null;
+  private renderer: THREE.WebGLRenderer | null = null;
+  private readonly sunDir = new THREE.Vector3(0.4, 0.8, 0.4);
+  private readonly height = (x: number, y: number): number => this.pack.demHeight(x, y);
 
   constructor(pack: Pack, collider: Collider | null) {
     this.pack = pack;
@@ -109,15 +117,20 @@ export class Vegetation {
   }
 
   /** Bake the LOD2 / impostor atlases (needs the renderer). `on` false: no billboards, LOD2 runs to the far edge. */
-  enableImpostors(renderer: THREE.WebGLRenderer, on = true): void {
+  enableImpostors(renderer: THREE.WebGLRenderer, on = true, shadeSize = 2048): void {
     this.kit.bake(renderer);
+    this.renderer = renderer;
+    if (!this.shade || this.shade.size !== shadeSize) { this.shade?.dispose(); this.shade = shadeSize > 0 ? new TreeShade(shadeSize) : null; for (const c of this.cells.values()) c.shaded = false; }
     this.impostorsOn = on;
     this.bandSeen = -1;
   }
   /** Light the far LODs like the meshes: the sun (direction toward it) and the hemisphere light. */
   setLight(sunDir: THREE.Vector3, sunColor: THREE.Color, sunIntensity: number, hemiSky: THREE.Color, hemiGround: THREE.Color, hemiIntensity: number): void {
     this.kit.setLight(sunDir, sunColor, sunIntensity, hemiSky, hemiGround, hemiIntensity);
+    this.sunDir.copy(sunDir);
   }
+  /** FEAT-171: where the near trees stop casting into the shadow map (m from the camera): the LOD1 edge's crossfade */
+  castReach(): [number, number] { const b1 = this.band[1], f = fadeWidth(b1) / 2; return [b1 - f, b1 + f]; }
 
   /**
    * Stream cells around the rider (x, y) and the look-ahead point (ax, ay): a cell's distance is to the
@@ -159,13 +172,14 @@ export class Vegetation {
         keep.add(key);
         let cell = this.cells.get(key);
         if (!cell) {
-          cell = { key, cx, cy, data: null, sp: null, va: null, cr: null, yaw: null, tint: null, order: null, tileStart: null, zMin: 0, zMax: 0, far: null, lod2: null, imp: null, loading: false, missing: false };
+          cell = { key, cx, cy, data: null, sp: null, va: null, cr: null, yaw: null, tint: null, order: null, tileStart: null, zMin: 0, zMax: 0, far: null, lod2: null, imp: null, loading: false, missing: false, shaded: false };
           this.cells.set(key, cell);
         }
         if (!cell.data && !cell.loading && !cell.missing) this.load(cell);
         if (cell.loading) pending++;
         if (!cell.data) continue;
         count += cell.data.length / 6;
+        if (this.shade && !cell.shaded) { cell.shaded = true; this.shade.addCell(key, inst.minX + cx * cs, inst.minY + cy * cs, cs, cell.data, cell.cr!, cell.sp!, this.height); }
         if (!far) { pending++; continue; } // waiting for the impostor bake
         // which far LODs this cell needs, from the camera's nearest and farthest distance to it
         const minX = inst.minX + cx * cs, minY = inst.minY + cy * cs;
@@ -186,6 +200,7 @@ export class Vegetation {
     for (const [key, cell] of this.cells) {
       if (keep.has(key)) continue;
       this.dropCell(cell);
+      this.shade?.removeCell(key);
       if (cell.data && this.collider) {
         const minX = inst.minX + cell.cx * cs, minY = inst.minY + cell.cy * cs;
         this.collider.clearRect(minX, minY, minX + cs, minY + cs);
@@ -199,6 +214,7 @@ export class Vegetation {
       const reach = (n.lod === 0 ? b0 + fadeWidth(b0) / 2 : b1 + f1) + margin;
       if (n.dirty || Math.hypot(cpx - n.x, cpy - n.y) > margin || Math.abs(reach - n.radius) > 1) this.gather(n, cpx, cpy, reach);
     }
+    if (this.shade && this.renderer) this.shade.update(this.renderer, cpx, cpy, this.sunDir);
     this.pending = pending;
     this.stats.cells = this.cells.size;
     this.stats.instances = count;

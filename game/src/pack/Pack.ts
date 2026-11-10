@@ -128,6 +128,9 @@ export class Pack {
 
   private readonly baseFn = (x: number, y: number) => this.baseHeight(x, y);
 
+  /** FEAT-171: DEM height from the finest loaded set, without the mogul bumps (slopes at a distance). */
+  demHeight(x: number, y: number): number { return this.baseHeight(x, y); }
+
   /** DEM height from the finest loaded set, without bumps. */
   private baseHeight(x: number, y: number): number {
     let skipped = false;
