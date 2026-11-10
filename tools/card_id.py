@@ -25,7 +25,7 @@ def issues():
     while True:
         out = subprocess.run(
             ["gh", "api", f"repos/{REPO}/issues?state=all&per_page=100&page={page}"],
-            check=True, capture_output=True, text=True,
+            check=True, capture_output=True, text=True, encoding="utf-8",  # BUG-073: not the cp1252 locale
         ).stdout
         batch = json.loads(out)
         if not batch:
@@ -37,6 +37,7 @@ def issues():
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # titles can hold characters the console code page lacks
     seen = {}
     for i in issues():
         m = ID.match(i["title"])
