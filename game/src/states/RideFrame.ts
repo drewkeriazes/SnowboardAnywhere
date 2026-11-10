@@ -3,6 +3,7 @@ import { MOGUL_CREEP_M_PER_DAY } from '../terrain/Moguls';
 import { LENSES, resolveLens, type GoggleLens, type LensId } from '../world/Lens';
 import { setDeformHold } from '../world/Deform';
 import { treeSnowState } from '../world/trees';
+import { snowpackState } from '../sim/Snowpack';
 import type { Conditions, Settings } from '../ui/Settings';
 import { contextPrompt } from '../ui/ContextPrompt';
 import { keyHints } from '../ui/KeyHints';
@@ -310,7 +311,7 @@ export class RideFrame {
 
   /** 11. Streaming around the rider (or the camera when detached), the snow on the ground, lifts and landmarks, the live sun */
   private streaming(dt: number): void {
-    const { cam, terrain, rider, liftRide, prefetch, pack, veg, rocks, sky, snow, settings, sun, params, zr, resortTop, roads, riderChair, lifts, bridges, liftLines, landmarks, map } = this.p;
+    const { cam, terrain, rider, liftRide, prefetch, pack, veg, shrubs, rocks, sky, snow, settings, sun, params, zr, resortTop, roads, riderChair, lifts, bridges, liftLines, landmarks, map } = this.p;
     const onLift = this.onLift, detached = this.detached;
     const cond = this.p.conditions();
     const cp = cam.camera.position;
@@ -321,6 +322,7 @@ export class RideFrame {
     prefetch.update(pack, fx, fy, dt, liftTop);
     veg.update(fx, fy, prefetch.ax, prefetch.ay, cp);
     rocks.update(fx, fy, prefetch.ax, prefetch.ay);
+    shrubs.update(fx, fy, prefetch.ax, prefetch.ay, cp);
     if (sky.weather === 'storm') sky.snowCover = Math.min(1, sky.snowCover + dt / 600);
     else if (sky.weather === 'flurries') sky.snowCover = Math.min(1, sky.snowCover + dt / 3000);
     const snowCover = sky.snowCover;
@@ -348,6 +350,8 @@ export class RideFrame {
       // FEAT-157: snow on the trees: heavy after a storm and mid-winter, melting back on the sun side
       // late on a clear day, snow ghosts high up in deep winter
       veg.kit.setSnow(treeSnowState(snowCover, cond.snowDay ?? 'mid', d.getUTCMonth() + 1, hour, CLEAR[sky.weather] ?? 0.5));
+      // FEAT-159: the shrubs sink into the season's snowpack (?snowdepth= sets one depth everywhere)
+      shrubs.setSnowpack(snowpackState(d.getUTCMonth() + 1, cond.snowDay ?? 'mid', snowCover, params.snowdepth));
     }
     rocks.setSnow(Math.min(1, snowCover * 3), snow.wind.x, snow.wind.y); // boulder tops fill three times faster than the slopes
     roads.update(fx, fy);

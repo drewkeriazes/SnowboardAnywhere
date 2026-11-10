@@ -19,15 +19,15 @@ import { cellRect, barkRect, type UvRect } from './textures';
  * under the cones or on the trunk. The tree shader (snow.ts) turns it into snow on the upper faces.
  */
 
-function rng(seed: number): () => number {
+export function rng(seed: number): () => number {
   let a = seed >>> 0;
   return () => { a = (a + 0x6d2b79f5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
-const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
 /** accumulates one mesh; positions in the unit-height tree frame (natural radius) */
-class Builder {
+export class Builder {
   readonly pos: number[] = [];
   readonly nor: number[] = [];
   readonly uv: number[] = [];
@@ -81,7 +81,7 @@ class Builder {
   }
 }
 
-interface Pt { x: number; y: number; z: number; r: number }
+export interface Pt { x: number; y: number; z: number; r: number }
 
 /** FEAT-157: snow hold on bark (a thin line on the upper side of limbs at most) */
 const TUBE_HOLD = 0.2;
@@ -89,7 +89,7 @@ const TUBE_HOLD = 0.2;
 const TIP_HOLD = 0.4;
 
 /** a tapered tube along a polyline; each segment maps the bark swatch once (it tiles up the trunk) */
-function tube(b: Builder, path: Pt[], sides: number, uv: UvRect, c: THREE.Color, ao: (y: number) => number, _segs = 1, close = false): void {
+export function tube(b: Builder, path: Pt[], sides: number, uv: UvRect, c: THREE.Color, ao: (y: number) => number, _segs = 1, close = false): void {
   for (let s = 0; s < path.length - 1; s++) {
     const p0 = path[s], p1 = path[s + 1];
     const ax = p1.x - p0.x, ay = p1.y - p0.y, az = p1.z - p0.z, al = Math.hypot(ax, ay, az) || 1;
@@ -126,7 +126,7 @@ function tube(b: Builder, path: Pt[], sides: number, uv: UvRect, c: THREE.Color,
  * A branch card: from `o` along `dir` for `len`, `width` across, rolled `roll` about its own axis; the
  * outer half bends down by `bend`. 6 vertices, 4 triangles (2 when `single`).
  */
-function card(b: Builder, o: THREE.Vector3, dir: THREE.Vector3, len: number, width: number, roll: number, bend: number, uv: UvRect, c: THREE.Color, ao: (x: number, y: number, z: number, t: number) => number, single = false, flipV = false): void {
+export function card(b: Builder, o: THREE.Vector3, dir: THREE.Vector3, len: number, width: number, roll: number, bend: number, uv: UvRect, c: THREE.Color, ao: (x: number, y: number, z: number, t: number) => number, single = false, flipV = false): void {
   const d = dir.clone().normalize();
   // the across vector: horizontal, perpendicular to the branch, then rolled about it
   let side = new THREE.Vector3(-d.z, 0, d.x);
@@ -181,7 +181,7 @@ function starCone(b: Builder, y0: number, top: number, r: number, points: number
 }
 
 /** a blob (LOD1 clump): a star ring with an apex above and below */
-function blob(b: Builder, cx: number, cy: number, cz: number, r: number, hUp: number, hDown: number, points: number, rot: number, uv: UvRect, c: THREE.Color): void {
+export function blob(b: Builder, cx: number, cy: number, cz: number, r: number, hUp: number, hDown: number, points: number, rot: number, uv: UvRect, c: THREE.Color): void {
   const n = points * 2;
   const top = b.pos.length / 3;
   const [tnx, tny, tnz] = b.bent(cx, cy + hUp, cz);

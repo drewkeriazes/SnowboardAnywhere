@@ -115,7 +115,7 @@ export class Rider {
   crashed = 0; // seconds remaining in a crash
   /** FEAT-140: which way the crash throws the body, +1 forward along the heading, -1 back, 0 either (a press slam falls over its loaded end) */
   crashFall = 0;
-  surface: SurfaceInfo = { rock: 0, scree: 0, groomed: 0, canopy: 0, moguls: 0 };
+  surface: SurfaceInfo = { rock: 0, scree: 0, groomed: 0, canopy: 0, moguls: 0, shrub: 0 };
   /** FEAT-053: the snow here (groomed / powder / chop / ice / slush weights and the physics they set) */
   readonly snow: SnowState = newSnowState();
   /** FEAT-053: the day's conditions (main.ts sets the hour, weather, new snow and the setting) */
@@ -403,6 +403,7 @@ export class Rider {
       this.surface.rock = cov.rock; this.surface.scree = cov.scree; this.surface.groomed = m[2]; this.surface.canopy = m[3];
     }
     this.surface.moguls = pack.mogulAmp?.(this.x, this.y) ?? 0; // FEAT-059 (test planes may lack the method)
+    this.surface.shrub = this.collider?.brushAt?.(this.x, this.y, this.z, 0.35) ?? 0; // FEAT-159
     snowAt(this.surface, n, this.z, this.snowWorld, this.snow); // FEAT-053
     this.chop *= Math.exp(-dt * 6);
     if (this.strapState !== 'none') { strapStep(this, dt, ground); return; }

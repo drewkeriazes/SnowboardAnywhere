@@ -32,6 +32,8 @@ let LOD0_ON = true;
 let bandsVersion = 0;
 /** FEAT-153: how far the tree impostors reach (m), where the terrain's canopy lift takes over */
 export function vegetationFarRadius(): number { return FAR_RADIUS; }
+/** FEAT-159: the near radius (1500 m at full density); the shrubs scale their 300 m reach by it */
+export function vegetationNearRadius(): number { return NEAR_RADIUS; }
 /** Headless / weak GPU: far fewer instances; `lod0` false draws LOD1 from the camera out (the Low preset). */
 export function setVegetationBudget(near: number, far: number, lod0 = true): void { NEAR_RADIUS = near; FAR_RADIUS = far; LOD_K = Math.max(0.5, Math.min(1, near / 1500)); LOD0_ON = lod0; bandsVersion++; }
 /** Scale the near/far radii by a 0.25..1 density (1 = full 1500 / 4500 m); the LOD0 / LOD1 reach scales more gently. */

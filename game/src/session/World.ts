@@ -8,6 +8,7 @@ import { Landmarks } from '../world/Landmarks';
 import { Clouds } from '../world/Clouds';
 import { Snow } from '../world/Snow';
 import { Vegetation } from '../world/Vegetation';
+import { Shrubs } from '../world/Shrubs';
 import { TreeFade } from '../world/TreeFade';
 import { Rocks } from '../world/Rocks';
 import { LiftLines } from '../world/LiftLines';
@@ -50,6 +51,8 @@ export function buildWorld(ctx: GameContext) {
   const veg = new Vegetation(pack, collider);
   const treeFade = new TreeFade();
   add('trees', veg.group);
+  const shrubs = new Shrubs(pack, collider, veg.kit); // FEAT-159: willow, juniper, sagebrush, oak and young conifers, buried by the snowpack
+  add('shrubs', shrubs.group);
   const rocks = new Rocks(pack, collider);
   add('rocks', rocks.group);
   const lifts = new Lifts(pack);
@@ -100,6 +103,7 @@ export function buildWorld(ctx: GameContext) {
   // cascaded shadows: every lit material gets the CSM hook
   env.registerMaterial(terrain.material);
   for (const m of Object.values(veg.mat)) env.registerMaterial(m);
+  for (const m of Object.values(shrubs.mat)) env.registerMaterial(m);
   env.registerMaterial(tracks.material); // BUG-021: tree and ridge shadows fall on the track like on the snow
   env.registerMaterial(rocks.material); env.registerMaterial(buildings.material); env.registerMaterial(roads.material); env.registerMaterial(lifts.material);
   for (const m of Object.values(riderView.mats)) env.registerMaterial(m);
@@ -109,7 +113,7 @@ export function buildWorld(ctx: GameContext) {
   veg.enableImpostors(renderer, !params.noimpostors, params.lowgfx ? 1024 : 2048); // FEAT-156: bakes the LOD2 / impostor atlases either way
   terrain.setTreeShade(veg.shade); // FEAT-171: the drawn trees' shadows past the shadow map
   return {
-    zr, env, clouds, snow, terrain, collider, veg, treeFade, rocks, lifts, liftLines, resortTop, runs, buildings, roads, landmarks, bridges,
+    zr, env, clouds, snow, terrain, collider, veg, shrubs, treeFade, rocks, lifts, liftLines, resortTop, runs, buildings, roads, landmarks, bridges,
     tracks, bootprints, riderChair, puffs, particleLight, bigprints, deform, monsters, eat, courses, trialWorld, riderView,
   };
 }

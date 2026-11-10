@@ -2,8 +2,9 @@
 // game's midday light (ACES, exposure 0.75, sun 3.7, sky-blue hemisphere), and exposes window.treeshot
 // for the node script: lineup(snow), lods(species), snowLods(species), distance(), stats(). Each returns a PNG data URL.
 import * as THREE from 'three';
-import { TreeKit, SPECIES, farAttrs, farGeometry, fadeWidth } from '../../src/world/trees';
+import { TreeKit, SPECIES, farAttrs, farGeometry, fadeWidth, treeMaterial, buildShrubGeometries, SHRUBS, YOUNG_CONIFER } from '../../src/world/trees';
 import { treeSnowUniforms } from '../../src/world/trees/snow';
+import { buryShrub, SHRUB_MIN_SHOW } from '../../src/world/Shrubs';
 
 const W = 1600;
 const canvas = document.createElement('canvas');
@@ -312,8 +313,78 @@ function impostorAtlas(): string {
   return out.toDataURL('image/png');
 }
 
-function stats(): unknown {
-  return { ...kit.stats(), kitMs: tKit, atlasTimes: (globalThis as unknown as { __atlasTimes?: number[] }).__atlasTimes };
+// ---------------------------------------------------------------- FEAT-159: the shrubs
+
+const youngTris = Math.max(...[0, 3].flatMap((s) => kit.geo.lod1[s].map((g) => g.index!.count / 3)));
+const shrubGeo = buildShrubGeometries(kit.atlas.cellMean, kit.atlas.barkMean, youngTris);
+const shrubBand = { value: new THREE.Vector4(-2, -1, 1e8, 1e8 + 1) };
+const shrubMat = treeMaterial(kit.atlas.texture, { band: shrubBand, wind: { value: 0 }, alphaToCoverage: true, shrub: true });
+const youngMat = treeMaterial(kit.atlas.texture, { band: shrubBand, wind: { value: 0 }, alphaToCoverage: false, snowK: 0.6, shrub: true });
+
+/** a shrub of `kind` (variant v; young conifers: v 0..3 spruce, 4..7 fir) h m tall with crown radius r, under `depth` m of snow, at (x, z) */
+function addShrub(kind: number, v: number, x: number, z: number, h: number, r: number, depth: number, yaw: number): boolean {
+  const b = buryShrub(kind, h, depth);
+  if (b.vis < SHRUB_MIN_SHOW) return false;
+  const src = kind === YOUNG_CONIFER ? kit.geo.lod1[v < 4 ? 0 : 3][v % 4] : shrubGeo.geo[kind][v % SHRUBS[kind].variants];
+  const g = new THREE.BufferGeometry();
+  g.index = src.index;
+  for (const n of Object.keys(src.attributes)) g.setAttribute(n, src.getAttribute(n));
+  g.setAttribute('aShrub', new THREE.InstancedBufferAttribute(new Float32Array([b.line, b.mound, SHRUBS[kind].drift]), 3));
+  const mesh = new THREE.InstancedMesh(g, kind === YOUNG_CONIFER ? youngMat : shrubMat, 1);
+  tmpQ.setFromAxisAngle(up, yaw);
+  tmpM.compose(new THREE.Vector3(x, b.vis - h, z), tmpQ, new THREE.Vector3(r, h, r));
+  mesh.setMatrixAt(0, tmpM);
+  mesh.setColorAt(0, new THREE.Color(1, 1, 1));
+  mesh.castShadow = true;
+  mesh.frustumCulled = false;
+  trees.add(mesh);
+  return true;
 }
 
-(window as unknown as { treeshot: unknown }).treeshot = { lineup, lods, snowLods, snowStats: () => snowStats, distance, atlas, impostorAtlas, stats, ready: true };
+/** the lineup's shrubs: kind, variant, height (m), crown radius (m) */
+const SHRUB_LINE: [number, number, number, number][] = [
+  [0, 0, 1.2, 0.42], [0, 1, 2, 0.7], [0, 2, 3, 1.05],
+  [1, 0, 0.35, 0.6], [1, 1, 0.7, 1], [1, 0, 1, 1.4],
+  [2, 0, 0.55, 0.35], [2, 1, 0.9, 0.5], [2, 0, 1.2, 0.7],
+  [4, 0, 1.4, 1], [4, 1, 2.6, 1.6],
+  [3, 0, 1.4, 0.45], [3, 4, 2.4, 0.6], [3, 1, 3.8, 0.95],
+];
+
+/**
+ * FEAT-159: the shrubs at snow depths 0, 0.5 and 1.5 m: each depth from the side (ortho, the 5 m grid and
+ * the 1.8 m rider) and from above at 30 degrees, front lit, a winter snow load on the tops.
+ */
+function shrubs(): string {
+  const depths = [0, 0.5, 1.5], stripH = 300, slot = 3.4, x0 = -slot * (SHRUB_LINE.length - 1) / 2;
+  const out = document.createElement('canvas'); out.width = W; out.height = stripH * depths.length * 2;
+  const ctx = out.getContext('2d')!;
+  kit.setSnow({ load: 0.45, melt: 0, ghost: 0 });
+  gridBack.position.set(0, 0, -4); gridGround.visible = true; gridBack.visible = true;
+  const halfW = slot * SHRUB_LINE.length / 2 + 1.5, tall = 2 * halfW * stripH / W;
+  const side = new THREE.OrthographicCamera(-halfW, halfW, tall - 0.8, -0.8, 1, 1000);
+  side.position.set(0, 0, 60); side.lookAt(0, 0, 0);
+  const top = new THREE.PerspectiveCamera(14, W / stripH, 0.5, 500);
+  top.position.set(0, 16, 32); top.lookAt(0, 0.6, 0);
+  let row = 0;
+  depths.forEach((dep) => {
+    clearTrees();
+    const shown = SHRUB_LINE.map(([k, v, h, r], i) => addShrub(k, v, x0 + i * slot, 0, h, r, dep, 0.5 + i * 1.1));
+    rider.position.set(x0 - 3, 0, 1.5); rider.rotation.y = 0.6;
+    light('front', new THREE.Vector3(0, 0, 0), 40);
+    for (const [cam, name] of [[side, 'side'], [top, 'from above']] as const) {
+      ctx.drawImage(render(cam, W, stripH), 0, row * stripH);
+      label(ctx, `snow depth ${dep} m - ${name}`, 10, row * stripH + 22);
+      if (cam === side) SHRUB_LINE.forEach(([k, , h], i) => label(ctx, `${SHRUBS[k].name.replace('young conifer', 'young').replace('gambel oak', 'oak')} ${h}${shown[i] ? '' : ' (buried)'}`, ((x0 + i * slot - side.left) / (side.right - side.left)) * W - 34, row * stripH + stripH - 10));
+      row++;
+    }
+  });
+  snowLevel(0);
+  clearTrees();
+  return out.toDataURL('image/png');
+}
+
+function stats(): unknown {
+  return { ...kit.stats(), kitMs: tKit, atlasTimes: (globalThis as unknown as { __atlasTimes?: number[] }).__atlasTimes, shrubs: shrubGeo.triangles, shrubMs: shrubGeo.ms };
+}
+
+(window as unknown as { treeshot: unknown }).treeshot = { lineup, shrubs, lods, snowLods, snowStats: () => snowStats, distance, atlas, impostorAtlas, stats, ready: true };

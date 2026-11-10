@@ -12,10 +12,10 @@ import type { World } from './World';
  */
 export async function warmUp(
   ls: { set(f: number, label: string): void },
-  w: Pick<World, 'terrain' | 'veg' | 'rocks'>, pack: Pack, focus: () => { x: number; y: number },
+  w: Pick<World, 'terrain' | 'veg' | 'rocks' | 'shrubs'>, pack: Pack, focus: () => { x: number; y: number },
   renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera,
 ): Promise<void> {
-  const { terrain, veg, rocks } = w;
+  const { terrain, veg, rocks, shrubs } = w;
   const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
   terrain.budgetMs = 12; terrain.maxBuilds = 64; veg.budgetMs = 12;
   const tiles = () => [pack.fine, pack.mid, pack.far, pack.mask, pack.ao, pack.dir, pack.moguls].reduce((n, t) => n + (t?.inFlight ?? 0), 0);
@@ -28,8 +28,9 @@ export async function warmUp(
     const f = focus();
     veg.update(f.x, f.y, f.x, f.y, cp);
     rocks.update(f.x, f.y);
+    shrubs.update(f.x, f.y, f.x, f.y, cp);
     const tl = tiles();
-    const left = terrain.pending + tl + veg.pending + rocks.pending;
+    const left = terrain.pending + tl + veg.pending + rocks.pending + shrubs.pending;
     peak = Math.max(peak, left);
     ls.set(0.85 * (1 - left / peak), `Terrain ${terrain.pending + tl} · trees ${veg.pending} · rocks ${rocks.pending}`);
     settled = left === 0 ? settled + 1 : 0;

@@ -6,7 +6,8 @@ import { treeMaterial, treeDepthMaterial, farMaterial, bakeMaterial, kitUniforms
 import { setTreeSnow, type TreeSnowState } from './snow';
 
 export { SPECIES, SPECIES_COUNT, VARIANTS, speciesFor, variantFor, crownRadius, hash01 } from './species';
-export { kitUniforms } from './materials';
+export { kitUniforms, treeMaterial, treeDepthMaterial, newBand } from './materials';
+export { SHRUBS, SHRUB_KINDS, WILLOW, JUNIPER, SAGE, YOUNG_CONIFER, OAK, buildShrubGeometries, type ShrubKind, type ShrubGeometrySet } from './shrubs';
 export { treeSnowState, winterDepth, type TreeSnowState } from './snow';
 
 /**

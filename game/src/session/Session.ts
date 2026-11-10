@@ -445,7 +445,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     void ghosts.loaded.then(() => { ghostsIn = true; });
     const MENU_WAIT_MS = 8000;
     /** something in the backdrop shot is still downloading or building */
-    const shotBusy = (): boolean => !ghostsIn || terrain.pending > 0 || veg.pending > 0 || world.rocks.pending > 0
+    const shotBusy = (): boolean => !ghostsIn || terrain.pending > 0 || veg.pending > 0 || world.rocks.pending > 0 || world.shrubs.pending > 0
       || [pack.fine, pack.mid, pack.far, pack.mask, pack.ao, pack.dir].some((t) => (t?.inFlight ?? 0) > 0);
     /** every display frame, drawn or skipped by the 30 fps cap */
     function everyFrame(): void {
@@ -485,7 +485,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
         : null,
       ready: () => {
         status.textContent = '';
-        installSimDebug({ events, ghosts, menu, shot, rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, scene, eyeAt, outrun: modes.outrun.sim, monsters, startOutrun: () => modes.outrun.start(), stopOutrun: () => modes.outrun.end(), treeFadeUniforms,
+        installSimDebug({ events, ghosts, menu, shot, rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, shrubs: world.shrubs, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, scene, eyeAt, outrun: modes.outrun.sim, monsters, startOutrun: () => modes.outrun.start(), stopOutrun: () => modes.outrun.end(), treeFadeUniforms,
           /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
           setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
           /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */
