@@ -5,7 +5,9 @@
 // The drift grows with speed and bumps, Easy lasts longer, a lost press stays flat until the key is
 // let go, an over-press below 3 m/s stalls instead of slamming, an ollie out of a press reports it
 // clean and a short hop rides through, a quick player never loses one (no time limit, even on Hard),
-// and holding the press key through a trick lands into the press. Prints the median press times.
+// and holding the press key through a trick lands into the press. FEAT-152: in deep powder a nose press
+// digs the nose in, slows the board and is pulled on toward the nose; a tail press lifts it out, keeps
+// the speed and is steadier. Prints the median press times.
 // node tools/presscheck.mjs        (exit code 1 if a check fails)
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -18,13 +20,13 @@ const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'presscheck-')), 'ri
 await build({ entryPoints: [path.join(GAME, 'src', 'sim', 'Rider.ts')], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error' });
 const { Rider } = await import(pathToFileURL(out).href);
 
-/** a plane falling away to -y at `deg`, optionally with moguls (amplitude m, wavelength m); groomed everywhere */
-function plane(deg, mogul = 0, wave = 6) {
+/** a plane falling away to -y at `deg`, optionally with moguls (amplitude m, wavelength m); groomed everywhere, or off-piste (`groomed` 0) */
+function plane(deg, mogul = 0, wave = 6, groomed = 1) {
   const SL = Math.tan(deg * Math.PI / 180), k = 2 * Math.PI / wave;
   const h = (x, y) => SL * y + mogul * Math.sin(k * x) * Math.sin(k * y);
   return {
     coarseFallbacks: 0,
-    mask: { sample: (_x, _y, o) => { const m = o ?? [0, 0, 0, 0]; m[0] = 0; m[1] = 0; m[2] = 1; m[3] = 0; return m; } },
+    mask: { sample: (_x, _y, o) => { const m = o ?? [0, 0, 0, 0]; m[0] = 0; m[1] = 0; m[2] = groomed; m[3] = 0; return m; } },
     groundHeight: h,
     groundNormal: (x, y, o) => {
       const e = 0.25, dx = (h(x + e, y) - h(x - e, y)) / (2 * e), dy = (h(x, y + e) - h(x, y - e)) / (2 * e), l = Math.hypot(dx, dy, 1);
@@ -32,6 +34,8 @@ function plane(deg, mogul = 0, wave = 6) {
     },
   };
 }
+/** FEAT-152: a powder day (a full New snow cover, fresh, mid-morning), off-piste it is deep loose snow */
+const POWDER_DAY = { newSnow: 1, day: 'fresh', hour: 10, storm: 0 };
 const inp = (o = {}) => ({ steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false, lean: 0, balance: 0, ...o });
 let fails = 0;
 const check = (name, ok, detail = '') => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ': ' + detail : ''}`); if (!ok) fails++; };
@@ -52,9 +56,10 @@ const player = (band, delay) => {
  * Ride `pre` s down the plane, then hold a press (dir +1 nose, -1 tail) up to `max` s, with W / S from
  * `ctl`. Returns how it ended and the reports.
  */
-function press({ deg = 12, mogul = 0, mode = 'on', dir = -1, seed = 1, pre = 3, max = 30, ctl = null, speed = null }) {
-  const r = new Rider(plane(deg, mogul), null);
+function press({ deg = 12, mogul = 0, mode = 'on', dir = -1, seed = 1, pre = 3, max = 30, ctl = null, speed = null, powder = false }) {
+  const r = new Rider(plane(deg, mogul, 6, powder ? 0 : 1), null);
   r.pressMode = mode;
+  if (powder) Object.assign(r.snowWorld, POWDER_DAY);
   const reports = [];
   r.onPress = (how, d, t, dist) => reports.push({ how, d, t, dist });
   r.reset(0, 0, Math.PI, seed);
@@ -166,6 +171,31 @@ check('Easy lasts longer with no correction', T.easy > T.none * 1.5, `${T.easy.t
   const lean = r.lean;
   for (let j = 0; j < 30; j++) r.update(1 / 60, inp());
   check('holding the press key through a trick lands into the press, named after the trick', tricks.length === 1 && lean > 0.5 && reports.length === 1 && reports[0].from === tricks[0], `trick ${tricks.join('/')}, lean on the snow ${lean.toFixed(2)}, ${JSON.stringify(reports)}`);
+}
+
+// ---- FEAT-152: presses in deep powder
+{
+  const probe = press({ powder: true, mode: 'off', max: 0.5, speed: 4 });
+  const depth = probe.r.snow.depth;
+  check('the powder day off-piste is deep loose snow', probe.r.snow.powder > 0.5 && depth >= 0.2, `powder ${probe.r.snow.powder.toFixed(2)}, ${(depth * 100).toFixed(0)} cm`);
+  // the nose dig at a held 3 m/s: forward digs it in, back lifts it out
+  const dig = (lean) => press({ powder: true, mode: 'off', dir: lean, max: 2, speed: 3 }).r.noseSink;
+  const D = { nose: dig(1), flat: dig(0), tail: dig(-1) };
+  check('slow in powder a nose press digs the nose in and a tail press lifts it out', D.nose > D.flat * 1.3 && D.tail < D.flat * 0.5, `sink nose ${D.nose.toFixed(2)}, flat ${D.flat.toFixed(2)}, tail ${D.tail.toFixed(2)}`);
+  // coasting 3 s from 3 m/s on a gentle pitch: the tail press keeps its speed, the nose press loses it
+  const coast = (lean) => { const p = press({ powder: true, deg: 8, mode: 'off', dir: lean, max: 0.01, speed: 3 }); for (let k = 0; k < 180; k++) p.r.update(1 / 60, inp({ lean })); return p.r.speed; };
+  const V = { nose: coast(1), flat: coast(0), tail: coast(-1) };
+  check('in powder a tail press keeps the speed and a nose press bleeds it', V.tail > V.flat && V.nose < V.flat - 0.3, `after 3 s: nose ${V.nose.toFixed(1)}, flat ${V.flat.toFixed(1)}, tail ${V.tail.toFixed(1)} m/s`);
+  // balance, no correction, held 6 m/s: a nose press is pulled toward its buried nose, a tail press is steadier
+  const loseTo = (o) => SEEDS.map((seed) => press({ ...o, seed, speed: 6 }));
+  const share = (ends) => ends.filter((p) => p.end && (p.end.how === 'slam' || p.end.how === 'stall')).length / ends.length;
+  const NG = loseTo({ dir: 1 }), NP = loseTo({ dir: 1, powder: true });
+  check('a nose press in powder goes over the nose more often', share(NP) > share(NG) + 0.15, `over the nose ${(share(NP) * 100).toFixed(0)}% in powder vs ${(share(NG) * 100).toFixed(0)}% on the groomer`);
+  const sloppy = () => player(0.35, 0.3);
+  const tG = median(times({ dir: -1, speed: 6, ctl: sloppy() })), tP = median(times({ dir: -1, speed: 6, powder: true, ctl: sloppy() }));
+  const nG = median(times({ dir: 1, speed: 6, ctl: sloppy() })), nP = median(times({ dir: 1, speed: 6, powder: true, ctl: sloppy() }));
+  console.log(`median press, sloppy player, 6 m/s (s): tail groomer ${tG.toFixed(1)} powder ${tP.toFixed(1)}; nose groomer ${nG.toFixed(1)} powder ${nP.toFixed(1)}`);
+  check('a tail press in powder lasts longer than on the groomer, a nose press shorter', tP > tG && nP < nG, `tail ${tG.toFixed(1)} -> ${tP.toFixed(1)}, nose ${nG.toFixed(1)} -> ${nP.toFixed(1)}`);
 }
 
 console.log(fails ? `${fails} check(s) failed` : 'all checks passed');

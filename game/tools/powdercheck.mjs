@@ -2,8 +2,9 @@
 // a set of speeds and checks how far the board is drawn down into the snow (about 0.7 of the depth when
 // slow, less as it planes, a few cm at high speed), the nose-up pitch, the snow cover and the sag held
 // ahead of the board; then the same on the groomers with no new snow (nothing changes there), and on
-// foot (the boots sit down by the whole boot sink). Saves chase, low side and close front shots at
-// each speed, a groomer shot to compare, and an on-foot shot.
+// foot (the boots sit down by the whole boot sink), and a held tail and nose press (the held sag moves
+// to the end that is down). Saves chase, low side and close front shots at each speed, press shots, a
+// groomer shot to compare, and an on-foot shot.
 // node tools/powdercheck.mjs [pack] [outDir] [--headed | --gpu]   (run after `npx vite build`; exit 1 on a failed check)
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
@@ -96,6 +97,25 @@ check('a few cm at high speed', fast.sink > 0.01 && fast.sink <= 0.045, `${(fast
 check('nose up, tail low while riding', mid.pitchDeg >= 4 && mid.pitchDeg <= 10 && plane.pitchDeg >= 3, `${mid.pitchDeg} deg at 5 m/s, ${plane.pitchDeg} at 12`);
 check('the tail never goes deeper than the loose snow', [slow, mid, plane, fast].every((s) => s.sink + 0.72 * Math.sin(Math.max(0, s.pitchDeg) * Math.PI / 180) <= 0.91 * s.depth), '');
 check('snow covers the buried gear and the sag is held ahead of it', slow.cover === 1 && slow.hold === 1, `cover ${slow.cover}, hold ${slow.hold}`);
+// presses (balance Off, so they hold): the sag held ahead of the board moves to the end that is down
+await page.evaluate(() => { const s = window.__sim; s.settings.pressBalance = 'off'; s.rider.pressMode = 'off'; });
+const pressAt = async (key, speed, label) => {
+  await page.keyboard.down(key);
+  const st = await hold(60, speed);
+  const shift = await page.evaluate(() => { const r = window.__sim.rider, h = window.__sim.riderView.powderHold; return +((h.x - r.x) * h.fx + (h.z + r.y) * h.fz).toFixed(2); });
+  const lean = await page.evaluate(() => +window.__sim.rider.lean.toFixed(2));
+  await shot(`${label}_chase`, 3.2, 0.8, 1.4, 0);
+  await shot(`${label}_side`, 0.2, 2.2, 0.35, 0, 0.1);
+  await page.keyboard.up(key);
+  await hold(30, speed);
+  console.log(label, JSON.stringify({ ...st, lean, shift }));
+  return { ...st, lean, shift };
+};
+const tailP = await pressAt('z', 10, 'powder_tailpress_10'), noseP = await pressAt('q', 2, 'powder_nosepress_2');
+check('a held tail press leans back and moves the held sag back over the tail', tailP.lean < -0.9 && tailP.shift < -0.3, `lean ${tailP.lean}, shift ${tailP.shift} m`);
+check('a held nose press leans forward, digs the nose in and moves the held sag forward', noseP.lean > 0.9 && noseP.shift > 0.3 && noseP.noseSink > slow.noseSink, `lean ${noseP.lean}, shift ${noseP.shift} m, nose dig ${noseP.noseSink} vs ${slow.noseSink} flat at 1.5 m/s`);
+await page.evaluate(() => { const s = window.__sim; s.settings.pressBalance = 'on'; s.rider.pressMode = 'on'; });
+
 // in the air the board comes up out of the snow
 const air = await page.evaluate(() => {
   const s = window.__sim, r = s.rider;

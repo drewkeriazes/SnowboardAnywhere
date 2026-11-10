@@ -93,6 +93,8 @@ const BURY_SLOW = 0.7, BURY_PLANED = 0.35, BURY_PLANE_FROM = 3, BURY_FAST = 0.04
 const BURY_PITCH_SLOW = 8 * Math.PI / 180, BURY_PITCH_FAST = 4 * Math.PI / 180, NOSE_DIG = 3 * Math.PI / 180, BURY_TAU = 0.1;
 /** FEAT-152: the snow cover is all in by this sink (m), and the sag is held ahead of the board by this sink */
 const COVER_FULL = 0.03, HOLD_FULL = 0.05;
+/** FEAT-152: a full press moves the sag held ahead of the board this far (m) toward the end that is down */
+const HOLD_SHIFT = 0.35;
 
 const d2r = Math.PI / 180;
 const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -1004,6 +1006,9 @@ export class RiderView {
     h.x = r.x; h.z = -r.y;
     if (sp > 0.5) { h.fx = r.vx / sp; h.fz = -r.vy / sp; }
     else { const l = Math.hypot(f.x, f.z) || 1; h.fx = fl * f.x / l; h.fz = fl * f.z / l; }
+    // a press moves it to the end that is down: back over the buried tail of a tail press, on toward the nose of a nose press
+    const shift = HOLD_SHIFT * Math.max(-1, Math.min(1, r.lean ?? 0));
+    h.x += h.fx * shift; h.z += h.fz * shift;
   }
 
   /** FEAT-152 on foot: the boots sit down by the whole boot sink in deep powder and the snow covers them (the shins in deep snow) */

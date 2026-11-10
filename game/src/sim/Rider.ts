@@ -86,6 +86,11 @@ export function bootSink(snow: SnowState): number {
  *  the drag per m/s before that (per unit powder), and the nose-sink drag (g) at a standstill that
  *  is gone by SINK_SPEED m/s */
 export const PLANE_SPEED = 12; const POWDER_DRAG = 0.012, SINK_DRAG = 0.08, SINK_SPEED = 6;
+/** FEAT-152 presses in deep powder (scaled by powder x depth): weight forward digs the nose in (up to
+ *  SINK_NOSE times the nose dig, and on to SINK_NOSE_SPEED times the speed), weight back lifts it out
+ *  (SINK_TAIL of the dig gone, the speed it lasts to cut by the same share); the press's own drag is
+ *  PD_NOSE_DRAG times more on a nose press and PD_TAIL_EASE (all) of it gone on a tail press (the way powder is ridden) */
+const SINK_NOSE = 0.6, SINK_NOSE_SPEED = 0.6, SINK_TAIL = 0.75, PD_NOSE_DRAG = 1.5, PD_TAIL_EASE = 1;
 /** FEAT-053 chop: a jolt every CHOP_GAP s (random, about), kicking the heading up to CHOP_YAW rad and
  *  the board sideways up to CHOP_KICK m/s at full chop and speed, smaller at low speed (gone by CHOP_SPEED) */
 const CHOP_GAP = 0.2, CHOP_YAW = 0.035, CHOP_KICK = 0.3, CHOP_SPEED = 12;
@@ -276,6 +281,10 @@ const PB_LEVEL: Record<Exclude<PressMode, 'off'>, [number, number]> = { easy: [0
 const PB_BUMP_ACC = 15, PB_CRUD = 0.35, PB_BUMP_DRIFT = 2, PB_AIR = 0.3;
 /** FEAT-140: a press that starts within this long of landing a trick (s) is landed into from it ("Backflip to tail press") */
 const PB_LAND_WINDOW = 0.5;
+/** FEAT-152 presses in deep powder (scaled by powder x depth): a nose press is pulled on toward its
+ *  buried nose at PB_POWDER needle units/s when slow (PB_POWDER_FAST of it from PLANE_SPEED), and a
+ *  tail press, the nose up out of the snow, has PB_POWDER_STEADY less drift and jitter and PB_POWDER_CALM less runaway */
+const PB_POWDER = 0.55, PB_POWDER_FAST = 0.4, PB_POWDER_STEADY = 0.4, PB_POWDER_CALM = 0.25;
 /** FEAT-140: a press held shorter than this (s) ends without a report */
 export const PRESS_MIN_REPORT = 0.5;
 
@@ -614,11 +623,15 @@ export class Rider {
     const push = this.pbPushLeft > 0 ? this.pbPushV : 0;
     this.pbPushLeft -= dt;
     const hold = 1 + PB_HOLD_MAX * (1 - Math.exp(-this.pressT / PB_HOLD_T));
-    const drift = PB_DRIFT * e * hold * (1 + PB_SPEED * spd) * (1 + PB_BUMP_DRIFT * this.pbBump) * this.pbDrift;
-    const jitter = PB_BUMP * e * this.pbBump * this.pbNoise;
+    // FEAT-152: deep powder pulls a nose press on into the snow and steadies a tail press
+    const pd = this.snow.powder * Math.min(1, this.snow.depth / 0.3);
+    const steady = this.pressDir < 0 ? 1 - PB_POWDER_STEADY * pd : 1;
+    const pull = this.pressDir > 0 ? PB_POWDER * e * pd * (1 - (1 - PB_POWDER_FAST) * Math.min(1, spd / PLANE_SPEED)) : 0;
+    const drift = PB_DRIFT * e * hold * (1 + PB_SPEED * spd) * (1 + PB_BUMP_DRIFT * this.pbBump) * this.pbDrift * steady + pull;
+    const jitter = PB_BUMP * e * this.pbBump * this.pbNoise * steady;
     const b = this.pressBalance;
     // the runaway grows with the time held too: a long press needs quicker, finer corrections, never more than W / S has
-    const runaway = PB_UNSTABLE * u * hold * b;
+    const runaway = PB_UNSTABLE * u * hold * b * (this.pressDir < 0 ? 1 - PB_POWDER_CALM * pd : 1);
     // W / S shift the weight, which takes PB_SHIFT_T to build or let go: react late or overcorrect and it costs you
     this.pbCorr += (Math.max(-1, Math.min(1, input.balance ?? 0)) - this.pbCorr) * Math.min(1, dt / PB_SHIFT_T);
     const corr = this.pbCorr * Math.max(PB_CORRECT, PB_CORRECT_OVER * (Math.abs(drift) + Math.abs(jitter) + Math.abs(runaway)));
@@ -951,9 +964,13 @@ export class Rider {
     // snow state sets the constant and speed-scaled drag by condition; powder adds speed-scaled drag
     // until the board planes at PLANE_SPEED (float), and slow in powder the nose sinks and digs in
     const aeroK = input.tuck ? F.aeroTuck : F.aero + (F.aeroTuck - F.aero) * SQUAT_AERO * this.squat; // a squat is part way to a tuck
-    const aero = aeroK * spd * spd * (this.boost ? 0.55 : 1) + PRESS_DRAG * Math.abs(this.lean) * spd; // FEAT-112: the loaded end digs in
     const deep = Math.min(1, snow.depth / 0.3);
-    const sinkNow = snow.powder * deep * Math.max(0, 1 - spd / SINK_SPEED);
+    // FEAT-152: in deep powder a lean forward digs the nose in and a lean back lifts it out
+    const pd = snow.powder * deep, fwd = Math.max(0, this.lean), back = Math.max(0, -this.lean);
+    const pressDrag = PRESS_DRAG * Math.abs(this.lean) * spd * (1 + PD_NOSE_DRAG * pd * fwd - PD_TAIL_EASE * pd * back);
+    const aero = aeroK * spd * spd * (this.boost ? 0.55 : 1) + pressDrag; // FEAT-112: the loaded end digs in
+    const sinkSpeed = SINK_SPEED * (1 + SINK_NOSE_SPEED * fwd - SINK_TAIL * back);
+    const sinkNow = Math.min(1, pd * Math.max(0, 1 - spd / sinkSpeed) * (1 + SINK_NOSE * fwd - SINK_TAIL * back));
     this.noseSink += (sinkNow - this.noseSink) * Math.min(1, dt * 6);
     const snowDrag = snow.drag0 + snow.drag1 * spd
       + snow.powder * POWDER_DRAG * Math.min(spd, PLANE_SPEED) * (0.6 + 0.6 * deep) + sinkNow * SINK_DRAG * G
