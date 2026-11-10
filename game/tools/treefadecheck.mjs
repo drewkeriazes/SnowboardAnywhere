@@ -1,9 +1,9 @@
 // See-through trees (FEAT-155): finds a tall tree on a slope with a clear line up the fall line above
-// it, rides the chase camera down toward it and checks, by comparing the same frame with the fade on
-// and off, that the tree ahead turns see-through (a good share of its pixels change) while a tree well
-// off to the side does not; that the same tree stays solid once it is right in the board's path (about
-// to be hit); that the fade eases out with the setting off and in first person; and the frame time
-// with the fade on and off. Saves on/off chase shots of each case.
+// it and rides the chase camera down toward it. Checks that the tree is still solid 40 m out (past the
+// look-ahead), comparing the same frame with the fade on and off; that it turns see-through 20 m out
+// (a good share of its pixels change) while a tree well off to the side does not; that it stays faded
+// a quarter second after turning 35 degrees away (the slow look-ahead); that it stays solid right in the board's path (about to be hit); that the fade eases out with the
+// setting off and in first person; and the frame time with the fade on and off. Saves on/off shots.
 // node tools/treefadecheck.mjs [pack] [outDir] [--headed | --gpu]   (run after `npx vite build`; exit 1 on a failed check)
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
@@ -101,8 +101,9 @@ async function onOff(label, tree) {
     const s = window.__sim, u = s.treeFadeUniforms;
     // a frame with a near-zero step: nothing moves between the two, only the fade differs
     const still = () => { window.__step(1, 1e-6); return s.renderer.domElement.toDataURL('image/png'); };
-    s.settings.seeThroughTrees = false; u.uFadeK.value = 0; const off = still();
-    s.settings.seeThroughTrees = true; u.uFadeK.value = 1; const on = still();
+    // off: the strength at 0 for one frame (the setting stays on, so the lane keeps its eased state)
+    s.settings.seeThroughTrees = true; u.uFadeK.value = 0; const off = still();
+    u.uFadeK.value = 1; const on = still();
     const box = (t) => {
       const cam = s.cam.camera, P = cam.position.constructor;
       const pts = [];
@@ -137,15 +138,36 @@ async function onOff(label, tree) {
   return res;
 }
 
+const onScreen = () => page.evaluate((t) => {
+  const s = window.__sim, c = s.cam.camera, V = c.position.constructor;
+  const v = new V(t[0], t[2] + t[3] * 0.5, -t[1]).project(c);
+  return v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
+}, spot.tree);
+
+// 0. 40 m out at 8 m/s (look-ahead 28 m) the tree is not faded yet
+await place(48); await settle();
+let st = await ride(60, 8, 40);
+const far = await onOff('far', { main: spot.tree, side: null });
+check('40 m out, past the look-ahead, the tree is still solid', far.main !== null && far.main < 0.02, `${((far.main ?? 0) * 100).toFixed(1)}% of its box changed, ${st.along.toFixed(0)} m ahead`);
+
 // 1. riding down toward the tree, 20 m short of it: the tree ahead fades, the one off to the side does not
-await place(32); await settle();
-let st = await ride(90, 8);
+st = await ride(600, 8, 20);
 const ahead = await onOff('ahead', { main: spot.tree, side: spot.sideTree });
 console.log('ahead', JSON.stringify({ ...st, main: ahead.main, side: ahead.side, box: ahead.mainBox }));
 check('the tree ahead in the lane turns see-through', ahead.main !== null && ahead.main > 0.08, `${((ahead.main ?? 0) * 100).toFixed(0)}% of its box changed, ${st.dist.toFixed(0)} m ahead`);
 if (spot.sideTree) check('a tree 22 m or more off to the side stays solid', ahead.side === null || ahead.side < 0.02, ahead.side === null ? 'off screen' : `${(ahead.side * 100).toFixed(1)}% changed`);
 
+// 1b. a quarter second after turning 35 degrees away, the tree on the old line is still faded (if still on screen)
+const swing = await page.evaluate((sp) => {
+  const s = window.__sim, r = s.rider, a = Math.atan2(sp.ux, sp.uy) + 35 * Math.PI / 180;
+  for (let i = 0; i < 15; i++) { r.heading = a; r.vx = Math.sin(a) * 8; r.vy = Math.cos(a) * 8; window.__step(1, 1 / 60); }
+}, spot);
+const swingSeen = await onScreen();
+const turned = swingSeen ? await onOff('after_turn', { main: spot.tree, side: null }) : null;
+check('just after a turn away, the tree on the old line stays faded', !swingSeen || (turned.main !== null && turned.main > 0.08), swingSeen ? `${((turned.main ?? 0) * 100).toFixed(0)}% of its box changed` : 'went off screen (inconclusive)');
+
 // 2. right in the board's path (inside the next half second at 8 m/s): it stays solid
+await place(32); await settle();
 st = await ride(600, 8, 3.5);
 const hit = await onOff('about_to_hit', { main: spot.tree, side: null });
 console.log('about to hit', JSON.stringify({ ...st, main: hit.main }));

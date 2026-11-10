@@ -2,8 +2,10 @@ import * as THREE from 'three';
 
 /**
  * FEAT-155: trees that block the view downhill turn see-through. Each frame `TreeFade.update` sets a
- * "view lane" from the chase camera through the rider to a look-ahead point 30 to 60 m along the travel
- * direction (further at speed); the tree shaders measure each tree's distance to that lane in the
+ * "view lane" from the chase camera through the rider to a look-ahead point 20 to 40 m along the travel
+ * direction (further at speed), one width all the way back to the camera so a tree that faded ahead stays
+ * faded as you come up on it and pass; a second, slow look-ahead point keeps the old line faded for a
+ * moment after a turn. The tree shaders measure each tree's distance to that lane in the
  * vertex shader and discard a share of the tree's fragments in a stable screen-space Bayer pattern
  * (dithered transparency: no sorting, depth write on, the shadow pass draws the tree whole). Trees
  * right in front of the lens fade too; a tree within about 1.5 m of where the board will be in the next
@@ -14,18 +16,19 @@ import * as THREE from 'three';
 const MAX_DISCARD = 0.75;
 /** the lowest part of the tree (trunk and lower boughs) fades this much less than the crown */
 const TRUNK_KEEP = 0.3;
-/** the lane radius (m, past the tree's crown) on the camera-to-rider leg, at the rider, and at the look-ahead point */
-const R_CAM = 1.5, R_RIDER = 2.5, R_AHEAD = 4.5;
+/** the lane radius (m, past the tree's crown), the same from the camera to the look-ahead point, so a tree
+ *  that faded ahead does not fill back in while you come up on it and pass it */
+const R_LANE = 3.5;
 /** the fade eases out over this many metres past the lane radius, so a tree fades in as the lane sweeps onto it */
-const R_SOFT = 1.5;
+const R_SOFT = 1;
 /** trees whose crown is within this many metres of the camera fade (anything right in front of the lens) */
 const R_LENS = 2.5;
 /** look-ahead distance: LOOK_MIN m, plus LOOK_PER_MS m per m/s of speed, up to LOOK_MAX */
-const LOOK_MIN = 30, LOOK_MAX = 60, LOOK_PER_MS = 1.5;
+const LOOK_MIN = 20, LOOK_MAX = 40, LOOK_PER_MS = 1;
 /** the trees you are about to hit: within KEEP_R m of the board's path over the next KEEP_T s stay solid */
 const KEEP_T = 0.5, KEEP_R = 1.5;
-/** time constant (s) of the lane's look-ahead point */
-const TAU = 0.25;
+/** time constant (s) of the lane's look-ahead point, and of the slow one that keeps the old line faded after a turn */
+const TAU = 0.25, TAU_SLOW = 1;
 /** the fade eases fully in or out over this many seconds when the setting or the camera changes */
 const SWITCH_S = 0.3;
 
@@ -33,6 +36,7 @@ export const treeFadeUniforms = {
   uFadeCam: { value: new THREE.Vector3() },
   uFadeRider: { value: new THREE.Vector3() },
   uFadeAhead: { value: new THREE.Vector3() },
+  uFadeAheadSlow: { value: new THREE.Vector3() },
   uFadeNext: { value: new THREE.Vector3() },
   /** 0..1: how much the fade applies (eases with the setting and the camera mode) */
   uFadeK: { value: 0 },
@@ -40,7 +44,7 @@ export const treeFadeUniforms = {
 
 /** vertex shader helpers; `treeFade(base, height, crown, localY)` is 0 (solid) .. 1 (fully faded). three.js world coordinates (y up). */
 export const TREE_FADE_VERT = /* glsl */ `
-  uniform vec3 uFadeCam; uniform vec3 uFadeRider; uniform vec3 uFadeAhead; uniform vec3 uFadeNext; uniform float uFadeK;
+  uniform vec3 uFadeCam; uniform vec3 uFadeRider; uniform vec3 uFadeAhead; uniform vec3 uFadeAheadSlow; uniform vec3 uFadeNext; uniform float uFadeK;
   varying float vTreeFade;
   // the tree as a vertical column (base, height) with a crown radius, against one lane leg a..b whose radius goes ra..rb
   float treeFadeLeg(vec3 a, vec3 b, float ra, float rb, vec3 base, float h, float crown) {
@@ -54,8 +58,9 @@ export const TREE_FADE_VERT = /* glsl */ `
   }
   float treeFade(vec3 base, float h, float crown, float localY) {
     if (uFadeK <= 0.0) return 0.0;
-    float f = max(treeFadeLeg(uFadeCam, uFadeRider, ${R_CAM.toFixed(2)}, ${R_RIDER.toFixed(2)}, base, h, crown),
-                  treeFadeLeg(uFadeRider, uFadeAhead, ${R_RIDER.toFixed(2)}, ${R_AHEAD.toFixed(2)}, base, h, crown));
+    float f = max(treeFadeLeg(uFadeCam, uFadeRider, ${R_LANE.toFixed(2)}, ${R_LANE.toFixed(2)}, base, h, crown),
+              max(treeFadeLeg(uFadeRider, uFadeAhead, ${R_LANE.toFixed(2)}, ${R_LANE.toFixed(2)}, base, h, crown),
+                  treeFadeLeg(uFadeRider, uFadeAheadSlow, ${R_LANE.toFixed(2)}, ${R_LANE.toFixed(2)}, base, h, crown)));
     // right in front of the lens
     float cy = clamp(uFadeCam.y, base.y, base.y + h);
     float dl = length(vec2(max(0.0, length(uFadeCam.xz - base.xz) - crown), uFadeCam.y - cy));
@@ -109,6 +114,7 @@ export interface FadeRider { x: number; y: number; z: number; vx: number; vy: nu
 /** Per frame: moves the lane with the camera and the rider. */
 export class TreeFade {
   private readonly ahead = new THREE.Vector3();
+  private readonly aheadSlow = new THREE.Vector3();
   private aheadSet = false;
   private readonly tmp = new THREE.Vector3();
 
@@ -138,8 +144,9 @@ export class TreeFade {
     const ax = r.x + dx * d, ay = r.y + dy * d;
     const gz = groundHeight(ax, ay);
     this.tmp.set(ax, (Number.isFinite(gz) ? gz : r.z) + 1, -ay);
-    if (!this.aheadSet || this.tmp.distanceTo(this.ahead) > 40) { this.ahead.copy(this.tmp); this.aheadSet = true; }
-    else this.ahead.lerp(this.tmp, k);
+    if (!this.aheadSet || this.tmp.distanceTo(this.ahead) > 40) { this.ahead.copy(this.tmp); this.aheadSlow.copy(this.tmp); this.aheadSet = true; }
+    else { this.ahead.lerp(this.tmp, k); this.aheadSlow.lerp(this.tmp, 1 - Math.exp(-dt / TAU_SLOW)); }
     u.uFadeAhead.value.copy(this.ahead);
+    u.uFadeAheadSlow.value.copy(this.aheadSlow);
   }
 }
