@@ -44,7 +44,7 @@ export type Listener<T extends GameEventType> = (e: EventOf<T>) => void;
  * FEAT-163: the event bus. `emit` calls the listeners at once, in the order they subscribed, so a listener
  * runs at the moment the news happens (the same frame and step as the direct calls it replaced). A listener
  * may emit or subscribe; that takes effect from the next emit. Lists are copied on change, not on emit,
- * so emitting allocates nothing.
+ * so `emit` itself allocates nothing (the caller's event object aside).
  */
 export class Events {
   private readonly listeners = new Map<GameEventType, readonly Listener<any>[]>();

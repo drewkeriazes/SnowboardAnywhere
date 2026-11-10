@@ -73,7 +73,7 @@ export class Game {
     else { status.textContent = ''; loading = new LoadingScreen(pack.meta.name); await loading.painted(); }
     const scene = new THREE.Scene();
     const events = new Events();
-    const session = createSession({ params, canvas, renderer, scene, pack, settings, audio, events },{ menu, attract: !!menu && !skipMenu, loading, attractFiles });
+    const session = createSession({ params, canvas, renderer, scene, pack, settings, audio, events }, { menu, attract: !!menu && !skipMenu, loading, attractFiles });
     await session.quit;
   }
 }
