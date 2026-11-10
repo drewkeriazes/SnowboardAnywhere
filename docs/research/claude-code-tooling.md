@@ -78,6 +78,7 @@ Browser automation as an MCP server. Our headless tool already uses Playwright d
 Project-specific know-how belongs in the repo, not in a global install, so every session gets it on `git pull`:
 - `pack-build`: how to run and validate `build_pack.py` for a resort, expected stage outputs and sizes, what to check in the pack before loading it.
 - `render-check`: how to run the headless render and ride test, the `lowgfx` rule for software GPUs, what a good `01_start.png` looks like, where to put screenshots.
+- `ghost-lines` (FEAT-181): a resort's main menu shot, still and ghost riders with `game/tools/ghost_lines.mjs`; points at the playbook `game/tools/ghost_lines/README.md`.
 - `perf-check`: how to profile the game with Chrome DevTools MCP and what the budgets are (frame time, chunk count, instance count, memory).
 Add more as patterns recur (for example `add-resort` once the second resort is done).
 

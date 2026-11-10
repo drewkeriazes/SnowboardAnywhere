@@ -1,121 +1,105 @@
-# ghost_lines: playbook for agents
+# ghost_lines: how to give a resort its main menu (playbook for agents)
 
-Main menu ghost riders from lines Drew draws on the menu's backdrop (FEAT-181). Read this first; it is the short
-path. The method and the history: `docs/research/ghost-lines-prototype/README.md` (Learnings at the end). The
-how-to for people: `docs/developer-guide.md` > Ghost riders from lines drawn on the menu.
+`game/tools/ghost_lines.mjs` takes a resort from "no menu backdrop" to "a menu shot, its still and ghost riders"
+(FEAT-181). Read this page first; it is the short path. Background only if you need it: the method and its history
+in `docs/research/ghost-lines-prototype/README.md` (Learnings at the end), the reference for people in
+`docs/developer-guide.md` > Ghost riders from lines drawn on the menu.
 
-## The 60-second version
+All commands run from `game/` on Drew's PC (they need the GPU and `packs/<pack>`). Rebuild first and after any
+change under `game/src`: `npx vite build` (the tool serves `game/dist`). Each step takes 20 s to 3 min.
 
-```
-cd game && npx vite build                                        # the tool serves game/dist; rebuild after src changes
-node tools/ghost_lines.mjs <pack> status                         # where the resort is
-node tools/ghost_lines.mjs <pack> shot                           # Drew picks a view: Shift+P in the eye camera
-node tools/ghost_lines.mjs <pack> candidates [shots.json ...]    # render saved candidates to compare
-node tools/ghost_lines.mjs <pack> pick <name>                    # one becomes the menu shot (+ still + drawing frame)
-node tools/ghost_lines.mjs <pack> lines [img ...]                # read the lines; later images replace a colour
-node tools/ghost_lines.mjs <pack> ride [--per ...] [--trial]     # cast, ride, write takes + index.json
-node tools/ghost_lines.mjs <pack> takes take-1.json take-2.json  # variants of Drew's own recorded runs (preferred)
-node tools/ghost_lines.mjs <pack> extend take-2.json             # a take ending in view goes on down the slope
-node tools/ghost_lines.mjs <pack> check [--no-open]              # compare, gaps, draw calls, menu headed
-```
+## The recipe for a new resort (what worked on Breckenridge, 2026-11-10)
 
-**What Drew chose on Breckenridge (2026-11-10): his own recorded runs for the riders near the camera, the bot's
-rides further out.** Close up, Drew judged the bot's riding wobbly next to his (not every bot rider: only the near
-ones; ask which before replacing); `takes` turns his runs
-(recorded with `?debug`, K, I / O, L on the dev server: `take-<n>.json`) into variants that move exactly as he
-rode. Offer that path first when riding quality matters; use drawn lines + `ride` to cover slopes he hasn't
-ridden.
+1. **Start a dev server for Drew** on the worktree (`npx vite --port <free> --strictPort`, CLAUDE.md "Dev servers on
+   demand") and give him the link: `http://localhost:<port>/?pack=<pack>&debug&cam=eye`.
+2. **Drew picks the shot.** In that tab: click the game, fly the eye camera (mouse to look, WASD, Q / E height, [ ]
+   zoom; the menu's title covers the top-left third and the cards the bottom 20%), then **Shift+P** (plain P is the
+   compare photo). The form: "Use as menu shot" (Enter) or "Keep as a candidate" to compare several. To compare:
+   `node tools/ghost_lines.mjs <pack> candidates` (renders each into `game/shots/ghost-lines/<pack>/candidates/`, show
+   Drew the PNGs), then `node tools/ghost_lines.mjs <pack> pick <name>`. A shot saved with no server answering
+   downloads `shots.json` to Downloads: `candidates <that file>` takes it.
+3. **The still and the drawing frame:** `pick` does this, or `node tools/ghost_lines.mjs <pack> still`. It renders
+   `game/public/attract/<pack>/<shot>.jpg` and `game/shots/ghost-lines/<pack>/<shot>/draw-<shot>.png`.
+4. **Drew draws lines** in Paint on `draw-<shot>.png`, one strong colour per line, downhill (a colour can repeat far
+   apart; black works). A browser snip with lines on it works too, and so does a screenshot of the Paint window; he
+   pastes images into the chat, which land in this session's `images/` folder.
+5. **Read them:** `node tools/ghost_lines.mjs <pack> lines <img> [<img2> ...]`. Look at the `lines*.png` it writes
+   and list the lines for Drew. A line that reads wrong: **ask Drew to redraw just that line** (on the clean frame) and
+   pass both images; a colour in a later image replaces it. Don't tune code for one stroke.
+6. **Ride the far lines with the bot:** `node tools/ghost_lines.mjs <pack> ride [--per ...]`. Default per line: 3
+   variants of 2 riders, sent off at intervals. Then show Drew the menu: `http://localhost:<port>/?pack=<pack>`
+   (takes load from disk; he just reloads).
+7. **Near the camera, use Drew's own riding.** Ask him to record a run or two on that slope: with `&debug` (not
+   `cam=eye`), ride, K for the replay viewer, I at the start, O at the end, L to save. It lands as
+   `game/public/attract/<pack>/take-<n>.json`. Then `node tools/ghost_lines.mjs <pack> takes take-1.json take-2.json`:
+   each run trimmed before any fall, carried on down the slope, and copied into 3 staggered variants with partners.
+   Drop the bot's lines those runs replace: `ride --per "orange:0,red:0"`. **Ask which bot riders to replace**; Drew
+   wanted only the wobbly near ones gone, not all of them.
+8. **Check:** `node tools/ghost_lines.mjs <pack> check --no-open`: still against the live menu (must say ok), riders
+   closer than 2.5 m on screen (crossing paths once is fine; riding on top of each other is not), the draw calls they
+   add. Revert the re-rendered still if only tree sway changed (`git checkout <shot>.jpg`).
+9. **Commit** `game/public/attract/<pack>/` (shots.json, the still, take-*.json, the generated takes) and
+   `game/public/attract/index.json`. Note anything learned in the prototype README's Learnings.
 
-Always `--gpu` is the default on Drew's PC (headless real GPU). A step takes 20 s to 2 min; `ride` with 25+
-variants about 2 min. Nothing needs a dev server, but Drew watching the result does: start one on the worktree
-(`npx vite --port <free> --strictPort`, see CLAUDE.md) and give him `http://localhost:<port>/?pack=<pack>`; takes
-are read from disk on every load, so after `ride` he just reloads.
+`node tools/ghost_lines.mjs <pack>` alone is a wizard that runs the next step the resort needs;
+`node tools/ghost_lines.mjs <pack> status` says where it is.
 
-## Working with Drew (what saved the most time)
+## Options
 
-- **Shot**: Drew flies the eye camera and presses **Shift+P** (needs `&debug`). The form has "Use as menu shot"
-  (Enter) and "Keep as a candidate". It posts to `/__attract/shot` on whatever served the page: the tool's own
-  server (`shot` step, a random port, gone when the step ends) or a Vite dev server. If no server answers, the page
-  **downloads `shots.json`** instead: pass that file to `candidates <file>` or copy its entry. Plain P is the
-  compare-photo key, not the shot.
-- **Drawing**: anything works. The clean frame `game/shots/ghost-lines/<pack>/<shot>/draw-<shot>.png` (no fit
-  needed), a Snipping Tool grab of the browser (bars, taskbar, menu UI and the `?debug` slider panel are fine), or a
-  **screenshot of Paint** with the drawing open (the toolbar is outside the fitted frame). Drew pastes images into
-  the chat; they land in the session's `images/` folder as PNG: use those paths.
-- **Paint doesn't save until Ctrl+S**: check the file's mtime before reading it; a screenshot of the Paint window
-  works meanwhile.
-- **One line wrong? Ask Drew to redraw just that line** (Drew's own suggestion) instead of tuning: `lines a.png
-  b.png` takes the colour from the later image. Redrawing beats a new code path.
-- Show progress in the real menu early; Drew judges riders on screen, not from numbers.
-- `--per` by colour or line name: `red:3`, `blue:2:ski`, `yellow-2:3:1ski`, `pink:0` (skip), `green:2:straight`
-  (a straightliner: tucked, no carving, fast; one variant unless `:v3`).
-- Default per line: 2 riders x 3 variants (`group.variants`), the variants sent off a third of a cycle apart
-  (takes carry `delay` and `every`; `world/AttractGhosts.ts` holds a take back until its delay and restarts it every
-  `every` seconds). Lines are offset from each other too, so riders set off all the time, never all at once.
-- `takes`: each recorded run is trimmed 0.5 s before its first fall, ridden on by the bot while it still ends in view
-  (`bot.extendMaxS`, 40 s; that tail is bot steering, keep it short if Drew notices), then copied: the run itself and
-  copies `group.takeShiftM` (10 m) to either side, each with a partner. The recorded files leave the menu (the first
-  variant is the run itself) but stay on disk. `ride` and `takes` each replace only their own takes (`*-run-<n>-*`
-  are `takes`'): drop a bot line the runs replace with `ride --per name:0`. `ride --takes a.json,b.json` instead rides
-  the runs as lines with the bot (`ridden-<n>`).
+- `--per` by colour or line name, comma-separated: `red:3` (3 riders), `blue:2:ski` (on skis), `yellow-2:3:1ski` (one
+  of 3), `pink:0` (none), `green:2:straight` (a straightliner: tucked, no turns, fast; one variant unless `:v3`).
+- `--riders N`, `--variants N` for every line; `--trial` writes the takes to the work folder only (for tuning).
+- `extend <take>`: a recorded take that ends in view goes on down the slope (the bot), the original kept.
+- `ride --takes a.json,b.json`: ride recorded runs as lines with the bot instead (`ridden-<n>`); `takes` is better.
+- `ride` and `takes` each replace only their own takes for the shot (`*-run-<n>-*` are `takes`'); a new shot removes
+  all the old shot's generated takes. Recorded `take-*` files are never deleted.
+- Tunables: `tools/ghost_lines.config.json` (the Vail and Breckenridge values as defaults, `resorts.<slug>` for
+  overrides). `GHOST_DEBUG=1` prints the colour peaks.
 
-## What the tool decides, and the numbers to expect
+## Reading the output
 
-- **Fit** (snips only): match 0.6 to 0.8 is good; under 0.3 is a wrong shot or pack. Scale 0.84 = Drew's browser
-  window (912 px of game), 1.0 = a full 1080 frame. Phase k is 0 for anything taken in the eye camera or Paint.
-- **Line names**: colour name, numbered left to right when a colour repeats (`yellow-1`). Two strokes of one
-  colour join across up to 70 px when the gap continues both (a crossing); a sharp hook at a crossing doesn't join:
-  ask for a redraw.
-- **Report per ride**: crashes must be 0; `reached` all waypoints; lead to partner 4 to 12 m; `start` out of sight or
-  far crest. `end in view (fades out)` is normal where the camera sees down a whole valley (rides end `bot.tailS` = 8 s
-  after the last waypoint). Far riders barely on screen are fine (Drew).
-- **Line used** `80/126 pts, 34..164 m out`: the longest unbroken run of the cast. A line drawn over a ridge or rim
-  keeps only the visible stretch; that is intended (a rider can't follow a face the camera doesn't see).
-- **Cost**: each rider is up to 19 draw calls (fewer far out). Breckenridge, 50 takes: see `check`. FEAT-182 (#424)
-  batches far riders.
+- **Fit** (snips only): match 0.6 to 0.8 is good, under 0.3 means another shot or pack. Scale 0.84 is Drew's browser
+  window, 1.0 a full 1080 frame; phase k is 0 for anything taken in the eye camera or Paint.
+- **Lines**: named by colour, numbered left to right when a colour repeats (`yellow-1`). Strokes of one colour broken
+  at a crossing join (up to 70 px, when the gap continues them); a sharp hook at the crossing doesn't: ask for a redraw.
+- **Ride report**: crashes 0; `reached` every waypoint; lead to partner about 4 to 12 m; start "out of sight" or "far
+  crest". "End in view (fades out)" is normal where the camera sees down a whole valley. `line used 80/126 pts` is the
+  stretch of the cast the camera sees: a line drawn over a rim keeps only its visible part, on purpose.
+- **Far riders** a few px tall or briefly on screen are fine (Drew).
+- **Cost**: Breckenridge's 32 riders add about 380 draw calls at 1920 x 1080 (`check`). FEAT-182 (#424) batches far ones.
 
 ## Gotchas already paid for (don't rediscover)
 
-- **Wobble = the brake.** The physics brake swings the board 84 degrees across (a hockey stop) and snaps it back on
-  release; a bot that brakes to hold a speed cap flickers. The bot now steers linked turns along a smoothed path
-  (pure pursuit, a sine across it, wider when too fast) and brakes only 6 m/s over the speed it wants
-  (`bot.brakeBand`); the floor is 10 m/s near the camera. Measure smoothness from a take: edge changes per second
-  (Drew: 0.17 to 0.4), share of samples with the board over 0.6 rad off travel (Drew: 1 to 5%), airborne share (Drew:
-  16 to 27% on Imperial Bowl). Compare against Drew's own takes before tuning.
-- Moguls: `pack.mogulAmp(x, y)`; the bot holds `bot.mogulOver` there and doesn't tuck.
-
-- Ride in the menu's frame (1920 x 1080): "in sight" decides starts, cuts and ends. Casting uses each image's own
-  frame and fit. (A snip's 2600 px fit frame once leaked into the ride.)
-- Airborne bots must grab and stop steering, or a crooked landing over 8 m/s impact crashes (`rider/Tricks.ts`).
-  Steep summit starts launch immediately; this fixed every Breckenridge crash.
-- Near lines (under ~80 m) need distance-scaled reach, swing and speed (`waypoints.reachFrac`, `bot.swingNearM`,
-  `bot.brakeFrac`); the Vail numbers ignore them otherwise.
-- Hue peaks: busiest bin first, at the bin's mean hue, 15 degrees apart; JPEG input gets `extract.jpeg` thresholds.
-  A red roof in the shot once hid an orange line (fixed); `GHOST_DEBUG=1` prints the peaks.
-- Old-build snips: the render changed (snow-flocked trees), so dark pines in the snip read as black lines. Use a
-  snip from the current build when black lines matter.
-- `dt = 0` steps are fine for grabs; the whole-scene look is the still's look (white flocked trees are current).
-- Writing Python edit scripts through bash heredocs mangles backslashes and `\n`: write them with the Write tool.
-- The still re-renders on every `check` / `still` (tree sway): revert `game/public/attract/<pack>/<shot>.jpg` if
-  only noise changed, or commit it with the takes.
+- **The bot's wobble was the brake**: the physics brake swings the board 84 degrees across and back. The bot rides
+  linked turns along a smoothed line, controls speed by how wide it turns, and brakes only 6 m/s over the speed it
+  wants. Compare a change against Drew's own takes: his edge changes 0.17 to 0.4 times a second, skids 1 to 5% of the
+  time, and is airborne 16 to 27% of it on Imperial Bowl.
+- **Crashes on landing**: a bot steering in the air lands crooked, and a crooked landing over an impact of 8 crashes
+  without a grab (`sim/rider/Tricks.ts`). The bot grabs and lets go of the steering in the air.
+- Moguls (`pack.mogulAmp`): the bot slows to `bot.mogulOver` there and doesn't tuck.
+- "In sight" (starts, cuts, ends) is judged in the menu's 1920 x 1080 frame; casting uses each image's own fit.
+- Line colours: hue peaks are picked busiest first, 15 degrees apart (a red roof once hid an orange line); JPEG input
+  gets softer thresholds (`extract.jpeg`), but PNG is better.
+- Snips from an older build: the render changed (white snow-flocked trees), so dark pines in an old snip read as black.
+- Writing edit scripts through bash heredocs mangles backslashes and `\n`: write them with the Write tool.
+- Paint doesn't save until Ctrl+S: check the file's time before reading; a screenshot of the window works meanwhile.
 
 ## Files
 
-- Takes: `game/public/attract/<pack>/<shot>-<line>[-v<n>]-<i>.json` (`backdrop`, `shot`, `build`, `delay`,
-  `every`); listed in `game/public/attract/index.json` under `ghosts` and `shotGhosts.<shot>`. A rerun of `ride`
-  replaces the shot's takes; a new shot removes them.
-- Shot: `game/public/attract/<pack>/shots.json`. Candidates: `game/shots/ghost-lines/<pack>/candidates.json` and
-  `candidates/*.png`.
-- Work (gitignored): `game/shots/ghost-lines/<pack>/<shot>/` clean.png, draw-<shot>.png, lines.json, lines-*.png,
-  world.json, report.json, ride.png (first variant's rides over the cast lines), menu-t*.png.
-- Code: `tools/ghost_lines.mjs` (steps), `ghost_lines/image.mjs` (fit, line finding), `ghost_lines/page.mjs` (in the
-  game page: cast, ride, pictures), `tools/attract_files.mjs` (shared with the dev server), tunables
-  `tools/ghost_lines.config.json` (per-resort overrides under `resorts.<slug>`).
-- Game side: `world/AttractGhosts.ts` (`delay` / `every`), `world/AttractShots.ts` (shots as data),
-  `ui/MenuShotForm.ts` + `session/devSaves.ts` (Shift+P).
+- Shot: `game/public/attract/<pack>/shots.json` (the menu uses the first). Still: `<shot>.jpg`, with its look key in
+  `index.json`.
+- Takes: `game/public/attract/<pack>/<shot>-<line>[-v<n>]-<i>.json` (`backdrop`, `shot`, `build`, `delay`, `every`),
+  listed in `game/public/attract/index.json` under `ghosts` and `shotGhosts.<shot>`.
+- Work (gitignored): `game/shots/ghost-lines/<pack>/` candidates, and per shot clean.png, draw-<shot>.png, lines.json,
+  lines-*.png, world.json, report.json, ride.png (the lines as cast and each line's first ride), menu-t*.png.
+- Code: `tools/ghost_lines.mjs` (steps), `tools/ghost_lines/image.mjs` (fit, line finding), `tools/ghost_lines/page.mjs`
+  (in the game page: cast, ride, takes, pictures), `tools/attract_files.mjs` (the attract files, shared with the dev
+  server). Game side: `world/AttractGhosts.ts` (`delay` / `every`), `world/AttractShots.ts` (shots as data),
+  `ui/MenuShotForm.ts` and `session/devSaves.ts` (Shift+P).
 
-## Regression after a change
+## Regression after changing the tool
 
-Vail keeps its hand-made `line*` takes. To check a change didn't hurt: `lines <Drew's vail-2 snip>` then `ride
---trial` on vail (writes to the work folder only); expect 11 lines, 0 crashes, every waypoint, pairs about 5 to 11 m.
-Note the change in the prototype README's Learnings.
+Vail keeps its hand-made `line*` takes. Check a change didn't hurt with Drew's Vail drawing:
+`node tools/ghost_lines.mjs vail lines ../docs/screenshots/ghost-lines/vail-2.jpg` then
+`node tools/ghost_lines.mjs vail ride --trial --variants 1` (writes to the work folder only). Expect 11 lines, 0
+crashes, every waypoint reached, far lines starting at a crest and near ones out of sight.
