@@ -78,10 +78,10 @@ export interface FramePlan {
   replay: ReplayShot | null;
 }
 
-/** the weather on screen and the new snow it has laid (FEAT-105), set by the settings and grown by the storm here */
 /** FEAT-157: how much sun gets through each cloud cover (the trees' sun-side melt) */
 const CLEAR: Record<CloudCover, number> = { off: 1, cirrus: 1, few: 0.9, scattered: 0.7, broken: 0.4, overcast: 0.1, flurries: 0.05, storm: 0 };
 
+/** the weather on screen and the new snow it has laid (FEAT-105), set by the settings and grown by the storm here */
 export interface SkyState { weather: CloudCover; snowCover: number }
 
 /** Everything the frame reads or drives, handed in by the session. */
