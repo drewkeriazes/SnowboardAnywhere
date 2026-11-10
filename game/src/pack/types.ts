@@ -28,6 +28,10 @@ export interface CoverLevelMeta {
   w: number;
   h: number;
   file: string;
+  /** BUG-069: optional greyscale PNG, same grid: the forest share under closed stands of drawn trees (the near view) */
+  stands?: string;
+  /** FEAT-168: G of the `stands` image is the share of each cell under the drawn trees' crowns (height-weighted), for their shadows */
+  crowns?: boolean;
 }
 
 export interface CoverMeta {
@@ -49,6 +53,9 @@ export interface InstancesMeta {
   /** cells that have a file, as "cx_cy"; absent in packs built before BUG-036 (then every cell is requested) */
   treeCells?: string[];
   rockCells?: string[];
+  /** DATA-020: shrubs/<cx>_<cy>.bin, Float32 records x, y, z, height, radius, kind; absent in older packs */
+  shrubCount?: number;
+  shrubCells?: string[];
 }
 
 export interface PackMeta {
@@ -71,6 +78,8 @@ export interface PackMeta {
   /** FEAT-153: forest cover levels for the terrain at a distance; absent in older packs */
   cover?: CoverMeta;
   instances?: InstancesMeta;
+  /** DATA-020: 2 = tree species ids 0..7 (see docs/pack-format.md); absent = 0..2 */
+  treeSpecies?: number;
   start: { x: number; y: number; heading: number; run?: string };
   sun: { azimuth: number; elevation: number };
   attribution: string[];

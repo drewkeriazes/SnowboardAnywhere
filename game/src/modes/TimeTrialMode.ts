@@ -4,8 +4,7 @@ import type { Course } from '../sim/Courses';
 import type { Settings } from '../ui/Settings';
 import { TimeTrial } from '../sim/TimeTrial';
 import { TrialHud } from '../ui/TrialHud';
-import { padFx } from '../sim/PadFeedback';
-import type { RideDeps, RideFrame, RideMode } from './RideMode';
+import type { RideDeps, ModeFrame, RideMode } from './RideMode';
 
 /** A course as the menus list it, with the best time saved for it. */
 export interface CourseEntry { id: string; name: string; length: number; best: number | null }
@@ -13,25 +12,20 @@ export interface CourseEntry { id: string; name: string; length: number; best: n
 /**
  * FEAT-164: time trials as a mode: the run through the gates (sim/TimeTrial), the gates and route in the
  * world, the HUD, and the course picked in Mode. The gates are out while the Time trials setting is on or a
- * course is picked.
+ * course is picked. The run's news (start, splits, finish) goes on the bus (session/eventSources.ts); the
+ * panel, the chime and the rumble listen there.
  */
 export class TimeTrialMode implements RideMode {
   readonly kind = 'trial' as const;
   readonly trial: TimeTrial;
-  private readonly trialHud: TrialHud;
+  /** the trial panel (the HUD's listener on the bus shows the trial news on it) */
+  readonly trialHud: TrialHud;
   /** FEAT-128: the course picked in pause > Mode (the gates are on for the session), '' in Free ride */
   course = '';
 
   constructor(private readonly ctx: GameContext, private readonly world: World, private readonly d: RideDeps) {
-    const { pack, settings, audio } = ctx;
-    const trial = this.trial = new TimeTrial(pack.meta.slug, world.courses);
-    const trialHud = this.trialHud = new TrialHud(settings);
-    trial.onEvent = (e) => {
-      trialHud.onEvent(e, trial.candidates.length);
-      if (e.kind === 'start') { audio.chime(); padFx.trialEvent('start'); }
-      else if (e.kind === 'split') padFx.trialEvent('split');
-      else if (e.kind === 'finish') { audio.chime(); padFx.trialEvent('finish', e.isBest); }
-    };
+    this.trial = new TimeTrial(ctx.pack.meta.slug, world.courses);
+    this.trialHud = new TrialHud(ctx.settings);
   }
 
   /** the gates are out */
@@ -73,7 +67,7 @@ export class TimeTrialMode implements RideMode {
     this.refreshCourseFlags();
   }
 
-  update(f: RideFrame): void {
+  update(f: ModeFrame): void {
     const { trial } = this, { trialWorld } = this.world, { rider, map } = this.d;
     if (!this.on) { map.trialRoute = null; return; }
     if (f.onLift) trial.cancel('On a lift'); else if (rider.unstrapped) trial.cancel('Unstrapped'); else if (!f.frozen) trial.update(rider, f.dt, f.tuck);
@@ -84,7 +78,7 @@ export class TimeTrialMode implements RideMode {
     trialWorld.updateRoute(showWalls ? active : null, trial.along, trial.nextTarget, f.elapsed, trial.outside > 0);
     map.trialRoute = active ? active.points : null;
   }
-  hud(f: RideFrame): void {
+  hud(f: ModeFrame): void {
     if (this.on) this.trialHud.update(f.dt, this.trial, this.ctx.pack, this.d.cam.camera);
     else this.trialHud.hide();
   }

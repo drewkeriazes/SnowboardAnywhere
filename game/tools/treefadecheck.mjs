@@ -111,7 +111,7 @@ async function onOff(label, tree) {
     const box = (t) => {
       const cam = s.cam.camera, P = cam.position.constructor;
       const pts = [];
-      const w = Math.max(t[3] * 0.9, t[4] * 3.2) * 0.22;
+      const w = Math.max(0.3, t[4]) * 1.15; // the tree kit (FEAT-156) draws the pack's crown radius, give or take its clamp
       const rt = new P().setFromMatrixColumn(cam.matrixWorld, 0); rt.y = 0; rt.normalize();
       for (const fy of [0.05, 0.5, 0.95]) for (const dx of [-w, w]) {
         const v = new P(t[0] + rt.x * dx, t[2] - 0.3 + t[3] * fy, -t[1] + rt.z * dx).project(cam);

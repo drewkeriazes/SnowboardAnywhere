@@ -1,15 +1,16 @@
 import * as THREE from 'three';
 import type { GameContext } from '../core/GameContext';
+import type { Events } from '../core/Events';
 import type { World } from '../session/World';
 import { Outrun } from '../sim/Outrun';
 import type { OutrunUI } from '../ui/OutrunUI';
 import { keysOf } from '../ui/Settings';
-import { padFx } from '../sim/PadFeedback';
-import type { RideDeps, RideFrame, RideMode } from './RideMode';
+import type { RideDeps, ModeFrame, RideMode } from './RideMode';
 
 /**
- * FEAT-164: Outrun (FEAT-097 to FEAT-101) as a mode: the chase sim (sim/Outrun), its sounds, the monsters and
- * the eat sequence in the world, the HUD and the end card.
+ * FEAT-164: Outrun (FEAT-097 to FEAT-101) as a mode: the chase sim (sim/Outrun), the monsters and the eat
+ * sequence in the world, the HUD and the end card. Its news goes on the bus (FEAT-163): the audio, the rumble
+ * and the HUD's toast listen there, and so does `listen` below (the camera kick, the eat start).
  */
 export class OutrunMode implements RideMode {
   readonly kind = 'outrun' as const;
@@ -34,13 +35,21 @@ export class OutrunMode implements RideMode {
       this.start();
     };
     this.ui.onExit = () => this.end();
-    eat.onSound = (k) => {
-      const chase = this.chase;
-      if (!chase) return;
-      if (k === 'roar') chase.roar('angry'); else if (k === 'pop') chase.pop(); else if (k === 'gulp') chase.gulp();
-      else if (k === 'burp') chase.burp(); else if (k === 'spit') chase.spit(); else if (k === 'sting') chase.sting();
-    };
-    monsters.onCrack = () => this.chase?.crack();
+  }
+
+  /**
+   * FEAT-163: the mode's own reactions to its news: a monster's foot near the rider kicks the camera; caught, the
+   * eat sequence starts. The session calls this after the audio listens, so the record scratch comes first.
+   */
+  listen(events: Events): void {
+    const { settings } = this.ctx, { eat, monsters, riderView } = this.world, { rider, cam } = this.d;
+    events.on('outrun', ({ event: e }) => {
+      if (e.kind === 'footfall' && e.m) { if (e.m.dist < 30) cam.kick = Math.max(cam.kick, 0.7 * (1 - e.m.dist / 30)); }
+      else if (e.kind === 'caught' && e.m) {
+        const view = monsters.view(e.m.id);
+        if (view) eat.start(e.m, view, rider, riderView, settings.outfit, settings.discipline, this.sim.cfg.gentle);
+      }
+    });
   }
 
   /** a run is on (from the countdown to the end card) */
@@ -67,39 +76,24 @@ export class OutrunMode implements RideMode {
     this.chase?.stop(); audio.resumeMusic();
     rider.boost = false; riderView.group.visible = true;
   }
-  /** start the chase picked with the map once the map has dropped the rider in (or closed) */
+  /** the map has dropped the rider in (or closed): a chase picked with it starts now */
   startAfterMap(): void {
-    if (this.afterMap && !this.d.map.fullOpen) { this.afterMap = false; this.start(); }
+    if (this.afterMap) { this.afterMap = false; this.start(); }
   }
 
-  /** before the sim: the boost key (FEAT-124: F, Outrun only) */
+  /** the boost key (FEAT-124: F, Outrun only) */
   boostKey(pressed: boolean): void {
     if (pressed && this.sim.active && this.sim.boost()) this.chase?.boostWhoosh();
-    this.d.rider.boost = this.sim.boosting;
   }
 
-  /** the sim, its events to sound and effects, the eat sequence, the monsters */
-  update(f: RideFrame): void {
+  /** the sim, its events on the bus, the eat sequence, the monsters */
+  update(f: ModeFrame): void {
     const outrun = this.sim;
     if (!outrun.active) return;
-    const { settings, audio } = this.ctx, { eat, monsters, riderView } = this.world, { rider, liftRide, cam, map } = this.d;
+    const { events } = this.ctx, { eat, monsters } = this.world, { rider, liftRide, map } = this.d;
     const chase = this.chase, dt = f.dt;
     outrun.update(dt, rider, f.onLift ? liftRide : null);
-    for (const e of outrun.events) {
-      if (e.kind === 'wake') chase?.roar('wake');
-      else if (e.kind === 'spawn') { if (e.m && e.m.id > 1) chase?.roar('spawn'); }
-      else if (e.kind === 'roar') chase?.roar('spawn');
-      else if (e.kind === 'sight') chase?.roar('sight');
-      else if (e.kind === 'closecall') { chase?.roar('angry'); chase?.closeCall(); }
-      else if (e.kind === 'footfall' && e.m) { chase?.footfall(e.m.dist); padFx.footfall(e.m.dist); if (e.m.dist < 30) cam.kick = Math.max(cam.kick, 0.7 * (1 - e.m.dist / 30)); }
-      else if (e.kind === 'second') this.d.toast('Another one.', 2500);
-      else if (e.kind === 'escaped') { chase?.roar('giveup'); chase?.stop(); audio.resumeMusic(); chase?.fanfare(); }
-      else if (e.kind === 'caught' && e.m) {
-        const view = monsters.view(e.m.id);
-        audio.scratchStop(); chase?.stop();
-        if (view) eat.start(e.m, view, rider, riderView, settings.outfit, settings.discipline, outrun.cfg.gentle);
-      }
-    }
+    for (const event of outrun.events) events.emit({ type: 'outrun', event });
     if (outrun.phase === 'countdown') { const n = Math.ceil(3 - outrun.t); if (n !== this.countLast) { this.countLast = n; chase?.countBeep(false); } }
     else if (outrun.phase === 'headstart' && this.countLast !== 0) { this.countLast = 0; chase?.countBeep(true); }
     this.eatPosing.clear();

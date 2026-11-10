@@ -86,7 +86,9 @@ back here without reloading. Sound starts with your first click or key press (br
 
 Esc pauses: the left column names where you are and shows this run's time, distance, vertical and top speed, then
 Resume, Restart, Map, Mode, Replay and Settings, and quick toggles for the camera, weather, time of day and music
-(left / right change them at once). Mode picks Free ride, a time trial course (you start just above its gate, the
+(left / right change them at once). Weather opens (Enter, A, a click, or right past its last sky) to Snow, New snow
+and Valley fog nested under it, the same settings as Settings > Conditions; closed, it lists them under its name.
+B / Esc closes the group. Mode picks Free ride, a time trial course (you start just above its gate, the
 gates stay on for the session) or Outrun with its options. Quit to main menu sits in the hint bar and takes two presses.
 
 Settings opens full screen: categories on the left (Gameplay, Controls, Camera, Graphics, Conditions, Map and world, Audio,

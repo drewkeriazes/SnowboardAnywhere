@@ -1,5 +1,6 @@
 import type * as THREE from 'three';
 import type { GameContext } from '../core/GameContext';
+import type { Events } from '../core/Events';
 import type { World } from '../session/World';
 import type { Settings } from '../ui/Settings';
 import type { PauseMode } from '../ui/PauseMenu';
@@ -8,11 +9,11 @@ import { FreeRide } from './FreeRide';
 import { TimeTrialMode } from './TimeTrialMode';
 import { OutrunMode } from './OutrunMode';
 import type { OutrunUI } from '../ui/OutrunUI';
-import type { RideDeps, RideFrame, RideMode } from './RideMode';
+import type { RideDeps, ModeFrame, RideMode } from './RideMode';
 
 /**
  * FEAT-164: the modes on top of riding and the picks between them (pause > Mode, the main menu, Restart, Quit).
- * The riding loop asks the getters at the bottom instead of checking Outrun or trials itself.
+ * The world frame and the states ask the getters at the bottom instead of checking Outrun or trials themselves.
  * Outrun and the trial gates can be on together (the Time trials setting), so both modes update every frame.
  */
 export class Modes {
@@ -66,21 +67,24 @@ export class Modes {
   }
   /** the rider was moved or stopped riding (map pick, replay, rewind, unstrapped): a trial run stops */
   interrupt(why: string): void { this.trials.cancel(why); }
+  /** the map has closed: a chase picked with it starts now */
+  mapClosed(): void { this.outrun.startAfterMap(); }
+  /** FEAT-163: the modes' own reactions to their news on the bus (called after the audio and the rumble listen) */
+  listen(events: Events): void { this.outrun.listen(events); }
 
-  // ---- the riding frame, in order
-  /** once the frame is not paused: a chase picked with the map starts when the map closes */
-  frameStart(): void { this.outrun.startAfterMap(); }
+  // ---- the riding keys (states/RidingState.ts)
   /** the T key: to the nearest course start, while the gates are out and no Outrun runs */
   trialKey(): void { if (this.trials.on && !this.outrun.on) this.trials.toNearest(); }
-  /** before the sim */
   boostKey(pressed: boolean): void { this.outrun.boostKey(pressed); }
+
+  // ---- the world frame (states/RideFrame.ts), in order
   /** after the rider view is synced: each mode's update, then its HUD */
-  update(f: RideFrame): void { for (const m of this.order) { m.update(f); m.hud(f); } }
+  update(f: ModeFrame): void { for (const m of this.order) { m.update(f); m.hud(f); } }
   /** after the camera has moved */
   afterCamera(camera: THREE.PerspectiveCamera): void { this.outrun.afterCamera(camera); }
   applySettings(s: Settings, what: string): void { this.trials.applySettings(s, what); }
 
-  // ---- what the riding loop asks
+  // ---- what the frame and the states ask
   /** why the replay viewer can't open, or null */
   get replayBlocked(): string | null { return this.outrun.on ? 'not during Outrun' : null; }
   get rewindBlocked(): boolean { return this.outrun.on; }
@@ -90,6 +94,8 @@ export class Modes {
   get holdsRider(): boolean { return this.outrun.sim.phase === 'caught'; }
   /** FEAT-055: run stats count outside Outrun only */
   get countsRunStats(): boolean { return !this.outrun.on; }
+  /** the boost is on (the rider goes faster) */
+  get boosting(): boolean { return this.outrun.sim.boosting; }
   /** degrees added to the field of view (the boost) */
   get fovBoost(): number { return this.outrun.sim.boosting ? 12 : 0; }
   /** metres to the nearest monster while the chase runs (pad rumble), else Infinity */

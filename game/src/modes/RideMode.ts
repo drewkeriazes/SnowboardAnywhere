@@ -7,27 +7,27 @@ import type { KeyLabels } from '../ui/KeyLabels';
 
 /**
  * FEAT-164: a mode on top of riding (FEAT-160 standard 4): Free ride, Time trial, Outrun.
- * The riding loop calls `update` then `hud` on each mode once a frame, in the order `Modes` lists them.
+ * The world frame (states/RideFrame.ts) calls `update` then `hud` on each mode once a frame, in the order `Modes` lists them.
  */
 export interface RideMode {
   readonly kind: PauseMode['kind'];
   start(arg?: string): void;
   /** the mode's sim and world (gates, monsters, the eat), after the rider view is synced */
-  update(f: RideFrame): void;
+  update(f: ModeFrame): void;
   /** the mode's HUD, right after its update */
-  hud(f: RideFrame): void;
+  hud(f: ModeFrame): void;
   end(): void;
   dispose(): void;
 }
 
-/** What a mode reads from the riding frame. */
-export interface RideFrame {
+/** What a mode reads from the world frame. */
+export interface ModeFrame {
   readonly dt: number;
   readonly tuck: boolean;
   readonly onLift: boolean;
   /** the replay viewer is open or the rider is rewinding: the sim is held */
   readonly frozen: boolean;
-  /** riding seconds this session (the trial route's pulse runs on it) */
+  /** seconds of world frames this session (the trial route's pulse runs on it) */
   readonly elapsed: number;
 }
 
