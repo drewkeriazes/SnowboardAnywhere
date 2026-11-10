@@ -6,7 +6,9 @@ import { addTreeFade, treeFadeUniforms } from './TreeFade';
 
 /**
  * Streams tree instances per 1 km cell around the rider and draws them with GPU instancing.
- * Species: 0 conifer, 1 aspen (leafless), 2 krummholz. Near cells get full geometry, far cells a
+ * Species ids (DATA-020, docs/pack-format.md): 0 spruce, 1 aspen (leafless), 2 krummholz, 3 subalpine fir,
+ * 4 lodgepole, 5 Douglas-fir, 6 limber pine, 7 snag. Until the asset kit (FEAT-156) they share three mesh sets
+ * (DRAW_SET); packs before DATA-020 use 0..2 with the same meaning. Near cells get full geometry, far cells a
  * single-cone silhouette.
  */
 let NEAR_RADIUS = 1500;
@@ -19,6 +21,9 @@ export function setVegetationBudget(near: number, far: number): void { NEAR_RADI
 export function setVegetationDensity(d: number): void { const k = Math.max(0.25, Math.min(1, d)); NEAR_RADIUS = 1500 * k; FAR_RADIUS = 4500 * k; }
 
 const SPECIES_NAME = ['conifer', 'aspen', 'krummholz'];
+/** pack species id -> mesh set: the conifers draw as conifer, the snag as a bare grey aspen-shaped stem */
+const DRAW_SET = [0, 1, 2, 0, 0, 0, 0, 1];
+const SNAG = 7;
 
 interface Cell {
   key: string;
@@ -252,8 +257,8 @@ export class Vegetation {
     const n = d.length / 6;
     const bySpecies: number[][] = [[], [], []];
     for (let i = 0; i < n; i++) {
-      const s = Math.min(2, Math.max(0, Math.round(d[i * 6 + 5])));
-      bySpecies[s].push(i);
+      const id = Math.round(d[i * 6 + 5]);
+      bySpecies[DRAW_SET[id] ?? 0].push(i);
     }
     const sets: [number, THREE.BufferGeometry, THREE.Material][] = [
       [0, near ? this.geo.conifer.near : this.geo.conifer.far, near ? this.mat.conifer : this.mat.coniferFar],
@@ -277,7 +282,8 @@ export class Vegetation {
           sc.setXY(k, w * this.impostor[s].atlas.widthK, h * this.impostor[s].atlas.heightK);
           yw.setX(k, seed * 6.283);
           const v = 0.85 + 0.3 * ((seed * 7.13) % 1);
-          if (s === 0) co.setXYZ(k, 0.17 * v * 2.6, 0.29 * v * 2.6, 0.18 * v * 2.6);
+          if (Math.round(d[o + 5]) === SNAG) co.setXYZ(k, 0.50 * v, 0.46 * v, 0.42 * v);
+          else if (s === 0) co.setXYZ(k, 0.17 * v * 2.6, 0.29 * v * 2.6, 0.18 * v * 2.6);
           else if (s === 1) co.setXYZ(k, 0.85 * v, 0.84 * v, 0.80 * v);
           else co.setXYZ(k, 0.2 * v * 2.4, 0.31 * v * 2.4, 0.22 * v * 2.4);
           k++;
@@ -309,7 +315,8 @@ export class Vegetation {
         mesh.setMatrixAt(k, this.tmpM);
         // colour variation
         const v = 0.85 + 0.3 * ((seed * 7.13) % 1);
-        if (s === 0) this.tmpC.setRGB(0.17 * v, 0.29 * v, 0.18 * v);
+        if (Math.round(d[o + 5]) === SNAG) this.tmpC.setRGB(0.50 * v, 0.46 * v, 0.42 * v);
+        else if (s === 0) this.tmpC.setRGB(0.17 * v, 0.29 * v, 0.18 * v);
         else if (s === 1) this.tmpC.setRGB(0.85 * v, 0.84 * v, 0.80 * v);
         else this.tmpC.setRGB(0.2 * v, 0.31 * v, 0.22 * v);
         mesh.setColorAt(k, this.tmpC);
