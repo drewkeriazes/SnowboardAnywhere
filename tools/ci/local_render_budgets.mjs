@@ -106,18 +106,21 @@ if (HEAD !== pr.headRefOid) {
   if (runs && runs !== '0') console.log(`note: CI already started on ${HEAD.slice(0, 12)}, so this pass applies to re-runs of it. Next time commit, then run with --push.`);
 }
 
-// node_modules must be what the lockfile says, as `npm ci` gives CI
+// installed versions must be what the lockfile says, as `npm ci` gives CI: a different three, vite or playwright
+// could change the counts. A package that is not installed at all only warns: the build or cishot fails loudly
+// if it needed it (game/node_modules is often a junction to the main checkout, shared by every session).
 function checkInstalled(gameDir) {
   const lock = JSON.parse(fs.readFileSync(path.join(gameDir, 'package-lock.json'), 'utf8')).packages ?? {};
   const hiddenPath = path.join(gameDir, 'node_modules', '.package-lock.json');
   if (!fs.existsSync(hiddenPath)) die(`${path.join(gameDir, 'node_modules')} is missing or was not installed by npm; run npm ci in game/`);
   const have = JSON.parse(fs.readFileSync(hiddenPath, 'utf8')).packages ?? {};
-  const bad = [];
+  const bad = [], missing = [];
   for (const [k, v] of Object.entries(lock)) {
     if (!k.startsWith('node_modules/')) continue;
-    if (!have[k]) { if (!v.optional) bad.push(`${k} missing`); continue; }
+    if (!have[k]) { if (!v.optional) missing.push(k.slice('node_modules/'.length)); continue; }
     if (v.version && have[k].version !== v.version) bad.push(`${k} ${have[k].version} (lockfile ${v.version})`);
   }
+  if (missing.length) console.warn(`warning: not installed in game/node_modules (npm ci would add them): ${missing.slice(0, 10).join(', ')}`);
   if (bad.length) die(`game/node_modules does not match game/package-lock.json; run npm ci in game/:\n  ${bad.slice(0, 10).join('\n  ')}`);
 }
 checkInstalled(path.join(REPO, 'game'));
