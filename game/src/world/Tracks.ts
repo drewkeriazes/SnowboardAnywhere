@@ -76,9 +76,11 @@ const UP = [0, 1, 0];
 /** BUG-021: the terrain's typical snow albedo: mix(uSnowShade, uSnow, 0.72) times its 0.95 grain tone */
 const SNOW_RGB = [0.83, 0.86, 0.94];
 /** floats stored per section */
-const SEC = 15; // ... + terrain normal (three.js x, y, z) at the centre (BUG-021), soft (FEAT-044)
+const SEC = 16; // ... + terrain normal (three.js x, y, z) at the centre (BUG-021), soft (FEAT-044), berm (FEAT-134)
 /** the berm and lip spread wider when scraping, so the ridge is a mound rather than a spike */
 const lipWidth = (polish: number) => 1 + 2.5 * polish;
+/** FEAT-134: edge angle (rad) by which a sliding board is fully dug in and spreads its smear and lips */
+const DIG_EDGE = 15 * Math.PI / 180;
 /** FEAT-044: how much of the knife-cut collapse soft snow allows (the board sinks, so the whole base cuts) */
 const SOFT_TILT = 0.3;
 /**
@@ -193,17 +195,18 @@ class Lane {
    * across the track (three.js x/z); half width; depth (m); surface(x, z) returns the snow height.
    * Scraping: ridge height (m) of pushed snow, ridgeSide -1..1 (which lip gets it, + = the right
    * side), polish 0..1 (how much the floor is a flat scraped band rather than a cut groove), soft
-   * 0..1 (FEAT-044: how soft the snow is; the floor is packed less).
+   * 0..1 (FEAT-044: how soft the snow is; the floor is packed less), berm 0..1 (FEAT-134: how far the
+   * lips spread with snow pushed out by a dug-in edge; polish by default, little for a flat base sliding).
    */
-  add(cx: number, cy: number, cz: number, ax: number, az: number, half: number, depth: number, tilt: number, surface: (x: number, z: number) => number, ridge = 0, ridgeSide = 0, polish = 0, fill = 1, gn: ArrayLike<number> = UP, soft = 0): void {
+  add(cx: number, cy: number, cz: number, ax: number, az: number, half: number, depth: number, tilt: number, surface: (x: number, z: number) => number, ridge = 0, ridgeSide = 0, polish = 0, fill = 1, gn: ArrayLike<number> = UP, soft = 0, berm = polish): void {
     const s = this.head;
     const o = s * SEC, c = this.secC;
     c[o] = cx; c[o + 1] = cy; c[o + 2] = cz; c[o + 3] = ax; c[o + 4] = az; c[o + 5] = half; c[o + 6] = depth; c[o + 7] = tilt;
     c[o + 8] = ridge; c[o + 9] = ridgeSide; c[o + 10] = polish;
-    c[o + 11] = gn[0]; c[o + 12] = gn[1]; c[o + 13] = gn[2]; c[o + 14] = soft;
+    c[o + 11] = gn[0]; c[o + 12] = gn[1]; c[o + 13] = gn[2]; c[o + 14] = soft; c[o + 15] = berm;
     this.age[s] = FADE * (1 - fill); // fill < 1 (a rock edge, BUG-043) starts part filled in: shallower and fainter
     // snow heights under each profile vertex (follow the slope across the track)
-    const lw = lipWidth(polish);
+    const lw = lipWidth(berm);
     for (let k = 0; k < P; k++) {
       const off = profileOff(k, half, lw, tilt);
       this.ground[s * P + k] = surface(cx + ax * off, cz + az * off);
@@ -231,7 +234,7 @@ class Lane {
   private shape(s: number): void {
     const o = s * SEC;
     const cx = this.secC[o], cz = this.secC[o + 2], ax = this.secC[o + 3], az = this.secC[o + 4], half = this.secC[o + 5];
-    const ridgeSide = this.secC[o + 9], polish = this.secC[o + 10], soft = this.secC[o + 14], lw = lipWidth(polish);
+    const ridgeSide = this.secC[o + 9], polish = this.secC[o + 10], soft = this.secC[o + 14], lw = lipWidth(this.secC[o + 15]);
     // tilt -1..1: the board on its edge. Positive = the right-hand edge is engaged: that side of the
     // floor is deepest with a near-vertical wall, the other side rises to a shallow shelf, and the
     // displaced snow piles up on the outside of the turn.
@@ -480,7 +483,10 @@ export class Tracks {
     const edge = Math.abs(tilt);
     // a committed carve collapses the trench to a knife cut about 1 cm wide (FEAT-109)
     const ec = edgeCurve(edge);
-    const halfRaw = Math.max(MIN_HALF, 0.5 * (L * gs + W * gc * (1 - 0.95 * ec)) + (ski ? 0.05 : 0.15) * skid);
+    // FEAT-134: the smear past the footprint and the spread lips are snow pushed out by a dug-in edge
+    // (a brake, a skidded carve); a flat base sliding down the fall line leaves its own footprint
+    const dig = Math.max(r.brakeAmt, Math.min(1, Math.abs(phi) / DIG_EDGE));
+    const halfRaw = Math.max(MIN_HALF, 0.5 * (L * gs + W * gc * (1 - 0.95 * ec)) + (ski ? 0.05 : 0.15) * skid * dig);
     // BUG-019: ease the width so a stop widens the band over a few sections, not in one long wedge
     const half = moved > 6 || Number.isNaN(this.lastHalf) ? halfRaw : Math.min(halfRaw, this.lastHalf + HALF_GROW_PER_M * moved);
     this.lastHalf = half;
@@ -519,7 +525,7 @@ export class Tracks {
       const fill = rock > ROCK_FADE ? 1 - (rock - ROCK_FADE) / (ROCK_CUT - ROCK_FADE) : 1;
       const pn = this.pack.groundNormal(cx, cy, this.nTmp);
       this.gnTmp[0] = pn[0]; this.gnTmp[1] = pn[2]; this.gnTmp[2] = -pn[1]; // pack -> three.js axes
-      this.lanes[i].add(cx, g, -cy, ax, -ay, bandHalf, depth, tilt, surface, ridge, ridgeSide, gs, fill, this.gnTmp, soft);
+      this.lanes[i].add(cx, g, -cy, ax, -ay, bandHalf, depth, tilt, surface, ridge, ridgeSide, gs, fill, this.gnTmp, soft, gs * dig);
     });
   }
 

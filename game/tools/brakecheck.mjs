@@ -76,11 +76,26 @@ for (const deg of [5, 15, 25, 35, 45]) {
   const r = s.r, inp = input();
   for (let i = 0; i < 30; i++) r.update(DT, Object.assign(inp, { brake: true }));
   inp.brake = false;
+  // FEAT-134: with the fall line realistic, standing on the slope means holding the uphill edge
+  // (steer into the hill); the board is at yaw h, downhill is +y, so the hill is on the right when sin(h) > 0
+  inp.steer = Math.sign(Math.sin(r.boardYaw));
   const x0 = r.x, y0 = r.y;
   for (let i = 0; i < 360; i++) r.update(DT, inp);
   const moved = Math.hypot(r.x - x0, r.y - y0);
   const across = Math.abs(Math.sin(r.boardYaw)) ; // fall line is +y, so across = |sin(yaw)|
-  check('stands still across the hill after release', moved < 0.05 && across > 0.9, `moved ${(moved * 100).toFixed(1)} cm in 3 s, board ${angle(r.boardYaw).toFixed(0)} deg from the fall line`);
+  check('stands still across the hill after release, holding the uphill edge', moved < 0.05 && across > 0.9, `moved ${(moved * 100).toFixed(1)} cm in 3 s, board ${angle(r.boardYaw).toFixed(0)} deg from the fall line`);
+  // let go of the edge and the board starts to slide (fall line realistic); with it off it stands as before
+  inp.steer = 0;
+  for (let i = 0; i < 240; i++) r.update(DT, inp);
+  const crept = Math.hypot(r.x - x0, r.y - y0);
+  const r0 = stop(15, 10).r; r0.fallLine = 0;
+  for (let i = 0; i < 30; i++) r0.update(DT, Object.assign(input(), { brake: true }));
+  const x1 = r0.x, y1 = r0.y;
+  for (let i = 0; i < 360; i++) r0.update(DT, input());
+  const stood = Math.hypot(r0.x - x1, r0.y - y1);
+  check('letting the edge go starts a slide (realistic); fall line off stands with no input', crept > 0.3 && stood < 0.05, `${crept.toFixed(2)} m in 2 s realistic, ${(stood * 100).toFixed(1)} cm in 3 s off`);
+  inp.steer = Math.sign(Math.sin(r.boardYaw));
+  for (let i = 0; i < 240; i++) r.update(DT, inp); // back on the edge, slowing to a stand
   // turn back down the fall line and ride off
   inp.steer = r.boardYaw > 0 ? -1 : 1;
   for (let i = 0; i < 360 && Math.abs(angle(r.heading)) > 10; i++) r.update(DT, inp);

@@ -69,16 +69,19 @@ export function gfxPresetOf(s: Settings): GfxPreset | 'custom' {
   }
   return 'custom';
 }
-export type FeelPreset = 'arcade' | 'balanced' | 'realistic';
-/** Feel presets set the gameplay feel options together; today that is press balance (jump mode, edge catches and fall line join as they land) */
-const FEEL: Record<FeelPreset, Partial<Settings>> = { arcade: { pressBalance: 'easy' }, balanced: { pressBalance: 'on' }, realistic: { pressBalance: 'hard' } };
+export type FeelPreset = 'arcade' | 'realistic';
+/** Feel presets set the gameplay feel options together: press balance and the fall line (FEAT-134; jump mode joins as it lands).
+ *  Two, by Drew's call: Arcade forgives, Realistic is the defaults (Hard press balance stays a manual pick) */
+const FEEL: Record<FeelPreset, Partial<Settings>> = {
+  arcade: { pressBalance: 'easy', fallLine: 'off' }, realistic: { pressBalance: 'on', fallLine: 'real' },
+};
 export function applyFeelPreset(s: Settings, p: FeelPreset): void { Object.assign(s, FEEL[p]); }
 export function feelPresetOf(s: Settings): FeelPreset | 'custom' {
   for (const p of Object.keys(FEEL) as FeelPreset[]) if (Object.entries(FEEL[p]).every(([k, v]) => s[k as keyof Settings] === v)) return p;
   return 'custom';
 }
 export const GFX_OPTS: Opt[] = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra']];
-export const FEEL_OPTS: Opt[] = [['arcade', 'Arcade'], ['balanced', 'Balanced'], ['realistic', 'Realistic']];
+export const FEEL_OPTS: Opt[] = [['arcade', 'Arcade'], ['realistic', 'Realistic']];
 
 const outfitPreset = (s: Settings) => Object.entries(OUTFIT_PRESETS).find(([, o]) => (Object.keys(o) as (keyof Outfit)[]).every((k) => o[k] === s.outfit[k]))?.[0] ?? '';
 const colour = (k: keyof Outfit, label: string): Row => ({ kind: 'color', id: `outfit.${k}`, what: 'outfit', label, desc: `The ${label.toLowerCase()} colour. Pick any colour; the preset shows Custom after.`, get: (s) => s.outfit[k], set: (s, v) => { s.outfit[k] = String(v); } });
@@ -90,6 +93,7 @@ export const SECTIONS: Section[] = [
     { kind: 'seg', id: 'feel', label: 'Feel', opts: FEEL_OPTS, what: 'pressBalance', get: (s) => feelPresetOf(s), set: (s, v) => applyFeelPreset(s, v as FeelPreset),
       desc: 'Sets the feel options together. Arcade forgives more, Realistic asks more of you. Changing an option below shows Custom.' },
     pick('pressBalance', 'Press balance', [['easy', 'Easy'], ['on', 'Normal'], ['hard', 'Hard'], ['off', 'Off']], 'Holding a nose or tail press is a balancing act: steer to keep the balance point centred. Easy drifts slowly, Hard fast, Off holds the press as long as the key.'),
+    seg('fallLine', 'Fall line', [['real', 'Realistic'], ['assist', 'Assisted'], ['off', 'Off']], 'How hard the hill works on a flat board. Realistic: it drifts down and comes round toward the fall line unless you hold the uphill edge, a board let go across the hill side-slips, and sliding sideways onto the edge you are sliding toward catches it. Assisted: half the pull and no edge catches. Off: a flat board holds a traverse on rails.'),
   ] },
   { cat: 'gameplay', title: 'Rider', rows: [
     seg('discipline', 'Ride', [['board', 'Snowboard'], ['ski', 'Skis']], () => `Snowboard or skis. ${keyName(MENU_KEYS.discipline[0])} on the main menu switches too.`),
@@ -222,6 +226,8 @@ export const SECTIONS: Section[] = [
   ] },
 ];
 
+/** one row by its id (the pause menu's quick toggles and Outrun options reuse them) */
+export const rowById = (id: string): Row | undefined => SECTIONS.flatMap((s) => s.rows).find((r) => r.id === id);
 /** the rows of one category */
 export const rowsOf = (c: CatId): Row[] => SECTIONS.filter((s) => s.cat === c).flatMap((s) => s.rows);
 export const optsOf = (r: Row & { opts: Opt[] | ((s: Settings) => Opt[]) }, s: Settings): Opt[] => (typeof r.opts === 'function' ? r.opts(s) : r.opts);
