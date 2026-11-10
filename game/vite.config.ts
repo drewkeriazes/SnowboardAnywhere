@@ -1,6 +1,7 @@
 import { defineConfig, type Connect, type Plugin } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
+import { handleShotPost, handleTakePost } from './tools/attract_files.mjs';
 
 /**
  * Serve ../packs at /packs/ so resort packs stay out of the game bundle (they are gitignored).
@@ -79,8 +80,9 @@ function saveCompareShots(): Plugin {
 }
 
 /**
- * Dev only (FEAT-128): the replay viewer's L key (with ?debug) posts a marked span here as a main menu ghost.
- * Saves game/public/attract/<pack>/take-<n>.json and lists it under the pack in game/public/attract/index.json.
+ * Dev only (FEAT-128): the replay viewer's L key (with ?debug) posts a marked span here as a main menu ghost:
+ * game/public/attract/<pack>/take-<n>.json, listed under the pack in game/public/attract/index.json. FEAT-181: the
+ * eye camera's Shift+P (with ?debug) posts the resort's menu shot (game/public/attract/<pack>/shots.json).
  */
 function saveAttractTakes(): Plugin {
   const dir = path.resolve(__dirname, 'public', 'attract');
@@ -102,35 +104,13 @@ function saveAttractTakes(): Plugin {
         res.setHeader('cache-control', 'no-cache');
         fs.createReadStream(file).pipe(res);
       });
+      // the replay viewer's L (a recorded take, numbered one past the highest in use) and the eye camera's Shift+P
+      // (FEAT-181: the resort's menu shot), written into this checkout by tools/attract_files.mjs
       server.middlewares.use((req, res, next) => {
-        if (req.url !== '/__attract/save' || req.method !== 'POST') return next();
-        // the dev server listens on the home network (host: true): only the game's own page, JSON, a few MB
-        const origin = req.headers.origin, host = req.headers.host;
-        if (!String(req.headers['content-type'] ?? '').startsWith('application/json') || (origin && host && new URL(origin).host !== host)) { res.statusCode = 403; res.end('forbidden'); return; }
-        const chunks: Buffer[] = [];
-        let size = 0;
-        req.on('data', (c: Buffer) => { size += c.length; if (size > 8e6) { res.statusCode = 413; res.end('too big'); req.destroy(); return; } chunks.push(c); });
-        req.on('end', () => {
-          if (size > 8e6) return;
-          try {
-            const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-            if (typeof body.pack !== 'string' || !/^[a-z0-9][a-z0-9_-]*$/.test(body.pack)) throw new Error('bad pack');
-            const take = JSON.parse(String(body.take));
-            const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
-            if (take.version !== 1 || !Array.isArray(take.samples) || !take.samples.length || !take.samples.every((s: Record<string, unknown>) => num(s.t) && num(s.x) && num(s.y) && num(s.z))) throw new Error('not a take');
-            const d = path.join(dir, body.pack);
-            fs.mkdirSync(d, { recursive: true });
-            const idxFile = path.join(dir, 'index.json');
-            const all: Record<string, { stills?: string[]; ghosts?: string[] }> = Object.assign(Object.create(null), fs.existsSync(idxFile) ? JSON.parse(fs.readFileSync(idxFile, 'utf8')) : {});
-            const idx = (all[body.pack] ??= {});
-            let n = 1; while (fs.existsSync(path.join(d, `take-${n}.json`))) n++;
-            const name = `take-${n}.json`;
-            fs.writeFileSync(path.join(d, name), JSON.stringify(take) + '\n');
-            idx.ghosts = [...(idx.ghosts ?? []), name];
-            fs.writeFileSync(idxFile, JSON.stringify(all, null, 2) + '\n');
-            res.statusCode = 200; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ file: `game/public/attract/${body.pack}/${name}` }));
-          } catch (e) { res.statusCode = 400; res.end(String((e as Error).message ?? e)); }
-        });
+        if (req.method !== 'POST') return next();
+        if (req.url === '/__attract/save') return handleTakePost(dir, req, res);
+        if (req.url === '/__attract/shot') return handleShotPost(dir, req, res);
+        next();
       });
     },
   };

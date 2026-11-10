@@ -59,3 +59,30 @@ export function saveShot(o: {
     })
     .catch((e) => { console.warn('compare save failed, downloading instead', e); download(); });
 }
+
+/**
+ * FEAT-181 (?debug, eye camera, Shift+P): the view as the resort's main menu shot. The heading is set half the pan
+ * right of the view, so the drift starts (shotPose at 0) on exactly what was framed. The dev server writes
+ * game/public/attract/<pack>/shots.json (replacing the shot there and the riders made for it); a hosted build
+ * downloads the file instead.
+ */
+export function saveMenuShot(o: {
+  slug: string; eye: EyePose; labels: { id: string; place: string; region: string };
+  conditions: Record<string, unknown>; hosted: boolean; toast: (text: string, ms?: number) => void;
+}): void {
+  const pan = 1.5;
+  const shot = { ...o.labels, x: o.eye.x, y: o.eye.y, h: o.eye.h + pan / 2, pitch: o.eye.pitch, fov: o.eye.fov, eye: o.eye.eye, dolly: 4, pan, period: 26, conditions: o.conditions };
+  const download = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify([shot], null, 2)], { type: 'application/json' })); a.download = 'shots.json'; a.click();
+    o.toast(`Saved shots.json to Downloads: put it in game/public/attract/${o.slug}/`);
+  };
+  if (o.hosted) { download(); return; }
+  fetch('/__attract/shot', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack: o.slug, shot }) })
+    .then(async (r) => {
+      if (!r.ok) throw new Error(await r.text());
+      const { file, removed } = await r.json() as { file: string; removed: string[] };
+      o.toast(`Menu shot saved: ${file}${removed.length ? ` (removed the old shot's ${removed.length} files)` : ''}`, 6000);
+    })
+    .catch((e) => { console.warn('menu shot save failed, downloading instead', e); download(); });
+}
