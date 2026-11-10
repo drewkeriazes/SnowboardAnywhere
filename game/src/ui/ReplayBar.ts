@@ -22,8 +22,7 @@ export class ReplayBar {
   readonly el = document.createElement('div');
 
   constructor(private readonly keys: KeyLabels) {
-    this.el.id = 'replay';
-    this.el.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(720px,92vw);color:#fff;background:rgba(20,24,34,.8);border-radius:12px;padding:8px 14px;font:13px system-ui,sans-serif;display:none;pointer-events:none;z-index:6';
+    this.el.id = 'replay'; // hud.css
     document.body.appendChild(this.el);
   }
 

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { LiftFeature } from '../pack/types';
 import type { Pack } from '../pack/Pack';
+import { LOAD_OFFSET, rideLength, type LiftKind } from '../sim/LiftLine';
 import { towerGeometry, towerHeadGeometry, footingGeometry, chairGeometry, gondolaGeometry, surfaceHangerGeometry, terminalGeometry, carpetGeometry } from './LiftModels';
 
 /**
@@ -10,11 +11,8 @@ import { towerGeometry, towerHeadGeometry, footingGeometry, chairGeometry, gondo
  * Tower positions come from OSM pylons when mapped, otherwise spaced along the line; spans that
  * would run too close to the ground get virtual towers.
  */
-export type LiftKind = 'chair' | 'gondola' | 'surface' | 'carpet';
 const SPEEDS: Record<LiftKind, number> = { chair: 2.6, gondola: 5.0, surface: 2.2, carpet: 0.9 };
 const SPACING: Record<LiftKind, number> = { chair: 22, gondola: 60, surface: 10, carpet: 0 };
-/** metres along the line from the station node to where you board / unload */
-export const LOAD_OFFSET = 8;
 /** Height of the chair seat below the cable (hanger + chair). */
 export const SEAT_DROP = 2.1;
 export const CHAIR_SPEED = SPEEDS.chair;
@@ -384,7 +382,7 @@ export class Lifts {
   }
 
   /** Rideable length between the loading and unloading points. */
-  rideLength(l: LiftRuntime): number { return Math.max(1, l.length - 2 * LOAD_OFFSET); }
+  rideLength(l: LiftRuntime): number { return rideLength(l); }
 
   /** Rider position (three.js coords) at distance `up` metres from the loading point along the line. */
   seatAt(l: LiftRuntime, up: number, out: THREE.Vector3): THREE.Vector3 {

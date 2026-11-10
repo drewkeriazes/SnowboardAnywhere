@@ -10,8 +10,7 @@ export class RunCard {
   private t = 0;
 
   constructor() {
-    this.el.id = 'run-card';
-    this.el.style.cssText = 'position:fixed;left:16px;top:50%;transform:translateY(-50%);width:260px;background:rgba(18,22,32,.88);color:#fff;border-radius:14px;padding:14px 16px;font:13px system-ui,sans-serif;display:none;z-index:6;box-shadow:0 6px 24px rgba(0,0,0,.35)';
+    this.el.id = 'run-card'; // hud.css
     this.el.addEventListener('click', () => this.hide());
     document.body.appendChild(this.el);
   }

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
-import { LOAD_OFFSET, type LiftRuntime } from './Lifts';
+import type { LiftRuntime } from './Lifts';
+import { LOAD_OFFSET } from '../sim/LiftLine';
 
 /**
  * FEAT-073: lift-line mazes at the bottom of each chairlift. Behind the loading point, aligned to

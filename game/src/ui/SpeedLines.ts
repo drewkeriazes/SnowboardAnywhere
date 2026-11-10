@@ -14,8 +14,7 @@ export class SpeedLines {
   enabled = true;
 
   constructor(parent: HTMLElement) {
-    this.canvas.className = 'speed-lines';
-    this.canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:4';
+    this.canvas.className = 'speed-lines'; // hud.css
     parent.appendChild(this.canvas);
     this.ctx = this.canvas.getContext('2d');
     for (const l of this.lines) this.spawn(l, Math.random());

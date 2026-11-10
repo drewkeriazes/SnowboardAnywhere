@@ -48,6 +48,7 @@ import { warmUp as warmUpWorld } from './warmUp';
 import { saveShot as saveShotFile, saveTake as saveTakeFile } from './devSaves';
 import { buildWorld } from './World';
 import { mountLeadTunePanel } from '../ui/LeadTunePanel';
+import { RestartRing } from '../ui/RestartRing';
 import { installSimDebug } from '../core/debugHooks';
 import type { GameContext } from '../core/GameContext';
 import { PAD } from '../sim/Pad';
@@ -493,9 +494,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     // FEAT-124: restart hold and its ring, and the contextual key hints in the corner
     const RESTART_HOLD = 0.6;
     let restartHold = 0, restartDone = false;
-    const restartRing = document.createElement('div');
-    restartRing.style.cssText = 'position:fixed;left:50%;top:50%;width:46px;height:46px;margin:-23px;border-radius:50%;display:none;pointer-events:none;z-index:7;-webkit-mask:radial-gradient(circle,transparent 15px,#000 16px);mask:radial-gradient(circle,transparent 15px,#000 16px)';
-    document.body.appendChild(restartRing);
+    const restartRing = new RestartRing();
     const helpEl = document.getElementById('help');
     let helpShown = '', helpT = 0;
     const { padKey, pg } = keyLabels;
@@ -527,7 +526,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       trialWorld.dispose();
       if (outrun.active) stopOutrun();
       padFx.stop();
-      outrunUI.destroy(); runCard.dispose(); speedLines.dispose(); pressMeter.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
+      outrunUI.destroy(); runCard.dispose(); speedLines.dispose(); pressMeter.dispose(); restartRing.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
       trialHud.hide();
       audio.onTrack = null;
       showPrompt('');
@@ -594,8 +593,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
         if (restartHold >= RESTART_HOLD && !restartDone) { restartDone = true; if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); runStats.end(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
       } else { restartHold = 0; restartDone = false; }
       controls.action('restart'); // the press itself does nothing
-      restartRing.style.display = restartHold > 0.05 && !restartDone ? 'block' : 'none';
-      if (restartHold > 0.05) restartRing.style.background = `conic-gradient(#ffd166 ${Math.min(1, restartHold / RESTART_HOLD) * 360}deg, rgba(255,255,255,.18) 0)`;
+      restartRing.update(restartHold > 0.05 && !restartDone ? Math.min(1, restartHold / RESTART_HOLD) : null);
       if (!replayOpen && controls.action('trial') && trialsOn() && !outrun.active) {
         const c = trial.nearestStart(rider.x, rider.y);
         if (c) goToCourse(c);
@@ -800,7 +798,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
         const on = rider.pressing && !replayOpen && !detached && !eat.active;
         let px = -999, py = -999;
         if (on && cam.firstPerson) { px = window.innerWidth * 0.5; py = window.innerHeight * 0.78; }
-        else if (on || pressMeter.root.style.opacity !== '0') {
+        else if (on || pressMeter.visible) {
           riderView.eye(pressHead); pressHead.y += 0.4; pressHead.project(cam.camera);
           if (pressHead.z < 1) { px = (pressHead.x + 1) / 2 * window.innerWidth; py = (1 - pressHead.y) / 2 * window.innerHeight; }
         }

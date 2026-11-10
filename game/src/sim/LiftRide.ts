@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import type { Rider } from './Rider';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from './Collider';
-import { LOAD_OFFSET, type LiftRuntime, type Lifts } from '../world/Lifts';
+import type { LiftRuntime, Lifts } from '../world/Lifts';
+import { LOAD_OFFSET } from './LiftLine';
 
 /**
  * Riding a lift back up. Near a bottom terminal and slow, pressing the board key puts the rider
