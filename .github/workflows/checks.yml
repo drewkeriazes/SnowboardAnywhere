@@ -10,7 +10,9 @@
 #                     compile, scene budget counts (fails on a count more than 10%
 #                     over main), bundle size; render-budgets-comment posts them.
 #                     The before / after stills comparison only when asked for: the
-#                     PR's `stills` label, or a manual run with `stills` ticked
+#                     PR's `stills` label, or a manual run with `stills` ticked.
+#                     Skipped (still green) when tools/ci/local_render_budgets.mjs
+#                     passed on Drew's GPU for the same commit (FEAT-176)
 #   repo-rules        no em dashes in added Markdown, plain commit messages,         always
 #                     docs-travel warning, stale main menu still warning (FEAT-177)
 #   public-guards     no Spotify code, no .env files, images <= 1 MB in the right    always
@@ -237,27 +239,80 @@ jobs:
     permissions:
       contents: read
       issues: read # the PR's labels (`stills`)
+      statuses: read # a `render-budgets/local` pass on the head commit (FEAT-176)
+    outputs:
+      skipped: ${{ steps.local.outputs.skip }}
+      local_sha: ${{ steps.local.outputs.sha }}
     env:
       OUT: ${{ github.workspace }}/ci-stills
       MAIN: ${{ github.workspace }}/../main-src
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v4
+
+      - name: Stills asked for?
+        id: want
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          want=${{ inputs.stills == true && 'true' || 'false' }}
+          if [ "$want" != true ] && gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/labels" --jq '.[].name' | grep -qx stills; then want=true; fi
+          echo "stills=$want" | tee -a "$GITHUB_OUTPUT"
+
+      # FEAT-176: skip the rest when tools/ci/local_render_budgets.mjs already passed on Drew's PC for this exact
+      # commit, with the same merge base, tools and synthetic pack, and no stills asked for. The job still
+      # reports success. Only the repo owner's statuses count (the repo is public).
+      - name: Passed locally on this commit?
+        id: local
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TRUSTED: ${{ github.repository_owner }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          STILLS: ${{ steps.want.outputs.stills }}
+          SYNTH_KEY: ${{ needs.synth-pack.outputs.key }}
+        run: |
+          skip=false
+          # newest first: the latest success the owner set for this context on this commit. Any API error
+          # leaves a field empty, which runs the check here.
+          desc=$(gh api "repos/$REPO/commits/$HEAD_SHA/statuses?per_page=100" --jq \
+            "[.[] | select(.context == \"render-budgets/local\" and .creator.login == \"$TRUSTED\" and .state == \"success\")] | first | .description // empty") || desc=""
+          field() { echo "$desc" | tr ' ' '\n' | sed -n "s/^$1=//p"; }
+          if [ -z "$desc" ]; then echo "no local pass from $TRUSTED on $HEAD_SHA: running here"
+          elif [ "$STILLS" = true ]; then echo "stills asked for: running here"
+          else
+            base=$(gh api "repos/$REPO/compare/$BASE_REF...$HEAD_SHA" --jq .merge_base_commit.sha) || base=""
+            tools=$(bash tools/ci/render_budgets_key.sh HEAD) || tools=""
+            echo "local pass: $desc"
+            echo "here:       base=$base tools=$tools synth=$SYNTH_KEY"
+            if [ -z "$base" ] || [ "$(field base)" != "$base" ]; then echo "merge base moved (or unknown): running here"
+            elif [ -z "$tools" ] || [ "$(field tools)" != "$tools" ]; then echo "the render-budgets tools differ: running here"
+            elif [ -z "$SYNTH_KEY" ] || [ "$(field synth)" != "$SYNTH_KEY" ]; then echo "the synthetic pack differs: running here"
+            else skip=true; echo "::notice::render-budgets passed locally at $HEAD_SHA: skipped in CI"; fi
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          echo "sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - if: steps.local.outputs.skip != 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: game/package-lock.json
-      - uses: actions/setup-python@v5
+      - if: steps.local.outputs.skip != 'true'
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: pipeline/requirements.txt
-      - run: npm ci
+      - if: steps.local.outputs.skip != 'true'
+        run: npm ci
         working-directory: game
-      - run: pip install numpy pillow
+      - if: steps.local.outputs.skip != 'true'
+        run: pip install numpy pillow
 
       # main's source, built with the PR's node_modules unless the lockfile differs
-      - name: Check out and build main
+      - if: steps.local.outputs.skip != 'true'
+        name: Check out and build main
         run: |
           git fetch --no-tags --depth=1 origin "$BASE_REF"
           git worktree add "$MAIN" FETCH_HEAD
@@ -272,11 +327,12 @@ jobs:
       # main's synthetic pack: the same as the PR's unless the PR changed the pipeline
       - uses: actions/cache/restore@v4
         id: main-synth
-        if: env.main_key != needs.synth-pack.outputs.key
+        if: steps.local.outputs.skip != 'true' && (env.main_key != needs.synth-pack.outputs.key)
         with:
           path: packs/synth
           key: ${{ env.main_key }}
-      - name: Main's synthetic pack
+      - if: steps.local.outputs.skip != 'true'
+        name: Main's synthetic pack
         run: |
           mkdir -p "$RUNNER_TEMP/main-packs"
           if [ "$main_key" = "${{ needs.synth-pack.outputs.key }}" ]; then
@@ -290,48 +346,47 @@ jobs:
             fi
             echo "MAIN_PACKS=$RUNNER_TEMP/main-packs" >> "$GITHUB_ENV"
           fi
-      - uses: actions/cache/restore@v4
+      - if: steps.local.outputs.skip != 'true'
+        uses: actions/cache/restore@v4
         with:
           path: packs/synth
           key: ${{ needs.synth-pack.outputs.key }}
           fail-on-cache-miss: true
-      - name: Pack lists
+      - if: steps.local.outputs.skip != 'true'
+        name: Pack lists
         run: |
           echo '{"packs":["synth"]}' > packs/index.json
           echo '{"packs":["synth"]}' > "$MAIN_PACKS/index.json"
 
-      - id: pw
+      - if: steps.local.outputs.skip != 'true'
+        id: pw
         working-directory: game
         run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - if: steps.local.outputs.skip != 'true'
+        uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ steps.pw.outputs.version }}
-      - run: npx playwright install --with-deps chromium
+      - if: steps.local.outputs.skip != 'true'
+        run: npx playwright install --with-deps chromium
         working-directory: game
-      - run: npx vite build
+      - if: steps.local.outputs.skip != 'true'
+        run: npx vite build
         working-directory: game
 
-      - name: Stills asked for?
-        id: want
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          want=${{ inputs.stills == true && 'true' || 'false' }}
-          if [ "$want" != true ] && gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/labels" --jq '.[].name' | grep -qx stills; then want=true; fi
-          echo "stills=$want" | tee -a "$GITHUB_OUTPUT"
-
-      - name: Render main (before)
+      - if: steps.local.outputs.skip != 'true'
+        name: Render main (before)
         working-directory: game
         continue-on-error: true
         run: SHOT_DIST="$MAIN/game/dist" SHOT_PACKS="$MAIN_PACKS" node tools/cishot.mjs synth "$OUT/before" --cpu
-      - name: Render the PR (after)
+      - if: steps.local.outputs.skip != 'true'
+        name: Render the PR (after)
         id: after
         working-directory: game
         continue-on-error: true
         run: node tools/cishot.mjs synth "$OUT/after" --cpu
       - name: Menu backdrop still (stills asked for and the menu changed)
-        if: steps.want.outputs.stills == 'true' && needs.changes.outputs.attract == 'true'
+        if: steps.local.outputs.skip != 'true' && (steps.want.outputs.stills == 'true' && needs.changes.outputs.attract == 'true')
         working-directory: game
         continue-on-error: true
         run: |
@@ -339,7 +394,8 @@ jobs:
             && cp public/attract/synth/*.jpg "$OUT/before/00_menu_backdrop.jpg"
           node tools/shoot_attract.mjs synth --cpu && cp public/attract/synth/*.jpg "$OUT/after/00_menu_backdrop.jpg"
 
-      - name: Report
+      - if: steps.local.outputs.skip != 'true'
+        name: Report
         id: report
         continue-on-error: true
         run: |
@@ -348,19 +404,21 @@ jobs:
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --before-dist "$MAIN/game/dist" --after-dist game/dist
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && steps.local.outputs.skip != 'true'
         with:
           name: ci-stills
           path: ci-stills
           retention-days: 14
           if-no-files-found: ignore
-      - name: Result
+      - if: steps.local.outputs.skip != 'true'
+        name: Result
         run: |
           [ "${{ steps.after.outcome }}" = "success" ] || { echo "::error::cishot on the PR failed (shader message, page error or crash): see 'Render the PR'"; exit 1; }
           [ "${{ steps.report.outcome }}" = "success" ] || { echo "::error::scene budget over main, or no stats: see 'Report'"; exit 1; }
 
   # Posts (or updates) one comment on the PR with the report. Separate from `render-budgets` so the job that can
-  # write to the PR runs none of the PR's code.
+  # write to the PR runs none of the PR's code. The comment is the bot's, or the owner's when
+  # tools/ci/local_render_budgets.mjs wrote it (FEAT-176); the newest one is updated.
   render-budgets-comment:
     needs: render-budgets
     if: >-
@@ -374,23 +432,54 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      LOCAL_SHA: ${{ needs.render-budgets.outputs.local_sha }}
     steps:
-      - uses: actions/download-artifact@v4
+      # a run for a commit the PR has moved past writes nothing: it would overwrite the newer commit's report
+      # (a local pass posted while this run was still going, for one)
+      - name: Find the comment
+        id: find
+        env:
+          RUN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          now=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha)
+          if [ "$now" != "$RUN_SHA" ]; then echo "the PR is at $now now, this run is for $RUN_SHA: not commenting"; echo "stale=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          id=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --paginate \
+            --jq '.[] | select((.user.login == "github-actions[bot]" or .user.login == "${{ github.repository_owner }}") and (.body | startswith("<!-- ci-stills -->"))) | .id' | tail -n1)
+          echo "id=$id" | tee -a "$GITHUB_OUTPUT"
+      - if: needs.render-budgets.outputs.skipped != 'true' && steps.find.outputs.stale != 'true'
+        uses: actions/download-artifact@v4
         with:
           name: ci-stills
           path: art
       - name: Comment
+        if: needs.render-budgets.outputs.skipped != 'true' && steps.find.outputs.stale != 'true'
+        env:
+          ID: ${{ steps.find.outputs.id }}
         run: |
           body=art/report/report.md
           if [ ! -f "$body" ]; then
             printf '<!-- ci-stills -->\n## Shader compile and scene budgets (synthetic pack)\n\nThe render-budgets job failed before it wrote a report: [run log](%s).\n' \
-              "${{ github.server_url }}/$REPO/actions/runs/${{ github.run_id }}" > report.md
+              "$RUN_URL" > report.md
             body=report.md
           fi
-          id=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- ci-stills -->"))) | .id' | head -n1)
-          if [ -n "$id" ]; then gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$body" > /dev/null
+          if [ -n "$ID" ] && gh api -X PATCH "repos/$REPO/issues/comments/$ID" -F "body=@$body" > /dev/null; then :
           else gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$body"; fi
+      # the local run already wrote the report: add one line to it, once per commit
+      - name: Note the local pass
+        if: needs.render-budgets.outputs.skipped == 'true' && steps.find.outputs.stale != 'true'
+        env:
+          ID: ${{ steps.find.outputs.id }}
+        run: |
+          line="skipped in CI: passed locally at $LOCAL_SHA ([run]($RUN_URL))"
+          if [ -z "$ID" ]; then
+            printf '<!-- ci-stills -->\n## Shader compile and scene budgets (synthetic pack)\n\n%s\n' "$line" > body.md
+            gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file body.md; exit 0
+          fi
+          gh api "repos/$REPO/issues/comments/$ID" --jq .body > body.md
+          if grep -qF "passed locally at $LOCAL_SHA" body.md; then echo "already noted"; exit 0; fi
+          printf '\n%s\n' "$line" >> body.md
+          gh api -X PATCH "repos/$REPO/issues/comments/$ID" -F "body=@body.md" > /dev/null || echo "::warning::could not add the line to comment $ID"
 
   repo-rules:
     if: github.event_name != 'push'

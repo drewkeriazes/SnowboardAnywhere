@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { treeFadeUniforms, TREE_FADE_VERT, TREE_FADE_FRAG_HEAD, TREE_FADE_FRAG_BODY } from '../TreeFade';
+import { treeSnowUniforms, TREE_SNOW_VERT, TREE_SNOW_COMMON, TREE_SNOW_LIGHT } from './snow';
 
 /**
  * FEAT-156: the tree kit's materials. Each LOD draws only inside its distance band (measured from the
@@ -13,6 +14,9 @@ import { treeFadeUniforms, TREE_FADE_VERT, TREE_FADE_FRAG_HEAD, TREE_FADE_FRAG_B
  * LOD2 (crossed quads) and the impostor billboards are one ShaderMaterial each: albedo and normal
  * atlases baked from LOD0, lit here like the standard material (Lambert sun plus the hemisphere light),
  * so colour holds across the swap at any time of day.
+ *
+ * FEAT-157: every one of them draws the snow on the trees (snow.ts): the mesh LODs per fragment, the
+ * far ones from a snow mask baked from LOD0 at three loads; and the needles' fill and translucency.
  */
 
 export const kitUniforms = {
@@ -65,6 +69,47 @@ const KIT_BEGIN = /* glsl */ `
     transformed.x += kSw * 0.02 * sin(uWindTime * 1.3 + kPhase);
     transformed.z += kSw * 0.015 * sin(uWindTime * 1.7 + kPhase * 1.3);
   }
+  vSnowRel = (ktm * vec4(transformed, 1.0)).xyz - kOrigin;
+  vSnowHold = snowHold; vSnowY = position.y;
+  treeSnowLoad(kOrigin);
+`;
+/** FEAT-157: the snow varyings the mesh LODs pass on (the offset from the tree's base keeps the noise precise far from the origin) */
+const SNOW_VERT_HEAD = TREE_SNOW_VERT + /* glsl */ `
+  attribute float snowHold;
+  varying vec3 vSnowRel; varying float vSnowHold; varying float vSnowY;
+`;
+const SNOW_FRAG_HEAD = TREE_SNOW_COMMON + /* glsl */ `
+  uniform float uSnowK;
+  varying vec3 vSnowRel; varying float vSnowHold; varying float vSnowY;
+`;
+/** after color_fragment: the snow on this fragment, the needle colour under it, and the ghost's alpha */
+const SNOW_COLOR = /* glsl */ `
+  float snowCov = 0.0;
+  vec3 kBentW = normalize((vec4(vNormal, 0.0) * viewMatrix).xyz);
+  vec3 kViewW = normalize((vec4(vViewPosition, 0.0) * viewMatrix).xyz);
+  vec3 kNeedle = diffuseColor.rgb;
+  if (vSnowLoad > 0.001) {
+    float sn = treeSnowNoise(vSnowRel * 3.3);
+    // the surface's own facing toward the camera: the top of a card or cone, or its underside
+    vec3 gN = normalize(cross(dFdx(vSnowRel), dFdy(vSnowRel)));
+    if (dot(gN, kViewW) < 0.0) gN = -gN;
+    // late in a sunny day the sun side melts back (not on a ghost)
+    float load = vSnowLoad * (1.0 - uTreeSnow.y * clamp(dot(kBentW.xz, uTreeSunDir.xz) * 1.5, 0.0, 1.0) * (1.0 - vSnowGhost));
+    float a0 = diffuseColor.a;
+    diffuseColor.a = treeSnowAlpha(a0, sn, vSnowGhost * vSnowLoad);
+    snowCov = treeSnowCov(0.75 * gN.y + 0.25 * kBentW.y, vSnowHold, vSnowY, sn, load, vSnowGhost, uSnowK);
+    snowCov = max(snowCov, vSnowGhost * (1.0 - smoothstep(0.3, 0.5, a0))); // the filled gaps are rime
+    diffuseColor.rgb = mix(diffuseColor.rgb, TREE_SNOW_ALB * (0.88 + 0.12 * sn), snowCov);
+  }
+`;
+/** snow lies flat: its normal leans toward up so it is lit like the ground; rime on a ghost keeps the crown's round shading */
+const SNOW_NORMAL = /* glsl */ `
+  if (snowCov > 0.0) normal = normalize(mix(normal, normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz), 0.6 * snowCov * (1.0 - 0.7 * vSnowGhost)));
+`;
+/** after the lights: snow's sky light takes the terrain's shade tint; the needles their fill and translucency */
+const SNOW_LIGHTS = /* glsl */ `
+  reflectedLight.indirectDiffuse *= mix(vec3(1.0), TREE_SNOW_SHADE, snowCov);
+  reflectedLight.indirectDiffuse += treeNeedleExtra(kNeedle, kBentW, kViewW, snowCov);
 `;
 
 /** the mesh LODs' roughness; the far shader's specular uses the same */
@@ -83,26 +128,29 @@ const FAR_GAIN = 1.3;
 
 const NORMAL_NO_FLIP = THREE.ShaderChunk.normal_fragment_begin.replace('normal *= faceDirection;', '');
 
-export interface TreeMaterialOpts { band: Band; wind: { value: number }; alphaToCoverage: boolean }
+export interface TreeMaterialOpts { band: Band; wind: { value: number }; alphaToCoverage: boolean; /** FEAT-157: the LOD's snow amount factor (1 for the cards) */ snowK?: number }
 
 /** LOD0 / LOD1: the standard material with the kit hooks. The hook's source is the same for both, so they share one program. */
 export function treeMaterial(atlas: THREE.Texture, o: TreeMaterialOpts): THREE.MeshStandardMaterial {
   const mat = new THREE.MeshStandardMaterial({ map: atlas, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide, roughness: ROUGHNESS, metalness: 0 });
   mat.alphaToCoverage = o.alphaToCoverage;
   mat.shadowSide = THREE.DoubleSide;
-  const band = o.band, wind = o.wind;
+  const band = o.band, wind = o.wind, snowK = { value: o.snowK ?? 1 };
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, treeFadeUniforms, kitUniforms, { uLodBand: band, uWindK: wind });
-    shader.vertexShader = TREE_FADE_VERT + LOD_VERT + 'uniform float uWindTime; uniform float uWindK;\n' + shader.vertexShader
+    Object.assign(shader.uniforms, treeFadeUniforms, kitUniforms, treeSnowUniforms, { uLodBand: band, uWindK: wind, uSnowK: snowK });
+    shader.vertexShader = TREE_FADE_VERT + LOD_VERT + SNOW_VERT_HEAD + 'uniform float uWindTime; uniform float uWindK;\n' + shader.vertexShader
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + KIT_BEGIN)
       .replace('#include <project_vertex>', `#include <project_vertex>
         vTreeFade = treeFade(kOrigin, length(ktm[1].xyz), length(ktm[0].xyz), position.y);
         ${COLLAPSE}`);
-    shader.fragmentShader = TREE_FADE_FRAG_HEAD + LOD_FRAG_HEAD + shader.fragmentShader
+    shader.fragmentShader = TREE_FADE_FRAG_HEAD + LOD_FRAG_HEAD + SNOW_FRAG_HEAD + TREE_SNOW_LIGHT + shader.fragmentShader
       .replace('#include <clipping_planes_fragment>', `${LOD_FRAG_BODY}\n${TREE_FADE_FRAG_BODY}\n#include <clipping_planes_fragment>`)
+      .replace('#include <color_fragment>', `#include <color_fragment>\n${SNOW_COLOR}`)
       .replace('#include <normal_fragment_begin>', NORMAL_NO_FLIP)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${SNOW_NORMAL}`)
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
- reflectedLight.directSpecular *= ${SPEC_K.toFixed(2)};`);
+ reflectedLight.directSpecular *= ${SPEC_K.toFixed(2)};
+ ${SNOW_LIGHTS}`);
   };
   mat.customProgramCacheKey = () => 'treekit';
   return mat;
@@ -113,11 +161,15 @@ export function treeDepthMaterial(atlas: THREE.Texture, o: TreeMaterialOpts): TH
   const mat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: atlas, alphaTest: 0.5, side: THREE.DoubleSide });
   const band = o.band, wind = o.wind;
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, kitUniforms, { uLodBand: band, uWindK: wind });
-    shader.vertexShader = LOD_VERT + 'uniform float uWindTime; uniform float uWindK;\n' + shader.vertexShader
+    Object.assign(shader.uniforms, kitUniforms, treeSnowUniforms, { uLodBand: band, uWindK: wind });
+    shader.vertexShader = LOD_VERT + SNOW_VERT_HEAD + 'uniform float uWindTime; uniform float uWindK;\n' + shader.vertexShader
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + KIT_BEGIN)
       .replace('#include <project_vertex>', `#include <project_vertex>
         if (vLodVis < 0.5) gl_Position = vec4(0.0, 0.0, -2.0, 1.0);`);
+    // FEAT-157: a snow ghost's filled-in crown casts its shadow too
+    shader.fragmentShader = SNOW_FRAG_HEAD + shader.fragmentShader
+      .replace('#include <alphatest_fragment>', `if (vSnowGhost > 0.0) diffuseColor.a = treeSnowAlpha(diffuseColor.a, treeSnowNoise(vSnowRel * 3.3), vSnowGhost * vSnowLoad);
+        #include <alphatest_fragment>`);
   };
   mat.customProgramCacheKey = () => 'treekit-depth';
   return mat;
@@ -129,23 +181,25 @@ export interface FarLight {
   hemiSky: { value: THREE.Color };
   hemiGround: { value: THREE.Color };
 }
+/** the sun and the ground are the snow module's uniforms, so setting them lights the near needles' extras too */
 export const farLight: FarLight = {
-  sunDir: { value: new THREE.Vector3(0.4, 0.8, 0.4).normalize() },
-  sunColor: { value: new THREE.Color(3, 3, 3) },
+  sunDir: treeSnowUniforms.uTreeSunDir,
+  sunColor: treeSnowUniforms.uTreeSunColor,
   hemiSky: { value: new THREE.Color(0.8, 0.85, 1) },
-  hemiGround: { value: new THREE.Color(0.8, 0.8, 0.8) },
+  hemiGround: treeSnowUniforms.uTreeGround,
 };
 
 /**
  * LOD2 (crossed quads, `billboard` false) or the impostor (camera-facing quad). Per instance: iPos
  * (base, world), iScale (crown radius, height, m), iYaw, iColor (variation), iSpec (kit species).
  */
-export function farMaterial(albedo: THREE.Texture, normal: THREE.Texture, halfW: number[], angles: number, rows: number, band: Band, billboard: boolean): THREE.ShaderMaterial {
+export function farMaterial(albedo: THREE.Texture, normal: THREE.Texture, snow: THREE.Texture, halfW: number[], angles: number, rows: number, band: Band, billboard: boolean): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     defines: billboard ? { BILLBOARD: '' } : {},
     uniforms: {
       ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), ...kitUniforms,
-      uLodBand: band, uAlbedo: { value: albedo }, uNormal: { value: normal },
+      ...treeSnowUniforms,
+      uLodBand: band, uAlbedo: { value: albedo }, uNormal: { value: normal }, uSnowMask: { value: snow },
       uHalfW: { value: halfW }, uAngles: { value: angles }, uRows: { value: rows },
       uSunDir: farLight.sunDir, uSunColor: farLight.sunColor, uHemiSky: farLight.hemiSky, uHemiGround: farLight.hemiGround,
     },
@@ -158,8 +212,10 @@ export function farMaterial(albedo: THREE.Texture, normal: THREE.Texture, halfW:
       varying vec2 vUv; varying vec3 vColor; varying float vYaw; varying vec3 vWorld;
       #include <fog_pars_vertex>
       ${LOD_VERT}
+      ${TREE_SNOW_VERT}
       void main() {
         { float isIn; vLodVis = lodVis(iPos, isIn); vLodIn = isIn; }
+        treeSnowLoad(iPos);
         int s = int(iSpec + 0.5);
         float hw = uHalfW[s] * iScale.x;
         float col;
@@ -186,8 +242,10 @@ export function farMaterial(albedo: THREE.Texture, normal: THREE.Texture, halfW:
         #include <fog_vertex>
       }`,
     fragmentShader: /* glsl */ `
-      uniform sampler2D uAlbedo; uniform sampler2D uNormal;
+      uniform sampler2D uAlbedo; uniform sampler2D uNormal; uniform sampler2D uSnowMask;
       uniform vec3 uSunDir; uniform vec3 uSunColor; uniform vec3 uHemiSky; uniform vec3 uHemiGround;
+      ${TREE_SNOW_COMMON}
+      ${TREE_SNOW_LIGHT}
       varying vec2 vUv; varying vec3 vColor; varying float vYaw; varying vec3 vWorld;
       #include <fog_pars_fragment>
       // three's GGX specular (F0 0.04, roughness ${ROUGHNESS}): on dark needles it is a good share of what the standard material shows
@@ -205,14 +263,24 @@ export function farMaterial(albedo: THREE.Texture, normal: THREE.Texture, halfW:
       ${LOD_FRAG_HEAD}
       void main() {
         vec4 a = texture2D(uAlbedo, vUv);
-        if (a.a < 0.4) discard;
+        // FEAT-157: the snow mask baked from LOD0 (moderate, heavy, ghost; alpha the ghost's filled-in crown)
+        vec4 m = texture2D(uSnowMask, vUv);
+        bool solid = a.a >= 0.4;
+        if (!solid && (m.a < 0.4 || treeBayer8(gl_FragCoord.xy) >= smoothstep(0.3, 0.8, vSnowGhost * vSnowLoad))) discard;
         ${LOD_FRAG_BODY}
         vec3 n = texture2D(uNormal, vUv).xyz * 2.0 - 1.0;
         float c = cos(vYaw), s = sin(vYaw);
         n = normalize(vec3(n.x * c + n.z * s, n.y, -n.x * s + n.z * c));
-        vec3 hemi = mix(uHemiGround, uHemiSky, 0.5 * n.y + 0.5);
+        float load = vSnowLoad * (1.0 - uTreeSnow.y * clamp(dot(n.xz, uTreeSunDir.xz) * 1.5, 0.0, 1.0) * (1.0 - vSnowGhost));
+        float cov = load < 0.5 ? m.r * load * 2.0 : mix(m.r, m.g, load * 2.0 - 1.0);
+        cov = solid ? mix(cov, m.b, vSnowGhost) : 1.0;
+        vec3 needle = a.rgb * vColor * ${FAR_GAIN.toFixed(2)};
+        vec3 alb = mix(needle, TREE_SNOW_ALB, cov);
+        vec3 ns = normalize(mix(n, vec3(0.0, 1.0, 0.0), 0.6 * cov * (1.0 - 0.7 * vSnowGhost)));
+        vec3 hemi = mix(uHemiGround, uHemiSky, 0.5 * ns.y + 0.5) * mix(vec3(1.0), TREE_SNOW_SHADE, cov);
         vec3 v = normalize(cameraPosition - vWorld);
-        vec3 col = a.rgb * vColor * ${FAR_GAIN.toFixed(2)} * (uSunColor * max(dot(n, uSunDir), 0.0) + hemi) * 0.31830989 + uSunColor * kGGX(n, uSunDir, v) * ${SPEC_K.toFixed(2)};
+        vec3 col = alb * (uSunColor * max(dot(ns, uSunDir), 0.0) + hemi) * 0.31830989 + uSunColor * kGGX(ns, uSunDir, v) * ${SPEC_K.toFixed(2)}
+          + treeNeedleExtra(needle, n, v, cov);
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -223,30 +291,50 @@ export function farMaterial(albedo: THREE.Texture, normal: THREE.Texture, halfW:
   });
 }
 
-/** the bake: unlit albedo (atlas x vertex colour) or the crown normal in the tree's own frame */
-export function bakeMaterial(atlas: THREE.Texture, radius: { value: number }, normals: boolean): THREE.ShaderMaterial {
+/** the tree height (m) the bake's snow noise is scaled to (sub-pixel at the far LODs' distances anyway) */
+const BAKE_H = 15;
+
+/**
+ * The bake: unlit albedo (atlas x vertex colour), the crown normal in the tree's own frame, or
+ * (FEAT-157) the snow mask: the near shader's snow cover at a moderate load (r), a heavy load (g) and
+ * on a snow ghost (b), alpha the ghost's filled-in crown.
+ */
+export function bakeMaterial(atlas: THREE.Texture, radius: { value: number }, mode: 'albedo' | 'normal' | 'snow'): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    defines: normals ? { NORMALS: '' } : {},
-    uniforms: { map: { value: atlas }, uR: radius },
+    defines: mode === 'normal' ? { NORMALS: '' } : mode === 'snow' ? { SNOW: '' } : {},
+    uniforms: { map: { value: atlas }, uR: radius, uTreeSnow: { value: new THREE.Vector3() } },
     vertexColors: true,
     vertexShader: /* glsl */ `
       uniform float uR;
-      varying vec2 vUv; varying vec3 vCol; varying vec3 vN;
+      attribute float snowHold;
+      varying vec2 vUv; varying vec3 vCol; varying vec3 vN; varying vec3 vW; varying float vHold; varying float vY;
       void main() {
         vUv = uv; vCol = color;
         vN = normalize(vec3(normal.x / uR, normal.y, normal.z / uR)); // the mesh is scaled (uR, 1, uR) back to its natural shape
+        vW = (modelMatrix * vec4(position, 1.0)).xyz; vHold = snowHold; vY = position.y;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: /* glsl */ `
       uniform sampler2D map;
-      varying vec2 vUv; varying vec3 vCol; varying vec3 vN;
+      varying vec2 vUv; varying vec3 vCol; varying vec3 vN; varying vec3 vW; varying float vHold; varying float vY;
+      ${TREE_SNOW_COMMON}
       void main() {
         vec4 t = texture2D(map, vUv);
-        if (t.a < 0.5) discard;
-        #ifdef NORMALS
-          gl_FragColor = vec4(normalize(vN) * 0.5 + 0.5, 1.0);
+        #ifdef SNOW
+          float sn = treeSnowNoise(vW * ${(BAKE_H * 3.3).toFixed(1)});
+          if (treeSnowAlpha(t.a, sn, 1.0) < 0.5) discard;
+          vec3 gN = normalize(cross(dFdx(vW), dFdy(vW)));
+          if (dot(gN, cameraPosition - vW) < 0.0) gN = -gN;
+          float up = 0.75 * gN.y + 0.25 * normalize(vN).y;
+          float gap = t.a < 0.5 ? 1.0 : 0.0;
+          gl_FragColor = vec4(treeSnowCov(up, vHold, vY, sn, 0.5, 0.0, 1.0), treeSnowCov(up, vHold, vY, sn, 1.0, 0.0, 1.0), max(treeSnowCov(up, vHold, vY, sn, 1.0, 1.0, 1.0), gap), 1.0);
         #else
-          gl_FragColor = vec4(t.rgb * vCol, 1.0);
+          if (t.a < 0.5) discard;
+          #ifdef NORMALS
+            gl_FragColor = vec4(normalize(vN) * 0.5 + 0.5, 1.0);
+          #else
+            gl_FragColor = vec4(t.rgb * vCol, 1.0);
+          #endif
         #endif
       }`,
     side: THREE.DoubleSide,
