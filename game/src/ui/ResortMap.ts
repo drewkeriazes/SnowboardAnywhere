@@ -1,6 +1,6 @@
 import { LANDMARKS } from '../world/Landmarks';
 import type { Pack } from '../pack/Pack';
-import type { Difficulty } from '../pack/types';
+import type { Difficulty, RunFeature } from '../pack/types';
 
 /**
  * 2D map of the resort drawn once to an offscreen canvas (hillshade from the mid height set,
@@ -29,6 +29,9 @@ export class ResortMap {
   /** called with pack x, y when the player clicks the full map */
   onPick: ((x: number, y: number) => void) | null = null;
   private hover: [number, number] | null = null;
+
+  /** FEAT-059: with ?debug, runs that score 0.3 or more for moguls get an orange under-stroke */
+  private debug = false;
 
   constructor(pack: Pack) {
     this.pack = pack;
@@ -71,6 +74,7 @@ export class ResortMap {
         this.centre = [down.cx - (e.clientX - down.x) / s * this.scale, down.cy + (e.clientY - down.y) / s * this.scale];
         this.full.style.cursor = 'grabbing';
       }
+      this.padHelp = null;
       this.hover = this.toPack(e); this.drawFull();
     });
     const up = (e: MouseEvent) => {
@@ -184,6 +188,12 @@ export class ResortMap {
     return true;
   }
 
+  setDebug(v: boolean): void {
+    if (v === this.debug) return;
+    this.debug = v;
+    this.drawFeatures();
+  }
+
   private drawFeatures(): void {
     const ctx = this.base.getContext('2d')!;
     if (!this.shaded) { ctx.fillStyle = '#dfe7f2'; ctx.fillRect(0, 0, this.base.width, this.base.height); }
@@ -198,7 +208,16 @@ export class ResortMap {
     // buildings
     ctx.fillStyle = '#6b5e4f';
     for (const bld of f.buildings) this.poly(ctx, bld.points, true);
-    // runs
+    // runs (FEAT-059 debug: mogul runs under-stroked in orange, wider for a higher score)
+    if (this.debug) {
+      ctx.strokeStyle = '#f97316';
+      for (const run of f.runs) {
+        const sc = run.mogulScore ?? 0;
+        if (sc < 0.3) continue;
+        ctx.lineWidth = (run.difficulty === 'advanced' || run.difficulty === 'expert' ? 1.6 : 2.2) + 2 + 3 * sc;
+        this.path(ctx, run.points);
+      }
+    }
     for (const run of f.runs) {
       ctx.strokeStyle = RUN_COLORS[(run.difficulty ?? 'intermediate') as Difficulty] ?? '#888';
       ctx.lineWidth = run.difficulty === 'advanced' || run.difficulty === 'expert' ? 1.6 : 2.2;
@@ -377,7 +396,26 @@ export class ResortMap {
     if (!this.opened) { this.opened = true; this.zoom = 1; this.centre = this.boundsCentre(); }
     this.drawFull();
   }
-  close(): void { this.fullOpen = false; this.fullWrap.style.display = 'none'; }
+  close(): void { this.fullOpen = false; this.fullWrap.style.display = 'none'; this.padHelp = null; }
+
+  /** FEAT-137: with a controller the map has a crosshair in the middle: the stick pans under it, the triggers zoom, `padHelp` replaces the mouse help */
+  padHelp: string | null = null;
+  /** Pan (stick -1..1, screen axes) and zoom (+ in) for dt seconds; `pick` drops in under the crosshair. True when it needs a redraw. */
+  padDrive(dt: number, sx: number, sy: number, zoom: number, pick: boolean, help: string): boolean {
+    if (!this.fullOpen) return false;
+    const first = this.padHelp === null;
+    const { s } = this.fullRect();
+    const speed = 700 * dt; // screen px a second at full tilt
+    if (sx || sy) this.centre = [this.centre[0] + sx * speed / s * this.scale, this.centre[1] - sy * speed / s * this.scale];
+    if (zoom) this.zoomAt(window.innerWidth / 2, window.innerHeight / 2, Math.exp(zoom * dt * 1.6));
+    this.padHelp = help;
+    const r = this.fullRect();
+    const px = (window.innerWidth / 2 - r.ox) / r.s, py = (window.innerHeight / 2 - r.oy) / r.s;
+    const inside = px >= 0 && py >= 0 && px < this.base.width && py < this.base.height;
+    this.hover = inside ? [this.minX + px * this.scale, this.maxY - py * this.scale] : null;
+    if (pick && this.hover && this.onPick) this.onPick(this.hover[0], this.hover[1]);
+    return this.fullOpen && (first || sx !== 0 || sy !== 0 || zoom !== 0);
+  }
 
   riderPos: [number, number, number] = [0, 0, 0];
   /** time-trial course starts to flag on the full map (empty when time trials are off) */
@@ -410,26 +448,34 @@ export class ResortMap {
     if (this.baseMarker) dot(this.baseMarker[0], this.baseMarker[1], '#4ade80', 9);
     for (const m of this.monsters) dot(m[0], m[1], '#7c3aed', 8);
     dot(this.riderPos[0], this.riderPos[1], '#ff3b30', 7);
+    if (this.padHelp) {
+      const cx = c.width / 2, cy = c.height / 2;
+      ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cx - 14, cy); ctx.lineTo(cx - 4, cy); ctx.moveTo(cx + 4, cy); ctx.lineTo(cx + 14, cy);
+      ctx.moveTo(cx, cy - 14); ctx.lineTo(cx, cy - 4); ctx.moveTo(cx, cy + 4); ctx.lineTo(cx, cy + 14); ctx.stroke();
+    }
+    const help = this.padHelp ?? `click to drop in &middot; scroll to zoom (${this.zoom.toFixed(1)}x) &middot; drag to pan &middot; Home resets &middot; M or Esc to close`;
     if (this.hover) {
       dot(this.hover[0], this.hover[1], 'rgba(255,255,255,.5)', 5);
       const h = this.pack.groundHeight(this.hover[0], this.hover[1]);
       const near = this.nearestRun(this.hover[0], this.hover[1]);
-      this.fullInfo.innerHTML = `<b>${this.pack.meta.name}</b> &middot; click to drop in &middot; scroll to zoom (${this.zoom.toFixed(1)}x) &middot; drag to pan &middot; Home resets &middot; M or Esc to close<br>` +
-        `${this.hover[0].toFixed(0)}, ${this.hover[1].toFixed(0)} m &middot; ${this.metric ? `${h.toFixed(0)} m` : `${(h * 3.28084).toFixed(0)} ft`}` + (near ? ` &middot; ${near}` : '');
+      this.fullInfo.innerHTML = `<b>${this.pack.meta.name}</b> &middot; ${help}<br>` +
+        `${this.hover[0].toFixed(0)}, ${this.hover[1].toFixed(0)} m &middot; ${this.metric ? `${h.toFixed(0)} m` : `${(h * 3.28084).toFixed(0)} ft`}` + (near ? ` &middot; ${near.name}` : '') +
+        (near && (near.mogulScore ?? 0) > 0 ? ` &middot; moguls ${near.mogulScore!.toFixed(2)}` : '');
     } else {
-      this.fullInfo.innerHTML = `<b>${this.pack.meta.name}</b> &middot; click to drop in &middot; scroll to zoom (${this.zoom.toFixed(1)}x) &middot; drag to pan &middot; Home resets &middot; M or Esc to close`;
+      this.fullInfo.innerHTML = `<b>${this.pack.meta.name}</b> &middot; ${help}`;
     }
   }
 
-  private nearestRun(x: number, y: number): string | null {
-    let best = 60, name: string | null = null;
+  private nearestRun(x: number, y: number): RunFeature | null {
+    let best = 60, run: RunFeature | null = null;
     for (const r of this.pack.features.runs) {
       if (!r.name) continue;
       for (let i = 0; i < r.points.length; i += 2) {
         const d = Math.hypot(r.points[i][0] - x, r.points[i][1] - y);
-        if (d < best) { best = d; name = r.name; }
+        if (d < best) { best = d; run = r; }
       }
     }
-    return name;
+    return run;
   }
 }

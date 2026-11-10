@@ -1,7 +1,10 @@
+import './ui/theme.css';
 import * as THREE from 'three';
 import { Pack } from './pack/Pack';
 import { Terrain } from './terrain/Terrain';
+import { MOGUL_CREEP_M_PER_DAY } from './terrain/Moguls';
 import { Rider } from './sim/Rider';
+import { snowLabel } from './sim/SnowConditions';
 import { Collider } from './sim/Collider';
 import { Bridges } from './world/Bridges';
 import { Landmarks, landmarkStart } from './world/Landmarks';
@@ -16,6 +19,11 @@ import { RunsOverlay } from './world/RunsOverlay';
 import { Environment } from './world/Sky';
 import { RiderView, BODY_LAYER } from './world/RiderView';
 import { GoggleView } from './ui/GoggleView';
+import { GoggleLens, LENSES, resolveLens, type LensId, type LensSetting } from './world/Lens';
+import { AutoQuality } from './ui/AutoQuality';
+import { RunStats } from './sim/RunStats';
+import { RunCard } from './ui/RunCard';
+import { fmtSpeed, fmtHeight, fmtDistance } from './ui/Units';
 import { Replay, type ReplaySample } from './sim/Replay';
 import { SpeedLines } from './ui/SpeedLines';
 import { ChaseCamera } from './world/ChaseCamera';
@@ -23,6 +31,7 @@ import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
 import { FILL_RATE, Tracks, setTrackFillRate } from './world/Tracks';
 import { Bootprints } from './world/Bootprints';
+import { Deform } from './world/Deform';
 import { Outrun } from './sim/Outrun';
 import { Monsters } from './world/Monster';
 import { Puffs } from './world/Puffs';
@@ -38,22 +47,32 @@ import { LiftRide } from './sim/LiftRide';
 import { Prefetch } from './sim/Prefetch';
 import { GameAudio } from './audio/Audio';
 import { showMainMenu } from './ui/MainMenu';
+import { LoadingScreen } from './ui/Loading';
 import { PauseMenu } from './ui/PauseMenu';
 import { Labels } from './ui/Labels';
 import { TouchControls } from './ui/TouchControls';
 import { sunPosition, guessUtcOffset } from './world/Sun';
-import { loadSettings, keyName, FALL_LINE, type Settings } from './ui/Settings';
-import { STAMINA } from './sim/Rider';
+import { loadSettings, keyName, keysOf, saveSettings, FALL_LINE, type Settings } from './ui/Settings';
+import { STAMINA, switchName, type PressEnd } from './sim/Rider';
+import { PressMeter } from './ui/PressMeter';
 import { availableResorts } from './resorts';
 import { hasCustomStart, resetStart, spawnKey } from './spawn';
+import { PAD } from './sim/Pad';
+import { padFx } from './sim/PadFeedback';
+import { padGlyph, padGlyphs, stickGlyph } from './ui/PadGlyphs';
+import { startPadNav } from './ui/PadNav';
 
 /** FEAT-105: the New snow setting as a snow cover amount */
 const NEW_SNOW: Record<string, number> = { none: 0, dusting: 0.25, '6in': 0.6, powder: 1 };
+/** FEAT-077: how skied out the snow gets by late afternoon for each Snow conditions setting */
+const SKIED_BASE: Record<string, number> = { fresh: 0.15, mid: 0.9, spring: 0.7 };
 
 const params = new URLSearchParams(location.search);
 let packSlug = params.get('pack') ?? '';
 const headless = params.has('headless');
-const debugHud = params.has('debug'); // BUG-053: extra HUD line with the edge model numbers
+/** FEAT-138: `npm run host` builds for other computers on the home network; dev-only tools stay off there */
+const hosted = !!import.meta.env.VITE_HOST_NAME;
+const debugHud = params.has('debug') && !hosted; // BUG-053: extra HUD line with the edge model numbers
 
 async function main(): Promise<void> {
   const status = document.getElementById('status')!;
@@ -70,11 +89,14 @@ async function main(): Promise<void> {
   const audio = new GameAudio();
   const settings = loadSettings();
   const rp = params.get('rider'); if (rp === 'ski' || rp === 'board') settings.discipline = rp;
+  const lp = params.get('lens'); if (lp && (lp === 'auto' || lp in LENSES)) settings.goggleLens = lp as LensSetting; // FEAT-130: ?lens=yellow for render checks
+  const sp = params.get('stance'); if (sp === 'regular' || sp === 'goofy') settings.stance = sp; // FEAT-139
   if (params.has('lowgfx')) { settings.quality = 'low'; settings.shadows = false; settings.treeDensity = 0.3; settings.pixelRatio = 1; }
   // before the menu, so the first song comes from the saved source and playlist
   audio.source = settings.musicSource;
   audio.playlist = settings.playlist;
   status.textContent = '';
+  if (!headless) startPadNav(); // FEAT-137: menus on a controller, and the DualSense extras if picked before
 
   // one renderer for the whole page; sessions build and tear down their scene
   const canvas = document.getElementById('c') as HTMLCanvasElement;
@@ -92,15 +114,18 @@ async function main(): Promise<void> {
       const choice = await showMainMenu(pack.meta.name, audio, settings, () => undefined, resorts, packSlug, startInfo);
       openMapAtStart = choice.action === 'map';
     }
-    status.textContent = `Loading ${packSlug}...`;
     skipMenu = false;
-    await runSession(pack, renderer, canvas, audio, settings, openMapAtStart);
+    // BUG-063: show the loading screen and let it paint before the session's heavy setup runs behind it
+    let loading: LoadingScreen | null = null;
+    if (headless) status.textContent = `Loading ${packSlug}...`;
+    else { status.textContent = ''; loading = new LoadingScreen(pack.meta.name); await loading.painted(); }
+    await runSession(pack, renderer, canvas, audio, settings, openMapAtStart, loading);
     if (headless) break;
   }
 }
 
 /** Resolves when the player quits to the main menu. */
-function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanvasElement, audio: GameAudio, settings: Settings, openMapAtStart: boolean): Promise<void> {
+function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanvasElement, audio: GameAudio, settings: Settings, openMapAtStart: boolean, loading: LoadingScreen | null = null): Promise<void> {
   return new Promise<void>((resolveQuit) => {
     const hud = document.getElementById('hud')!;
     const status = document.getElementById('status')!;
@@ -114,6 +139,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const snow = new Snow();
     add('snowfall', snow.points);
     const terrain = new Terrain(pack);
+    if (debugHud && params.get('debug') === 'moguls') terrain.setMogulDebug(true); // BUG-062
     add('terrain', terrain.group);
     const collider = new Collider();
     const veg = new Vegetation(pack, collider);
@@ -123,6 +149,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const lifts = new Lifts(pack);
     add('lifts', lifts.group);
     const liftLines = new LiftLines(pack, lifts.all, collider); // FEAT-073
+    /** FEAT-053: the top of the resort (m): the highest lift unloading point, else the pack's start, else the range's top */
+    const resortTop = lifts.all.length ? Math.max(...lifts.all.map((l) => l.top[2])) : (zr[1] ?? 3000);
     liftLines.setEnabled(settings.liftLines);
     add('lift lines', liftLines.group);
     add('lift markers', lifts.markers);
@@ -149,6 +177,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('puffs', puffs.points);
     const bigprints = new Bootprints(pack, 3.2);
     add('monster prints', bigprints.mesh);
+    // FEAT-044: the tracks and prints near the rider stamped into a texture the terrain deforms from
+    const deform = new Deform();
+    deform.scene.add(tracks.stampGroup, bootprints.stampMesh, bigprints.stampMesh);
+    deform.cullers.push((x, z, s) => bootprints.cullStamp(x, z, s), (x, z, s) => bigprints.cullStamp(x, z, s));
     const monsters = new Monsters(pack, collider, puffs, bigprints);
     add('monsters', monsters.group);
     const eat = new Eat(pack, puffs);
@@ -175,9 +207,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         splitMsg = n > 1 ? `<span class="dim">${n} courses start here: follow the one you want</span>` : `<span class="dim">Ride through the gate to start</span>`;
         splitTimer = 99;
       }
-      else if (e.kind === 'start') { splitMsg = e.best ? `Ghost: ${fmt(e.best.time)}` : 'No ghost yet: set the time'; splitTimer = 3; audio.chime(); }
-      else if (e.kind === 'split') { splitMsg = e.delta === null ? `Split ${e.index + 1}: ${fmt(e.time)}` : `<span class="${e.delta <= 0 ? 'ahead' : 'behind'}">${e.delta <= 0 ? '' : '+'}${e.delta.toFixed(2)}</span>`; splitTimer = 3; }
-      else if (e.kind === 'finish') { splitMsg = e.isBest ? `<span class="ahead">New best ${fmt(e.time)}</span>` : `Finished ${fmt(e.time)} <span class="dim">(best ${fmt(e.best!.time)})</span>`; splitTimer = 6; audio.chime(); }
+      else if (e.kind === 'start') { splitMsg = e.best ? `Ghost: ${fmt(e.best.time)}` : 'No ghost yet: set the time'; splitTimer = 3; audio.chime(); padFx.trialEvent('start'); }
+      else if (e.kind === 'split') { splitMsg = e.delta === null ? `Split ${e.index + 1}: ${fmt(e.time)}` : `<span class="${e.delta <= 0 ? 'ahead' : 'behind'}">${e.delta <= 0 ? '' : '+'}${e.delta.toFixed(2)}</span>`; splitTimer = 3; padFx.trialEvent('split'); }
+      else if (e.kind === 'finish') { splitMsg = e.isBest ? `<span class="ahead">New best ${fmt(e.time)}</span>` : `Finished ${fmt(e.time)} <span class="dim">(best ${fmt(e.best!.time)})</span>`; splitTimer = 6; audio.chime(); padFx.trialEvent('finish', e.isBest); }
       else if (e.kind === 'cancel') { splitMsg = `<span class="behind">${e.reason}</span>`; splitTimer = 3; }
     };
     const refreshCourseFlags = () => { map.courseStarts = settings.timeTrials ? courses.map((c) => ({ x: c.start[0], y: c.start[1], name: c.name, best: trial.loadBest(c)?.time ?? null })) : []; };
@@ -185,13 +217,29 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const riderView = new RiderView();
     add('rider', riderView.group);
     add('rider spray', riderView.sprayObject);
+    if (debugHud) {
+      // BUG-056 ?debug: sliders for the body lead / board lag chain, to tune it by eye
+      type LeadKey = 'leadUpper' | 'leadHips' | 'boardLag';
+      const rows: [string, LeadKey, number][] = [['Upper lead', 'leadUpper', 0.4], ['Hips lead', 'leadHips', 0.3], ['Board lag', 'boardLag', 0.3]];
+      const panel = document.createElement('div');
+      panel.id = 'lead-tune';
+      panel.style.cssText = 'position:fixed;right:16px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.5);color:#fff;font:12px system-ui;padding:8px 10px;border-radius:6px;z-index:20';
+      panel.innerHTML = rows.map(([label, k, max]) => `<label style="display:block;margin:4px 0">${label} <span data-v="${k}">${riderView[k].toFixed(2)}</span> s<br><input type="range" data-k="${k}" min="0" max="${max}" step="0.01" value="${riderView[k]}" style="width:140px"></label>`).join('');
+      panel.querySelectorAll<HTMLInputElement>('input').forEach((i) => {
+        const k = i.dataset.k as LeadKey;
+        i.oninput = () => { riderView[k] = +i.value; panel.querySelector(`[data-v="${k}"]`)!.textContent = (+i.value).toFixed(2); };
+        i.onpointerup = () => i.blur(); // give the arrow keys back to the rider
+      });
+      document.body.appendChild(panel);
+    }
 
     const rider = new Rider(pack, collider);
     // on foot (FEAT-067): every foot plant of the skeleton leaves a print and a footstep
     riderView.setPack(pack, collider); // FEAT-046: the crash ragdoll hits trunks, rocks and walls
-    rider.onSkateStroke = () => audio.footstep(rider.surface, rider.speed, 0); // FEAT-085: a crunch per push
-    riderView.onPlant = (p) => { bootprints.add(p, rider.sink); audio.footstep(rider.surface, p.speed, rider.sink); };
+    rider.onSkateStroke = () => audio.footstep(rider.surface, rider.speed, 0, rider.snow); // FEAT-085: a crunch per push
+    riderView.onPlant = (p) => { bootprints.add(p, rider.sink); audio.footstep(rider.surface, p.speed, rider.sink, rider.snow); };
     let boardMsg = '', boardMsgT = 0;
+    let boardMsgNote = '', boardNoteT = 25; // FEAT-124: one-time note for players with their own keys
     const liftRide = new LiftRide(pack, lifts, collider);
     liftRide.gate = (l, x, y) => liftLines.inGate(l, x, y); // FEAT-073: board from inside the maze
     const prefetch = new Prefetch();
@@ -211,6 +259,11 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     let csmSize = 0;
     if (!params.has('noimpostors')) veg.enableImpostors(renderer, true);
     const goggles = new GoggleView();
+    const lens = new GoggleLens(); // FEAT-130: the tinted lens pass in first person
+    let lensWorn: LensId | null = null;
+    // FEAT-055: run stats, the after-run card and today's totals
+    const runStats = new RunStats(pack), runCard = new RunCard();
+    runStats.onRunEnd = (s) => { if (!headless) runCard.show(s, settings.units === 'metric'); };
     const speedLines = new SpeedLines(document.body); // FEAT-045
     // ---- FEAT-043: the session recording, the replay viewer (K) and the practice rewind (hold Backspace)
     const replay = new Replay();
@@ -235,8 +288,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     /** back on the snow at a recorded moment; the recording carries on from there */
     const rewindTo = (s: ReplaySample) => {
       rider.x = s.x; rider.y = s.y; rider.z = pack.groundHeight(s.x, s.y, s.z); rider.vx = s.vx; rider.vy = s.vy; rider.vz = 0;
-      rider.heading = s.hd; rider.boardYaw = s.h; rider.onGround = true; rider.onFoot = !!s.on; rider.crashed = 0;
-      rider.flip = 0; rider.flipRate = 0; rider.spin = 0; rider.airTime = 0; rider.jumpCharge = 0; rider.landingShock = 0;
+      rider.heading = s.hd; rider.boardYaw = s.h; rider.switch = !!(s.f & 8); rider.onGround = true; rider.onFoot = !!s.on; rider.crashed = 0;
+      rider.flip = 0; rider.flipRate = 0; rider.spin = 0; rider.airTime = 0; rider.jumpCharge = 0; rider.landingShock = 0; rider.washout = 0; rider.crashSide = 0;
       replay.truncate(s.t); trial.cancel('Rewound');
     };
     const fmtT = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -272,13 +325,36 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     /** FEAT-105: new snow, 0..1, shared by the terrain rock and the boulder caps (FEAT-106): a storm adds
      *  1 per 10 min, flurries a fifth of that, it never melts in a session; the New snow setting sets it */
     let snowCover = 0;
+    // FEAT-062: adaptive quality; its level scales resolution, cloud steps, trees and snowfall in applySettings
+    const auto = new AutoQuality();
+    const autoClouds = (q: 'high' | 'medium' | 'low'): 'high' | 'medium' | 'low' => auto.current.cloudsDown ? (q === 'high' ? 'medium' : 'low') : q;
+    let lastDraw = 0;
+    /** FEAT-044: the deformation window and the spray budget from the preset, the Snow dents setting, ?nodeform and the auto level */
+    const applyDeform = (s: Settings): void => {
+      const q = auto.current;
+      deform.enabled = s.snowDeform !== false && s.quality !== 'low' && !params.has('nodeform') && q.deform > 0;
+      const small = q.deform < 1 || s.quality === 'medium';
+      deform.configure(small ? 256 : 512, small ? 48 : 64);
+      riderView.spray.setCount((s.quality === 'high' ? 8192 : s.quality === 'medium' ? 4096 : 2048) * q.snow);
+    };
+    /** apply only what the auto level scales (applySettings also does this, scaled, on any settings change) */
+    const applyAuto = (): void => {
+      const s = settings, q = auto.current;
+      applyDeform(s);
+      clouds.configure(weatherNow, autoClouds(s.quality));
+      renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2) * q.res);
+      if (s.quality !== 'low') setVegetationDensity(s.treeDensity * q.trees);
+      const flakes = s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500;
+      snow.setCount(Math.round((weatherNow === 'storm' ? flakes : flakes / 6) * q.snow));
+    };
     const applySettings = (s: Settings, what: string): void => {
       applySun(s);
       if (what === 'clouds') weatherOverride = null;
+      rider.pressMode = s.pressBalance ?? 'on'; // FEAT-140
       const weather = weatherOverride ?? s.clouds ?? 'scattered';
       weatherNow = weather;
       if (what === 'newSnow' || what === 'init' || what === 'reset') snowCover = NEW_SNOW[s.newSnow ?? 'none'] ?? 0; // FEAT-105: pick a look without waiting
-      clouds.configure(weather, s.quality);
+      clouds.configure(weather, autoClouds(s.quality));
       const storm = weather === 'storm', overcast = isOvercast(weather);
       env.setBluebird(!storm && !overcast); // deep blue sky behind the clouds too; storm and overcast are grey
       env.setStorm(storm);
@@ -290,7 +366,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       // falling snow: the storm, or light flurries under overcast (a sixth of the flakes, no visibility cut)
       snow.points.visible = storm || weather === 'flurries';
       const flakes = s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500;
-      snow.setCount(storm ? flakes : Math.round(flakes / 6));
+      snow.setCount(Math.round((storm ? flakes : flakes / 6) * auto.current.snow));
+      applyDeform(s);
       // old tracks and boot prints fill in faster while it snows (FEAT-107)
       setTrackFillRate(storm ? FILL_RATE.storm : weather === 'flurries' ? FILL_RATE.flurries : FILL_RATE.clear);
       // limited render distance in the storm: nothing past the fog is drawn
@@ -298,17 +375,21 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music);
       audio.setSource(s.musicSource);
       audio.setPlaylist(s.playlist);
-      renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2));
+      renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2) * auto.current.res); // FEAT-062: auto quality scales it
       if (renderer.shadowMap.enabled !== s.shadows) { renderer.shadowMap.enabled = s.shadows; renderer.shadowMap.needsUpdate = true; scene.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) m.needsUpdate = true; }); }
       const wantSize = (s.csmExperimental || params.has('csm')) && !params.has('nocsm') ? (s.quality === 'high' ? 2048 : 1024) : 0;
       if (csmSize !== wantSize) { csmSize = wantSize; if (wantSize) env.enableCSM(cam.camera, wantSize, 3); else env.disableCSM(); }
       env.sun.visible = wantSize === 0;
       env.sun.shadow.mapSize.set(s.quality === 'high' ? 4096 : 2048, s.quality === 'high' ? 4096 : 2048);
       env.setShadows(s.shadows);
-      if (s.quality === 'low') setVegetationBudget(250, 600); else setVegetationDensity(s.treeDensity);
+      if (s.quality === 'low') setVegetationBudget(250, 600); else setVegetationDensity(s.treeDensity * auto.current.trees);
       cam.baseFov = s.fov;
       controls.keymap = { ...s.keys };
       controls.invertSteer = s.invertSteer;
+      // FEAT-137: controller buttons, stick and trigger dead zones, look speed, the DualSense extras
+      controls.padKeys = { ...s.padKeys };
+      controls.padCfg = { dead: s.padDead, trigDead: s.padTrigDead, lookSens: s.lookSens, invertY: s.invertLookY, gyro: s.padGyro, gyroSens: s.gyroSens };
+      padFx.strength = s.rumble ? s.vibration : 0; padFx.triggers = s.padTriggers; padFx.lightbar = s.padLightbar;
       lifts.markers.visible = s.showMarkers;
       roads.setOnSnow(s.roadsOnSnow);
       liftLines.setEnabled(s.liftLines);
@@ -319,6 +400,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (!s.timeTrials) trial.cancel('Time trials off');
       refreshCourseFlags();
       rider.discipline = s.discipline;
+      rider.goofy = s.stance === 'goofy'; // FEAT-139 (the rider view follows it)
       rider.fallLine = FALL_LINE[s.fallLine] ?? 1; // FEAT-134
       labels.visible = s.showLabels && !storm; // peaks are hidden in the storm
       map.metric = s.units === 'metric';
@@ -342,6 +424,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       history.replaceState(null, '', u.toString());
     };
     const map = new ResortMap(pack);
+    map.setDebug(debugHud); // FEAT-059: mogul runs under-stroked on the map
     map.spawnPos = [sx, sy];
     const pickHandler = (x: number, y: number) => {
       trial.cancel('Moved');
@@ -356,6 +439,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       cam.mode = cam.mode === 'free' ? 'chase' : cam.mode;
       cam.snapTo(rider);
       map.close();
+      controls.padMute(); // FEAT-137: the Cross that dropped in is not a jump
     };
     map.onPick = pickHandler;
 
@@ -364,7 +448,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const setPaused = (p: boolean) => {
       paused = p;
       controls.guardLeave = !p; // FEAT-111: no leave prompt from the pause menu
-      if (p) pause.show(); else pause.hide();
+      if (p) pause.show(); else { pause.hide(); controls.padMute(); }
       audio.setDuck(p ? 0.3 : 1);
     };
     // ---------------------------------------------------------------- Outrun
@@ -402,7 +486,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
 
     pause.onAction = (a) => {
       if (a === 'resume') setPaused(false);
-      else if (a === 'restart') { setPaused(false); if (outrun.active) stopOutrun(); liftRide.cancel(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      else if (a === 'restart') { setPaused(false); if (outrun.active) stopOutrun(); liftRide.cancel(); runStats.end(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
       else if (a === 'map') { setPaused(false); map.open(); }
       else if (a === 'outrunStart') { setPaused(false); startOutrun(); }
       else if (a === 'outrunStop') { setPaused(false); stopOutrun(); }
@@ -437,7 +521,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         a.href = dataUrl; a.download = `${pack.meta.slug}_${pose.x}_${pose.y}_${pose.h.toFixed(0)}.png`; a.click();
         showToast('Saved the shot to Downloads');
       };
-      if (!spotName) { download(); return; }
+      if (!spotName || hosted) { download(); return; } // the compare-shot endpoint is dev server only
       fetch('/__compare/save', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack: pack.meta.slug, spot: spotName, pose, weather: currentWeather(), link: u.toString(), png: dataUrl, jpg: jpgUrl }) })
         .then(async (r) => {
           if (!r.ok) throw new Error(await r.text());
@@ -455,13 +539,43 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const toast = document.getElementById('toast')!;
     let toastTimer = 0;
     const showToast = (text: string, ms = 4000) => { toast.textContent = text; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => toast.classList.remove('show'), ms); };
-    rider.onTrick = (name) => showToast(name, 1800); // FEAT-110: flips
-    if (params.get('cam') === 'eye' && !headless) showToast('Eye camera: click, then mouse to look · WASD move · Q/E height · [ ] zoom · P save shot · F free fly', 10000);
+    rider.onTrick = (name) => showToast(name, 1800); // FEAT-110: flips; FEAT-139: spins and switch tricks
+    rider.onWashout = (side) => showToast(side > 0 ? 'Washed out onto the hip' : 'Washed out onto the butt', 1800); // FEAT-148: a hard carve the edge could not hold
+    // FEAT-140: the press balance meter above the head, and a toast with the time and distance when a press ends (best per resort)
+    const pressMeter = new PressMeter();
+    const pressHead = new THREE.Vector3();
+    const pressBestKey = `pressBest:${pack.meta.slug}`;
+    const PRESS_HOW: Record<PressEnd, string> = { clean: '', flat: ' · dropped flat', slam: ' · slammed', stall: ' · stalled' };
+    rider.onPress = (how, dir, t, dist, sw, from) => {
+      let best = 0; try { best = Number(localStorage.getItem(pressBestKey)) || 0; } catch { /* private mode */ }
+      const isBest = t > best;
+      if (isBest) try { localStorage.setItem(pressBestKey, t.toFixed(2)); } catch { /* private mode */ }
+      const press = switchName(dir > 0 ? 'Nose press' : 'Tail press', sw);
+      const name = from ? `${from} to ${press[0].toLowerCase()}${press.slice(1)}` : press; // landed into it from a trick
+      const tail = isBest ? (best > 0 ? ' · new best!' : '') : ` · best ${best.toFixed(1)} s`;
+      showToast(`${name} ${t.toFixed(1)} s, ${fmtDistance(dist, settings.units === 'metric')}${PRESS_HOW[how]}${tail}`, 2600);
+    };
+    if (params.get('cam') === 'eye' && !headless) showToast('Eye camera: click, then mouse to look · WASD move · Q/E height · [ ] zoom · P save shot · ` free fly', 10000);
     audio.onTrack = (name) => showToast(`\u266B ${name}`);
     // the menu may already have started a song before onTrack was set (BUG-033): announce it now
     if (audio.nowPlaying && !headless && params.get('cam') !== 'eye') showToast(`\u266B ${audio.nowPlaying}`);
     const prompt = document.getElementById('prompt')!;
     let promptShown = '';
+    // FEAT-124: restart hold and its ring, and the contextual key hints in the corner
+    const RESTART_HOLD = 0.6;
+    let restartHold = 0, restartDone = false;
+    const restartRing = document.createElement('div');
+    restartRing.style.cssText = 'position:fixed;left:50%;top:50%;width:46px;height:46px;margin:-23px;border-radius:50%;display:none;pointer-events:none;z-index:7;-webkit-mask:radial-gradient(circle,transparent 15px,#000 16px);mask:radial-gradient(circle,transparent 15px,#000 16px)';
+    document.body.appendChild(restartRing);
+    const helpEl = document.getElementById('help');
+    let helpShown = '', helpT = 0;
+    // FEAT-137: with a controller in use, its button glyphs (an action with no button keeps its key)
+    const padKey = (a: string) => (controls.usingPad ? padGlyphs(controls.padKind, settings.padKeys[a]) : '');
+    const k = (a: string) => padKey(a) || `<kbd>${keysOf(settings, a)}</kbd>`;
+    const k1 = (a: string) => keyName(settings.keys[a]?.[0] ?? ''); // first binding only (the walk cluster reads "WASD")
+    const lookKey = () => (controls.usingPad ? stickGlyph('R') : `<kbd>${keysOf(settings, 'look') || 'Alt'}</kbd>`);
+    const pg = (b: number) => padGlyph(controls.padKind, b);
+    if (settings.keysNote) { boardMsgNote = 'New default key layout available: Settings > Controls > Reset keys'; settings.keysNote = false; saveSettings(settings); }
     const showPrompt = (html: string) => { if (html !== promptShown) { promptShown = html; prompt.innerHTML = html; prompt.classList.toggle('show', html !== ''); } };
 
     let mouseDx = 0, mouseDy = 0;
@@ -483,16 +597,18 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       map.destroy();
       pause.destroy();
       labels.destroy();
-      tracks.dispose();
+      tracks.dispose(); deform.dispose();
       trialWorld.dispose();
       if (outrun.active) stopOutrun();
-      outrunUI.destroy(); speedLines.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
+      padFx.stop();
+      outrunUI.destroy(); runCard.dispose(); speedLines.dispose(); pressMeter.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
       trialEl.classList.remove('show');
       finishArrow.style.display = 'none';
       audio.onTrack = null;
       showPrompt('');
       hud.innerHTML = '';
       goggles.destroy();
+      lens.dispose();
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
         if (m.geometry) m.geometry.dispose();
@@ -508,12 +624,18 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     let elapsed = 0;
     const clockStart = performance.now();
     const speedStr = (ms: number) => settings.units === 'metric' ? `${(ms * 3.6).toFixed(0)}</b> km/h` : `${(ms * 2.23694).toFixed(0)}</b> mph`;
-    const altStr = (m: number) => settings.units === 'metric' ? `${m.toFixed(0)} m` : `${(m * 3.28084).toFixed(0)} ft`;
+    const altStr = (m: number) => fmtHeight(m, settings.units === 'metric');
 
     /** Main render, then in first person the body again over a cleared depth buffer (near 0.05 m). */
     function render(): void {
+      const lensOn = lens.active; // FEAT-130: into the lens target, then the lens pass to the screen
+      if (lensOn) lens.begin(renderer, cam.firstPerson ? 2 : 1);
       renderer.render(scene, cam.camera);
-      if (!cam.firstPerson) return;
+      if (cam.firstPerson) renderBody(lensOn);
+      if (lensOn) lens.end(renderer);
+    }
+    function renderBody(lensOn: boolean): void {
+      if (lensOn) lens.nextPass();
       for (const l of env.csm?.lights ?? []) l.layers.enable(BODY_LAYER);
       bodyCam.position.copy(cam.camera.position); bodyCam.quaternion.copy(cam.camera.quaternion);
       if (bodyCam.fov !== cam.camera.fov || bodyCam.aspect !== cam.camera.aspect) { bodyCam.fov = cam.camera.fov; bodyCam.aspect = cam.camera.aspect; bodyCam.updateProjectionMatrix(); }
@@ -526,18 +648,43 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
 
     /** headless only: exact frame dt for __step, so scripted runs replay step for step */
     let fixedDt: number | null = null;
+    /** BUG-063: the loading screen, hidden once the first real frames have run behind it */
+    let hideLoading: LoadingScreen | null = null, loadFrames = 0;
+    const HIDE_AFTER_FRAMES = 3;
     function frame(): void {
       if (!alive) return;
+      if (hideLoading && ++loadFrames >= HIDE_AFTER_FRAMES) { hideLoading.hide(); hideLoading = null; }
       const now = performance.now();
+      // FEAT-062: a 30 fps target skips display frames (a millisecond of slack for timer jitter)
+      // against a running deadline so the average hits 30 even when the refresh rate does not divide evenly (75, 100 Hz)
+      const capped = !headless && !fixedDt && settings.targetFps === 30;
+      if (capped && now < lastDraw - 1) { requestAnimationFrame(frame); return; }
+      // lastDraw holds the next deadline; reset it to now if we fell more than a frame behind
+      lastDraw = capped ? (now - lastDraw > 1000 / 30 ? now : lastDraw) + 1000 / 30 : now;
       const dt = fixedDt ?? Math.min(0.1, (now - last) / 1000);
       last = now;
-      const input = controls.update();
+      // FEAT-062: feed the frame time; a level change re-applies the scaled settings
+      if (!headless && !fixedDt && !paused && auto.frame(dt, settings.autoQuality ? (settings.targetFps || 60) : 0)) applyAuto();
+      // FEAT-140: on the snow on the board, W / S and the stick balance a held press instead of tucking and braking
+      controls.balancing = rider.pressMode !== 'off' && rider.discipline === 'board' && (rider.onGround || rider.pressing) && !rider.unstrapped && rider.crashed <= 0;
+      const input = controls.update(dt);
+      // FEAT-124: the gamepad's right stick looks around like the mouse: a rate (px/s at full deflection),
+      // added before the cameras consume mouseDx / mouseDy so it lands this frame, not the next
+      if (controls.padLookX || controls.padLookY) { mouseDx += controls.padLookX * 840 * dt; mouseDy += controls.padLookY * 600 * dt; }
+      mouseDx += controls.gyroDx; mouseDy += controls.gyroDy; // FEAT-137: DualSense gyro look (0 unless on)
       // pause has priority; Esc closes the map first if it is open
       if (controls.once('Escape') || touch?.once('pause')) { if (replayOpen) closeReplay(); else if (map.fullOpen) map.close(); else setPaused(!paused); }
-      if (paused) { controls.endFrame(); touch?.pressed.clear(); render(); if (!headless) requestAnimationFrame(frame); return; }
+      if (paused) { padFx.idle(controls.pad); controls.endFrame(); touch?.pressed.clear(); render(); if (!headless) requestAnimationFrame(frame); return; }
       touch?.setVisible(!map.fullOpen);
       elapsed += dt;
-      if (!replayOpen && controls.action('restart')) { if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      // FEAT-124: restart needs a 0.6 s hold (a fill ring), so a stray tap next to E or W doesn't reset the run
+      if (!replayOpen && controls.held('restart') && !paused) {
+        restartHold += dt;
+        if (restartHold >= RESTART_HOLD && !restartDone) { restartDone = true; if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); runStats.end(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      } else { restartHold = 0; restartDone = false; }
+      controls.action('restart'); // the press itself does nothing
+      restartRing.style.display = restartHold > 0.05 && !restartDone ? 'block' : 'none';
+      if (restartHold > 0.05) restartRing.style.background = `conic-gradient(#ffd166 ${Math.min(1, restartHold / RESTART_HOLD) * 360}deg, rgba(255,255,255,.18) 0)`;
       if (!replayOpen && controls.action('trial') && settings.timeTrials && !outrun.active) {
         const c = trial.nearestStart(rider.x, rider.y);
         if (c) {
@@ -553,19 +700,21 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (controls.action('replay') && !outrun.active && !liftRide.riding && !rider.unstrapped && replay.samples.length > 20) { if (replayOpen) closeReplay(); else openReplay(); }
       if (replayOpen) {
         const k = controls.keys;
-        if (controls.once('Space')) { if (replayT >= replay.end - 0.01) replayT = replay.start; replayPlay = !replayPlay; }
+        // FEAT-137 on a controller: Cross play, D-pad left / right scrub, R1 / L1 speed, Triangle camera, Square hide, Circle close
+        const po = (b: number) => controls.padOnce(b);
+        if (controls.once('Space') || po(PAD.A)) { if (replayT >= replay.end - 0.01) replayT = replay.start; replayPlay = !replayPlay; }
         const si = REPLAY_SPEEDS.indexOf(replaySpeed);
-        if (controls.once('ArrowUp')) replaySpeed = REPLAY_SPEEDS[Math.min(REPLAY_SPEEDS.length - 1, si + 1)];
-        if (controls.once('ArrowDown')) replaySpeed = REPLAY_SPEEDS[Math.max(0, si - 1)];
-        const scrub = (k.has('ArrowRight') ? 1 : 0) - (k.has('ArrowLeft') ? 1 : 0);
+        if (controls.once('ArrowUp') || po(PAD.RB)) replaySpeed = REPLAY_SPEEDS[Math.min(REPLAY_SPEEDS.length - 1, si + 1)];
+        if (controls.once('ArrowDown') || po(PAD.LB)) replaySpeed = REPLAY_SPEEDS[Math.max(0, si - 1)];
+        const scrub = (k.has('ArrowRight') || controls.padHeld(PAD.RIGHT) ? 1 : 0) - (k.has('ArrowLeft') || controls.padHeld(PAD.LEFT) ? 1 : 0);
         if (scrub) replayT += scrub * 5 * dt; else if (replayPlay) replayT += dt * replaySpeed;
         if (replayT >= replay.end) { replayT = replay.end; replayPlay = false; }
         if (replayT < replay.start) replayT = replay.start;
-        if (controls.once('KeyC')) {
+        if (controls.once('KeyC') || po(PAD.Y)) {
           replayCam = replayCam === 'follow' ? 'trackside' : replayCam === 'trackside' ? 'free' : 'follow'; trackSet = false;
           if (replayCam === 'free') cam.enterFree(); else cam.mode = settings.camera;
         }
-        if (controls.once('KeyH')) replayClean = !replayClean;
+        if (controls.once('KeyH') || po(PAD.X)) replayClean = !replayClean;
         if (controls.once('KeyP')) shotPending = true;
         if (controls.once('Minus')) photoFov = Math.max(-35, photoFov - 5);
         if (controls.once('Equal')) photoFov = Math.min(35, photoFov + 5);
@@ -579,11 +728,14 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         replayEl.style.display = replayClean ? 'none' : 'block';
         replayEl.innerHTML = `<div style="display:flex;justify-content:space-between"><b>REPLAY ${replayPlay ? '&#9654;' : '&#10074;&#10074;'} ${replaySpeed}x</b><span>${fmtT(replayT - replay.start)} / ${fmtT(span)}</span></div>` +
           `<div style="height:6px;background:rgba(255,255,255,.2);border-radius:3px;margin:6px 0"><div style="height:6px;width:${((replayT - replay.start) / span * 100).toFixed(1)}%;background:#facc15;border-radius:3px"></div></div>` +
-          `<div style="opacity:.75">Space play &middot; &larr; &rarr; scrub &middot; &uarr; &darr; speed &middot; C camera (${replayCam}) &middot; - = FOV &middot; , . time of day ${replayHour.toFixed(1)}h &middot; H hide &middot; P photo &middot; K / Esc close</div>`;
+          (controls.usingPad
+            ? `<div style="opacity:.75">${pg(PAD.A)} play &middot; ${pg(PAD.LEFT)}${pg(PAD.RIGHT)} scrub &middot; ${pg(PAD.LB)} ${pg(PAD.RB)} speed &middot; ${pg(PAD.Y)} camera (${replayCam}) &middot; ${pg(PAD.X)} hide &middot; ${pg(PAD.B)} close</div>`
+            : `<div style="opacity:.75">Space play &middot; &larr; &rarr; scrub &middot; &uarr; &darr; speed &middot; C camera (${replayCam}) &middot; - = FOV &middot; , . time of day ${replayHour.toFixed(1)}h &middot; H hide &middot; P photo &middot; K / Esc close</div>`);
+        if (controls.padOnce(PAD.B)) closeReplay();
       }
       // ---- FEAT-043: rewind (hold): scrub back along the recording, let go to carry on from the
       // last moment on the snow before there (not mid-air, not crashed)
-      const rewindHeld = !replayOpen && controls.keys.has(controls.keymap.rewind) && !outrun.active && !liftRide.riding && replay.samples.length > 1 && rider.strapState === 'none';
+      const rewindHeld = !replayOpen && controls.held('rewind') && !outrun.active && !liftRide.riding && replay.samples.length > 1 && rider.strapState === 'none';
       if (rewindHeld) {
         rewinding = true;
         rewindT = Math.min(rewindT + dt * 2, replay.t - replay.start);
@@ -598,7 +750,18 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       }
       const frozen = replayOpen || rewinding;
       if (!replayOpen && (controls.action('camera') || touch?.once('camera'))) cam.cycle();
-      if (!replayOpen && (controls.action('map') || touch?.once('map'))) map.toggle();
+      if (!replayOpen && (controls.action('map') || touch?.once('map'))) { map.toggle(); if (!map.fullOpen) controls.padMute(); }
+      // FEAT-137: the full map on a controller: the stick pans under a crosshair, R2 / L2 zoom, Cross drops in, Circle closes
+      if (map.fullOpen && controls.pad) {
+        const p = controls.pad, dz = (v: number) => (Math.abs(v) > settings.padDead ? v : 0);
+        const zoom = (p.buttons[PAD.RT]?.value ?? 0) - (p.buttons[PAD.LT]?.value ?? 0);
+        const sx = dz(p.axes[0] ?? 0), sy = dz(p.axes[1] ?? 0), z = Math.abs(zoom) > 0.1 ? zoom : 0;
+        if (controls.padOnce(PAD.B)) { map.close(); controls.padMute(); }
+        else {
+          const help = `${stickGlyph('L')} move &middot; ${pg(PAD.RT)} ${pg(PAD.LT)} zoom (${map.zoom.toFixed(1)}x) &middot; ${pg(PAD.A)} drop in &middot; ${pg(PAD.B)} close`;
+          if (map.padDrive(dt, sx, sy, z, controls.padOnce(PAD.A), help)) map.drawFull();
+        }
+      }
       // the rider stands still while the camera is detached (free fly, eye)
       const detached = cam.mode === 'free' || cam.mode === 'eye';
       const eyeMode = cam.mode === 'eye';
@@ -610,8 +773,11 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (!replayOpen && controls.action('piste')) { if (eyeMode) shotPending = true; else runs.toggle(); }
       if (controls.action('track')) audio.nextTrack();
       if (!replayOpen && controls.action('fly')) { cam.mode = cam.mode === 'free' ? settings.camera : 'free'; if (cam.mode === 'free') cam.enterFree(); }
-      // board on / off: unstrap when nearly stopped, strap in standing still
-      if (!replayOpen && (controls.action('board') || touch?.once('board')) && !detached && !liftRide.riding && !map.fullOpen) {
+      // board on / off: unstrap when nearly stopped, strap in standing still. FEAT-124: E (interact)
+      // straps in or out when there is no lift near; the separate strap key is optional
+      const interact = controls.action('lift') || !!touch?.once('lift');
+      const strapAsk = controls.action('board') || !!touch?.once('board') || (interact && !liftRide.riding && !liftRide.nearby);
+      if (!replayOpen && strapAsk && !detached && !liftRide.riding && !map.fullOpen) {
         const why = rider.toggleBoard();
         if (why === '' && rider.strapState === 'off') trial.cancel('Unstrapped');
         boardMsg = why === 'fast' ? 'slow down to unstrap' : why === 'moving' ? 'stand still to strap in' : why === 'air' ? 'land first' : '';
@@ -619,13 +785,17 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       }
       boardMsgT -= dt;
       // Outrun: no lift skip while it runs (the monster is on the towers behind you), the boost key
-      const boardPressed = (controls.action('lift') || !!touch?.once('lift')) && !detached && !(outrun.running && liftRide.riding);
-      if (controls.action('boost') && outrun.boost()) chase?.boostWhoosh();
+      const boardPressed = interact && !detached && !(outrun.running && liftRide.riding);
+      if (controls.action('boost') && outrun.active && outrun.boost()) chase?.boostWhoosh(); // FEAT-124: F, Outrun only
       rider.boost = outrun.boosting;
       const eating = outrun.phase === 'caught';
       const onLift = !detached && !eating && !frozen && liftRide.update(rider, dt, boardPressed, input.tuck);
       if (!detached && !onLift && !map.fullOpen && !eating && !frozen) rider.update(dt, input);
       if (!frozen && !onLift && !eating) replay.record(dt, rider, input.tuck); // FEAT-043
+      if (!frozen && !eating && !outrun.active) runStats.update(dt, rider, onLift); // FEAT-055
+      runCard.update(dt);
+      // FEAT-137: rumble (landings, crashes, rock, moguls), the DualSense lightbar and adaptive triggers
+      padFx.update(dt, controls.pad, { rider, riding: !detached && !onLift && !eating && !frozen && !map.fullOpen && !rider.unstrapped, monsterDist: outrun.running ? outrun.dist : Infinity, lens: riderView.mats.goggles.color.getHex() });
       // visuals draw the pose interpolated between the last two 120 Hz physics steps; gameplay
       // (trials, lifts, audio) keeps reading the sim pose
       riderView.setFirstPerson(cam.firstPerson);
@@ -643,7 +813,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
           else if (e.kind === 'roar') chase?.roar('spawn');
           else if (e.kind === 'sight') chase?.roar('sight');
           else if (e.kind === 'closecall') { chase?.roar('angry'); chase?.closeCall(); }
-          else if (e.kind === 'footfall' && e.m) { chase?.footfall(e.m.dist); if (e.m.dist < 30) cam.kick = Math.max(cam.kick, 0.7 * (1 - e.m.dist / 30)); }
+          else if (e.kind === 'footfall' && e.m) { chase?.footfall(e.m.dist); padFx.footfall(e.m.dist); if (e.m.dist < 30) cam.kick = Math.max(cam.kick, 0.7 * (1 - e.m.dist / 30)); }
           else if (e.kind === 'second') showToast('Another one.', 2500);
           else if (e.kind === 'escaped') { chase?.roar('giveup'); chase?.stop(); audio.resumeMusic(); chase?.fanfare(); }
           else if (e.kind === 'caught' && e.m) {
@@ -666,7 +836,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
           chase.update(dt, outrun.dist, outrun.phase === 'chase', outrun.boosting);
         }
       }
-      outrunUI.update(outrun, settings.units === 'metric', keyName(settings.keys.boost));
+      outrunUI.update(outrun, settings.units === 'metric', padKey('boost') || keysOf(settings, 'boost'));
       if (settings.timeTrials) {
         if (onLift) trial.cancel('On a lift'); else if (rider.unstrapped) trial.cancel('Unstrapped'); else if (!frozen) trial.update(rider, dt, input.tuck);
         trialWorld.updateGates(rider.x, rider.y);
@@ -722,27 +892,49 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         cam.camera.position.copy(trackPos); cam.camera.lookAt(rider.x, rider.z + 1, -rider.y);
         cam.camera.fov = Math.max(15, settings.fov - 25 + photoFov); cam.camera.updateProjectionMatrix();
       }
-      else { cam.freeLook(controls.looking, dt, mouseDx, mouseDy, outrun.running && controls.keys.has(controls.keymap.glance)); mouseDx = mouseDy = 0; cam.baseFov = settings.fov + (outrun.boosting ? 12 : 0) + (replayOpen ? photoFov : 0); cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); }
+      else { cam.freeLook(controls.looking, dt, mouseDx, mouseDy, controls.glancing); mouseDx = mouseDy = 0; cam.baseFov = settings.fov + (outrun.boosting ? 12 : 0) + (replayOpen ? photoFov : 0); cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); } // FEAT-124: look behind (G) in every mode
       // the eat sequence owns the camera: high in front of the monster, looking down at it (FEAT-104)
       if (eat.active) { eat.cameraPose(cam.camera.position, eatLook); cam.camera.lookAt(eatLook); if (cam.camera.fov !== 60) { cam.camera.fov = 60; cam.camera.updateProjectionMatrix(); } }
       chase?.setListener(cam.camera);
       goggles.strength = settings.goggleStrength;
+      {
+        // FEAT-130: the lens follows the setting (Auto: the weather and the sun); the rider and the frame wear it
+        const worn = resolveLens(settings.goggleLens, weatherNow, env.sunDir.y);
+        if (worn !== lensWorn) { lensWorn = worn; riderView.setLens(worn); goggles.setLens(worn === 'off' ? null : LENSES[worn].swatch); }
+        lens.lens = cam.mode === 'fp' && !eat.active ? worn : 'off';
+        lens.strength = settings.lensStrength ?? 1;
+      }
+      cam.fpShake = settings.fpShake ?? 0.3; // BUG-051
       goggles.update(rider, dt, cam.mode === 'fp', cam.mode === 'fp' && settings.fpVignette, onLift);
       // FEAT-045 speed feel toggles, and the speed lines (not on a lift, in free fly or the eat)
       cam.speedFov = settings.speedFov; cam.camShake = settings.camShake; speedLines.enabled = settings.speedLines;
       speedLines.update(rider.speed, dt, !detached && !onLift && !eat.active && !paused && !rider.onFoot && !frozen);
       rider.restoreSimPose();
       cam.camera.updateMatrixWorld();
+      // FEAT-140: the press meter just above the head (low in the middle of the view in first person)
+      {
+        const on = rider.pressing && !replayOpen && !detached && !eat.active;
+        let px = -999, py = -999;
+        if (on && cam.firstPerson) { px = window.innerWidth * 0.5; py = window.innerHeight * 0.78; }
+        else if (on || pressMeter.root.style.opacity !== '0') {
+          riderView.eye(pressHead); pressHead.y += 0.4; pressHead.project(cam.camera);
+          if (pressHead.z < 1) { px = (pressHead.x + 1) / 2 * window.innerWidth; py = (1 - pressHead.y) / 2 * window.innerHeight; }
+        }
+        pressMeter.update(on && px > -999, rider.pressBalance, rider.pressDir, px, py);
+      }
       env.updateCSM();
       clouds.render(renderer, cam.camera, dt, env.sunDir, env.sun.color, env.sun.intensity, env.hemi.color, env.hemi.intensity, env.atmo.hazeLinear);
       env.followCamera(cam.camera.position);
       snow.update(dt, cam.camera, renderer.domElement.height, 0.45 + 0.6 * env.hemi.intensity / 1.4);
       // BUG-046: spray and puffs are unlit points; give them the light flat snow gets at the rider (dark at dusk, darker in a ridge's shade)
       const pl = particleLight.update(dt, env, (x, y) => pack.terrainHeight(x, y), rider.x, rider.y, rider.z);
-      (riderView.sprayObject.material as THREE.PointsMaterial).color.copy(pl);
+      riderView.spray.setLight(pl); riderView.spray.setViewHeight(renderer.domElement.height); riderView.spray.wind.set(snow.wind.x * 0.3, snow.wind.y * 0.3);
       (puffs.points.material as THREE.PointsMaterial).color.copy(pl);
       veg.setSun(env.sun.color, env.sun.intensity);
+      terrain.setSun(env.sunDir); // BUG-062: the mogul colouring's sun term
       const cp = cam.camera.position;
+      // FEAT-044: stamp the tracks and prints near the rider into the deformation texture (the soft sag around them)
+      deform.update(renderer, rider.x, rider.z, -rider.y, rider.vx, -rider.vy);
       terrain.update(cp.x, -cp.z, cp.y);
       const fx = detached ? cp.x : rider.x, fy = detached ? -cp.z : rider.y;
       // terrain, mask and instance tiles stream ahead along the direction of travel
@@ -753,6 +945,27 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (weatherNow === 'storm') snowCover = Math.min(1, snowCover + dt / 600);
       else if (weatherNow === 'flurries') snowCover = Math.min(1, snowCover + dt / 3000);
       terrain.setSnowCover(snowCover, snow.wind.x, snow.wind.y);
+      // FEAT-077: groomers get skied out through the day (fresh corduroy first thing, tracked out by
+      // mid-afternoon); new snow covers the tracks again
+      {
+        const hour = typeof settings.timeOfDay === 'number' ? settings.timeOfDay : settings.timeOfDay === 'now' ? ((new Date().getUTCHours() + new Date().getUTCMinutes() / 60 + utcOff) % 24 + 24) % 24 : 13;
+        const day = Math.max(0, Math.min(1, (hour - 8.5) / 6.5));
+        const base = SKIED_BASE[settings.snowDay ?? 'mid'];
+        terrain.setSkied(base * (0.15 + 0.85 * day * day * (3 - 2 * day)) * (1 - snowCover), settings.snowDay === 'spring' ? 1 : 0);
+        // FEAT-053: the same day drives the snow under the board (powder keeps in the shade and after
+        // a storm, open off-piste gets tracked out, the afternoon sun makes slush, spring mornings ice)
+        const sw = rider.snowWorld;
+        sw.hour = hour; sw.storm = weatherNow === 'storm' ? 1 : weatherNow === 'flurries' ? 0.3 : 0; sw.newSnow = snowCover; sw.day = settings.snowDay ?? 'mid';
+        // "high up" is judged against the resort's own top (the highest lift top), not the pack's far terrain
+        sw.zLow = zr[0]; sw.zHigh = resortTop;
+        // FEAT-059: mogul fields creep uphill about 8 cm a day from mid-November; new snow softens them
+        const live = settings.timeOfDay === 'now' || timeParam === 'now';
+        const d = live ? new Date() : new Date(Date.UTC(new Date().getFullYear(), settings.month - 1, 15));
+        const seasonStart = Date.UTC(d.getUTCMonth() >= 10 ? d.getUTCFullYear() : d.getUTCFullYear() - 1, 10, 15);
+        const seasonDays = Math.max(0, Math.min(150, (d.getTime() - seasonStart) / 86400000));
+        pack.setMoguls(params.has('nomoguls') ? 0 : 1 - 0.6 * snowCover, MOGUL_CREEP_M_PER_DAY * seasonDays);
+        terrain.setMoguls(pack.mogulScale, pack.mogulCreep);
+      }
       rocks.setSnow(Math.min(1, snowCover * 3), snow.wind.x, snow.wind.y); // boulder tops fill three times faster than the slopes
       roads.update(fx, fy);
       const carried = onLift && liftRide.airborneRide ? liftRide.lift : null;
@@ -768,22 +981,48 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
       if (onLift) {
         const pct = ((liftRide.up / (liftRide.lift ? lifts.rideLength(liftRide.lift) : 1)) * 100).toFixed(0);
-        showPrompt(`<div class="name">${liftRide.lift?.feature.name ?? 'Lift'}</div><div class="row"><kbd>E</kbd> skip to the ${liftRide.lift?.kind === 'carpet' ? 'end' : 'top'} <span class="dim">${pct}%</span></div><div class="row"><kbd>W</kbd> hold for ${liftRide.fast ? '<b>5x speed</b>' : '5x speed'} &nbsp; <kbd>Alt</kbd> look around</div>`);
+        showPrompt(`<div class="name">${liftRide.lift?.feature.name ?? 'Lift'}</div><div class="row">${k('lift')} skip to the ${liftRide.lift?.kind === 'carpet' ? 'end' : 'top'} <span class="dim">${pct}%</span></div><div class="row">${k('tuck')} hold for ${liftRide.fast ? '<b>5x speed</b>' : '5x speed'} &nbsp; ${lookKey()} look around</div>`);
       } else if (liftRide.nearby && !map.fullOpen && !detached) {
         const name = liftRide.nearby.feature.name ?? 'Lift';
         const dist = settings.units === 'metric' ? `${liftRide.nearbyDist.toFixed(0)} m` : `${(liftRide.nearbyDist * 3.28084).toFixed(0)} ft`;
-        if (liftRide.canBoard) showPrompt(`<div class="name">${name}</div><div class="row"><kbd>E</kbd> ${rider.unstrapped ? 'strap in and ' : ''}${liftRide.nearby.kind === 'gondola' ? 'board the gondola' : liftRide.nearby.kind === 'surface' ? 'grab the lift' : liftRide.nearby.kind === 'carpet' ? 'step on' : 'ride up'}</div>`);
-        else if (liftRide.blocker === 'fast') showPrompt(`<div class="name">${name}</div><div class="row">slow down to board <kbd>&darr;</kbd> brake</div>`);
-        else showPrompt(`<div class="name">${name}</div><div class="row">ride to the lift <span class="dim">${dist}</span> then <kbd>E</kbd></div>`);
+        if (liftRide.canBoard) showPrompt(`<div class="name">${name}</div><div class="row">${k('lift')} ${rider.unstrapped ? 'strap in and ' : ''}${liftRide.nearby.kind === 'gondola' ? 'board the gondola' : liftRide.nearby.kind === 'surface' ? 'grab the lift' : liftRide.nearby.kind === 'carpet' ? 'step on' : 'ride up'}</div>`);
+        else if (liftRide.blocker === 'fast') showPrompt(`<div class="name">${name}</div><div class="row">slow down to board ${controls.usingPad ? k('brake') : '<kbd>&darr;</kbd>'} brake</div>`);
+        else showPrompt(`<div class="name">${name}</div><div class="row">ride to the lift <span class="dim">${dist}</span> then ${k('lift')}</div>`);
       } else if (!map.fullOpen && !detached) {
         // board on / off
-        const bk = `<kbd>${keyName(settings.keys.board)}</kbd>`;
+        const bk = padKey('board') || padKey('lift') || `<kbd>${keysOf(settings, 'board') || keysOf(settings, 'lift')}</kbd>`; // FEAT-124: E straps in and out (or the optional board-only key)
         if (boardMsgT > 0) showPrompt(`<div class="row">${boardMsg}</div>`);
         else if (rider.strapState !== 'none') showPrompt('');
-        else if (rider.onFoot) showPrompt(`<div class="row">${bk} strap in${rider.speed > 0.3 ? ' <span class="dim">(stand still)</span>' : ''} &nbsp; <kbd>${keyName(settings.keys.grab)}</kbd> sprint</div>`);
+        else if (rider.onFoot) showPrompt(`<div class="row">${bk} strap in${rider.speed > 0.3 ? ' <span class="dim">(stand still)</span>' : ''} &nbsp; ${k('grab')} sprint</div>`);
         else if (rider.canUnstrap) showPrompt(`<div class="row">${bk} unstrap</div>`);
         else showPrompt('');
       } else showPrompt('');
+      // FEAT-124: only the keys that matter right now (the full list is in Settings > Controls)
+      helpT -= dt;
+      if (boardMsgNote && (boardNoteT -= dt) <= 0) boardMsgNote = '';
+      cam.glance = controls.glancing;
+      if (helpEl && helpT <= 0) {
+        helpT = 0.25;
+        let h: string;
+        const L = stickGlyph('L');
+        if (controls.usingPad) {
+          // FEAT-137: the same hints in the controller's own buttons
+          if (liftRide.riding) h = `${k('lift')} skip &middot; ${k('tuck')} hold for 5x &middot; ${k('glance')} look behind &middot; ${stickGlyph('R')} look around`;
+          else if (outrun.running) h = `${k('boost')} boost &middot; ${k('glance')} look behind &middot; ${k('jump')} jump`;
+          else if (rider.onFoot) h = `${L} walk &middot; ${k('grab')} sprint &middot; ${k('jump')} jump / climb &middot; ${k('lift')} strap in &middot; ${k('glance')} look behind`;
+          else if (!rider.onGround) h = `${L} spin &middot; ${k('tuck')} front flip &middot; ${k('brake')} backflip &middot; ${k('grab')} grab`;
+          else if (liftRide.nearby) h = `${k('lift')} ride the lift &middot; ${k('brake')} brake`;
+          else h = `${L} steer &middot; ${k('tuck')} tuck &middot; ${k('brake')} brake &middot; hold ${k('jump')} jump (+ ${L} up / down nollie / ollie) &middot; ${k('grab')} squat (+ steer: hard carve) &middot; ${k('pressNose')} ${k('pressTail')} press (${L} balance) &middot; ${k('skate')} skate<br>${k('lift')} interact &middot; hold ${k('glance')} look behind &middot; ${k('camera')} camera &middot; ${k('map')} map &middot; ${pg(PAD.START)} pause`;
+        }
+        else if (liftRide.riding) h = `${k('lift')} skip &middot; ${k('tuck')} hold for 5x &middot; ${k('glance')} look behind &middot; ${k('look')} look around`;
+        else if (outrun.running) h = `${k('boost')} boost &middot; ${k('glance')} look behind &middot; ${k('jump')} jump`;
+        else if (rider.onFoot) h = `${k1('tuck')}${k1('left')}${k1('brake')}${k1('right')} walk &middot; ${k('grab')} sprint &middot; ${k('jump')} jump / climb &middot; ${k('lift')} strap in &middot; ${k('glance')} look behind`;
+        else if (!rider.onGround) h = `${k('left')} ${k('right')} spin &middot; ${k('tuck')} front flip &middot; ${k('brake')} backflip &middot; ${k('grab')} grab`;
+        else if (liftRide.nearby) h = `${k('lift')} ride the lift &middot; ${k('brake')} brake`;
+        else h = `${k('left')} ${k('right')} steer &middot; ${k('tuck')} tuck &middot; ${k('brake')} brake &middot; hold ${k('jump')} jump (+ ${k1('tuck')} / ${k1('brake')} nollie / ollie) &middot; ${k('grab')} squat (+ steer: hard carve) &middot; ${k('pressNose')} ${k('pressTail')} press (${k1('tuck')} / ${k1('brake')} balance) &middot; ${k('skate')} skate<br>${k('lift')} interact &middot; hold ${k('glance')} look behind &middot; ${k('camera')} camera &middot; ${k('map')} map &middot; hold ${k('restart')} restart &middot; Esc pause`;
+        if (boardMsgNote) h = `<b>${boardMsgNote}</b><br>` + h;
+        if (h !== helpShown) { helpShown = h; helpEl.innerHTML = h; }
+      }
       env.update(fx, detached ? cp.y : rider.z, -fy);
       if (pack.fine && terrain.stats.builds === 0) pack.fine.evictBeyond(fx, fy, 3000, liftTop);
       map.riderPos = [rider.x, rider.y, rider.z];
@@ -800,26 +1039,72 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
       hud.innerHTML =
         `<b>${speedStr(rider.speed)} &nbsp; ${altStr(rider.z)} &nbsp; slope ${rider.slopeDeg.toFixed(0)}&deg;` +
+        // FEAT-053: what the snow is here; on foot, how deep the boots sink in it
+        (rider.onFoot ? ` &nbsp; <span class="dim">snow</span> ${snowLabel(rider.snow.kind).toLowerCase()} &middot; <span class="dim">sink</span> ${settings.units === 'metric' ? (rider.sink * 100).toFixed(0) + ' cm' : (rider.sink * 39.37).toFixed(0) + ' in'}` : rider.onGround && !rider.unstrapped ? ` &nbsp; <span class="dim">${snowLabel(rider.snow.kind)}</span>` : '') +
         (rider.onFoot ? ` &nbsp; ${rider.crawling ? 'SCRAMBLING' : 'ON FOOT'} &nbsp; <span class="dim">sprint</span> ${'&#9646;'.repeat(Math.ceil(rider.stamina / STAMINA * 5))}${'&#9647;'.repeat(5 - Math.ceil(rider.stamina / STAMINA * 5))}` : '') +
+        (rider.switch && !rider.unstrapped ? ' &nbsp; SWITCH' : '') + // FEAT-139
         (rider.onGround || rider.onFoot ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') +
+        // FEAT-055: the run so far
+        (runStats.active ? `</b><br><span class="dim">${runStats.current ? runStats.current + ' &middot; ' : ''}top ${fmtSpeed(runStats.topSpeed, settings.units === 'metric')} &middot; ${altStr(runStats.vertical)} vert &middot; ${fmtDistance(runStats.distance, settings.units === 'metric')}</span><b>` : '') +
         `<br><span class="dim">${fps.toFixed(0)} fps &middot; ${terrain.stats.chunks} chunks &middot; ${(terrain.stats.triangles / 1000).toFixed(0)}k tris &middot; trees ${veg.stats.instances} &middot; cam ${cam.mode}` +
-        ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}</span>` +
+        ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}${auto.level ? ' &middot; ' + auto.describe() : ''}</span>` +
         // BUG-053 ?debug: the edge model's numbers for tuning (edge angle, the lateral acceleration it balances, turn radius and rate, the brake's cut and swing)
         (debugHud ? `<br><span class="dim">edge ${(rider.edge * 180 / Math.PI).toFixed(0)}&deg; &middot; aLat ${rider.carveAcc.toFixed(1)} m/s&sup2; (${rider.lateralG.toFixed(2)} g) &middot; R ${Number.isFinite(rider.turnRadius) ? rider.turnRadius.toFixed(0) + ' m' : '&infin;'} &middot; ${(rider.turnRate * 180 / Math.PI).toFixed(0)}&deg;/s` +
-          (rider.brakeAmt > 0 ? ` &middot; brake &Psi; ${(rider.brakePsi * 180 / Math.PI).toFixed(0)}&deg; &gamma; ${(Math.abs(rider.slip) * 180 / Math.PI).toFixed(0)}&deg; ${rider.brakeAcc.toFixed(1)} m/s&sup2; mod ${rider.brakeMod.toFixed(2)}` : '') + '</span>' : '');
-      (window as any).__sim = { rider, riderView, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, eyeAt, outrun, monsters, startOutrun, stopOutrun,
+          (rider.hardCarve > 0 ? ` &middot; hard ${rider.hardCarve.toFixed(2)} short ${rider.carveShort.toFixed(2)} g wash ${rider.washout.toFixed(2)}` : '') + // FEAT-148
+          (rider.brakeAmt > 0 ? ` &middot; brake &Psi; ${(rider.brakePsi * 180 / Math.PI).toFixed(0)}&deg; &gamma; ${(Math.abs(rider.slip) * 180 / Math.PI).toFixed(0)}&deg; ${rider.brakeAcc.toFixed(1)} m/s&sup2; mod ${rider.brakeMod.toFixed(2)}` : '') +
+          // FEAT-053: the snow weights and what they set
+          `<br>snow groomed ${rider.snow.groomed.toFixed(2)} powder ${rider.snow.powder.toFixed(2)} chop ${rider.snow.chop.toFixed(2)} ice ${rider.snow.ice.toFixed(2)} slush ${rider.snow.slush.toFixed(2)} rock ${rider.snow.rock.toFixed(2)} &middot; depth ${(rider.snow.depth * 100).toFixed(0)} cm &middot; grip x${rider.snow.grip.toFixed(2)} &middot; turn x${rider.snow.turn.toFixed(2)} &middot; drag ${rider.snow.drag0.toFixed(2)} + ${rider.snow.drag1.toFixed(4)}v &middot; chop ${rider.chop.toFixed(2)} &middot; sink ${rider.noseSink.toFixed(2)}</span>` : '');
+      (window as any).__sim = { rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, eyeAt, outrun, monsters, startOutrun, stopOutrun,
         /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
-        setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); } };
+        setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
+        /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */
+        applySettings: (what: string) => applySettings(settings, what) };
       if (!headless) requestAnimationFrame(frame);
     }
 
-    // wait briefly for the fine tiles under the start point, then go
+    /**
+     * BUG-063: build the world around the start behind the loading screen, without drawing: stream terrain,
+     * trees and rocks with a large per-frame budget (frames stay short, so the page never locks up), then
+     * compile every shader in the background. Ends when nothing near the start is still downloading or
+     * building, or after 20 s. The screen then stays up for the first few real frames (HIDE_AFTER_FRAMES),
+     * so whatever only the full frame draws (clouds, the body pass, GPU uploads) is paid behind it.
+     */
+    async function warmUp(ls: LoadingScreen): Promise<void> {
+      const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+      terrain.budgetMs = 12; terrain.maxBuilds = 64; veg.budgetMs = 12;
+      const tiles = () => [pack.fine, pack.mid, pack.far, pack.mask, pack.ao, pack.dir, pack.moguls].reduce((n, t) => n + (t?.inFlight ?? 0), 0);
+      const t0 = performance.now();
+      let peak = 1, settled = 0;
+      while (performance.now() - t0 < 20000) {
+        cam.camera.updateMatrixWorld();
+        const cp = cam.camera.position;
+        terrain.update(cp.x, -cp.z, cp.y);
+        veg.update(rider.x, rider.y);
+        rocks.update(rider.x, rider.y);
+        const tl = tiles();
+        const left = terrain.pending + tl + veg.pending + rocks.pending;
+        peak = Math.max(peak, left);
+        ls.set(0.85 * (1 - left / peak), `Terrain ${terrain.pending + tl} · trees ${veg.pending} · rocks ${rocks.pending}`);
+        settled = left === 0 ? settled + 1 : 0;
+        if (settled >= 3) break; // three quiet frames: late tile arrivals have had a chance to mark rebuilds
+        await nextFrame();
+      }
+      ls.set(0.9, 'Compiling shaders...');
+      await renderer.compileAsync(scene, cam.camera).catch((e) => console.warn('compileAsync failed', e));
+      ls.set(0.97, 'Almost there...');
+      // riding: small budgets so streaming never spikes a frame; built parent chunks cover any gaps
+      terrain.budgetMs = 4; terrain.maxBuilds = 10; veg.budgetMs = 3;
+    }
+
+    // wait briefly for the fine tiles under the start point, then warm up and go
     (async () => {
       const t0 = performance.now();
       while (Number.isNaN(pack.fine?.sample(sx, sy) ?? 0) && performance.now() - t0 < 8000) await new Promise((r) => setTimeout(r, 50));
       rider.reset(sx, sy, sh);
       lifts.buildMarkers(pack);
       cam.snapTo(rider);
+      if (loading && alive) { await warmUp(loading); hideLoading = loading; }
+      if (!alive) return;
       status.textContent = '';
       if (openMapAtStart) map.open();
       last = performance.now();

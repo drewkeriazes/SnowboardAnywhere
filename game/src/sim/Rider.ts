@@ -2,6 +2,7 @@ import type { Pack } from '../pack/Pack';
 import type { Collider } from './Collider';
 import { Rng } from './Rng';
 import { rockCover } from '../terrain/rockCover';
+import { DEFAULT_SNOW_WORLD, newSnowState, snowAt, type SnowState, type SnowWorld } from './SnowConditions';
 
 export interface Input {
   steer: number; // -1 left .. +1 right
@@ -16,6 +17,8 @@ export interface Input {
   skate?: boolean;
   /** FEAT-112: -1 lean back (nose up, ollie) .. +1 lean forward (tail up, nollie) */
   lean?: number;
+  /** FEAT-140: weight forward (+1, W or the stick up) or back (-1) to balance a press; Controls sends W / S here instead of tuck / brake while a press key is held on the snow */
+  balance?: number;
 }
 
 export interface SurfaceInfo {
@@ -23,6 +26,8 @@ export interface SurfaceInfo {
   scree: number;
   groomed: number;
   canopy: number;
+  /** FEAT-059: mogul amplitude under the rider, metres (0 off the bump fields) */
+  moguls: number;
 }
 
 const G = 9.81;
@@ -70,17 +75,20 @@ const STAMINA_RESUME = 1.5;
 const CLIMB_MAX = 35, CRAWL_MAX = 45, CRAWL = 0.45, BODY_L = 2.5;
 
 /**
- * How far a boot sinks (m): about 2.5 cm on a groomer, 10 to 16 cm in open powder, up to about
- * 22 cm in deep powder off-piste under trees, almost nothing on rock. Drives the walking speed,
- * the boot height and the print depth.
+ * How far a boot sinks (m): 70% of the snow depth under the rider (FEAT-053), at least 4 mm. It
+ * follows the day's conditions: deeper after a storm, a few cm in chop and slush, almost nothing
+ * on ice or rock. Drives the walking speed, the boot height and the print depth.
  */
-export function bootSink(s: SurfaceInfo): number {
-  const hard = Math.min(1, s.rock + s.scree);
-  const groomed = Math.min(1, s.groomed) * (1 - hard);
-  const powder = Math.max(0, 1 - groomed - hard);
-  const deep = powder * (s.canopy > 0.3 ? 1 : 0.5);
-  return 0.025 * groomed + 0.1 * powder + 0.12 * deep + 0.008 * hard;
+export function bootSink(snow: SnowState): number {
+  return Math.max(0.004, snow.depth * 0.7);
 }
+/** FEAT-053 powder: speed (m/s) by which the board planes and the speed-scaled drag stops growing,
+ *  the drag per m/s before that (per unit powder), and the nose-sink drag (g) at a standstill that
+ *  is gone by SINK_SPEED m/s */
+const PLANE_SPEED = 12, POWDER_DRAG = 0.012, SINK_DRAG = 0.08, SINK_SPEED = 6;
+/** FEAT-053 chop: a jolt every CHOP_GAP s (random, about), kicking the heading up to CHOP_YAW rad and
+ *  the board sideways up to CHOP_KICK m/s at full chop and speed, smaller at low speed (gone by CHOP_SPEED) */
+const CHOP_GAP = 0.2, CHOP_YAW = 0.035, CHOP_KICK = 0.3, CHOP_SPEED = 12;
 
 /** wrap an angle to -PI..PI */
 function wrap(a: number): number { return Math.atan2(Math.sin(a), Math.cos(a)); }
@@ -142,6 +150,37 @@ const CATCH_SPEED = 3, CATCH_SLIDE = 2, CATCH_EDGE = 15 * D2R, CATCH_TIME = 0.05
 /** the board's slip past its line (rad) before the carve lets go: from SLIP_HOLD on, the arc stops
  *  driving the heading, gone by SLIP_HOLD + SLIP_WASH (a skid that settles, not a spin) */
 const SLIP_HOLD = 4 * D2R, SLIP_WASH = 30 * D2R;
+/**
+ * FEAT-148 hard carve (the squat key held while steering on the snow): eased in over HARD_IN s. The
+ * edge cap goes up to HARD_PSI and the edge rolls HARD_ROLL times as fast, slowing with the square
+ * of the speed past HARD_ROLL_V m/s (driving a deep edge in against the load takes longer at speed),
+ * never below HARD_ROLL_MIN of that. The body may lean to HARD_PHI and the snow holds up to HARD_G g
+ * on groomed corduroy, scaled by the snow's grip: the edge bites and whips the rider round.
+ */
+const HARD_IN = 0.12, HARD_PSI = 80 * D2R, HARD_ROLL = 1.5, HARD_ROLL_V = 10, HARD_ROLL_MIN = 0.45, HARD_PHI = 69 * D2R, HARD_G = 2.6;
+/**
+ * FEAT-148: the press drives the turn in over HARD_DRIVE_T s from when the edge is on the steer's side
+ * (it asks for the turn of the target edge, not the edge the board has got to). The edge holds
+ * g tan(lean) of its real angle, so an edge that lags (pressed at speed from flat, on ice) cannot hold
+ * the turn asked of it: the tail slides out. Short of it by more than WASH_SHARE of the turn asked (a
+ * share, so softer snow that asks less washes out alike) fills a washout meter at WASH_RATE per s per
+ * share past it, times the speed past WASH_V0 over WASH_SPAN m/s (1 at 20 m/s, more beyond); full, the
+ * edge lets go and the rider goes down on the inside of the turn. It drains at WASH_DRAIN per s.
+ */
+const HARD_DRIVE_T = 0.15, WASH_SHARE = 0.35, WASH_V0 = 8, WASH_SPAN = 12, WASH_RATE = 38, WASH_DRAIN = 3;
+/** extra sideways grip on groomed corduroy (gripBase is GROOMED_GRIP there): HARD_G is in g on corduroy */
+const GROOMED_BONUS = 0.4, GROOMED_GRIP = 1 + GROOMED_BONUS;
+/** FEAT-148: a committed edge holds this much over the turn it balances, so it bites clean instead of riding the grip limit */
+const HARD_SLACK = 1.2;
+/** FEAT-148: a hard carve's deep edge plows snow: a drag of HARD_DRAG times the lateral acceleration */
+const HARD_DRAG = 0.06;
+/** FEAT-148: forced past its hold the edge scrapes and chatters: a full skid (spray, sound, scrub) at HARD_SKID g short */
+const HARD_SKID = 1.2;
+/** FEAT-148: powder this deep (m) planes the board fully in a hard carve: the edge cap drops toward the
+ *  powder cap and the washout stops, a deep surfy turn. Shallower powder, chop and slush do not (BUG-066 follow-up) */
+const HARD_DEEP = 0.3;
+/** FEAT-148: steer under this does not start a hard carve, and below HARD_MIN_SPEED m/s it is just a squat pivot */
+const HARD_STEER = 0.3, HARD_MIN_SPEED = 3;
 
 /**
  * Snowboard rider as a point mass with a board heading. Ground contact is a bilinear
@@ -184,6 +223,25 @@ export function trickName(flip: number, spin: number, rotations: number): string
   if (turns >= 360) return flip < 0 ? `${n}Rodeo ${turns}` : `${n}Front flip ${turns}`;
   return `${n}${flip > 0 ? 'front flip' : 'backflip'}`.replace(/^./, (c) => c.toUpperCase());
 }
+/**
+ * FEAT-139: a spin with no flip ("Frontside 180", "Backside 360"), or '' under a half turn. `toe` is
+ * the side the toe edge is on (+1 the heading's right): frontside turns the chest toward the
+ * direction of travel first, which is counterclockwise (spin < 0) for a rider facing right.
+ */
+export function spinName(spin: number, toe: number): string {
+  const turns = Math.round(Math.abs(spin) / Math.PI) * 180;
+  return turns < 180 ? '' : `${spin * toe < 0 ? 'Frontside' : 'Backside'} ${turns}`;
+}
+/** FEAT-139: "Switch backside 180", "Switch backflip": a trick taken off riding switch */
+export function switchName(name: string, sw: boolean): string {
+  return sw && name ? `Switch ${name[0].toLowerCase()}${name.slice(1)}` : name;
+}
+
+/** FEAT-139: riding backwards faster than this (m/s) the steering axis turns round and the stance
+ *  toggles to switch (or back); was 4 m/s when it spun the drawn rider round, which is now invisible */
+const FAKIE_SPEED = 2.5;
+/** FEAT-139: share of the sideways grip lost riding switch (most riders are weaker switch); 0 turns it off */
+const SWITCH_GRIP = 0.04;
 
 /** FEAT-085 skating: mean push (m/s^2) from a standstill, top skating speed (m/s), steepest slope it works on (deg), stroke period (s) */
 const SKATE_ACC = 4.2, SKATE_MAX = 5.5, SKATE_SLOPE = 10, SKATE_PERIOD = 0.6;
@@ -192,10 +250,55 @@ const SKATE_ACC = 4.2, SKATE_MAX = 5.5, SKATE_SLOPE = 10, SKATE_PERIOD = 0.6;
  * ollie / nollie (|lean| > 0.5 at release), and the pitch rate it leaves (rad/s per unit lean) */
 const LEAN_IN = 0.2, PRESS_GRIP = 0.35, PRESS_DRAG = 0.05, OLLIE_POP = 1.3, OLLIE_PITCH = 1.2;
 
+/** FEAT-140: how a held press ends: let go (or left the snow), dropped flat (under-pressed), slammed or stalled (over-pressed) */
+export type PressEnd = 'clean' | 'flat' | 'slam' | 'stall';
+/** FEAT-140: Settings > Game > Press balance */
+export type PressMode = 'on' | 'easy' | 'hard' | 'off';
+/**
+ * FEAT-140 press balance, in needle units per second (the needle runs -1 .. 1, + toward the
+ * heading's front end): the base drift, the most it and the runaway grow with the time held (share;
+ * they level off with PB_HOLD_T s, starting at PB_HOLD_MAX / PB_HOLD_T per second), the share it grows per m/s of
+ * speed, the runaway rate off centre (an inverted pendulum, so a needle off centre keeps going), the
+ * jitter at full bumps (moguls, crud), a random push of PB_PUSH every PB_GAP s (min, max), full
+ * W / S (raised to PB_CORRECT_OVER times the steady drift when that is more, so no press is ever
+ * past saving: the skill is in reacting and not overcorrecting), and the slowest the loaded end slams
+ * instead of stalling (m/s). On a groomer at 10 m/s a sloppy keyboard press lasts about 8 s and a
+ * careful one much longer (tools/presscheck.mjs).
+ */
+const PB_DRIFT = 0.2, PB_HOLD_MAX = 1.6, PB_HOLD_T = 4.6, PB_SPEED = 0.04, PB_UNSTABLE = 1.0, PB_BUMP = 2.4, PB_PUSH = 0.35, PB_CORRECT = 1.5, PB_STALL = 3;
+const PB_GAP = [0.8, 2.2] as const, PB_PUSH_T = 0.15;
+/** FEAT-140: full W / S is at least this many times the drift, the bump jitter and the runaway together (fast, bumpy, long presses), so it can always win */
+const PB_CORRECT_OVER = 1.4;
+/** FEAT-140: the weight shift W / S make builds and lets go over this long (s) */
+const PB_SHIFT_T = 0.15;
+/**
+ * FEAT-140: how far the balance can run before it is lost, in the units the rates above are in
+ * (was 1). pressBalance stays a share of it (-1 .. 1) for the meter; the body leans in proportion,
+ * so at the edge it leans this many times as far as at 1. The runaway grows with the share, not the
+ * distance, so a press stays saveable out to the edge.
+ */
+export const PRESS_RANGE = 1.6;
+/** FEAT-140 difficulty (Settings > Game > Press balance): drift, jitter and push scaled by the first, the runaway by the second */
+const PB_LEVEL: Record<Exclude<PressMode, 'off'>, [number, number]> = { easy: [0.5, 0.6], on: [1, 1], hard: [1.5, 1.3] };
+/** FEAT-140: vertical acceleration through the board counted as full bumps (m/s^2), the bumps counted
+ *  in ungroomed snow, the drift added at full bumps (share), and the longest hop (s) a press rides
+ *  through (a roller or a mogul; longer is a jump and ends it) */
+const PB_BUMP_ACC = 15, PB_CRUD = 0.35, PB_BUMP_DRIFT = 2, PB_AIR = 0.3;
+/** FEAT-140: a press that starts within this long of landing a trick (s) is landed into from it ("Backflip to tail press") */
+const PB_LAND_WINDOW = 0.5;
+/** FEAT-140: a press held shorter than this (s) ends without a report */
+export const PRESS_MIN_REPORT = 0.5;
+
 export class Rider {
   x = 0; y = 0; z = 0; // position, local metres (z up)
   vx = 0; vy = 0; vz = 0;
   heading = 0; // radians, 0 = north (+y), increasing clockwise (toward +x)
+  /** FEAT-139: riding switch (the other foot forward, the tail leading). `heading` stays the steering
+   *  axis along the direction of travel and every physics value stays in its frame; the view draws
+   *  the board and the body turned round (see toeSign). Snowboard only. */
+  switch = false;
+  /** FEAT-139: the rider's normal stance has the right foot forward (Settings > Rider > Stance) */
+  goofy = false;
   onGround = true;
   airTime = 0;
   jumpCharge = 0;
@@ -204,17 +307,35 @@ export class Rider {
   /** s since the squat was let go from deep; a jump right then pops higher */
   private squatUp = 9;
   speed = 0;
-  /** FEAT-127: the board's edge angle to the snow (rad), + = the right-hand (toe) edge, rolled toward the steer at a limited rate */
+  /** FEAT-127: the board's edge angle to the snow (rad), + = the heading's right-hand edge (the toe edge riding regular; see toeSign), rolled toward the steer at a limited rate */
   edge = 0;
   /** the edge as a share of EDGE_FULL (sound, poses, replays and ghosts) */
   get edgeAngle(): number { return this.edge / EDGE_FULL; }
   set edgeAngle(v: number) { this.edge = v * EDGE_FULL; }
+  /** BUG-056: the edge angle the steer is rolling toward this step (rad, 0 off the snow), for the rider
+   *  view's body lead: the rider knows where the turn is going before the board gets there */
+  edgeTarget = 0;
+  /** BUG-056: the lean the press input is easing toward (-1 .. 1, 0 off the snow), for the body lead */
+  leanTarget = 0;
   /** radius of the turn the heading is following (m, Infinity going straight): speed over the heading rate, so it includes the steer yaw and any slip wash-out (BUG-053; was the arc the edge and lean balance), for the debug HUD and tools */
   turnRadius = Infinity;
   /** BUG-053: heading rate this step (rad/s, + clockwise) and the lateral acceleration the edge and lean
    *  balance (m/s^2), for the debug readout and tools */
   turnRate = 0;
   carveAcc = 0;
+  // ---- FEAT-148 hard carve
+  /** 0..1 how far into a hard carve (the squat key held while steering on the snow), eased */
+  hardCarve = 0;
+  /** 0..1 how far the press has driven the turn in on the current edge */
+  private hardDrive = 0;
+  /** how far short (g) the edge's hold falls of the turn the press asks for (0 = committed, it bites) */
+  carveShort = 0;
+  /** 0..1 the washout meter: a big shortfall at speed fills it, full the edge lets go */
+  washout = 0;
+  /** called when a hard carve washes out: -1 heelside (down on the butt), +1 toeside (onto the hip) */
+  onWashout: ((side: number) => void) | null = null;
+  /** FEAT-148: which way a crash throws the body sideways, + the heading's right-hand side (a washout falls to the inside of the turn), 0 none */
+  crashSide = 0;
   /** FEAT-133: eased steer while braking, -1 away from the edge (open swing, soft edge) .. +1 into it (square, dug in) */
   brakeMod = 0;
   /** edge angle of the brake's snow cut (rad, 0 when not braking), for the board's roll on screen */
@@ -226,13 +347,45 @@ export class Rider {
   /** FEAT-085: skating now, the stroke phase (0..1, a push at 0), and a callback on each push for sound */
   /** FEAT-112: the board's lean, eased: -1 nose up (tail loaded) .. +1 tail up (nose loaded) */
   lean = 0;
+  // ---- FEAT-140 press balance
+  /** Settings > Game > Press balance (main sets it) */
+  pressMode: PressMode = 'on';
+  /** a press is being held and balanced (|lean| > 0.5 on the snow) */
+  pressing = false;
+  /** the balance needle, -1 .. 1 (a share of PRESS_RANGE), 0 = the sweet spot, + toward the heading's front end (W) */
+  pressBalance = 0;
+  /** the loaded end of the press being held: +1 the front (nose press), -1 the back (tail press) */
+  pressDir = 0;
+  /** seconds and metres the press has been held */
+  pressT = 0; pressDist = 0;
+  /** called when a press ends (how, which end, s, m, riding switch); one held under PRESS_MIN_REPORT is not reported */
+  onPress: ((end: PressEnd, dir: number, t: number, dist: number, switchStance: boolean, from: string) => void) | null = null;
+  /** the trick this press was landed into from ('' if none) */
+  pressFrom = '';
+  /** the last trick landed and the step it landed on */
+  private landTrick = ''; private landStep = -1e9;
+  /** lost it: the lean stays flat until the press key (this sign) is let go */
+  private pressLock = 0;
+  private pbDrift = 1; private pbPushT = 0; private pbPushLeft = 0; private pbPushV = 0;
+  private pbNoise = 0; private pbNoiseTo = 0; private pbNoiseT = 0; private pbBump = 0; private pbVz = 0; private pbCorr = 0;
   skating = false;
   skatePhase = 0;
   onSkateStroke: (() => void) | null = null;
   /** FEAT-110: called on landing a flip ("Backflip", "Double front flip", "Rodeo 540"), clean or sketchy */
   onTrick: ((name: string) => void) | null = null;
   crashed = 0; // seconds remaining in a crash
-  surface: SurfaceInfo = { rock: 0, scree: 0, groomed: 0, canopy: 0 };
+  /** FEAT-140: which way the crash throws the body, +1 forward along the heading, -1 back, 0 either (a press slam falls over its loaded end) */
+  crashFall = 0;
+  surface: SurfaceInfo = { rock: 0, scree: 0, groomed: 0, canopy: 0, moguls: 0 };
+  /** FEAT-053: the snow here (groomed / powder / chop / ice / slush weights and the physics they set) */
+  readonly snow: SnowState = newSnowState();
+  /** FEAT-053: the day's conditions (main.ts sets the hour, weather, new snow and the setting) */
+  readonly snowWorld: SnowWorld = { ...DEFAULT_SNOW_WORLD };
+  /** FEAT-053: 0..1 how hard the chop is rattling the board right now (smoothed, for the camera and the view) */
+  chop = 0;
+  /** FEAT-053: 0..1 the nose sinking into slow powder (for the drag; the view may tip the board) */
+  noseSink = 0;
+  private chopT = 0;
   normal: [number, number, number] = [0, 0, 1];
   slopeDeg = 0;
   skid = 0; // 0..1 how much the board is sliding sideways (for spray)
@@ -321,15 +474,34 @@ export class Rider {
     this.collider = collider;
   }
 
+  /** FEAT-139: which side of the heading the toe edge is on: +1 the right (regular, or goofy riding
+   *  switch), -1 the left (goofy, or regular riding switch; the board and body are drawn turned round) */
+  get toeSign(): number { return this.discipline === 'board' && this.switch !== this.goofy ? -1 : 1; }
+
+  /**
+   * FEAT-139: turn the steering axis round to the direction of travel and toggle the stance, so the
+   * rider as drawn (the board at heading + PI while switch) does not move. The edge, the lean and the
+   * lateral g keep their side of the board, which is the other side of the new heading.
+   */
+  private turnRound(): void {
+    this.heading += Math.PI; this.boardYaw += Math.PI; // the board was already posed this step
+    this.edge = -this.edge; this.edgeTarget = -this.edgeTarget;
+    this.lateralG = -this.lateralG; this.lean = -this.lean; this.crashSide = -this.crashSide;
+    this.pressBalance = -this.pressBalance; this.pressDir = -this.pressDir; this.pbDrift = -this.pbDrift; this.pressLock = -this.pressLock; // FEAT-140
+    if (this.discipline === 'board') this.switch = !this.switch;
+  }
+
   reset(x: number, y: number, heading: number, seed = 1): void {
     this.x = x; this.y = y; this.z = this.pack.groundHeight(x, y) + 0.5;
     this.vx = this.vy = this.vz = 0;
-    this.heading = heading; this.onGround = true; this.airTime = 0; this.jumpCharge = 0;
-    this.crashed = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
-    this.edge = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.landingShock = 0; this.catchT = 0;
+    this.heading = heading; this.switch = false; this.onGround = true; this.airTime = 0; this.jumpCharge = 0;
+    this.crashed = 0; this.crashFall = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
+    this.edge = 0; this.edgeTarget = 0; this.leanTarget = 0; this.lean = 0; this.pressing = false; this.pressBalance = 0; this.pressDir = 0; this.pressLock = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.landingShock = 0;
+    this.hardCarve = 0; this.hardDrive = 0; this.carveShort = 0; this.washout = 0; this.crashSide = 0; this.catchT = 0;
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
     this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false; this.mantle = 0; this.stepT = 0;
     this.sprinting = false; this.crawling = false; this.slipT = 0; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
+    this.chop = 0; this.noseSink = 0; this.chopT = 0;
     this.rng.seed(seed);
     this.squareBoard();
     this.snapPose();
@@ -346,7 +518,7 @@ export class Rider {
   }
   /** off the board or getting on or off it: no board physics, tracks or spray */
   get unstrapped(): boolean { return this.onFoot || this.strapState !== 'none'; }
-  /** nearly stopped on the snow, so B unstraps */
+  /** nearly stopped on the snow, so E (interact) unstraps */
   get canUnstrap(): boolean { return !this.onFoot && this.strapState === 'none' && this.onGround && this.crashed <= 0 && this.speed < UNSTRAP_SPEED; }
   /** standing still on foot, so B straps in */
   get canStrapIn(): boolean { return this.onFoot && this.strapState === 'none' && this.onGround && this.speed < STRAP_SPEED; }
@@ -358,6 +530,10 @@ export class Rider {
     if (!this.onFoot) {
       if (!this.canUnstrap) return 'fast';
       this.strapState = 'off'; this.strapT = 0;
+      // FEAT-139: on foot the body is drawn along the heading, so a rider drawn turned round (switch,
+      // or goofy) takes the heading the way they face; nearly stopped, so nothing else moves
+      if (this.toeSign < 0) this.heading += Math.PI;
+      this.switch = false;
       return '';
     }
     if (!this.canStrapIn) return 'moving';
@@ -391,8 +567,15 @@ export class Rider {
     while (this.accum >= STEP) {
       this.prev[0] = this.x; this.prev[1] = this.y; this.prev[2] = this.z; this.prev[3] = this.heading; this.prev[4] = this.boardYaw;
       const fb = this.pack.coarseFallbacks;
-      this.easeSquat(STEP, !!input.squat);
-      this.lean += ((this.onGround ? input.lean ?? 0 : 0) - this.lean) * Math.min(1, STEP / LEAN_IN); // snaps back level in the air
+      // FEAT-124: the squat key grabs in the air and sprints on foot, so it only squats riding on the snow
+      this.easeSquat(STEP, !!input.squat && this.onGround && !this.onFoot);
+      // FEAT-140: a lost press keeps the board flat until the press key is let go. In the air a press
+      // key held (not the lean a jump charge's W / S sets) sets the board up to land into the press.
+      const want = input.lean ?? 0;
+      if (this.pressLock && Math.sign(want) !== this.pressLock) this.pressLock = 0;
+      this.leanTarget = (this.onGround || !input.jumpHeld) && !this.pressLock ? want : 0;
+      this.lean += (this.leanTarget - this.lean) * Math.min(1, STEP / LEAN_IN); // snaps back level in the air
+      this.pressStep(STEP, input);
       this.step(STEP, input);
       this.steps++;
       if (this.pack.coarseFallbacks !== fb) this.onCoarse();
@@ -401,6 +584,75 @@ export class Rider {
     }
     this.end[0] = this.x; this.end[1] = this.y; this.end[2] = this.z; this.end[3] = this.heading;
     this.alpha = this.accum / STEP;
+  }
+
+  /**
+   * FEAT-140: balance a held nose or tail press. The needle drifts toward one end, faster the longer
+   * the press is held, the faster the rider goes and the bumpier the snow, with a random push now and
+   * then; off centre it runs away on its own. W / S (input.balance) push it back. Off the loaded end
+   * the board catches (a crash, or a stall below PB_STALL); off the other end it drops flat.
+   */
+  private pressStep(dt: number, input: Input): void {
+    const live = this.pressMode !== 'off' && this.discipline === 'board' && this.onGround && !this.unstrapped && this.crashed <= 0;
+    const L = this.lean;
+    if (!this.pressing) {
+      // a press starts once the lean passes half way (not the lean a jump charge's W / S sets)
+      if (!live || Math.abs(L) <= 0.5 || Math.sign(this.leanTarget) !== Math.sign(L) || input.jumpHeld) return;
+      this.pressing = true; this.pressDir = Math.sign(L); this.pressBalance = 0; this.pressT = 0; this.pressDist = 0;
+      this.pressFrom = this.steps - this.landStep < PB_LAND_WINDOW / STEP ? this.landTrick : '';
+      // the step count too, so the first press after every restart does not drift the same way
+      this.pbDrift = (this.rng.next() + this.steps * 0.618034) % 1 < 0.5 ? -1 : 1;
+      this.pbPushT = this.pbGap(); this.pbPushLeft = 0;
+      this.pbNoise = this.pbNoiseTo = 0; this.pbNoiseT = 0; this.pbBump = 0; this.pbVz = this.vz; this.pbCorr = 0;
+      return;
+    }
+    if (this.crashed > 0) { this.endPress(null); return; } // crashed into something else
+    if (!this.onGround && this.airTime < PB_AIR && this.crashed <= 0) return; // a short hop: the press rides through it
+    if (!live || Math.abs(L) < 0.5 || Math.sign(L) !== this.pressDir) { this.endPress('clean'); return; } // let go, or left the snow
+    const [e, u] = PB_LEVEL[this.pressMode === 'off' ? 'on' : this.pressMode], spd = this.speed;
+    this.pressT += dt; this.pressDist += spd * dt;
+    // bumps: vertical acceleration through the board, plus crud off the groomers at speed
+    const az = Math.abs(this.vz - this.pbVz) / dt; this.pbVz = this.vz;
+    const crud = PB_CRUD * (1 - this.surface.groomed) * Math.min(1, spd / 12);
+    this.pbBump += (Math.min(1, az / PB_BUMP_ACC + crud) - this.pbBump) * Math.min(1, dt * 4);
+    this.pbNoiseT -= dt;
+    if (this.pbNoiseT <= 0) { this.pbNoiseT = 0.15; this.pbNoiseTo = this.rng.next() * 2 - 1; }
+    this.pbNoise += (this.pbNoiseTo - this.pbNoise) * Math.min(1, dt * 8);
+    // a random push now and then, and the drift may turn to the other end with it
+    this.pbPushT -= dt;
+    if (this.pbPushT <= 0) {
+      this.pbPushT = this.pbGap(); this.pbPushLeft = PB_PUSH_T;
+      this.pbPushV = (this.rng.next() < 0.5 ? -1 : 1) * PB_PUSH * e / PB_PUSH_T;
+      if (this.rng.next() < 0.4) this.pbDrift = -this.pbDrift;
+    }
+    const push = this.pbPushLeft > 0 ? this.pbPushV : 0;
+    this.pbPushLeft -= dt;
+    const hold = 1 + PB_HOLD_MAX * (1 - Math.exp(-this.pressT / PB_HOLD_T));
+    const drift = PB_DRIFT * e * hold * (1 + PB_SPEED * spd) * (1 + PB_BUMP_DRIFT * this.pbBump) * this.pbDrift;
+    const jitter = PB_BUMP * e * this.pbBump * this.pbNoise;
+    const b = this.pressBalance;
+    // the runaway grows with the time held too: a long press needs quicker, finer corrections, never more than W / S has
+    const runaway = PB_UNSTABLE * u * hold * b;
+    // W / S shift the weight, which takes PB_SHIFT_T to build or let go: react late or overcorrect and it costs you
+    this.pbCorr += (Math.max(-1, Math.min(1, input.balance ?? 0)) - this.pbCorr) * Math.min(1, dt / PB_SHIFT_T);
+    const corr = this.pbCorr * Math.max(PB_CORRECT, PB_CORRECT_OVER * (Math.abs(drift) + Math.abs(jitter) + Math.abs(runaway)));
+    this.pressBalance = b + (drift + runaway + jitter + push + corr) / PRESS_RANGE * dt;
+    const over = this.pressBalance * this.pressDir;
+    if (over >= 1) {
+      // over-pressed: the loaded end catches; slow, the board just stops
+      if (spd < PB_STALL) { this.vx *= 0.2; this.vy *= 0.2; this.speed *= 0.2; this.endPress('stall'); }
+      else { this.crashed = 1.3; this.crashFall = this.pressDir; this.endPress('slam'); }
+    } else if (over <= -1) this.endPress('flat'); // under-pressed: the board drops flat
+  }
+
+  private pbGap(): number { return PB_GAP[0] + this.rng.next() * (PB_GAP[1] - PB_GAP[0]); }
+
+  /** FEAT-140: end the press (null: silently), keep the lean flat if it was lost, report it */
+  private endPress(how: PressEnd | null): void {
+    const dir = this.pressDir, t = this.pressT, d = this.pressDist;
+    this.pressing = false; this.pressBalance = 0;
+    if (how && how !== 'clean') { this.pressLock = dir; this.leanTarget = 0; }
+    if (how && t >= PRESS_MIN_REPORT) this.onPress?.(how, dir, t, d, this.switch, this.pressFrom);
   }
 
   /** FEAT-111: blend into or out of the squat, and time how long ago a deep squat was released */
@@ -460,10 +712,15 @@ export class Rider {
       const cov = rockCover(m[0], m[1], this.x, this.z, -this.y, n[2], this.coverTmp);
       this.surface.rock = cov.rock; this.surface.scree = cov.scree; this.surface.groomed = m[2]; this.surface.canopy = m[3];
     }
+    this.surface.moguls = pack.mogulAmp?.(this.x, this.y) ?? 0; // FEAT-059 (test planes may lack the method)
+    snowAt(this.surface, n, this.z, this.snowWorld, this.snow); // FEAT-053
+    this.chop *= Math.exp(-dt * 6);
     if (this.strapState !== 'none') { this.strapStep(dt, ground); return; }
     if (this.onFoot) { this.walkStep(dt, input, n, ground); return; }
     if (this.crashed > 0) {
       this.crashed -= dt;
+      if (this.crashed <= 0) { this.crashFall = 0; this.crashSide = 0; }
+      this.hardCarve = this.hardDrive = this.carveShort = this.washout = 0;
       // tumble: slide to a stop
       const f = Math.exp(-dt * 2.5);
       this.vx *= f; this.vy *= f;
@@ -481,8 +738,9 @@ export class Rider {
       // the board squares up quickly once off the snow
       this.brakeAmt = Math.max(0, this.brakeAmt - dt / 0.15);
       this.brakeAcc = 0; this.scrape *= Math.exp(-dt * 10); this.slip = 0;
-      this.edge *= Math.exp(-dt * 5); this.brakePsi *= Math.exp(-dt * 8); this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; // off the snow the board rolls back flat
+      this.edge *= Math.exp(-dt * 5); this.edgeTarget = 0; this.brakePsi *= Math.exp(-dt * 8); this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; // off the snow the board rolls back flat
       if (this.brakeAmt === 0) this.brakeSide = 0;
+      this.hardCarve = Math.max(0, this.hardCarve - dt / HARD_IN); this.hardDrive = 0; this.carveShort = 0; // FEAT-148
       this.vz -= G * dt;
       // air control: spin with steer, slight drift
       this.spin += input.steer * 3.5 * dt;
@@ -516,17 +774,27 @@ export class Rider {
     const spd = Math.hypot(this.vx, this.vy);
     const F = FEEL[this.discipline];
 
-    // surface properties
+    // surface properties (FEAT-053: the snow state blends the day's conditions into the grip,
+    // the drag, the turn shape and the jolts)
     const groomed = this.surface.groomed;
     const rock = this.surface.rock;
-    const powder = Math.max(0, 1 - groomed) * (this.surface.canopy > 0.3 ? 1 : 0.6);
-    const gripBase = (1.0 + 0.4 * groomed - 0.5 * rock) * (1 + SQUAT_GRIP * this.squat) * (1 - PRESS_GRIP * Math.abs(this.lean)); // low centre of mass bites a little more; on a press you can't carve
+    const snow = this.snow;
+    const powder = Math.min(1, snow.powder + 0.5 * snow.chop + 0.5 * snow.slush); // soft snow the board planes in, so the edge cap is lower
+    const deepPow = snow.powder * Math.min(1, snow.depth / HARD_DEEP); // FEAT-148: only deep powder planes a hard carve
+    const gripBase = (1.0 + GROOMED_BONUS * groomed - 0.5 * rock) * snow.grip * (1 + SQUAT_GRIP * this.squat) * (1 - PRESS_GRIP * Math.abs(this.lean)) // low centre of mass bites a little more; on a press you can't carve
+      * (this.switch ? 1 - SWITCH_GRIP : 1); // FEAT-139: a touch weaker switch
+
+    // ---- FEAT-148 hard carve: the squat key held while steering drives the edge in (eased over HARD_IN)
+    const hardWant = !!input.squat && Math.abs(input.steer) > HARD_STEER && !input.brake && this.brakeAmt === 0 && !this.pressing && spd > HARD_MIN_SPEED;
+    this.hardCarve = hardWant ? Math.min(1, this.hardCarve + dt / HARD_IN) : Math.max(0, this.hardCarve - dt / HARD_IN);
+    const H = this.hardCarve;
 
     // ---- FEAT-127 edge and carve. Steer sets a target edge angle up to what can be held here; the
     // edge rolls toward it at F.roll, quicker through the flat while it changes sides (BUG-053), so
     // edge to edge takes about 0.3 s. A brake takes the edge over.
-    const want = input.steer * this.edgeCap(input, F, powder, spd) * (1 - this.brakeAmt);
-    const roll = F.roll * dt * (want * this.edge < 0 ? EDGE_SNAP : 1);
+    const want = input.steer * this.edgeCap(input, F, powder, spd, deepPow) * (1 - this.brakeAmt);
+    this.edgeTarget = want;
+    const roll = this.rollRate(F, spd) * dt * (want * this.edge < 0 ? EDGE_SNAP : 1);
     this.edge += Math.max(-roll, Math.min(roll, (want - this.edge) * Math.min(1, dt * EDGE_EASE)));
     const psi = Math.abs(this.edge);
     // the board bent on edge carves an arc of R = Rsc cos(psi), and the rider balances it with
@@ -535,10 +803,44 @@ export class Rider {
     // Either way more edge is a tighter turn. The lean balances the edge's load, so on a slope the
     // pull of the fall line helps the turn into it (gIn > 0) and fights it climbing across (gIn < 0,
     // kept at GIN_FIGHT so the end of a turn across the hill is not its weakest part).
-    const phi = Math.min(PHI_MAX, psi * (1 - F.angulation));
+    // FEAT-148: a hard carve lets the body lean further (HARD_PHI)
+    const phiMax = PHI_MAX + (HARD_PHI - PHI_MAX) * H;
     const gInRaw = (ax * lx + ay * ly) * Math.sign(this.edge);
     const gIn = gInRaw < 0 ? gInRaw * GIN_FIGHT : gInRaw;
-    const aLat = Math.min((spd * spd) / (F.sidecut * Math.cos(psi)), Math.max(0, G * n[2] * Math.tan(phi) + gIn));
+    // FEAT-053: soft snow does not hold the sidecut's arc, so the turns come round wider and slower (snow.turn < 1)
+    let aLat = this.balance(psi, spd, snow.turn, F, phiMax, n[2], gIn);
+    // FEAT-148: the press asks for the turn of the target edge, driven in over HARD_DRIVE_T once the edge
+    // is on the steer's side; the edge only holds the turn its real angle balances (aLat above), and the
+    // snow no more than HARD_G g times its grip (gripBase is GROOMED_GRIP on groomed corduroy, plus the squat's bite).
+    // Asking more than it holds slides the tail out (a skid); far more at speed, for long, washes out.
+    let hardHold = 0;
+    this.carveShort = 0;
+    if (H > 0) {
+      this.hardDrive = this.edge * want > 0 ? Math.min(1, this.hardDrive + dt / HARD_DRIVE_T) : 0;
+      const psiAsk = psi + Math.max(0, Math.abs(want) - psi) * this.hardDrive;
+      const aAsk = Math.min(HARD_G * G, this.balance(psiAsk, spd, snow.turn, F, phiMax, n[2], gIn));
+      // the snow's grip scales what the edge holds as well as the ceiling: chop and ice let go sooner (1 on corduroy)
+      hardHold = Math.min(aLat * Math.min(1, snow.grip), HARD_G * G * gripBase / (GROOMED_GRIP * (1 + SQUAT_GRIP * this.squat)));
+      this.carveShort = H * Math.max(0, aAsk - hardHold) / G;
+      aLat += (aAsk - aLat) * H;
+      // the washout meter: deep powder lets the board plane instead (a deep surfy turn); tracked-out chop and ice do not
+      const fast = Math.max(0, (spd - WASH_V0) / WASH_SPAN) * (1 - deepPow);
+      const over = (aAsk > 0.5 ? H * Math.max(0, aAsk - hardHold) / aAsk : 0) - WASH_SHARE;
+      this.washout = over > 0 && fast > 0 ? this.washout + over * fast * WASH_RATE * dt : Math.max(0, this.washout - WASH_DRAIN * dt);
+      if (this.washout >= 1) {
+        // the edge lets go: down on the inside of the turn, on the butt heelside or the hip toeside
+        const side = Math.sign(this.edge) || 1;
+        this.crashed = 1.3; this.crashSide = side; this.crashFall = 0;
+        this.onWashout?.(side * this.toeSign);
+        this.hardCarve = this.hardDrive = this.carveShort = this.washout = 0;
+        this.edge *= 0.3; this.edgeTarget = 0;
+        // the tumble starts sliding at once (as the crash branch does from the next step)
+        this.x += this.vx * dt; this.y += this.vy * dt;
+        this.z = this.groundAt(this.x, this.y, this.z); this.vz = 0;
+        this.speed = Math.hypot(this.vx, this.vy);
+        return;
+      }
+    } else { this.hardDrive = 0; this.washout = Math.max(0, this.washout - WASH_DRAIN * dt); }
     this.carveAcc = aLat;
     // more than the snow holds and the tail slides out: once the board slips past its line the
     // arc lets go of the heading, so the skid settles at a slip angle instead of spinning out
@@ -565,26 +867,41 @@ export class Rider {
     // there on a small steer yaw (STEER_YAW) keeps the board coming round through an edge change.
     // Neither while the board is swung across for a brake: the steer works the brake then (FEAT-133).
     const steerFade = Math.max(0, Math.min(1, spd / F.pivotFade - 0.5));
-    let pivotRate = input.steer * ((input.tuck ? F.pivotTuck : F.pivot) * Math.max(0, 1 - spd / F.pivotFade) + STEER_YAW * steerFade) * (1 - this.brakeAmt);
+    // FEAT-148: a hard carve turns on its edge alone (the steer yaw would pull it past the snow's hold)
+    let pivotRate = input.steer * ((input.tuck ? F.pivotTuck : F.pivot) * Math.max(0, 1 - spd / F.pivotFade) + STEER_YAW * steerFade * (1 - H)) * (1 - this.brakeAmt);
     // standing on the uphill edge the hill is in the way, so at a crawl the pivot into it is cut: the
     // steer holds the edge instead of spinning the board (FEAT-134); pivoting downhill still runs.
     // Whole for Assisted too, which also needs the edge held to stand
     if (this.fallLine > 0 && spd < 1 && fall > 0.03 && input.steer * gLat < 0) pivotRate *= spd;
     const turnRate = carveRate + pivotRate + fallRate;
+    // FEAT-053 chop: tracked-out snow rattles the board, a small random jolt to the heading and a
+    // sideways kick every CHOP_GAP s or so, bigger with speed; from the seeded rng so replays match
+    if (snow.jolt > 0.05 && spd > 2 && this.brakeAmt === 0) {
+      this.chopT -= dt;
+      if (this.chopT <= 0) {
+        this.chopT = CHOP_GAP * (0.5 + this.rng.next());
+        const amp = snow.jolt * Math.min(1, spd / CHOP_SPEED);
+        const r1 = this.rng.next() * 2 - 1, r2 = this.rng.next() * 2 - 1;
+        this.heading += CHOP_YAW * amp * r1;
+        this.vx += lx * CHOP_KICK * amp * r2; this.vy += ly * CHOP_KICK * amp * r2;
+        this.chop = Math.min(1, this.chop + amp * (0.4 + 0.6 * Math.abs(r1)));
+      }
+    } else this.chopT = 0;
     this.turnRate = turnRate;
     this.turnRadius = Math.abs(turnRate) > 1e-3 ? spd / Math.abs(turnRate) : Infinity;
     const dHeading = turnRate * dt;
     this.heading += dHeading;
 
     // brake: swing the board across the direction of travel (a hockey stop). Steer picks the
-    // stance (right = toeside, left = heelside); otherwise the edge already engaged, else heelside.
-    // Toeside rotates the board clockwise from the travel direction, which leaves the heel edge
-    // leading and the toe edge trailing (the uphill edge, cutting the snow); heelside the reverse.
+    // side (right = the heading's right-hand edge: toeside riding regular, heelside switch or goofy);
+    // otherwise the edge already engaged, else heelside (FEAT-139: whichever side the heel is on).
+    // brakeSide +1 rotates the board clockwise from the travel direction, which leaves the left-hand
+    // edge leading and the right-hand edge trailing (the uphill edge, cutting the snow); -1 the reverse.
     if (spd > 0.5) this.travelYaw = Math.atan2(this.vx, this.vy);
     else this.travelYaw += dHeading; // stopped: steering turns the board where it stands
     if (input.brake) {
       if (this.brakeSide === 0) {
-        this.brakeSide = input.steer > 0.1 ? 1 : input.steer < -0.1 ? -1 : this.edgeAngle > 0.3 ? 1 : -1;
+        this.brakeSide = input.steer > 0.1 ? 1 : input.steer < -0.1 ? -1 : this.edgeAngle * this.toeSign > 0.3 ? this.toeSign : -this.toeSign;
         this.brakeGamma = this.discipline === 'ski' && spd < PLOUGH_SPEED ? 0 : STOP_GAMMA;
         this.brakeMod = 0;
       }
@@ -650,27 +967,38 @@ export class Rider {
     // over from it (FEAT-133). With the fall line on (FEAT-134) the flat base holds only a waxed
     // base's friction, so across a slope the board side-slips until an edge is in; a full edge
     // holds the same as before, the edge making up what the base lost.
+    const gripFlat = F.gripFlat - (F.gripFlat - GRIP_FLAT_REAL) * this.fallLine;
+    let maxLat = G * gripBase * (gripFlat + (F.gripFlat + F.gripEdge - gripFlat) * bite);
+    // FEAT-148: a hard carve holds what its edge balances (up to HARD_G), never less than the flat base
+    if (H > 0) maxLat += (Math.max(G * gripBase * gripFlat, hardHold * HARD_SLACK) - maxLat) * H;
     // wanted: kill lateral velocity (carve) within a short time
     let latAcc = -vLat / Math.max(0.04, 0.12 - 0.08 * bite);
-    const gripFlat = F.gripFlat - (F.gripFlat - GRIP_FLAT_REAL) * this.fallLine;
-    const maxLat = G * gripBase * (gripFlat + (F.gripFlat + F.gripEdge - gripFlat) * bite);
     const skidding = Math.abs(latAcc) > maxLat;
     if (skidding) latAcc = Math.sign(latAcc) * maxLat;
     latAcc *= 1 - swing;
-    this.skid += (((skidding ? Math.min(1, Math.abs(vLat) / 6) : 0)) - this.skid) * Math.min(1, dt * 10);
+    this.skid += (Math.max(skidding ? Math.min(1, Math.abs(vLat) / 6) : 0, Math.min(1, this.carveShort / HARD_SKID)) - this.skid) * Math.min(1, dt * 10);
     // catching the downhill edge (FEAT-134, realistic only): sliding downhill fast onto the edge on
-    // the downhill side trips the board, a slam like catching an edge for real
+    // the downhill side trips the board, a slam like catching an edge for real; the rider goes over
+    // that edge, down the hill (crashSide, so the ragdoll falls that way)
     if (this.fallLine >= 1 && spd > CATCH_SPEED && Math.abs(vLat) > Math.max(CATCH_SLIDE, 0.5 * spd) && vLat * gLat > 0 && vLat * this.edge > 0 && psi > CATCH_EDGE && this.brakeAmt === 0) {
       this.catchT += dt;
-      if (this.catchT > CATCH_TIME) { this.crashed = 1.3; this.catchT = 0; this.lastHit = 'catch'; }
+      if (this.catchT > CATCH_TIME) { this.crashed = 1.3; this.crashSide = Math.sign(this.edge); this.crashFall = 0; this.catchT = 0; this.lastHit = 'catch'; }
     } else this.catchT = 0;
     ax += latAcc * lx; ay += latAcc * ly;
     this.lateralG += ((latAcc / G) - this.lateralG) * Math.min(1, dt * 12);
 
-    // drag: aerodynamic + snow. Tuck lowers aero, powder adds speed-scaled drag, skidding scrubs speed
+    // drag: aerodynamic + snow. Tuck lowers aero, skidding scrubs speed (less on ice). FEAT-053: the
+    // snow state sets the constant and speed-scaled drag by condition; powder adds speed-scaled drag
+    // until the board planes at PLANE_SPEED (float), and slow in powder the nose sinks and digs in
     const aeroK = input.tuck ? F.aeroTuck : F.aero + (F.aeroTuck - F.aero) * SQUAT_AERO * this.squat; // a squat is part way to a tuck
     const aero = aeroK * spd * spd * (this.boost ? 0.55 : 1) + PRESS_DRAG * Math.abs(this.lean) * spd; // FEAT-112: the loaded end digs in
-    const snowDrag = 0.015 * G * (1 - 0.5 * groomed) + powder * 0.004 * spd + 0.35 * this.skid * G;
+    const deep = Math.min(1, snow.depth / 0.3);
+    const sinkNow = snow.powder * deep * Math.max(0, 1 - spd / SINK_SPEED);
+    this.noseSink += (sinkNow - this.noseSink) * Math.min(1, dt * 6);
+    const snowDrag = snow.drag0 + snow.drag1 * spd
+      + snow.powder * POWDER_DRAG * Math.min(spd, PLANE_SPEED) * (0.6 + 0.6 * deep) + sinkNow * SINK_DRAG * G
+      + 0.35 * this.skid * G * snow.skidScrub * (1 + H) // FEAT-148: a hard carve's deep edge scrubs twice as hard
+      + HARD_DRAG * H * Math.abs(latAcc); // FEAT-148: the deep edge plows snow
     const dragAcc = aero + snowDrag + plough;
     if (spd > 0.01) {
       const d = Math.min(dragAcc * dt, spd);
@@ -702,8 +1030,9 @@ export class Rider {
       const held = this.fallLine <= 0 || -Math.sign(gLat) * this.edge > STAND_EDGE * this.fallLine || this.brakeAmt > 0.5;
       if (across > 0.75 && held) { this.vx = this.vy = 0; ax = ay = 0; }
     }
-    // backwards riding is unstable: if moving against heading fast, flip heading (fakie)
-    if (F.fakie && vAlong < -4) { this.heading += Math.PI; this.edge = -this.edge; } // the same edge is now on the other side of the heading
+    // FEAT-139: going backwards along the heading, the steering axis turns round to the direction of
+    // travel and the rider is riding switch (or back to the normal stance): drawn the same, tail leading
+    if (F.fakie && vAlong < -FAKIE_SPEED && this.brakeAmt === 0) this.turnRound();
     else if (!F.fakie && vAlong < -1 && spd > 2) { this.vx *= 0.97; this.vy *= 0.97; } // skis sliding backwards scrub speed
 
     this.vx += ax * dt; this.vy += ay * dt;
@@ -720,6 +1049,7 @@ export class Rider {
       this.vx += n[0] * pop; this.vy += n[1] * pop; this.vz = n[2] * pop + Math.max(0, -(this.vx * n[0] + this.vy * n[1]));
       this.onGround = false; this.airTime = 0; this.spin = 0; this.flip = 0; this.flipRate = 0; this.jumpCharge = 0;
       if (flex > 1) this.flipRate = this.lean * OLLIE_PITCH; // an ollie leaves you rotating back a little, a nollie forward
+      if (this.pressing) this.endPress('clean'); // FEAT-140: popped out of a press (W / S flip again at once)
       this.z = ground + 0.05;
       return;
     }
@@ -731,7 +1061,10 @@ export class Rider {
     // vertical velocity implied by following the surface
     const vzSurf = -(this.vx * n2[0] + this.vy * n2[1]) / Math.max(0.2, n2[2]);
     const ballistic = this.vz - G * dt;
-    if (ballistic > vzSurf + 1.5 && spd > 6) {
+    // FEAT-059: the 1.5 m/s margin absorbs 1 m DEM noise on open snow, but it also swallows every mogul
+    // (a 0.7 m bump at 20 m/s drops away at about 10 g). On a bump field the legs absorb only about 2 g.
+    const lift = 1.5 - 1.3 * Math.min(1, this.surface.moguls / 0.4);
+    if (ballistic > vzSurf + lift && spd > 6) {
       // the ground drops away faster than we fall: airborne
       this.onGround = false; this.airTime = 0; this.spin = 0; this.flip = 0; this.flipRate = 0;
       this.z = Math.max(this.z, g2 + 0.02);
@@ -793,7 +1126,7 @@ export class Rider {
     this.z = ground; this.vz = 0; this.onGround = true;
     this.speed = Math.hypot(this.vx, this.vy);
     this.edge = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.skid = 0; this.jumpCharge = 0; this.landingShock = 0;
-    this.sink = bootSink(this.surface);
+    this.sink = bootSink(this.snow);
     this.squareBoard();
     this.strapT += dt;
     if (this.strapState === 'off' && this.strapT >= UNSTRAP_TIME) {
@@ -803,6 +1136,10 @@ export class Rider {
     } else if (this.strapState === 'on' && this.strapT >= STRAP_TIME) {
       this.strapState = 'none'; this.onFoot = false; this.strapT = 0;
       this.vx = this.vy = 0; this.speed = 0;
+      // FEAT-139: strapped in the normal stance; goofy is drawn turned round, so the heading turns
+      // round under it and the rider on screen stays put
+      this.switch = false;
+      if (this.toeSign < 0) { this.heading += Math.PI; this.squareBoard(); }
     }
   }
 
@@ -813,7 +1150,7 @@ export class Rider {
    * SLIP_SLOPE you slip down whatever you do. Same colliders as riding.
    */
   private walkStep(dt: number, input: Input, n: [number, number, number], ground: number): void {
-    this.sink = bootSink(this.surface);
+    this.sink = bootSink(this.snow);
     this.edge = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.skid = 0; this.jumpCharge = 0;
     this.landingShock = Math.max(0, this.landingShock - dt * 3);
     this.squareBoard();
@@ -974,16 +1311,72 @@ export class Rider {
   }
 
   /**
+   * BUG-056: where the edge will be `lead` seconds from now if the steer holds: the step's own ease
+   * and roll-rate rule integrated forward in 20 ms substeps, so the prediction moves at the physics
+   * roll rate and is continuous through the edge change (a closed form with the quicker through-flat
+   * limit jumped when the edge crossed zero). Visual only (the rider view's body lead).
+   */
+  predictEdge(lead: number): number {
+    if (lead <= 0) return this.edge;
+    const F = FEEL[this.discipline], want = this.edgeTarget, n = Math.ceil(lead / 0.02), h = lead / n;
+    let e = this.edge;
+    const rate = this.rollRate(F, Math.hypot(this.vx, this.vy));
+    for (let i = 0; i < n; i++) {
+      const roll = rate * h * (want * e < 0 ? EDGE_SNAP : 1);
+      e += Math.max(-roll, Math.min(roll, (want - e) * Math.min(1, h * EDGE_EASE)));
+    }
+    return e;
+  }
+
+  /**
+   * BUG-056: the inclination (rad, + toward the toe edge) that balances the edge `lead` seconds from
+   * now at the current speed: the carve model's arc, R = Rsc cos(psi), opened out to what the lean
+   * can hold, with no slope or skid terms. Visual only (the rider view's crossover).
+   */
+  predictIncline(lead: number): number {
+    const e = this.predictEdge(lead), psi = Math.abs(e), F = FEEL[this.discipline];
+    const spd = Math.hypot(this.vx, this.vy);
+    const phi = Math.min(PHI_MAX + (HARD_PHI - PHI_MAX) * this.hardCarve, psi * (1 - F.angulation));
+    const aLat = Math.min((spd * spd) / (F.sidecut * Math.cos(psi)), G * this.normal[2] * Math.tan(phi));
+    return Math.sign(e) * Math.atan(aLat / G);
+  }
+
+  /**
+   * FEAT-127: the lateral acceleration (m/s^2) a board on edge angle p carves: the sidecut's arc,
+   * R = Rsc cos(p), opened out to what the lean (capped at phiMax) balances, scaled by the snow's turn
+   * factor, plus the fall line's pull into the turn (gIn); nz is the ground normal's up component.
+   */
+  private balance(p: number, spd: number, turn: number, F: Feel, phiMax: number, nz: number, gIn: number): number {
+    return Math.min((spd * spd * turn) / (F.sidecut * Math.cos(p)), Math.max(0, G * nz * Math.tan(Math.min(phiMax, p * (1 - F.angulation))) * turn + gIn));
+  }
+
+  /** FEAT-148: how fast the edge rolls (rad/s): HARD_ROLL times quicker in a hard carve, slowing past HARD_ROLL_V m/s */
+  private rollRate(F: Feel, spd: number): number {
+    const H = this.hardCarve;
+    if (H <= 0) return F.roll;
+    const slow = Math.min(1, HARD_ROLL_V / Math.max(1, spd));
+    return F.roll * (1 + (HARD_ROLL * Math.max(HARD_ROLL_MIN, slow * slow) - 1) * H);
+  }
+
+  /** BUG-056: where the press lean will be `lead` seconds from now if the input holds (visual only). */
+  predictLean(lead: number): number {
+    return lead <= 0 ? this.lean : this.lean + (this.leanTarget - this.lean) * Math.min(1, lead / LEAN_IN);
+  }
+
+  /**
    * FEAT-127: the highest edge angle the rider can hold here (rad). Lower in powder (the board
    * planes), cut by a tuck and a press, raised a little by a squat. Rock and ice take a full edge
    * but hold little (the grip limit), so a hard carve there washes out. Slow, there is little turn
    * force to lean against, so past what the knees and hips angulate a high edge would tip the
    * rider into the hill: the cap is that plus the lean the sidecut's arc needs.
    */
-  private edgeCap(input: Input, F: Feel, powder: number, spd: number): number {
+  private edgeCap(input: Input, F: Feel, powder: number, spd: number, deepPow = powder): number {
     let cap = F.psiMax - (F.psiMax - F.psiPowder) * Math.min(1, powder);
     if (input.tuck) cap *= TUCK_EDGE;
     cap = (cap + SQUAT_EDGE * this.squat) * (1 - PRESS_EDGE * Math.abs(this.lean));
+    // FEAT-148: a hard carve drives the edge to HARD_PSI (less in deep powder, where the board planes)
+    const hardCap = HARD_PSI - (F.psiMax - F.psiPowder) * Math.min(1, deepPow);
+    cap += Math.max(0, hardCap - cap) * this.hardCarve;
     const slow = ANG_SLOW + Math.atan((spd * spd) / (G * F.sidecut * Math.cos(Math.abs(this.edge))));
     return Math.max(0, Math.min(cap, slow));
   }
@@ -1034,8 +1427,16 @@ export class Rider {
     if (impact > 16 || (!clean && !sketchy && impact > 8 && !input.grab)) this.crashed = 1.3;
     if (flipOff > FLIP_CRASH) this.crashed = 1.3; // landed on the head or the back
     else if (sketchy) this.landingShock = Math.max(this.landingShock, 0.6); // a wobble
-    if (flipped > 0 && this.crashed <= 0) this.onTrick?.(trickName(this.flip, this.spin, flipped));
-    if (!clean) this.heading = Math.atan2(this.vx, this.vy); // the board snaps to the direction of travel
+    // FEAT-139: a spin on its own is a trick too, and either is "Switch ..." taken off riding switch
+    // (the stance cannot change in the air, so it is still the takeoff's here)
+    if (this.crashed <= 0) {
+      const name = flipped > 0 ? trickName(this.flip, this.spin, flipped) : clean && this.discipline === 'board' ? spinName(this.spin, this.toeSign) : '';
+      if (name) this.onTrick?.(switchName(name, this.switch));
+      this.landTrick = name ? switchName(name, this.switch) : ''; this.landStep = this.steps; // FEAT-140: landed into a press
+    }
+    // FEAT-139: landed with the board backwards (a 180, a 540): ride away switch, tail leading
+    if (this.discipline === 'board' && spd > 0.5 && this.vx * hx + this.vy * hy < 0) this.turnRound();
+    if (!clean) this.heading = Math.atan2(this.vx, this.vy); // the board snaps to the direction of travel (the nearer end leading)
     this.spin = 0; this.flip = 0; this.flipRate = 0;
     this.airTime = 0;
   }

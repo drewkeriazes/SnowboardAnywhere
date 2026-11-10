@@ -10,6 +10,8 @@ export class HeightSet {
   readonly size: number; // tile size in metres
   private readonly tiles = new Map<number, Float32Array | null>(); // null = loading or missing
   private readonly pending = new Map<number, Promise<void>>();
+  /** BUG-063: tiles still downloading */
+  get inFlight(): number { return this.pending.size; }
   private readonly missing = new Set<number>();
   private readonly baseUrl: string;
   /** called when a tile finishes loading so the terrain can rebuild chunks */

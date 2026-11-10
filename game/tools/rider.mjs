@@ -1,7 +1,7 @@
 // Rider close-up check (FEAT-048): rides through stand, tuck, carves, tail and nose press (FEAT-125), jump, crash and the ski
 // variant; records the worst boot-to-binding gap every frame and saves side-view shots.
 // node tools/rider.mjs [pack] [outDir] [--headed]   (run after `npx vite build`)
-const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
+import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,9 +24,7 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(p).pipe(res);
 });
 await new Promise((r) => server.listen(0, r));
-const browser = headed
-  ? await chromium.launch({ headless: false })
-  : await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 960, height: 720 }, deviceScaleFactor: 1 });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -69,7 +67,7 @@ await page.keyboard.down('ArrowRight'); await ride(50); await shot('04_carve_rig
 await page.keyboard.down('ArrowLeft'); await ride(60); await shot('05_carve_left', -1); await page.keyboard.up('ArrowLeft');
 // FEAT-125: held tail press (Z) and nose press (V); the worst foot gap below covers both
 await page.keyboard.down('KeyZ'); await ride(60); await shot('05b_tail_press'); await page.keyboard.up('KeyZ'); await ride(30);
-await page.keyboard.down('KeyV'); await ride(60); await shot('05c_nose_press'); await page.keyboard.up('KeyV'); await ride(30);
+await page.keyboard.down('KeyQ'); await ride(60); await shot('05c_nose_press'); await page.keyboard.up('KeyQ'); await ride(30);
 await page.keyboard.down('Space'); await ride(40); await shot('06_charge'); await page.keyboard.up('Space');
 await ride(8); await shot('07_air');
 for (let i = 0; i < 40; i++) { await ride(3); if (await page.evaluate(() => window.__sim.rider.landingShock > 0.2)) break; }

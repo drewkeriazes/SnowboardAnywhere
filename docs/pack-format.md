@@ -11,6 +11,8 @@ pack/<slug>/
   far/<tx>_<ty>.png         128 m heights, 512 x 512 samples per tile, 262 km square
   mask/<tx>_<ty>.png        2 m RGBA surface classes, 512 x 512 per tile, resort area
   ao/<tx>_<ty>.png          2 m greyscale sky visibility (baked AO), same grid as mask (optional)
+  dir/<tx>_<ty>.png         2 m greyscale piste direction (groomed run axis), same grid as mask (optional)
+  cover/<level>.png         RGBA forest cover for the terrain at a distance, one image per level (optional)
   trees/<tx>_<ty>.bin       tree instances per 1 km cell
   rocks/<tx>_<ty>.bin       rock instances per 1 km cell
   features.json             lifts, runs, buildings, roads, water, peaks, labels
@@ -48,6 +50,56 @@ Planar slopes and ridges are 255; gullies, couloirs, cirques and cliff feet are 
 outside the data is 255. The terrain uses it for chunks at 32 m or finer; packs without it render
 with open sky everywhere.
 
+## Piste direction tiles (optional)
+
+Greyscale PNG on the mask grid from `pipeline/piste_dir.py` (DATA-002): the axis a groomer drives
+along, so corduroy follows the run and not the raw fall line (a traversing cat track has ridges along
+the track). Byte 0 = no direction; 1..255 = axis angle `(byte - 1) / 254 * 180` degrees from east
+toward north, in [0, 180). The axis is undirected; the client picks the downhill sense from the
+heights. Every cell takes the nearest groomed centre line's segment direction (doubled-angle field,
+blurred 6 m across polyline kinks), kept where the mask is groomed or within 30 m of a groomed run.
+Padding and everything else is 0. Packs built before DATA-002 lack it; add it without a rebuild with
+`python pipeline/piste_dir.py packs/<slug>` (reads `features.json` and the mask tiles).
+## Mogul tiles (optional, FEAT-059)
+
+Greyscale PNG on the mask grid: mogul field strength 0..255 = 0..1 from `pipeline/moguls.py` (read as metres
+of amplitude before FEAT-147; the client now sizes the bumps from the slope, see below). Each run's
+`mogulScore` is painted along its corridor (fading over the outer 3 m, where real bumps shrink; closed
+`area` runs are filled), times a slope window (none below 15 degrees, full 20 to 35, none above 40),
+and removed under canopy, on groomed corduroy, built-up ground and rock. Padding outside the data is 0.
+The client turns the strength into bumps cut by rider lines down the fall line (`game/src/terrain/Moguls.ts`,
+FEAT-147: 4 to 7 m apart along a line, about 0.55 m per unit strength at 16 degrees up to 1.38 m at 32 degrees
+and steeper, each bump +-30%, at most 1.8 m; the pattern changes every 80 m) in both the physics height and
+the near terrain mesh (chunks at 2 m or finer), and shades
+the same field per pixel in the terrain shader on every chunk up to 16 m (BUG-062: the bump normal and a
+relief colouring from the bump's own height and slope). Packs without the set have no bumps.
+
+## Cover levels (optional, FEAT-153)
+
+One RGBA PNG per level from `pipeline/cover.py`, each over its own rectangle (image row 0 = north):
+R = forest, the share of the cell under closed canopy 0..255 = 0..1; G = canopy height of the forested
+part, 0..255 = 0..`heightMax` m; B = rock / bare ground, the mask's rock weight (0.5 is where patches
+start); A = 255 minus built-up (inverted so a decoder that premultiplies alpha keeps RGB). The `pack`
+level is 4 m over the pack bounds: the 2 m mask's canopy, contrast-lifted as the shader lifts the
+under-detected lidar canopy (0.08 to 0.45) and then box-averaged, with the pack's OSM runs burned in as
+cleared strips (areas filled, lines at 0.6 of their corridor width; gladed runs keep their trees), the
+mask's rock, and the mean tree height per 16 m from the tree instances.
+
+The `mid` (16 m over the mid height grid, 40 km) and `far` (100 m over the far ring's data, 200 km) levels
+come from the land cover (DATA-019): ESA WorldCover 2021 classes and the ETH 2020 canopy height, read on a
+4 x 4 (mid) or 3 x 3 (far) sub-grid per cell. R is the share of sub-samples that are WorldCover tree cover
+(class 10) and at least 3 m tall in ETH; G the mean ETH height of those, averaged over about 3 cells; B the
+bare / sparse share (class 60) times 0.6, since snow covers the gentler part; A from built-up (class 50).
+The downhill pistes of every resort in view (`osm/pistes_wide.json`) are burned in as cleared sub-samples,
+so Beaver Creek's and Copper's trails show. G, B and A are quantised (2.5 m, 1/8, 1/4) to keep the files
+small. Without `raw/<slug>/landcover/` the build skips these two levels.
+
+The terrain shader samples R per pixel from a mipmapped GPU texture past about 300 m, so a trail
+narrower than a far chunk's vertex spacing still shows as a white cut; chunks coarser than 8 m take all
+four channels per vertex (forest, rock, and the canopy lift past the instanced trees). Finer levels fade
+in over `blend` metres inside their edges; outside every level the terrain keeps the procedural
+treeline. Add it to a built pack without a rebuild: `python pipeline/cover.py <slug> <raw_dir> packs/<slug>`.
+
 ## Instances
 
 `trees/<tx>_<ty>.bin`: little-endian Float32 records of 6:
@@ -68,8 +120,9 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
   "lifts":     [{ "name", "type", "stations": [[x,y,z],...], "towers": [[x,y,zGround,height],...],
                  "cable": [[x,y,z],...], "capacity" }],
   "runs":      [{ "name", "difficulty": "easy|intermediate|advanced|expert|freeride",
-                 "groomed": bool, "gladed": bool, "points": [[x,y,z],...], "osmId" }],
-  "buildings": [{ "name", "points": [[x,y],...], "zBase", "zMax", "height", "kind" }],  // zMax: highest ground under the footprint, absent in packs before BUG-024
+                 "groomed": bool, "gladed": bool, "points": [[x,y,z],...], "osmId",
+                 "groomNights", "mogulScore" }],  // groomNights: nights the resort's reports groomed it (absent when never); mogulScore: 0..1 from pipeline/moguls.py (absent in packs before FEAT-059)
+  "buildings": [{ "name", "points": [[x,y],...], "zBase", "zMax", "height", "heightDefault", "kind" }],  // zMax: highest ground under the footprint, absent in packs before BUG-024; heightDefault: true when OSM had no height or levels and the pipeline used its 5.5 / 9 m fallback (absent in older packs, where the client guesses from those values)
   "roads":     [{ "name", "kind", "points": [[x,y,z],...], "width" }],
   "water":     [{ "name", "points": [[x,y],...], "z" }],
   "peaks":     [{ "name", "x", "y", "z" }],
@@ -88,6 +141,11 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
   "terrain": { "fine": {...}, "mid": {...}, "far": {...} },
   "mask": { "res": 2, "tileSize": 512, "minX", "minY", "tilesX", "tilesY" },
   "ao": { same fields as mask },                           // optional
+  "dir": { same fields as mask },                          // optional, DATA-002
+  "moguls": { same fields as mask },                       // optional, FEAT-059
+  "cover": { "heightMax": 40, "blend": 500,                 // optional, FEAT-153
+             "levels": [{ "name": "pack", "res": 4, "minX", "minY", "w", "h", "file": "cover/pack.png" },
+                        { "name": "mid", "res": 16, ... }, { "name": "far", "res": 100, ... }] },
   "instances": { "cellSize": 1000, "minX", "minY", "cellsX", "cellsY", "treeCount", "rockCount", "treeCells", "rockCells" },
   "start": { "x", "y", "heading" },                       // default drop-in
   "sun": { "azimuth": 160, "elevation": 32 },             // degrees, default lighting

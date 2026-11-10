@@ -78,6 +78,14 @@ export function lerpPose(out: Pose, a: Pose, b: Pose, t: number): Pose {
   return out;
 }
 export function clonePose(p: Pose): Pose { return JSON.parse(JSON.stringify(p)); }
+/** BUG-056: copy `src` into `dst` in place, no allocation (for a pose rebuilt every frame) */
+export function copyPose(dst: Pose, src: Pose): Pose {
+  const c3 = (d: [number, number, number], s: [number, number, number]) => { d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; };
+  dst.hipsY = src.hipsY; c3(dst.hipsRot, src.hipsRot); c3(dst.torso, src.torso); c3(dst.head, src.head);
+  c3(dst.lShoulder, src.lShoulder); c3(dst.rShoulder, src.rShoulder); dst.lElbow = src.lElbow; dst.rElbow = src.rElbow;
+  c3(dst.lHip, src.lHip); c3(dst.rHip, src.rHip); dst.lKnee = src.lKnee; dst.rKnee = src.rKnee;
+  return dst;
+}
 
 /** Skier poses: forward stance (no hips yaw), poles held forward. */
 export const SKI_POSES: Record<string, Pose> = {

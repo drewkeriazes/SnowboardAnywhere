@@ -1,10 +1,9 @@
 // Stills from fixed free-camera spots, for look checks (rock, snow lighting, horizon).
-// node tools/views.mjs <pack> <outDir> <views.json> [--headed | --gpu]
-//   --gpu: headless but on the real GPU (Windows), so shadows and full density render fast
+// node tools/views.mjs <pack> <outDir> <views.json> [--headed | --gpu | --cpu] (GPU choice: tools/browser.mjs)
 // views.json: [{ "label": "orient", "x": 700, "y": -1650, "above": 3, "yaw": 80, "pitch": 5 }, ...]
 //   x, y pack metres; above = metres over the ground; yaw = compass degrees (0 north, 90 east); pitch degrees.
-// Same server and SHOT_QUERY handling as tools/shoot.mjs; add SHOT_QUERY="&lowgfx" on a software GPU.
-const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
+// Same server and SHOT_QUERY handling as tools/shoot.mjs; lowgfx is added automatically on a software GPU.
+import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,7 +11,6 @@ import { DIST, PACKS } from './paths.mjs';
 
 const args = process.argv.slice(2);
 const headed = args.includes('--headed') || process.env.SHOT_HEADED === '1';
-const gpu = args.includes('--gpu'); // headless on the real GPU (Windows: ANGLE D3D11), no window
 const [pack = 'vail', outDir = 'shots-views', viewsFile] = args.filter((a) => !a.startsWith('--'));
 if (!viewsFile) { console.error('usage: node tools/views.mjs <pack> <outDir> <views.json> [--headed]'); process.exit(1); }
 const views = JSON.parse(fs.readFileSync(viewsFile, 'utf8'));
@@ -32,10 +30,7 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, r));
 const port = server.address().port;
 
-const browser = headed
-  ? await chromium.launch({ headless: false })
-  : gpu ? await chromium.launch({ args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] })
-  : await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(`${m.type()}: ${m.text()}`); });

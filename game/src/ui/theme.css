@@ -1,0 +1,121 @@
+/*
+ * FEAT-128: the menus' style tokens and shared look (main menu, pause, settings, loading). Sizes multiply
+ * --ui-scale so one value scales the whole UI (the Accessibility setting, PR 2). The fonts are bundled
+ * (game/public/fonts, SIL OFL) so the hosted LAN build works offline.
+ */
+@font-face { font-family: 'Barlow Condensed'; font-weight: 600; font-display: swap; src: url('/fonts/barlow-condensed-600.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow Condensed'; font-weight: 700; font-display: swap; src: url('/fonts/barlow-condensed-700.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow Condensed'; font-weight: 800; font-display: swap; src: url('/fonts/barlow-condensed-800.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow'; font-weight: 400; font-display: swap; src: url('/fonts/barlow-400.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow'; font-weight: 500; font-display: swap; src: url('/fonts/barlow-500.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow'; font-weight: 600; font-display: swap; src: url('/fonts/barlow-600.woff2') format('woff2'); }
+
+:root {
+  --ui-scale: 1;
+  --bg: #0b1020;
+  --bg-deep: #060a14;
+  --scrim: rgba(6, 10, 20, .72);
+  --panel: rgba(10, 16, 30, .62);
+  --panel-strong: rgba(10, 16, 30, .86);
+  --line: rgba(255, 255, 255, .18);
+  --line-strong: rgba(255, 255, 255, .32);
+  --fill: rgba(255, 255, 255, .10);
+  --fill-hi: rgba(255, 255, 255, .22);
+  --text: #ffffff;
+  --dim: rgba(255, 255, 255, .65);
+  --accent: #ffd166;
+  --accent-ink: #141414;
+  --accent-wash: rgba(255, 209, 102, .16);
+  --danger: #ef476f;
+  --ok: #4ade80;
+  --link: #9cc4ff;
+  --r-sm: 6px; --r-md: 10px; --r-lg: 16px;
+  --sp-1: calc(4px * var(--ui-scale)); --sp-2: calc(8px * var(--ui-scale)); --sp-3: calc(12px * var(--ui-scale));
+  --sp-4: calc(16px * var(--ui-scale)); --sp-5: calc(24px * var(--ui-scale)); --sp-6: calc(32px * var(--ui-scale));
+  --fs-xs: calc(11px * var(--ui-scale)); --fs-sm: calc(13px * var(--ui-scale)); --fs-md: calc(15px * var(--ui-scale));
+  --fs-lg: calc(18px * var(--ui-scale)); --fs-xl: calc(24px * var(--ui-scale)); --fs-xxl: calc(36px * var(--ui-scale));
+  --row-h: calc(44px * var(--ui-scale));
+  --font-display: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --font-body: 'Barlow', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --t-focus: 150ms;
+}
+
+/* ---------------------------------------------------------------- shared pieces */
+.btn-primary, #pause button.primary, #menu button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 800; }
+/* the focus look: an accent bar on the left and a soft accent wash (MenuNav sets .nav-focus, FEAT-137's PadNav .padfocus on the Outrun card; :focus-visible covers plain tabbing) */
+.nav-focus, .padfocus, #menu :focus-visible, #pause :focus-visible { outline: none; box-shadow: inset 3px 0 0 var(--accent), 0 0 0 2px var(--accent); background-image: linear-gradient(90deg, var(--accent-wash), transparent); }
+#menu button.primary.nav-focus, #pause button.primary.nav-focus { box-shadow: 0 0 0 3px var(--bg-deep), 0 0 0 5px var(--accent); background-image: none; }
+.hintbar { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); margin-top: var(--sp-4); font: 500 var(--fs-xs) var(--font-body); color: var(--dim); }
+.hintbar span { white-space: nowrap; }
+.hintbar kbd { display: inline-block; min-width: calc(16px * var(--ui-scale)); padding: 0 var(--sp-1); margin-right: var(--sp-1); border-radius: 4px; background: var(--fill-hi); border: 1px solid var(--line-strong); color: var(--text); font: 600 var(--fs-xs) var(--font-body); text-align: center; }
+
+/* ---------------------------------------------------------------- BUG-063 loading screen */
+#loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(#1b2a44, var(--bg)); z-index: 30; color: var(--text); font-family: var(--font-body); transition: opacity .45s ease; }
+#loading.done { opacity: 0; pointer-events: none; }
+#loading .panel { width: calc(360px * var(--ui-scale)); padding: 28px 32px; background: rgba(255,255,255,.06); border: 1px solid var(--line); border-radius: var(--r-lg); }
+#loading .eyebrow { font-size: var(--fs-xs); letter-spacing: .2em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
+#loading .title { font: 800 var(--fs-xl) var(--font-display); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 18px; }
+#loading .track { height: 6px; border-radius: 3px; background: rgba(255,255,255,.15); overflow: hidden; }
+#loading .fill { height: 100%; width: 0; background: var(--accent); transition: width .2s linear; }
+#loading .label { margin-top: 10px; font-size: var(--fs-sm); color: var(--dim); min-height: 1.2em; }
+
+/* ---------------------------------------------------------------- main menu and pause */
+#pause { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: var(--scrim); z-index: 20; color: var(--text); font-family: var(--font-body); }
+#menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg, var(--bg) 0%, #1e3a5f 100%); z-index: 20; color: var(--text); font-family: var(--font-body); }
+#pause .panel, #menu .panel { width: calc(380px * var(--ui-scale)); max-width: calc(100vw - 32px); box-sizing: border-box; max-height: 90vh; overflow: auto; padding: 28px 32px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); backdrop-filter: blur(6px); }
+#pause .eyebrow, #menu .eyebrow { font-size: var(--fs-xs); letter-spacing: .2em; text-transform: uppercase; color: var(--dim); margin-bottom: 10px; }
+#menu h1 { margin: 4px 0 20px; font: 800 calc(44px * var(--ui-scale)) / 1 var(--font-display); text-transform: uppercase; letter-spacing: .03em; }
+#pause button, #menu button { display: block; width: 100%; min-height: var(--row-h); margin: var(--sp-2) 0; padding: 10px 12px; font: 700 var(--fs-lg) var(--font-display); text-transform: uppercase; letter-spacing: .05em; text-align: left; border: 1px solid var(--line-strong); border-radius: var(--r-md); background-color: var(--fill); color: var(--text); cursor: pointer; transition: box-shadow var(--t-focus), background-color var(--t-focus); }
+#pause button.primary, #menu button.primary { text-align: center; font-size: var(--fs-xl); }
+#pause button.ghost, #menu button.ghost { background-color: transparent; color: var(--dim); }
+#pause button:hover, #menu button:hover { background-color: var(--fill-hi); }
+#pause button.primary:hover, #menu button.primary:hover { background-color: var(--accent); filter: brightness(1.08); }
+#menu .resort { display: flex; align-items: center; gap: 10px; margin: -8px 0 14px; font-size: var(--fs-sm); }
+#menu .resort label { color: var(--dim); }
+#menu .resort select { flex: 1; min-height: calc(36px * var(--ui-scale)); padding: 6px; border-radius: var(--r-sm); background-color: var(--fill-hi); color: var(--text); border: 1px solid var(--line-strong); font: 500 var(--fs-sm) var(--font-body); }
+#menu .resort option { color: #111; }
+#menu .resort.music { margin: 12px 0 6px; } /* the resort row's negative top margin pulled it over the board/ski toggle */
+#menu .seg { display: flex; gap: 0; margin: 6px 0 2px; }
+#menu .seg button { margin: 0; border-radius: 0; text-align: center; color: var(--dim); }
+#menu .seg button:first-child { border-radius: var(--r-md) 0 0 var(--r-md); }
+#menu .seg button:last-child { border-radius: 0 var(--r-md) var(--r-md) 0; }
+#menu .seg button.on { color: var(--text); background-color: var(--fill-hi); }
+#menu .start { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -2px 0 6px; font-size: var(--fs-sm); color: var(--dim); }
+#menu .start button { display: inline-block; width: auto; min-height: 0; margin: 0; padding: 4px 10px; font: 500 var(--fs-xs) var(--font-body); text-transform: none; letter-spacing: 0; }
+#menu .keys { margin-top: 18px; font-size: var(--fs-xs); color: var(--dim); line-height: 1.5; }
+
+/* ---------------------------------------------------------------- settings panel (inline, until PR 2) */
+.settings { margin: 10px 0; padding: 10px 0 2px; border-top: 1px solid var(--line); font-family: var(--font-body); }
+.settings.hidden, .settings .tab.hidden, .settings .hidden { display: none; }
+.settings .tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+#pause .settings .tabs button, #menu .settings .tabs button { width: auto; flex: 1; min-height: calc(32px * var(--ui-scale)); margin: 0; padding: 6px 4px; font-size: var(--fs-sm); text-align: center; color: var(--dim); }
+#pause .settings .tabs button.on, #menu .settings .tabs button.on { color: var(--text); background-color: var(--fill-hi); border-color: var(--accent); }
+.settings .row { display: flex; align-items: center; gap: 10px; margin: 8px 0; min-height: calc(32px * var(--ui-scale)); font-size: var(--fs-sm); }
+.settings .row label { width: calc(110px * var(--ui-scale)); color: var(--dim); flex: none; }
+.settings .row input[type=range], .settings .row select { flex: 1; min-width: 0; }
+.settings .row select { min-height: calc(30px * var(--ui-scale)); border-radius: var(--r-sm); background-color: var(--fill-hi); color: var(--text); border: 1px solid var(--line-strong); font: 500 var(--fs-sm) var(--font-body); }
+.settings .row select option { color: #111; }
+.settings .row input[type=range] { accent-color: var(--accent); }
+.settings .row input[type=checkbox] { accent-color: var(--accent); width: 18px; height: 18px; }
+.settings input[type=color] { width: 44px; height: 26px; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: transparent; }
+.settings .row .val { width: 36px; text-align: right; color: var(--dim); font-size: var(--fs-xs); }
+#pause .settings button.key, #menu .settings button.key { width: auto; flex: 1; min-height: calc(30px * var(--ui-scale)); margin: 0; padding: 4px 8px; font: 500 var(--fs-sm) ui-monospace, monospace; text-transform: none; letter-spacing: 0; text-align: center; }
+#pause .settings button.key.listening, #menu .settings button.key.listening { background-color: var(--accent); color: var(--accent-ink); }
+/* action buttons inside a settings row (Reset keys, Test vibration, Connect DualSense extras): a settings control, not a menu item */
+#pause .settings .row > button:not(.key), #menu .settings .row > button:not(.key) { min-height: calc(36px * var(--ui-scale)); margin: 0; padding: 6px 12px; font: 600 var(--fs-sm) var(--font-body); text-transform: none; letter-spacing: 0; text-align: center; }
+.settings button.key + button.key { margin-left: 6px; }
+.settings button.key.clash { outline: 2px solid var(--danger); }
+.settings .hint { font-size: var(--fs-xs); color: var(--dim); margin-top: 6px; }
+.settings .hint.group { margin-top: 10px; font-weight: 600; color: var(--text); opacity: .9; }
+.settings button.ghost { margin-top: 8px; }
+.settings .credits { margin-top: 8px; font-size: var(--fs-xs); }
+.settings .credit { opacity: .85; margin: 2px 0; }
+.settings .credit a { color: var(--link); }
+.settings .dim { color: var(--dim); }
+.settings .swatch { display: inline-block; width: 16px; height: 16px; border-radius: 50%; margin-left: 8px; flex: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.35); }
+.hintbar kbd.pad { padding: 0; background: none; border: 0; }
+.settings .padmap { margin: 6px 0 0; padding: 0; list-style: none; font-size: var(--fs-xs); color: var(--dim); }
+.settings .padmap li { display: flex; gap: 8px; padding: 2px 0; }
+.settings .padmap b { min-width: calc(80px * var(--ui-scale)); color: var(--text); font-weight: 600; }
+.settings.outrun .hint { margin-bottom: 8px; }
+.settings.outrun button { margin-top: 10px; }

@@ -1,6 +1,13 @@
 import { HeightSet } from './HeightSet';
 import { MaskSet } from './MaskSet';
+import { CoverSet } from './CoverSet';
 import type { Features, PackMeta } from './types';
+import { downhillFrom, mogulHeight, MOGUL_FALL_D } from '../terrain/Moguls';
+
+/** chunks at this resolution or finer carry the mogul bumps in their geometry */
+export const MOGUL_MAX_RES = 2;
+/** coarser chunks up to this resolution shade the same field in the terrain shader (seen from the lift) */
+export const MOGUL_SHADE_MAX_RES = 16;
 
 /** A straight bridge deck segment (pack metres). The surface runs from a to b at the given z. */
 export interface Deck { ax: number; ay: number; az: number; bx: number; by: number; bz: number; hw: number }
@@ -20,6 +27,15 @@ export class Pack {
   readonly mask: MaskSet | null;
   /** sky visibility 0..1 in channel 0 (gullies and cliff feet darker); null in older packs */
   readonly ao: MaskSet | null;
+  /** piste direction set (DATA-002), optional */
+  readonly dir: MaskSet | null;
+  /** FEAT-059: mogul amplitude 0..1 m in channel 0; null in older packs */
+  readonly moguls: MaskSet | null;
+  /** FEAT-153: forest cover levels for the terrain at a distance; null in older packs */
+  readonly cover: CoverSet | null;
+  /** amplitude multiplier (new snow softens the bumps) and uphill creep in metres (season date) */
+  mogulScale = 1;
+  mogulCreep = 0;
   features: Features = { lifts: [], runs: [], buildings: [], roads: [], water: [], peaks: [], labels: [] };
 
   private constructor(baseUrl: string, meta: PackMeta) {
@@ -30,6 +46,9 @@ export class Pack {
     this.far = meta.terrain.far ? new HeightSet(`${baseUrl}/far`, meta.terrain.far) : null;
     this.mask = meta.mask ? new MaskSet(`${baseUrl}/mask`, meta.mask) : null;
     this.ao = meta.ao ? new MaskSet(`${baseUrl}/ao`, meta.ao) : null;
+    this.dir = meta.dir ? new MaskSet(`${baseUrl}/dir`, meta.dir) : null;
+    this.moguls = meta.moguls ? new MaskSet(`${baseUrl}/moguls`, meta.moguls) : null;
+    this.cover = meta.cover && meta.cover.levels.length ? new CoverSet(baseUrl, meta.cover) : null;
   }
 
   static async load(baseUrl: string): Promise<Pack> {
@@ -53,14 +72,16 @@ export class Pack {
   /**
    * Height for rendering at a target resolution: use the finest loaded set whose resolution
    * is not much finer than needed (coarser sets are smoother and cheaper), fall back outward.
+   * `bumps = false` leaves the mogul bumps out (BUG-062: the chunk builder wants the base surface for
+   * its normals and adds the bumps to the positions itself).
    */
-  height(x: number, y: number, res: number): number {
+  height(x: number, y: number, res: number, bumps = true): number {
     for (const s of this.sets) {
       if (!s.contains(x, y)) continue;
       // skip sets that are far finer than needed (except when nothing else covers the point)
       if (s.meta.res * 16 < res && s !== this.sets[this.sets.length - 1]) continue;
       const h = s.sample(x, y);
-      if (!Number.isNaN(h)) return h;
+      if (!Number.isNaN(h)) return bumps && res <= MOGUL_MAX_RES ? h + this.bumpAt(x, y) : h;
     }
     // last resort: any set that has data
     for (const s of this.sets) {
@@ -77,8 +98,38 @@ export class Pack {
    */
   coarseFallbacks = 0;
 
-  /** Terrain height from the finest loaded set, ignoring bridges. Independent of render LOD. */
+  /** Terrain height from the finest loaded set plus the mogul bumps, ignoring bridges. Independent of render LOD. */
   terrainHeight(x: number, y: number): number {
+    return this.baseHeight(x, y) + this.bumpAt(x, y);
+  }
+
+  setMoguls(scale: number, creepM: number): void {
+    this.mogulScale = Math.max(0, Math.min(1, scale)); this.mogulCreep = creepM;
+  }
+
+  private readonly mogTmp = [0, 0, 0, 0];
+  private readonly fallTmp = [1, 0];
+
+  /** FEAT-059: mogul amplitude (m) at a point from the pack's moguls set; 0 without the set or its tile. */
+  mogulAmp(x: number, y: number, raw = false): number {
+    if (!this.moguls || (!raw && this.mogulScale <= 0)) return 0;
+    return this.moguls.sampleBilinear(x, y, this.mogTmp)[0] * (raw ? 1 : this.mogulScale);
+  }
+
+  /** FEAT-059: the bump height at a point: the field's amplitude here, aligned to the local fall line and
+   *  sized by its slope (FEAT-147). */
+  bumpAt(x: number, y: number): number {
+    const amp = this.mogulAmp(x, y);
+    if (amp < 0.005) return 0;
+    // BUG-064: a wide difference so the rows hold their direction; its length is the slope (FEAT-147)
+    const f = downhillFrom(this.baseFn, x, y, this.fallTmp, MOGUL_FALL_D);
+    return mogulHeight(x, y, amp, f[0], f[1], this.mogulCreep);
+  }
+
+  private readonly baseFn = (x: number, y: number) => this.baseHeight(x, y);
+
+  /** DEM height from the finest loaded set, without bumps. */
+  private baseHeight(x: number, y: number): number {
     let skipped = false;
     for (const s of this.sets) {
       if (!s.contains(x, y)) continue;

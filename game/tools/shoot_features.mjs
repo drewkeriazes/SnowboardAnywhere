@@ -1,7 +1,6 @@
 // Feature check: minimap, full map drop-in, buildings, rocks, lift ride and skip.
-// node tools/shoot_features.mjs [pack] [outDir]
-import pw from '/opt/npm-tools/node_modules/playwright/index.js';
-const { chromium } = pw;
+// node tools/shoot_features.mjs [pack] [outDir] [--headed | --gpu | --cpu]
+import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,7 +19,7 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(0, r));
 const port = server.address().port;
-const browser = await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(`${m.type()}: ${m.text()}`); });

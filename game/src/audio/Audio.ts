@@ -1,4 +1,5 @@
 import type { Rider, SurfaceInfo } from '../sim/Rider';
+import type { SnowState } from '../sim/SnowConditions';
 import { Jukebox, type JukeStyle } from './Jukebox';
 import { ChaseAudio } from './ChaseAudio';
 
@@ -83,6 +84,8 @@ export class GameAudio {
   private wasOnGround = true;
   private wasRiding = false;
   private brushT = 0;
+  /** FEAT-140: time to the next board creak near the limits of a press */
+  private creakT = 0;
 
   constructor() {}
 
@@ -327,6 +330,11 @@ export class GameAudio {
     // spray whoosh, bigger in powder
     this.burst('bandpass', 1500, 0.25 + 0.3 * shock, (0.1 + 0.3 * shock) * (0.6 + 0.6 * powder), 0.6, 500);
   }
+  /** FEAT-140: a short flex creak of the board, rougher and louder the nearer the press is to losing it (k 0..1) */
+  private creak(k: number): void {
+    this.pick([() => this.tone(120, 0.16, 0.05 + 0.05 * k, 'sawtooth', 165), () => this.tone(105, 0.18, 0.05 + 0.05 * k, 'sawtooth', 150), () => this.tone(140, 0.14, 0.05 + 0.05 * k, 'sawtooth', 185)])();
+    this.burst('bandpass', 700 + 500 * k, 0.12, 0.04 + 0.05 * k, 3);
+  }
   private crash(): void {
     this.pick([() => this.burst('lowpass', 110, 0.55, 1.0), () => this.burst('lowpass', 130, 0.5, 0.95), () => this.burst('lowpass', 95, 0.6, 1.0)])();
     this.burst('bandpass', 2400, 0.35, 0.3, 1.5, 700); // crunch
@@ -343,12 +351,14 @@ export class GameAudio {
    * tiny pitch chirp), powder whumps (low and soft, deeper the more the boot sinks), ice and rock
    * scrape (high and dry). A sprint lands harder.
    */
-  footstep(s: SurfaceInfo, speed: number, sink: number): void {
+  footstep(s: SurfaceInfo, speed: number, sink: number, snow: SnowState): void {
     if (!this.ctx) return;
-    const hard = Math.min(1, s.rock + s.scree);
-    const groomed = s.groomed * (1 - hard);
-    const powder = Math.max(0, 1 - groomed - hard);
+    // FEAT-053: ice scrapes like rock, slush squelches, chop is a soft crunch
+    const hard = Math.min(1, s.rock + s.scree + 0.8 * snow.ice);
+    const groomed = snow.groomed + 0.5 * snow.chop;
+    const powder = snow.powder + 0.5 * snow.chop;
     const g = 0.5 + 0.5 * Math.min(1, speed / 3.8);
+    if (snow.slush > 0.3) this.burst('lowpass', 420, 0.12, 0.3 * snow.slush * g, 0.5, 200);
     if (groomed > 0.3) {
       this.burst('bandpass', 2600, 0.09, 0.22 * groomed * g, 2.2, 1800);
       this.tone(1400 + Math.random() * 500, 0.05, 0.025 * groomed * g, 'triangle', 1900);
@@ -403,19 +413,21 @@ export class GameAudio {
     const lerp = (g: GainNode, target: number) => { g.gain.value += (target - g.gain.value) * k; };
     const spd = r.speed;
     const onSnow = r.onGround && !riding && spd > 0.3 && !r.unstrapped; // board on snow
-    const s = r.surface;
-    const hard = Math.min(1, s.rock + s.scree);
+    const s = r.surface, sn = r.snow;
+    // FEAT-053: the sound follows the snow state. Ice rides on the hardpack scrape layer (dry and
+    // high), slush on the powder hush pitched up (wet), chop on the crust crackle.
+    const hard = Math.min(1, s.rock + s.scree + 0.8 * sn.ice);
     // FEAT-103: on rock there is no snow under the board, so the snow layers duck
     const snowLeft = 1 - Math.min(1, s.rock + 0.6 * s.scree);
-    const groomed = s.groomed * (1 - hard);
-    const powder = Math.max(0, 1 - groomed - hard) * (s.canopy > 0.3 ? 1 : 0.7);
-    const crust = Math.max(0, 1 - groomed - hard) * Math.min(1, Math.max(0, (r.slopeDeg - 25) / 15)) * (s.canopy < 0.3 ? 1 : 0.3);
+    const groomed = sn.groomed;
+    const powder = Math.min(1, sn.powder + 0.8 * sn.slush);
+    const crust = Math.min(1, sn.chop + Math.max(0, 1 - groomed - hard) * Math.min(1, Math.max(0, (r.slopeDeg - 25) / 15)) * (s.canopy < 0.3 ? 1 : 0.3));
     const v = Math.min(1, spd / 25);
     // flow layers
     lerp(this.flowGroom.gain, onSnow ? (0.05 + 0.3 * v * groomed) * snowLeft : 0);
     this.flowGroom.filter.frequency.value = 1800 + 60 * spd;
     lerp(this.flowPow.gain, onSnow ? (0.05 + 0.35 * v * powder) * snowLeft : 0);
-    this.flowPow.filter.frequency.value = 250 + 20 * spd;
+    this.flowPow.filter.frequency.value = 250 + 20 * spd + 350 * sn.slush;
     lerp(this.rumble.gain, onSnow ? 0.08 * v * powder * snowLeft : 0);
     this.rumble.osc.frequency.value = 38 + spd * 0.6;
     lerp(this.flowHard.gain, onSnow ? (0.04 + 0.3 * v * hard) * (0.4 + 0.6 * snowLeft) : 0);
@@ -426,11 +438,14 @@ export class GameAudio {
     else lerp(this.flowCrust.gain, 0);
     // carve: toe vs heel by edge sign; skid chatter
     const edge = Math.abs(r.edgeAngle);
-    const carveG = onSnow ? Math.min(0.5, (0.03 + 0.5 * edge * v) * (0.5 + 0.5 * groomed + 0.6 * hard)) : 0;
-    lerp(this.carveToe.gain, r.edgeAngle > 0 ? carveG : 0);
-    lerp(this.carveHeel.gain, r.edgeAngle < 0 ? carveG : 0);
-    this.carveToe.filter.frequency.value = 2600 + 1200 * edge + 30 * spd;
-    this.carveHeel.filter.frequency.value = 1700 + 900 * edge + 30 * spd;
+    // FEAT-148: a hard carve's edge hisses louder and higher with the g it pulls (2.5 g full)
+    const hiss = onSnow ? r.hardCarve * Math.min(1, Math.abs(r.lateralG) / 2.5) : 0;
+    const carveG = onSnow ? Math.min(0.5 + 0.2 * hiss, (0.03 + 0.5 * edge * v) * (0.5 + 0.5 * groomed + 0.6 * hard) * (1 + 0.6 * hiss)) : 0;
+    const toe = r.edgeAngle * r.toeSign; // FEAT-139: the toe edge is the heading's left riding switch or goofy
+    lerp(this.carveToe.gain, toe > 0 ? carveG : 0);
+    lerp(this.carveHeel.gain, toe < 0 ? carveG : 0);
+    this.carveToe.filter.frequency.value = 2600 + 1200 * edge + 30 * spd + 1500 * hiss;
+    this.carveHeel.filter.frequency.value = 1700 + 900 * edge + 30 * spd + 1200 * hiss;
     // skid chatter, and the edge scraping through a brake (louder and higher on hard snow)
     const scrub = Math.max(r.skid, r.scrape);
     lerp(this.skidL.gain, onSnow ? Math.min(0.5, scrub * 0.5 * (0.6 + 0.4 * v) * (1 + hard)) : 0);
@@ -460,6 +475,10 @@ export class GameAudio {
     if (r.lastHit === 'ramp') this.ramp();
     else if (r.lastHit === 'graze') this.graze();
     this.brushT -= dt;
+    // FEAT-140: the board creaks as a press nears either end of the balance meter, quicker the closer it gets
+    this.creakT -= dt;
+    const pb = r.pressing && onSnow ? Math.abs(r.pressBalance) : 0;
+    if (pb > 0.65 && this.creakT <= 0) { const k = Math.min(1, (pb - 0.65) / 0.35); this.creakT = 0.45 - 0.25 * k + Math.random() * 0.12; this.creak(k); }
     if (onSnow && s.canopy > 0.5 && spd > 6 && this.brushT <= 0) { this.brushT = 0.4 + Math.random() * 1.6; this.brush(); }
     if (riding && !this.wasRiding) { this.chime(); this.bullWheel(); }
     if (!riding && this.wasRiding) { this.unloadChime(); this.bullWheel(); }

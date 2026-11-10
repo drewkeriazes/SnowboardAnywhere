@@ -1,10 +1,8 @@
 // Render and ride check: serves dist/ and ../packs, loads the sim, steps frames, saves screenshots.
-// node tools/shoot.mjs [pack] [outDir] [--headed]
-//   default: headless Chromium on SwiftShader (no GPU needed; add SHOT_QUERY="&lowgfx" for big packs)
+// node tools/shoot.mjs [pack] [outDir] [--headed | --gpu | --cpu]
+//   GPU or software is picked by tools/browser.mjs: real GPU by default on Windows, SwiftShader + lowgfx elsewhere.
 //   --headed (or SHOT_HEADED=1): visible window on the real GPU; stays open at the end until you close it
-//   --gpu: headless on the real GPU (Windows), no window; full density renders in milliseconds
-// Local: game/node_modules (npm i). Cloud sandbox: preinstalled copy under /opt/npm-tools.
-const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
+import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,7 +10,6 @@ import { DIST, PACKS } from './paths.mjs';
 
 const args = process.argv.slice(2);
 const headed = args.includes('--headed') || process.env.SHOT_HEADED === '1';
-const gpu = args.includes('--gpu'); // headless on the real GPU (Windows: ANGLE D3D11), no window
 const positional = args.filter((a) => !a.startsWith('--'));
 const pack = positional[0] ?? 'synth';
 const outDir = positional[1] ?? 'shots';
@@ -32,10 +29,7 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, r));
 const port = server.address().port;
 
-const browser = headed
-  ? await chromium.launch({ headless: false })
-  : gpu ? await chromium.launch({ args: ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] })
-  : await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(`${m.type()}: ${m.text()}`); });

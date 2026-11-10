@@ -1,12 +1,14 @@
 import * as THREE from 'three';
-import { EDGE_FULL, type Rider } from '../sim/Rider';
+import { EDGE_FULL, PRESS_RANGE, type Rider } from '../sim/Rider';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
 import { Ragdoll, RAGDOLL_RECOVER } from './Ragdoll';
-import { lerpPose, clonePose, defaultMaterials, POSES, SKI_POSES, WALK_POSES, type Pose, type RiderMaterials } from './RiderModel';
+import { lerpPose, clonePose, copyPose, defaultMaterials, POSES, SKI_POSES, WALK_POSES, type Pose, type RiderMaterials } from './RiderModel';
 import { buildRig, pinFeet, solveLegs, twoBone, setWorldQuat, hangCarriersFromFeet, restCarriers, bendBoard, deckY, BONES as BONE_LIST, ANKLE_H, SOLE_FWD, type RiderRig } from './RiderRig';
 import { Gait, type Plant } from './Gait';
-import { carveLean, LEAN_MAX } from './carveLean';
+import { carveLean, LEAN_HARD, LEAN_MAX } from './carveLean';
+import { Spray } from './Spray';
+import { LENSES, type LensId } from './Lens';
 
 /** FEAT-112: half the skis' length (where they pivot) and the most they tip up on a full lean (rad) */
 const BOARD_HALF = 0.72, LEAN_TIP = 18 * Math.PI / 180;
@@ -15,6 +17,15 @@ const EDGE_OFF = 0.13, SKI_EDGE_OFF = 0.05, EDGE_PIVOT_ROLL = 0.15;
 /** FEAT-118: board flex spring: natural frequency (rad/s, about 0.3 s a cycle) and damping ratio
  *  (0.45 overshoots about 20 %, so a full load snaps past flat to about -0.15 on the pop) */
 const FLEX_W = 21, FLEX_ZETA = 0.45;
+/** FEAT-140: a held press bends the board this much (share of full flex, the free tip about 22 cm up;
+ *  0.6 before), the bend follows the balance by this share at the edge (deeper toward the loaded
+ *  end, flatter toward the other), and never past BEND_MAX (the mesh's bounding sphere allows ~1.18) */
+const PRESS_BEND = 0.8, BAL_BEND = 0.5, BEND_MAX = 1.15;
+/** FEAT-140: deep in a press the whole board also tips up on its loaded tip, like a real tail press
+ *  at the extreme (35 deg or more with the bend): the tip at the edge of the balance toward the
+ *  loaded end (rad; half of it centred, none toward the other end), its response (s), and how far the
+ *  hips move on toward the loaded end at the full tip (m) */
+const PRESS_TIP = 32 * Math.PI / 180, TIP_RESPONSE = 0.12, TIP_SHIFT = 0.1;
 /** BUG-047: the hip joint stays this far above the deck under it (the glutes hang 0.1 to 0.15 m below
  *  the joint). FEAT-125: on a full press the hips move this far toward the loaded end (m), reached
  *  at this much bend (a full lean without a charge bends the board 0.6) */
@@ -28,6 +39,11 @@ const FLAIL_BASE = 0.04, FLAIL_HOLD = 0.13, FLAIL_RAMP = 2.5, CORR_W = 11, CORR_
 /** FEAT-125 wobble growth: share added per m/s of speed (up to FLAIL_VMAX m/s), share added at full
  *  bumps, and the vertical acceleration counted as full bumps (m/s^2, about 1.5 g) */
 const FLAIL_SPEED = 0.04, FLAIL_VMAX = 15, FLAIL_BUMP = 1.5, BUMP_ACC = 15;
+/** FEAT-140: the wobble added as the press balance runs out to either end (share at the end), the
+ *  extra pelvis roll toward the end it runs to (rad per unit of balance, about 23 deg; the head takes
+ *  most of it back out), and how far the hips slide along the board toward that end (m per unit).
+ *  The balance runs to PRESS_RANGE units, so at the edge the body leans PRESS_RANGE times as far. */
+const FLAIL_BAL = 1.6, BAL_ROLL = 0.4 * PRESS_RANGE, BAL_SHIFT = 0.14 * PRESS_RANGE;
 /** FEAT-125 wobble shape: the fore-aft swing as a share of the up-down wave, and the elbow's bend
  *  (deg) per rad of wave (each elbow follows the other arm's wave, so the two never move in step) */
 const FLAIL_SWING = 0.6, FLAIL_ELBOW = 40;
@@ -59,9 +75,44 @@ const DEEP_FROM = 0.3;
 /** FEAT-126: least height above the snow on a lean (m): the knee joints (the knee pad is about 5 cm
  *  round), the hip joint (the glutes hang 0.1 to 0.15 m below it) and the wrists */
 const CLEAR_KNEE = 0.06, CLEAR_HIP = 0.17, CLEAR_HAND = 0.05;
+/** FEAT-148: in a hard carve the inside hand reaches down and drags on the snow once the lean passes
+ *  HAND_DRAG_FROM (rad), all the way by HAND_DRAG_FULL, this high (m), a little out toward the inside */
+const HAND_DRAG_FROM = 0.95, HAND_DRAG_FULL = 1.15, HAND_DRAG_Y = 0.02, HAND_DRAG_OUT = 0.08;
+/** BUG-066: the leg bones' least distance above the deck (m) where they pass over the board (the knee is
+ *  about 6.5 cm round the bone, so about 5 cm of skin clear), the board's half width plus a limb's
+ *  reach over it, and where along the shin (from the ankle) and the thigh (from the knee) it is tested */
+const DECK_CLEAR = 0.115, DECK_HALF_W = 0.13 + 0.05, DECK_HALF_L = 0.8;
+const SHIN_TS = [0.35, 0.55, 0.75, 1], THIGH_TS = [0.25, 0.5, 0.75];
 
 const d2r = Math.PI / 180;
 const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+
+/** BUG-056 lead / lag chain (s), visual only. The head and shoulders pose for where the rider will
+ *  be LEAD_UPPER ahead (the steer's target edge and the heading the turn rate is taking them to),
+ *  the hips and the body's inclination LEAD_HIPS ahead (the crossover), the knees and ankles ride the
+ *  board, and the board as drawn follows the physics yaw and edge BOARD_LAG behind (a critically
+ *  damped follow), so every turn reads look, shoulders, hips cross, knees roll, then the board tips.
+ *  Physics, collision and the tracks keep the true board state. Live-tunable on the view
+ *  (`leadUpper`, `leadHips`, `boardLag`; the ?debug HUD has sliders). */
+export const LEAD_UPPER = 0.2, LEAD_HIPS = 0.12, BOARD_LAG = 0.08;
+/** BUG-056: how far the edge must be moving (rad ahead of the physics edge over the hips' lead) for
+ *  the inclination to lean fully for the predicted edge instead of the measured lateral g, the most
+ *  the shoulders turn ahead of the drawn board (rad), and the pelvis's share of that turn on a snowboard */
+const LEAD_BLEND = 0.2, YAW_LEAD_CAP = 0.5, HIP_YAW_SHARE = 0.5;
+/** BUG-056: the body's own response time (s): every lead signal (the edges the poses are built for,
+ *  the inclination, the shoulders' turn, the hips over a press) is a critically damped follow of its
+ *  prediction with this lag, so a new steer moves the body at a human speed, ahead of the board but
+ *  never snapping to it (the prediction itself jumps the moment the input changes) */
+const BODY_RESPONSE = 0.09;
+/** a second-order follow: position and rate */
+interface Follow { x: number; v: number }
+/** BUG-056: critically damped follow of `target`: no overshoot, and a steady ramp is tracked `lag` s behind */
+function follow(f: Follow, target: number, lag: number, dt: number): void {
+  if (lag < 0.005) { f.x = target; f.v = 0; return; }
+  const w = 2 / lag, n = Math.min(40, Math.ceil(dt * w / 0.5)), h = dt / n;
+  for (let i = 0; i < n; i++) { f.v += (w * w * (target - f.x) - 2 * w * f.v) * h; f.x += f.v * h; }
+}
 
 /**
  * How the gear is carried on foot, in the chest (Spine2) frame: x right, y up, z back.
@@ -119,15 +170,6 @@ const CARRY = {
  * the direction of travel; then two-bone IK pins both boots to the bindings every frame so the
  * board and body cannot separate. Skiers also place their hands by IK and aim the poles.
  */
-/** Soft round particle: radial alpha falloff on a small canvas. */
-function sprayTexture(): THREE.Texture {
-  const c = document.createElement('canvas'); c.width = c.height = 32;
-  const ctx = c.getContext('2d')!;
-  const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.5, 'rgba(255,255,255,0.6)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, 32, 32);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
-}
 
 /** Layer the body is also drawn on, so first person can redraw it with a close near plane. */
 export const BODY_LAYER = 1;
@@ -141,9 +183,34 @@ export class RiderView {
   private readonly lean = new THREE.Group();
   private poses: Record<string, Pose> = POSES;
   discipline: 'board' | 'ski' = 'board';
-  private leanAngle = 0;
-  /** FEAT-127: the board's roll onto its edge (rad, + = toe / right edge), smoothed */
-  private boardRoll = 0;
+  /** FEAT-139: the rig is built goofy (follows the rider's `goofy`, rebuilt when it changes) */
+  private goofy = false;
+  /** FEAT-139: -1 while the board and body are drawn turned round, at the physics yaw + PI (riding
+   *  switch, or goofy, not both). The rig's right (toe) side and nose are then the heading's left and
+   *  tail, so every sideways and fore-aft physics value is negated into the rig's frame. */
+  private fl = 1;
+  /** BUG-056 tunables (s): how far ahead the head and shoulders and the hips pose, how far behind the board is drawn */
+  leadUpper = LEAD_UPPER; leadHips = LEAD_HIPS; boardLag = BOARD_LAG;
+  /** FEAT-127 / BUG-056: the board's roll onto its edge as drawn (rad, + = toe / right edge) and its
+   *  yaw, each a critically damped follow of the physics value; the roll it follows; whether the
+   *  rider was on the snow last frame (a landing snaps the follow); the shoulders' turn ahead of the
+   *  drawn board (rad); and the predicted edges the upper body and the hips posed for (share of full) */
+  private readonly rollF: Follow = { x: 0, v: 0 };
+  private readonly yawF: Follow = { x: 0, v: 0 };
+  private rollPhys = 0; private prevGround = true; private visLive = false;
+  private readonly leanF: Follow = { x: 0, v: 0 };
+  private readonly yawLeadF: Follow = { x: 0, v: 0 };
+  private readonly edgeUpperF: Follow = { x: 0, v: 0 };
+  private readonly edgeHipsF: Follow = { x: 0, v: 0 };
+  private readonly hipZF: Follow = { x: 0, v: 0 };
+  /** FEAT-140: the press balance in the rig's frame, followed at body speed, for the hips' slide */
+  private readonly balF: Follow = { x: 0, v: 0 };
+  /** FEAT-140: the board's tip up on its loaded end (rad), followed */
+  private readonly tipF: Follow = { x: 0, v: 0 };
+  private get leanAngle(): number { return this.leanF.x; }
+  private get yawLead(): number { return this.yawLeadF.x; }
+  private get edgeUpper(): number { return this.edgeUpperF.x; }
+  private get edgeHips(): number { return this.edgeHipsF.x; }
   /** FEAT-118: board bend (0 flat .. 1 full load), its rate, and which end is loaded (-1 tail, +1 nose) */
   private flex = 0; private flexV = 0; private flexDir = -1;
   private twist = 0;
@@ -160,10 +227,10 @@ export class RiderView {
   footGap = 0;
   private readonly pose: Pose = clonePose(POSES.neutral);
   private readonly target: Pose = clonePose(POSES.neutral);
-  private readonly spray: THREE.Points;
-  private readonly sprayPos: Float32Array;
-  private readonly sprayVel: Float32Array;
-  private readonly sprayLife: Float32Array;
+  /** BUG-056: the riding pose built for the hips' shorter lead; its pelvis fields go into `target` */
+  private readonly hipsTarget: Pose = clonePose(POSES.neutral);
+  /** FEAT-044: GPU powder spray (wisps on groomers, hanging clouds in powder, a burst on landing) */
+  readonly spray = new Spray();
   private readonly tmpN = new THREE.Vector3();
   private readonly tmpF = new THREE.Vector3();
   private readonly tmpR = new THREE.Vector3();
@@ -208,6 +275,9 @@ export class RiderView {
   private readonly m2 = new THREE.Matrix4();
   /** FEAT-126: world to the riding frame (the snow plane is y = 0) */
   private readonly invG = new THREE.Matrix4();
+  /** BUG-066: the board's inverse world matrix and scratch points for the deck clearance (the leg pass keeps v1 to v4) */
+  private readonly invB = new THREE.Matrix4();
+  private readonly dA = new THREE.Vector3(); private readonly dK = new THREE.Vector3(); private readonly dH = new THREE.Vector3();
   private readonly cq = new THREE.Quaternion();
   private readonly cp = new THREE.Vector3();
   private readonly armSave = [new THREE.Quaternion(), new THREE.Quaternion()];
@@ -229,29 +299,26 @@ export class RiderView {
     return g ? { phase: g.phase, speed: g.speed, feet: g.feet.map((f) => ({ x: f.x, y: f.y, z: f.z, planted: f.planted })) } : null;
   }
 
+  /** BUG-056: the lead / lag chain this frame, for checks (rad): the board as drawn and the physics
+   *  roll it follows, the body's inclination, the shoulders' turn ahead, and the edges the upper body
+   *  and the hips posed for (share of full) */
+  get leadState(): { boardRoll: number; physRoll: number; lean: number; yawLead: number; edgeUpper: number; edgeHips: number } {
+    return { boardRoll: this.rollF.x, physRoll: this.rollPhys, lean: this.leanAngle, yawLead: this.yawLead, edgeUpper: this.edgeUpper, edgeHips: this.edgeHips };
+  }
+
   constructor() {
     this.mats = defaultMaterials();
     this.group.name = 'rider'; this.lean.name = 'rider lean';
     this.group.add(this.lean);
     this.rig = this.mount('board');
-
-    const n = 1200;
-    this.sprayPos = new Float32Array(n * 3);
-    this.sprayVel = new Float32Array(n * 3);
-    this.sprayLife = new Float32Array(n);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(this.sprayPos, 3));
-    this.spray = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.28, map: sprayTexture(), transparent: true, opacity: 0.75, depthWrite: false, alphaTest: 0.05 }));
-    this.spray.frustumCulled = false;
-    this.spray.name = 'snow spray';
   }
 
   get sprayObject(): THREE.Points {
-    return this.spray;
+    return this.spray.points;
   }
 
   private mount(d: 'board' | 'ski'): RiderRig {
-    const rig = buildRig(this.mats, d);
+    const rig = buildRig(this.mats, d, d === 'board' && this.goofy);
     this.lean.add(rig.board, rig.body);
     for (const o of [rig.body, rig.board]) o.traverse((m) => m.layers.enable(BODY_LAYER));
     return rig;
@@ -261,12 +328,25 @@ export class RiderView {
   setDiscipline(d: 'board' | 'ski'): void {
     if (d === this.discipline) return;
     this.discipline = d;
+    this.rebuild();
+  }
+
+  /** FEAT-139: regular or goofy stance (rebuilds the board with its nose and bindings turned round). */
+  setStance(goofy: boolean): void {
+    if (goofy === this.goofy) return;
+    this.goofy = goofy;
+    if (this.discipline === 'board') this.rebuild();
+  }
+
+  private rebuild(): void {
+    const d = this.discipline;
     this.lean.remove(this.rig.board, this.rig.body);
     for (const o of [this.rig.body, this.rig.board]) o.traverse((m) => { if ((m as THREE.Mesh).isMesh) (m as THREE.Mesh).geometry.dispose(); });
     this.rig = this.mount(d);
     this.poses = d === 'ski' ? SKI_POSES : POSES;
     Object.assign(this.pose, clonePose(this.poses.neutral));
     this.flex = 0; this.flexV = 0;
+    this.visLive = false; // BUG-056: the follows snap on the next frame
     this.wasSeated = false;
     this.footActive = false; this.gaitLive = false;
     this.setFirstPerson(this.fp);
@@ -276,6 +356,17 @@ export class RiderView {
   setOutfit(o: { jacket: string; pants: string; helmet: string; board: string; gloves: string }): void {
     this.mats.jacket.color.set(o.jacket); this.mats.pants.color.set(o.pants); this.mats.helmet.color.set(o.helmet);
     this.mats.board.color.set(o.board); this.mats.gloves.color.set(o.gloves);
+  }
+
+  /** FEAT-130: the goggle lens the rider wears (matches the first-person lens) */
+  lensId: LensId = 'off';
+  setLens(id: LensId): void {
+    this.lensId = id;
+    const L = LENSES[id], g = this.mats.goggles;
+    g.color.set(L.swatch);
+    // mirrors shine; plain tints show their colour; Off keeps the classic orange mirror
+    g.metalness = id === 'off' ? 0.4 : id === 'clear' ? 0.1 : L.mirror ? 0.6 : 0.3;
+    g.roughness = id === 'off' ? 0.2 : L.mirror ? 0.12 : 0.18;
   }
 
   /**
@@ -350,15 +441,49 @@ export class RiderView {
     return Math.max(0, CLEAR_HIP - this.snowHeight(B.Hips), 2 * knee);
   }
 
-  /** FEAT-126: a hand that would dip into the snow on a deep lean rests on it instead (a light drag touch). */
-  private handsAboveSnow(): void {
+  /**
+   * BUG-066: how far the hips must rise (m, up the body) for the shins, knees and thighs to clear the deck
+   * where they pass over the board. The deck is tested in the board's own frame, so it holds with the
+   * board rolled further over than the body (the angulation of a hard carve) and tipped in a press.
+   */
+  private deckDeficit(): number {
+    const B = this.rig.bones;
+    this.invB.copy(this.rig.board.matrixWorld).invert();
+    let need = 0;
+    for (const [ankle, knee, hip] of [[B.LeftFoot, B.LeftLeg, B.LeftUpLeg], [B.RightFoot, B.RightLeg, B.RightUpLeg]] as const) {
+      const a = ankle.getWorldPosition(this.dA).applyMatrix4(this.invB);
+      const k = knee.getWorldPosition(this.dK).applyMatrix4(this.invB);
+      const h = hip.getWorldPosition(this.dH).applyMatrix4(this.invB);
+      const test = (p: THREE.Vector3, q: THREE.Vector3, ts: readonly number[]) => {
+        for (const t of ts) {
+          const x = p.x + (q.x - p.x) * t, y = p.y + (q.y - p.y) * t, z = p.z + (q.z - p.z) * t;
+          if (Math.abs(x) > DECK_HALF_W || Math.abs(z) > DECK_HALF_L) continue;
+          need = Math.max(need, deckY(this.rig, z) + 0.022 + DECK_CLEAR - y);
+        }
+      };
+      test(a, k, SHIN_TS); test(k, h, THIGH_TS);
+    }
+    return need;
+  }
+
+  /**
+   * FEAT-126: a hand that would dip into the snow on a deep lean rests on it instead (a light drag touch).
+   * FEAT-148: in a hard carve (`hard` 0..1) the inside hand, the one nearer the snow, reaches down to it
+   * and drags: toeside the forearm and hand, heelside the hand beside the hip.
+   */
+  private handsAboveSnow(hard: number): void {
     const B = this.rig.bones;
     this.invG.copy(this.group.matrixWorld).invert();
     const chestQ = B.Spine2.getWorldQuaternion(this.pq);
+    const drag = hard * smooth(HAND_DRAG_FROM, HAND_DRAG_FULL, Math.abs(this.leanAngle));
+    const yL = B.LeftHand.getWorldPosition(this.v1).applyMatrix4(this.invG).y, yR = B.RightHand.getWorldPosition(this.v1).applyMatrix4(this.invG).y;
+    const inside = yL < yR ? -1 : 1;
     for (const [s, up, lo, end] of [[-1, B.LeftArm, B.LeftForeArm, B.LeftHand], [1, B.RightArm, B.RightForeArm, B.RightHand]] as const) {
       const local = end.getWorldPosition(this.v1).applyMatrix4(this.invG);
-      if (local.y >= CLEAR_HAND) continue;
-      local.y = CLEAR_HAND;
+      const w = s === inside ? drag : 0;
+      if (local.y >= CLEAR_HAND && w <= 0) continue;
+      local.y = Math.max(CLEAR_HAND, local.y) + (HAND_DRAG_Y - Math.max(CLEAR_HAND, local.y)) * w;
+      local.x += Math.sign(this.leanAngle) * HAND_DRAG_OUT * w;
       const target = local.applyMatrix4(this.group.matrixWorld);
       // elbows out and back, as when holding the gear
       twoBone(up, lo, end, target, this.v2.set(s * 0.7, -1, 0.4).applyQuaternion(chestQ));
@@ -428,11 +553,12 @@ export class RiderView {
     this.prevVz = r.vz;
     this.bump += (Math.min(1, az / BUMP_ACC) - this.bump) * Math.min(1, h * 4);
     // correction: the lean's change kicks a damped spring (arms swing against the body's throw)
-    const dL = free ? r.lean - this.prevLean : 0;
-    this.prevLean = r.lean;
+    const lean = this.fl * r.lean; // FEAT-139: in the rig's frame, so turning round is no kick
+    const dL = free ? lean - this.prevLean : 0;
+    this.prevLean = lean;
     this.corrV += CORR_KICK * dL - (CORR_W * CORR_W * this.corr + 2 * CORR_ZETA * CORR_W * this.corrV) * h;
     this.corr += this.corrV * h;
-    const amp = ground ? smooth(0.2, 0.8, La) * (FLAIL_BASE + FLAIL_HOLD * Math.min(1, this.holdT / FLAIL_RAMP)) * (1 + FLAIL_SPEED * Math.min(FLAIL_VMAX, r.speed) + FLAIL_BUMP * this.bump) : 0;
+    const amp = ground ? smooth(0.2, 0.8, La) * (FLAIL_BASE + FLAIL_HOLD * Math.min(1, this.holdT / FLAIL_RAMP)) * (1 + FLAIL_SPEED * Math.min(FLAIL_VMAX, r.speed) + FLAIL_BUMP * this.bump + (r.pressing ? FLAIL_BAL * smooth(0.2, 1, Math.abs(r.pressBalance)) : 0)) : 0;
     this.flailAmp += (amp - this.flailAmp) * Math.min(1, h * 6);
     const fp = this.fp ? 0.35 : 1, A = this.flailAmp * fp, c = this.clock;
     const wl = wave(WOBBLE.lOut, c), wr = wave(WOBBLE.rOut, c), sl = wave(WOBBLE.lSwing, c), sr = wave(WOBBLE.rSwing, c);
@@ -466,7 +592,51 @@ export class RiderView {
     B.Hips.updateMatrixWorld(true);
   }
 
+  /**
+   * The riding pose on the snow for an edge (share of full, the brake side while braking) and a
+   * press lean: carve, deep carve, tuck, charge, squat, press, skating, landing and the brake's
+   * crouch, blended into `t`. Returns the press's pelvis roll (rad), which the head takes back out.
+   */
+  private ridingPose(t: Pose, r: Rider, tuck: boolean, b: number, edge: number, lean: number): number {
+    const P = this.poses;
+    let pressRoll = 0;
+    // braking stance: sitting back on the heel edge or kneeling into the toe edge
+    if (edge > 0) lerpPose(t, t, P.carveToe, Math.min(1, edge * 1.2)); else if (edge < 0) lerpPose(t, t, P.carveHeel, Math.min(1, -edge * 1.2));
+    // FEAT-126: the harder the lean, the lower and more bent: light turns stay relaxed and tall,
+    // a full-lean carve drops into the deep pose on the side the body leans to
+    const deep = smooth(DEEP_FROM, LEAN_MAX, Math.abs(this.leanAngle)) * (1 - b);
+    if (deep > 0) lerpPose(t, t, this.leanAngle > 0 ? P.carveToeDeep : P.carveHeelDeep, deep);
+    if (tuck) lerpPose(t, t, P.tuck, 0.85);
+    if (r.jumpCharge > 0) lerpPose(t, t, P.crouch, Math.min(1, r.jumpCharge));
+    // FEAT-111: deeper than tuck or charge, wins over both. BUG-066: not in a hard carve (the same key),
+    // which keeps the deep carve stance above as one long line instead of folding onto the board
+    const squat = r.squat * (1 - r.hardCarve);
+    if (squat > 0) lerpPose(t, t, P.squat, squat);
+    // FEAT-085 skating: knees bent, chest over the front foot, bobbing down into each push
+    // FEAT-112: hips over the loaded end, the chest leaning with them
+    // BUG-047: no extra drop when already squatting or charged (that put the seat through the deck)
+    // FEAT-125: a snowboarder leans the whole upper body over the loaded end with the arms up to balance
+    if (Math.abs(lean) > 0.01) {
+      if (this.discipline === 'board') {
+        pressRoll = this.pressPose(t, lean);
+        // FEAT-140: the pelvis rolls on toward the end the balance is running to (the head takes it back out)
+        if (r.pressing) { const lr = BAL_ROLL * this.fl * r.pressBalance; t.hipsRot[2] += lr; pressRoll += lr; }
+      }
+      else t.torso = [t.torso[0] + 0.3 * lean, t.torso[1], t.torso[2]];
+      t.hipsY -= 0.06 * Math.abs(lean) * (1 - Math.min(1, Math.max(r.squat, r.jumpCharge)));
+    }
+    if (r.skating) { const push = Math.max(0, Math.cos(r.skatePhase * Math.PI * 2)); lerpPose(t, t, P.crouch, 0.35 + 0.25 * push); t.torso = [t.torso[0] + 0.25 * push, t.torso[1], t.torso[2]]; }
+    if (r.landingShock > 0) lerpPose(t, t, P.land, Math.min(1, r.landingShock * 1.5));
+    // knees bent and hips low in proportion to how hard the edge is biting
+    const bite = b * Math.min(1, r.brakeAcc / 8);
+    if (bite > 0) { lerpPose(t, t, P.crouch, 0.45 * bite); t.hipsY -= 0.05 * bite; }
+    return pressRoll;
+  }
+
   update(r: Rider, dt: number, tuck: boolean, grab = false, seated = false): void {
+    this.setStance(!!r.goofy); // FEAT-139: the ghost and a replay carry their own stance
+    // FEAT-139: riding switch or goofy (not both) the rig is drawn turned round; seated and on foot never
+    const fl = this.fl = this.discipline === 'board' && !seated && !!r.switch !== !!r.goofy ? -1 : 1;
     // on foot, or stepping on or off the board
     const u = seated ? 0 : r.footU;
     if (u > 0 && this.pack && this.gait) {
@@ -479,20 +649,27 @@ export class RiderView {
     this.group.position.set(r.x, r.z, -r.y);
     // ---- orientation: board forward along its yaw (the heading, swung across the travel direction
     // while braking), up along the ground normal (toward world up in the air)
-    const yaw = seated ? r.heading : r.boardYaw;
+    const yaw = seated ? r.heading : r.boardYaw + (fl < 0 ? Math.PI : 0);
+    // BUG-056: the board as drawn follows the physics yaw boardLag behind, so the body (posed ahead,
+    // below) visibly turns first. Landings, crashes, the chair and a jump in state (a reset or a
+    // teleport) snap it: the board meets the snow when it meets it.
+    const snap = !this.visLive || seated || r.crashed > 0 || (r.onGround && !this.prevGround) || Math.abs(wrap(yaw - this.yawF.x)) > 1;
+    this.prevGround = r.onGround; this.visLive = true;
+    if (snap) { this.yawF.x = yaw; this.yawF.v = 0; } else follow(this.yawF, this.yawF.x + wrap(yaw - this.yawF.x), this.boardLag, dt);
+    const visYaw = this.yawF.x;
     const n = this.tmpN.set(r.normal[0], r.normal[2], -r.normal[1]);
     if (!r.onGround) n.lerp(this.v1.set(0, 1, 0), 0.7).normalize();
-    const f = this.tmpF.set(Math.sin(yaw), 0, -Math.cos(yaw));
+    const f = this.tmpF.set(Math.sin(visYaw), 0, -Math.cos(visYaw));
     f.addScaledVector(n, -f.dot(n)).normalize();
     const right = this.tmpR.crossVectors(f, n).normalize();
     this.rot.makeBasis(right, n, this.v1.copy(f).negate());
     this.q.setFromRotationMatrix(this.rot);
-    this.baseQ.slerp(this.q, Math.min(1, dt * 12));
+    this.baseQ.slerp(this.q, Math.min(1, dt * 30)); // only smooths the ground normal now; the yaw lag is the follow above
     this.group.quaternion.copy(this.baseQ);
     // FEAT-110: the flip pitches the rider and board about the board's own side axis, through a point
     // 0.7 m up (about the hips); a front flip (+) puts the nose down
     if (!r.onGround && r.flip !== 0) {
-      this.airFlipQ.setFromAxisAngle(this.flipAxis, -r.flip);
+      this.airFlipQ.setFromAxisAngle(this.flipAxis, -r.flip * fl); // the physics flip is about the heading's side axis
       this.group.quaternion.multiply(this.airFlipQ);
       this.pivot.set(0, 0.7, 0).applyQuaternion(this.baseQ);
       this.group.position.add(this.pivot).sub(this.v1.set(0, 0.7, 0).applyQuaternion(this.group.quaternion));
@@ -501,37 +678,73 @@ export class RiderView {
     // phi = atan(a_lat / g), capped at 60 degrees (FEAT-126). lateralG > 0 = toward the board's right
     // (toe side). Braking, the board lies across the travel direction, so the braking deceleration
     // is lateral to it: the rider leans back into the hill onto the trailing edge (heelside -, toeside +).
-    const brakeG = r.brakeSide * r.brakeAcc / 9.81;
-    const latG = r.lateralG * (1 - r.brakeAmt) + brakeG;
-    const phi = r.onGround && !seated ? carveLean(latG) : 0;
-    this.leanAngle += (phi - this.leanAngle) * Math.min(1, dt * 8);
+    // FEAT-139: in the rig's frame (fl), so toe and heel are the rider's own whichever way round they ride
+    const brakeG = fl * r.brakeSide * r.brakeAcc / 9.81;
+    const latG = fl * r.lateralG * (1 - r.brakeAmt) + brakeG;
+    // BUG-056: the body commits into the turn ahead of the edge: while the steer is moving the edge,
+    // the inclination leans for the balance angle of the edge leadHips from now (the measured lateral g
+    // still points the old way), blending back to the measured lean once the edge holds, so the hips
+    // cross the board first
+    const live = r.onGround && !seated && r.crashed <= 0;
+    const edgeAhead = live ? r.predictEdge(this.leadHips) - r.edge : 0;
+    const k = Math.min(1, Math.abs(edgeAhead) / LEAD_BLEND) * (1 - r.brakeAmt);
+    // FEAT-148: a hard carve lays the body over further, toward the snow
+    const leanMax = LEAN_MAX + (LEAN_HARD - LEAN_MAX) * (live ? r.hardCarve : 0);
+    const measured = carveLean(latG, leanMax);
+    const phi = r.onGround && !seated ? Math.max(-leanMax, Math.min(leanMax, measured + (fl * r.predictIncline(this.leadHips) - measured) * k)) : 0;
+    follow(this.leanF, phi, BODY_RESPONSE, dt);
     // FEAT-127: the board rolls onto the sim's real edge angle (the brake's snow cut while braking),
-    // further over than the body: the knees and hips make up the difference (angulation)
+    // further over than the body: the knees and hips make up the difference (angulation).
+    // BUG-056: drawn boardLag behind the physics edge (the same snap rules as the yaw), and never
+    // rolled further onto the engaged edge than the physics has it, so the lag cannot bury it.
     const bk = r.brakeSide !== 0 ? r.brakeAmt : 0;
-    const rollT = r.onGround && !seated && r.crashed <= 0 ? r.edgeAngle * EDGE_FULL * (1 - bk) + r.brakeSide * (r.brakePsi ?? 0) * bk : 0;
-    this.boardRoll += (rollT - this.boardRoll) * Math.min(1, dt * 15);
+    const rollT = live ? fl * (r.edgeAngle * EDGE_FULL * (1 - bk) + r.brakeSide * (r.brakePsi ?? 0) * bk) : 0;
+    this.rollPhys = rollT;
+    if (snap) { this.rollF.x = rollT; this.rollF.v = 0; } else follow(this.rollF, rollT, this.boardLag, dt);
+    // easing off the edge the drawn board may not trail behind the physics (it would be rolled further than
+    // the edge is), so there it catches up with a quarter of the lag: still a smooth follow, no snap
+    if (live && this.rollF.x * rollT >= 0 && Math.abs(this.rollF.x) > Math.abs(rollT)) follow(this.rollF, rollT, this.boardLag / 4, dt);
     // the board and the rider roll together about the engaged edge so it stays in the snow, then the
     // board rolls on by `ex` about that same edge. The pivot slides out from the middle of the base
     // to the edge (EDGE_OFF) over the first EDGE_PIVOT_ROLL of roll, so an edge change never pops.
-    const pv = EDGE_OFF * Math.max(-1, Math.min(1, this.boardRoll / EDGE_PIVOT_ROLL));
-    const ex = this.boardRoll - this.leanAngle;
+    const pv = EDGE_OFF * Math.max(-1, Math.min(1, this.rollF.x / EDGE_PIVOT_ROLL));
+    const ex = this.rollF.x - this.leanAngle;
     this.lean.position.set(pv, 0, 0);
     this.lean.rotation.set(0, 0, -this.leanAngle); // positive lateralG tips +Y toward +X
     if (this.discipline === 'board') this.rig.board.position.set(-pv * Math.cos(ex), pv * Math.sin(ex), 0);
     else { this.rig.board.position.set(-pv, 0, 0); if (!seated) this.rollSkis(ex, pv / EDGE_OFF); }
     // FEAT-112: the board tips up about its loaded end, up to 18 deg: nose up on a lean back (ollie,
     // tail press), tail up on a lean forward (nollie, nose press). The feet ride the bindings with it.
-    const L = r.lean ?? 0;
+    const L = fl * (r.lean ?? 0); // FEAT-139: the heading's nose is the rig's tail riding turned round
     if (this.discipline === 'board') {
       // FEAT-118: the snowboard bends instead: tail flat, arched from the back foot, nose up.
       // The load grows with the lean and the jump charge and lets go in the air (the pop).
       this.rig.board.rotation.set(0, 0, -ex);
-      const target = seated || !r.onGround ? 0 : Math.abs(L) * (0.6 + 0.4 * Math.min(1, r.jumpCharge));
-      if (Math.abs(L) > 0.01) this.flexDir = Math.sign(L);
+      let target = seated || !r.onGround ? 0 : Math.abs(L) * (0.6 + 0.4 * Math.min(1, r.jumpCharge));
+      // FEAT-140: a balanced press bends deeper, and deeper still as the balance runs to the loaded end
+      // (flatter toward the other end; a jump charge still adds its load on top)
+      if (r.pressing && r.onGround && !seated) target = Math.min(BEND_MAX, Math.abs(L) * (PRESS_BEND * (1 + BAL_BEND * r.pressBalance * r.pressDir) + 0.4 * Math.min(1, r.jumpCharge)));
+      // BUG-048: a lean to the other end first lets the board come back to flat, and only then bends it
+      // the other way (switching while still bent swapped nose-up for tail-up in one frame)
+      if (Math.abs(L) > 0.01 && Math.sign(L) !== this.flexDir) {
+        if (Math.abs(this.flex) < 0.05) this.flexDir = Math.sign(L);
+        else target = 0;
+      }
       const h = Math.min(dt, 0.05);
       this.flexV += (FLEX_W * FLEX_W * (target - this.flex) - 2 * FLEX_ZETA * FLEX_W * this.flexV) * h;
       this.flex += this.flexV * h;
       bendBoard(this.rig, this.flex, this.flexDir);
+      // FEAT-140: deep in a press the whole board tips up about its loaded tip, which stays on the snow
+      const deep = Math.max(0, Math.min(1, 0.5 + 0.5 * r.pressBalance * r.pressDir));
+      // (in the air, a held press key tips it half way: set up to land into the press)
+      const tipTo = seated ? 0 : r.pressing && r.onGround ? Math.abs(L) * PRESS_TIP * deep : !r.onGround && r.crashed <= 0 ? Math.abs(L) * PRESS_TIP * 0.5 : 0;
+      follow(this.tipF, tipTo, TIP_RESPONSE, dt);
+      if (this.tipF.x > 1e-3) {
+        const sz = this.flexDir < 0 ? 1 : -1, end = sz * BOARD_HALF; // the loaded end's local z (+z the tail)
+        this.rig.board.rotation.set(sz * this.tipF.x, 0, -ex); // +x lifts the nose (-z)
+        this.pivot.set(0, 0, end);
+        this.rig.board.position.add(this.pivot).sub(this.v2.set(0, 0, end).applyQuaternion(this.rig.board.quaternion));
+      }
     } else if (Math.abs(L) > 0.01 && !seated) {
       const end = L < 0 ? BOARD_HALF : -BOARD_HALF; // the end that stays down (local -Z is the nose)
       this.rig.board.rotation.set((L < 0 ? 1 : -1) * Math.abs(L) * LEAN_TIP, 0, 0);
@@ -542,7 +755,7 @@ export class RiderView {
     // ---- FEAT-046: a crash is a ragdoll tumble; the body is pulled toward the sim's slide so it
     // gets up where the rider is, then blends back to the animated pose over RAGDOLL_RECOVER
     if (this.ragdoll && r.crashed > 0 && !seated) {
-      if (!this.ragdoll.active) { this.group.updateMatrixWorld(true); this.ragdoll.start(this.rig, this.v1.set(r.vx, r.vz, -r.vy)); }
+      if (!this.ragdoll.active) { this.group.updateMatrixWorld(true); this.ragdoll.start(this.rig, this.v1.set(r.vx, r.vz, -r.vy), r.crashFall ? this.v2.set(Math.sin(r.heading) * r.crashFall, 0, -Math.cos(r.heading) * r.crashFall) : r.crashSide ? this.v2.set(Math.cos(r.heading) * r.crashSide, 0, Math.sin(r.heading) * r.crashSide) : null); } // FEAT-140: a press slam falls over its loaded end; FEAT-148: a washout to the inside of the turn
       this.group.updateMatrixWorld(true);
       this.ragdoll.step(dt, this.v2.set(r.x, r.z, -r.y));
       this.ragdoll.apply(this.rig);
@@ -571,32 +784,21 @@ export class RiderView {
       if (Math.abs(r.flipRate) > 1) lerpPose(t, t, P.tuck, Math.min(0.85, Math.abs(r.flipRate) / 10)); // FEAT-110: balled up mid-flip, opening as it slows
     }
     else {
-      // braking stance: sitting back on the heel edge or kneeling into the toe edge
+      // BUG-056: the riding pose is built for where the rider is going, not where the board is: the
+      // head, shoulders and arms for the edge and lean leadUpper ahead, the pelvis for leadHips ahead
       const b = r.brakeSide !== 0 ? r.brakeAmt : 0;
-      const edge = Math.max(-1, Math.min(1, r.edgeAngle * (1 - b) + r.brakeSide * b));
-      if (edge > 0) lerpPose(t, t, P.carveToe, Math.min(1, edge * 1.2)); else if (edge < 0) lerpPose(t, t, P.carveHeel, Math.min(1, -edge * 1.2));
-      // FEAT-126: the harder the lean, the lower and more bent: light turns stay relaxed and tall,
-      // a full-lean carve drops into the deep pose on the side the body leans to
-      const deep = smooth(DEEP_FROM, LEAN_MAX, Math.abs(this.leanAngle)) * (1 - b);
-      if (deep > 0) lerpPose(t, t, this.leanAngle > 0 ? P.carveToeDeep : P.carveHeelDeep, deep);
-      if (tuck) lerpPose(t, t, P.tuck, 0.85);
-      if (r.jumpCharge > 0) lerpPose(t, t, P.crouch, Math.min(1, r.jumpCharge));
-      if (r.squat > 0) lerpPose(t, t, P.squat, r.squat); // FEAT-111: deeper than tuck or charge, wins over both
-      // FEAT-085 skating: knees bent, chest over the front foot, bobbing down into each push
-      // FEAT-112: hips over the loaded end, the chest leaning with them
-      // BUG-047: no extra drop when already squatting or charged (that put the seat through the deck)
-      // FEAT-125: a snowboarder leans the whole upper body over the loaded end with the arms up to balance
-      if (Math.abs(r.lean) > 0.01) {
-        if (this.discipline === 'board') pressRoll = this.pressPose(t, r.lean);
-        else t.torso = [t.torso[0] + 0.3 * r.lean, t.torso[1], t.torso[2]];
-        t.hipsY -= 0.06 * Math.abs(r.lean) * (1 - Math.min(1, Math.max(r.squat, r.jumpCharge)));
-      }
-      if (r.skating) { const push = Math.max(0, Math.cos(r.skatePhase * Math.PI * 2)); lerpPose(t, t, P.crouch, 0.35 + 0.25 * push); t.torso = [t.torso[0] + 0.25 * push, t.torso[1], t.torso[2]]; }
-      if (r.landingShock > 0) lerpPose(t, t, P.land, Math.min(1, r.landingShock * 1.5));
-      // knees bent and hips low in proportion to how hard the edge is biting
-      const bite = b * Math.min(1, r.brakeAcc / 8);
-      if (bite > 0) { lerpPose(t, t, P.crouch, 0.45 * bite); t.hipsY -= 0.05 * bite; }
+      const edgeFor = (lead: number) => Math.max(-1, Math.min(1, fl * (r.predictEdge(lead) / EDGE_FULL * (1 - b) + r.brakeSide * b)));
+      follow(this.edgeUpperF, edgeFor(this.leadUpper), BODY_RESPONSE, dt); follow(this.edgeHipsF, edgeFor(this.leadHips), BODY_RESPONSE, dt);
+      pressRoll = this.ridingPose(t, r, tuck, b, this.edgeUpper, fl * r.predictLean(this.leadUpper));
+      const h = this.hipsTarget;
+      copyPose(h, P.neutral);
+      this.ridingPose(h, r, tuck, b, this.edgeHips, fl * r.predictLean(this.leadHips));
+      t.hipsY = h.hipsY; t.hipsRot = h.hipsRot; t.lHip = h.lHip; t.rHip = h.rHip; t.lKnee = h.lKnee; t.rKnee = h.rKnee;
     }
+    // FEAT-139: the poses turn the chest and head toward the rig's nose. Drawn turned round (riding
+    // switch, or goofy) that end trails, so the rider looks the other way along the board instead:
+    // over the rig's tail, where they are going. The pose blend below eases the turn after a 180.
+    if (fl < 0 && !seated && r.crashed <= 0) { t.torso = [t.torso[0], -t.torso[1], t.torso[2]]; t.head = [t.head[0], -t.head[1], t.head[2]]; }
     // ---- physical layer on top of the poses
     const free = !seated && r.crashed <= 0;
     if (free) {
@@ -627,9 +829,16 @@ export class RiderView {
       const k = ski ? 1 : 0.7, twistCap = ski ? Math.PI / 2 : 1.05;
       this.twist += (Math.max(-twistCap, Math.min(twistCap, -slip * k)) - this.twist) * Math.min(1, dt * 6);
     } else this.twist *= Math.max(0, 1 - dt * 6);
+    // BUG-056: the shoulders turn into the turn ahead of the drawn board: the lag the board carries plus
+    // the heading the turn rate reaches leadUpper from now (pack yaw is clockwise, three.js yaw the reverse).
+    // Not the swing of a brake: there the shoulders stay down the hill (the slip twist above) and the
+    // board swings across under them.
+    const ahead = free && r.onGround ? wrap(yaw - this.yawF.x) * (1 - r.brakeAmt) + r.turnRate * this.leadUpper : 0;
+    follow(this.yawLeadF, Math.max(-YAW_LEAD_CAP, Math.min(YAW_LEAD_CAP, ahead)), BODY_RESPONSE, dt);
     const hipShare = this.discipline === 'ski' ? SKI_HIP_TWIST : 0;
-    t.hipsRot = [t.hipsRot[0], t.hipsRot[1] + this.twist * hipShare, t.hipsRot[2]];
-    t.torso = [t.torso[0], t.torso[1] + this.twist * (1 - hipShare), t.torso[2]];
+    const hipYaw = this.discipline === 'ski' ? SKI_HIP_TWIST : HIP_YAW_SHARE;
+    t.hipsRot = [t.hipsRot[0], t.hipsRot[1] + this.twist * hipShare - this.yawLead * hipYaw, t.hipsRot[2]];
+    t.torso = [t.torso[0], t.torso[1] + this.twist * (1 - hipShare) - this.yawLead * (1 - hipYaw), t.torso[2]];
     if (this.fp) {
       // first person: arms closer to the sides so the front arm is not held level across the view
       t.lShoulder = [t.lShoulder[0], t.lShoulder[1], t.lShoulder[2] * 0.35];
@@ -648,8 +857,18 @@ export class RiderView {
     // BUG-047: the hips sit over the loaded end and never below the deck under them
     let hipZ = 0;
     if (this.discipline === 'board' && !seated) {
-      hipZ = -this.flexDir * HIP_SHIFT * Math.max(0, Math.min(1, this.flex / PRESS_FLEX));
-      const floor = deckY(this.rig, hipZ) + 0.022 + HIP_CLEAR;
+      // BUG-056: on a press the hips move over the loaded end ahead of the bend (a full lean bends it 0.6)
+      const leanH = free && r.onGround ? fl * r.predictLean(this.leadHips) : 0;
+      const ahead = Math.sign(leanH) === this.flexDir ? 0.6 * Math.abs(leanH) : 0;
+      follow(this.hipZF, Math.max(0, Math.min(1, Math.max(this.flex, ahead) / PRESS_FLEX)), BODY_RESPONSE, dt);
+      hipZ = -this.flexDir * HIP_SHIFT * this.hipZF.x;
+      // FEAT-140: the hips slide on toward the end the press balance is running to (+ balance: the nose, -z)
+      follow(this.balF, free && r.pressing ? fl * r.pressBalance : 0, BODY_RESPONSE, dt);
+      hipZ -= BAL_SHIFT * this.balF.x;
+      hipZ -= this.flexDir * TIP_SHIFT * Math.max(0, this.tipF.x) / PRESS_TIP; // FEAT-140: on over the tipped board's loaded end
+      // FEAT-140: a tipped board's deck rises from the loaded tip toward the hips
+      const tipRise = Math.max(0, BOARD_HALF + this.flexDir * hipZ) * Math.sin(Math.max(0, this.tipF.x)); // the hips' distance from the loaded tip
+      const floor = deckY(this.rig, hipZ) + 0.022 + HIP_CLEAR + tipRise;
       if (p.hipsY < floor) p.hipsY = floor;
     }
     this.applyFK(p, -pv, hipZ);
@@ -680,11 +899,13 @@ export class RiderView {
       this.footGap = pinFeet(rig, lp, rp);
       // FEAT-126: raise the hips until the knees and the seat clear the snow, then solve the legs again.
       // A knee sits about halfway between the hips and the boot, so it rises about half as far.
-      if (nearSnow) {
-        for (let it = 0; it < 3; it++) {
-          const lift = this.snowDeficit();
+      // BUG-066: and the legs clear the deck (a hard carve's angulation tips the board toward the shins)
+      const deckCheck = this.discipline === 'board' && free && r.onGround;
+      if (nearSnow || deckCheck) {
+        for (let it = 0; it < 4; it++) {
+          const lift = Math.max(nearSnow ? this.snowDeficit() / Math.max(0.4, Math.cos(this.leanAngle)) : 0, deckCheck ? this.deckDeficit() : 0);
           if (lift < 0.003) break;
-          p.hipsY += lift / Math.max(0.4, Math.cos(this.leanAngle));
+          p.hipsY += lift;
           this.applyFK(p, -pv, hipZ);
           if (press) this.pressLegs(r);
           this.footGap = pinFeet(rig, lp, rp);
@@ -703,7 +924,7 @@ export class RiderView {
       setWorldQuat(this.rig.bones.Head, this.headQ.multiply(this.rig.bones.Head.getWorldQuaternion(this.q)));
     }
     if (this.discipline === 'ski') this.skiHands(r, tuck, free);
-    if (nearSnow) this.handsAboveSnow();
+    if (nearSnow) this.handsAboveSnow(r.hardCarve);
     if (this.recoverT > 0) {
       // FEAT-046: ease from the last ragdoll pose into the animated one
       this.recoverT = Math.max(0, this.recoverT - dt);
@@ -726,47 +947,12 @@ export class RiderView {
   }
 
   /**
-   * Snow spray when skidding, and a sheet of it off the cutting edge when braking: thrown ahead of
-   * the board along the travel direction (downhill in a hockey stop), spread along its length.
-   * `emitting` false only moves the particles already in the air.
+   * Snow spray (FEAT-044, `Spray.ts`): wisps off the engaged edge and a sheet thrown ahead of the
+   * board when braking on a groomer, hanging clouds in powder, a burst on landing. `emitting` false
+   * only advances the clock (on foot, crashed, on a lift).
    */
   private updateSpray(r: Rider, dt: number, f: THREE.Vector3, right: THREE.Vector3, emitting: boolean): void {
-    const pos = this.sprayPos, vel = this.sprayVel, life = this.sprayLife;
-    const emit = emitting && r.onGround ? Math.floor((r.skid * 10 + (r.speed > 8 ? 1 : 0)) * 1.0) : 0;
-    const sheet = emitting && r.onGround && r.speed > 1 ? Math.floor(r.scrape * 18) : 0;
-    let emitted = 0, sheeted = 0;
-    const g = this.group.position;
-    const sp = Math.max(1e-3, r.speed), dirX = r.vx / sp, dirZ = -r.vy / sp; // travel direction (three.js)
-    for (let i = 0; i < life.length; i++) {
-      if (life[i] <= 0) {
-        if (sheeted < sheet) {
-          sheeted++;
-          life[i] = 0.45 + Math.random() * 0.5;
-          const along = (Math.random() - 0.5) * 1.5;
-          pos[i * 3] = g.x + f.x * along + dirX * 0.2; pos[i * 3 + 1] = g.y + 0.05; pos[i * 3 + 2] = g.z + f.z * along + dirZ * 0.2;
-          // the board's own velocity plus a throw: the spray flies on ahead as the rider slows
-          const throwV = sp * (0.9 + 0.5 * Math.random()) + 1;
-          vel[i * 3] = dirX * throwV + (Math.random() - 0.5) * 1.5;
-          vel[i * 3 + 1] = (1.2 + 2.8 * Math.random()) * (0.5 + 0.5 * r.scrape);
-          vel[i * 3 + 2] = dirZ * throwV + (Math.random() - 0.5) * 1.5;
-        } else if (emitted < emit) {
-          emitted++;
-          life[i] = 0.5 + Math.random() * 0.4;
-          pos[i * 3] = g.x + (Math.random() - 0.5) * 0.6; pos[i * 3 + 1] = g.y + 0.1; pos[i * 3 + 2] = g.z + (Math.random() - 0.5) * 0.6;
-          const side = Math.sign(r.edgeAngle || 1) * -1;
-          vel[i * 3] = right.x * side * (2 + Math.random() * 3) + (Math.random() - 0.5) * 2;
-          vel[i * 3 + 1] = 2 + Math.random() * 3 * r.skid;
-          vel[i * 3 + 2] = right.z * side * (2 + Math.random() * 3) + (Math.random() - 0.5) * 2;
-        } else {
-          pos[i * 3 + 1] = -10000;
-        }
-        continue;
-      }
-      life[i] -= dt;
-      vel[i * 3 + 1] -= 9.81 * dt;
-      pos[i * 3] += vel[i * 3] * dt; pos[i * 3 + 1] += vel[i * 3 + 1] * dt; pos[i * 3 + 2] += vel[i * 3 + 2] * dt;
-    }
-    (this.spray.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    this.spray.update(r, dt, this.group.position, f, right, this.fl, emitting);
   }
 
   // ---------------------------------------------------------------- on foot (FEAT-067)
@@ -830,7 +1016,8 @@ export class RiderView {
     this.q.setFromRotationMatrix(this.rot);
     this.group.quaternion.slerp(this.q, Math.min(1, dt * 12));
     this.baseQ.copy(this.group.quaternion); // FEAT-110: keep the riding base in step, no swing when strapping back in
-    this.leanAngle = 0; this.boardRoll = 0; this.twist = 0;
+    for (const f of [this.leanF, this.rollF, this.yawLeadF, this.edgeUpperF, this.edgeHipsF, this.hipZF, this.balF, this.tipF]) { f.x = 0; f.v = 0; }
+    this.twist = 0; this.visLive = false; // BUG-056: the follows snap when strapping back in
     this.lean.position.set(0, 0, 0); this.lean.rotation.set(0, 0, 0);
 
     // ---- gait (pack coords): runs once fully on foot; until then the feet's standing spots follow the body

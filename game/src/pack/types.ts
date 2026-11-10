@@ -18,6 +18,26 @@ export interface MaskMeta {
   tilesY: number;
 }
 
+/** FEAT-153: one forest cover level, a single RGBA PNG over a rectangle (pack-format.md) */
+export interface CoverLevelMeta {
+  name: string;
+  res: number;
+  /** lower-left corner (pack metres); the image's row 0 is the north edge */
+  minX: number;
+  minY: number;
+  w: number;
+  h: number;
+  file: string;
+}
+
+export interface CoverMeta {
+  /** canopy height at G = 255 (m) */
+  heightMax: number;
+  /** a finer level fades in over this many metres inside its edges */
+  blend: number;
+  levels: CoverLevelMeta[];
+}
+
 export interface InstancesMeta {
   cellSize: number;
   minX: number;
@@ -44,6 +64,12 @@ export interface PackMeta {
   mask?: MaskMeta;
   /** baked sky visibility (greyscale PNG tiles, same layout as the mask), FEAT-047 */
   ao?: MaskMeta;
+  /** piste direction (DATA-002): greyscale tiles on the mask grid, byte 0 = none, 1..255 = groomed run axis (byte - 1) / 254 * 180 deg from east toward north */
+  dir?: MaskMeta;
+  /** mogul amplitude 0..1 m (greyscale PNG tiles, same layout as the mask), FEAT-059; absent in older packs */
+  moguls?: MaskMeta;
+  /** FEAT-153: forest cover levels for the terrain at a distance; absent in older packs */
+  cover?: CoverMeta;
   instances?: InstancesMeta;
   start: { x: number; y: number; heading: number; run?: string };
   sun: { azimuth: number; elevation: number };
@@ -61,6 +87,10 @@ export interface RunFeature {
   area?: boolean;
   /** OSM bridge=*: the way spans a gap the bare-earth DEM does not show */
   bridge?: boolean;
+  /** nights the resort's grooming reports groomed this run; absent when never or no reports */
+  groomNights?: number;
+  /** FEAT-059: how likely the run carries a mogul field, 0..1; absent in older packs */
+  mogulScore?: number;
   points: [number, number, number][];
 }
 
@@ -80,6 +110,8 @@ export interface BuildingFeature {
   /** highest ground under the footprint (BUG-024); absent in packs built before it */
   zMax?: number;
   height: number;
+  /** true when the pipeline had no height or levels tag and used its fallback; absent in older packs */
+  heightDefault?: boolean;
   kind?: string;
 }
 

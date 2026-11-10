@@ -10,7 +10,7 @@ Steps
   4. Lidar: EPT LAZ nodes -> DSM (max per 2 m cell) -> canopy height model = DSM - DEM
   5. NAIP: 4-band 1 m -> NDVI, brightness -> canopy / aspen / rock / scree / meadow classes
   6. OSM: pistes, lifts (+pylons, stations), buildings, roads, water, peaks -> features.json
-  7. Masks (2 m): rock, scree, groomed piste corridors, canopy cover
+  7. Masks (2 m): rock, scree, groomed piste corridors, canopy cover; piste direction for the groomers
   8. Trees: crown detection on the CHM/NDVI, species from NAIP colour + elevation; rocks on the rock mask
   9. Write the pack
 """
@@ -21,7 +21,9 @@ import tifffile
 from scipy import ndimage
 from pyproj import Transformer
 from packwriter import (write_height_set, write_mask_set, write_instances, write_meta, write_features, decode_terrarium)
+from piste_dir import piste_direction
 from terrain_ao import sky_visibility
+from moguls import run_mogul_score, slope_window, paint_field, paint_polygon
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 slug = sys.argv[1]
@@ -214,7 +216,7 @@ bright2 = ((red2 + grn2 + blu2) / 3).astype(np.float32)
 # slope at 2 m
 gy, gx = np.gradient(dem2, R2)
 slope2 = np.degrees(np.arctan(np.hypot(gx, gy))).astype(np.float32)
-del gx, gy
+# gx, gy stay alive for the mogul aspect term (freed after scoring)
 
 # classes
 # canopy needs (a) height above ground AND (b) vegetation in NAIP AND (c) a lidar return nearby. (b) and (c)
@@ -362,6 +364,7 @@ for el in ski["elements"]:
            "points": [[x, y, ground(x, y)] for x, y in pts]}
     if t.get("bridge", "no") != "no":
         rec["bridge"] = True   # bare-earth DEM has no bridge; the client builds a deck
+    rec["mogulTag"] = grooming == "mogul"   # FEAT-059: popped before writing
     runs.append(rec)
 log(f"  runs {len(runs)}")
 
@@ -455,6 +458,7 @@ for el in built["elements"]:
     if "building" in t and len(pts) >= 4:
         zs = [ground(x, y) for x, y in pts]
         h = None
+        h_default = False
         try:
             if "height" in t: h = float(t["height"].split()[0])
             elif "building:levels" in t: h = 3.2 * float(t["building:levels"])
@@ -462,14 +466,16 @@ for el in built["elements"]:
             h = None
         if h is None:
             h = 9.0 if t.get("building") in ("hotel", "apartments", "commercial", "retail") else 5.5
+            h_default = True
             # BUG-024: a big named lodge with no height or levels in OSM (Eagle's Nest) is 3 to 4 storeys
             if t.get("name") and polygon_area(pts) > BIG_LODGE_M2:
                 h = 12.0
+                h_default = False
         # BUG-024: the highest ground under the footprint too (corners and centre), so the client can put
         # the roof above the uphill side before any height tiles have loaded
         cx_, cy_ = sum(p[0] for p in pts[:-1]) / (len(pts) - 1), sum(p[1] for p in pts[:-1]) / (len(pts) - 1)
         z_hi = max(zs + [ground(cx_, cy_)])
-        buildings.append({"name": t.get("name"), "points": [[x, y] for x, y in pts[:-1]], "zBase": float(min(zs)), "zMax": float(z_hi), "height": h, "kind": t.get("building")})
+        buildings.append({"name": t.get("name"), "points": [[x, y] for x, y in pts[:-1]], "zBase": float(min(zs)), "zMax": float(z_hi), "height": h, "heightDefault": h_default, "kind": t.get("building")})
     elif "highway" in t and len(pts) >= 2:
         kind = t["highway"]
         width = {"motorway": 24, "trunk": 14, "primary": 10, "secondary": 8, "tertiary": 7, "residential": 6, "service": 4, "track": 3, "path": 1.5, "footway": 1.5}.get(kind, 4)
@@ -504,6 +510,47 @@ labels = [{"name": el["tags"]["name"], "kind": el["tags"].get("place", "place"),
 for l in labels:
     l["z"] = ground(l["x"], l["y"])
 log(f"  buildings {len(buildings)} roads {len(roads)} water {len(water)} peaks {len(peaks)} labels {len(labels)}")
+def line_cells(pts):
+    """distinct 2 m grid cells along a polyline, as (rows, cols) index arrays, clipped to the grid"""
+    cells = set()
+    for (ax, ay), (bx, by) in zip(pts[:-1], pts[1:]):
+        steps = max(1, int(math.hypot(bx - ax, by - ay) / (R2 * 0.7)))
+        for s_ in range(steps + 1):
+            t = s_ / steps
+            c = int((ax + (bx - ax) * t + OX - X0) / R2); r = int((Y1 - (ay + (by - ay) * t + OY)) / R2)
+            if 0 <= r < H2 and 0 <= c < W2:
+                cells.add((r, c))
+    if not cells:
+        return np.array([], int), np.array([], int)
+    rc = np.array(sorted(cells))
+    return rc[:, 0], rc[:, 1]
+
+
+# ------------------------------------------------------------------ 6b. mogul score per run (FEAT-059)
+# Grooming reports, difficulty, slope and aspect along the centre line, and lift-top traffic; see moguls.py.
+report_nights = len(reports)
+lift_tops = [(s[0], s[1]) for l in lifts for s in l["stations"]]
+for r in runs:
+    tag = r.pop("mogulTag", False)
+    pts = [(p[0], p[1]) for p in r["points"]]
+    rows, cols = line_cells(pts) if len(pts) >= 2 else (np.array([], int), np.array([], int))
+    if len(rows):
+        slope_med = float(np.percentile(slope2[rows, cols], 75))   # the steep pitch, not the run-out
+        dx, dy = float(np.mean(-gx[rows, cols])), float(np.mean(gy[rows, cols]))   # downhill (row 0 = north)
+        aspect = math.degrees(math.atan2(dx, dy)) % 360.0 if math.hypot(dx, dy) > 1e-4 else None
+    else:
+        slope_med, aspect = 0.0, None
+    if report_nights:
+        groom_frac = r.get("groomNights", 0) / report_nights
+    else:
+        groom_frac = None
+    top = max(r["points"], key=lambda p: p[2])
+    near_top = any(math.hypot(top[0] - lx, top[1] - ly) < 150.0 for lx, ly in lift_tops)
+    r["mogulScore"] = round(run_mogul_score(r, slope_med, aspect, groom_frac, tag, near_top), 2)
+del gx, gy
+scored = sorted((r for r in runs if r["mogulScore"] > 0), key=lambda r: -r["mogulScore"])
+log(f"  mogul runs: {sum(1 for r in runs if r['mogulScore'] >= 0.3)} of {len(runs)} score 0.3 or more; top: "
+    + ", ".join(f"{r['name'] or 'unnamed'} {r['mogulScore']:.2f}" for r in scored[:15]))
 write_features(out, {"lifts": lifts, "runs": runs, "buildings": buildings, "roads": roads, "water": water, "peaks": peaks, "labels": labels})
 Z_MIN, Z_MAX = float(np.nanmin(dem)), float(np.nanmax(dem))
 del dem   # 540 MB; everything from here works on the 2 m grid
@@ -574,20 +621,6 @@ def never_groomed_share(groomed, never):
     return out
 
 
-def line_cells(pts):
-    """distinct 2 m grid cells along a polyline, as (rows, cols) index arrays, clipped to the grid"""
-    cells = set()
-    for (ax, ay), (bx, by) in zip(pts[:-1], pts[1:]):
-        steps = max(1, int(math.hypot(bx - ax, by - ay) / (R2 * 0.7)))
-        for s_ in range(steps + 1):
-            t = s_ / steps
-            c = int((ax + (bx - ax) * t + OX - X0) / R2); r = int((Y1 - (ay + (by - ay) * t + OY)) / R2)
-            if 0 <= r < H2 and 0 <= c < W2:
-                cells.add((r, c))
-    if not cells:
-        return np.array([], int), np.array([], int)
-    rc = np.array(sorted(cells))
-    return rc[:, 0], rc[:, 1]
 
 
 piste_f = np.zeros((H2, W2), np.float32)
@@ -620,6 +653,8 @@ canopy_cover = ndimage.uniform_filter(canopy.astype(np.float32), 5)
 rgba = np.stack([rock_w * 255, scree_w * 255, np.clip(groomed, 0, 1) * 255, canopy_cover * 255], axis=-1).astype(np.uint8)
 mask_meta = write_mask_set(out, rgba, R2, X0 - OX, Y0 - OY)
 del rgba
+# piste direction (DATA-002): the groomed runs' axis per cell, for corduroy that follows the run
+dir_meta = write_mask_set(out, piste_direction(runs, groomed, R2, X0 - OX, Y1 - OY, log=log), R2, X0 - OX, Y0 - OY, kind="dir", pad=0)
 # baked sky visibility (FEAT-047): gullies, couloirs, cirques and cliff feet darken; same grid as the mask.
 # A light blur first so 1 m DEM noise does not speckle the tangent plane.
 log("  terrain AO")
@@ -627,6 +662,27 @@ ao = sky_visibility(ndimage.gaussian_filter(dem2, 1.0), R2, log=log)
 log(f"  ao mean {ao.mean():.3f}, p5 {np.percentile(ao, 5):.3f}")
 ao_meta = write_mask_set(out, (np.clip(ao, 0, 1) * 255 + 0.5).astype(np.uint8), R2, X0 - OX, Y0 - OY, kind="ao")
 del ao
+
+# mogul amplitude (FEAT-059): each scoring run's corridor, fading over the outer 3 m, times the slope
+# window; none under canopy, on groomed corduroy, built-up ground or rock. 0..1 m in the greyscale set.
+log("  moguls")
+mog = np.zeros((H2, W2), np.float32)
+for run in runs:
+    sc = run.get("mogulScore", 0.0)
+    if sc <= 0.05 or len(run["points"]) < 2:
+        continue
+    pts = [(p[0], p[1]) for p in run["points"]]
+    if run.get("area"):
+        paint_polygon(mog, pts, sc, R2, X0 - OX, Y1 - OY)
+    else:
+        hw = {"novice": 22, "easy": 20, "intermediate": 18, "advanced": 14, "expert": 10}.get(run["difficulty"] or "", 12)
+        paint_field(mog, pts, hw - 2, sc, R2, X0 - OX, Y1 - OY)
+mog *= slope_window(slope2) * (~canopy).astype(np.float32) * (1 - np.clip(groomed, 0, 1)) * (~built_any).astype(np.float32) * (1 - rock_w) * (1 - scree_w)
+mog = np.clip(mog, 0, 1)
+cells = mog > 0.05
+log(f"  mogul fields {cells.sum() * R2 * R2 / 1e4:.1f} ha, mean amplitude {mog[cells].mean() if cells.any() else 0:.2f} m")
+mog_meta = write_mask_set(out, (mog * 255 + 0.5).astype(np.uint8), R2, X0 - OX, Y0 - OY, kind="moguls", pad=0)
+del mog, cells
 
 # ------------------------------------------------------------------ 8. trees and rocks
 log("trees")
@@ -725,7 +781,16 @@ if seg is not None:
 meta = {"version": 1, "slug": slug, "name": cfg["name"], "crs": crs, "origin": [OX, OY], "lonlat": [lon_c, lat_c],
         "bounds": {"minX": X0 - OX, "minY": Y0 - OY, "maxX": X1 - OX, "maxY": Y1 - OY},
         "zRange": [float(np.floor(Z_MIN / 100) * 100 - 100), float(np.ceil(Z_MAX / 100) * 100 + 100)],
-        "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "instances": inst,
+        "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "dir": dir_meta, "moguls": mog_meta, "instances": inst,
         "start": start, "sun": {"azimuth": 160, "elevation": 30}, "attribution": cfg["attribution"]}
+write_meta(out, meta)
+
+# ------------------------------------------------------------------ 10. forest cover levels for the far terrain (FEAT-153)
+log("cover")
+from cover import build_cover
+meta["cover"] = build_cover(out, raw, cfg, log=log)
+if any(lv["name"] in ("mid", "far") for lv in meta["cover"]["levels"]):   # DATA-019 land cover
+    from cover import ATTRIBUTION as COVER_ATTRIBUTION
+    meta["attribution"] = meta["attribution"] + [a for a in COVER_ATTRIBUTION if a not in meta["attribution"]]
 write_meta(out, meta)
 log("done")

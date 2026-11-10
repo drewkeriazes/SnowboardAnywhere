@@ -1,8 +1,8 @@
 // On-foot render and gait check (FEAT-067): stops, unstraps (B), walks, sprints, turns, strap back
 // in; saves shots of the board carry and the bootprints and prints speed, stamina, foot-IK gap and
 // the print spacing per side. node tools/walkcheck.mjs [pack] [outDir] [--headed] [--ski]
-// (run after `npx vite build`; SHOT_QUERY="&lowgfx" on software GPUs)
-const { chromium } = await import('playwright').catch(() => import('/opt/npm-tools/node_modules/playwright/index.js').then((m) => m.default));
+// (run after `npx vite build`; lowgfx is automatic on software GPUs)
+import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -26,9 +26,7 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(p).pipe(res);
 });
 await new Promise((r) => server.listen(0, r));
-const browser = headed
-  ? await chromium.launch({ headless: false })
-  : await chromium.launch({ args: ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 960, height: 720 }, deviceScaleFactor: 1 });
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -84,11 +82,11 @@ await page.evaluate(() => {
   v.onPlant = (p) => { window.__plants.push({ ...p }); prev?.(p); };
 });
 await ride(30); await page.waitForTimeout(1500); await ride(10);
-// stand on the snow: hold brake to a stop, then press B
+// stand on the snow: hold brake to a stop, then press E
 await page.keyboard.down('ArrowDown');
 for (let i = 0; i < 40; i++) { await ride(10); if ((await state()).speed < 1) break; }
 await page.keyboard.up('ArrowDown');
-await page.keyboard.press('KeyB');
+await page.keyboard.press('KeyE'); // FEAT-124: E straps in and out
 await ride(20); await shot('01_unstrap_crouch', 0.5, 3.5, 0.8, 0.6);
 await ride(15); await shot('02_unstrap_step', 0.5, 3.5, 0.8, 0.6);
 await ride(30); await shot('03_carry_front', -3.2, 0.6, 0.3, 1.0);
@@ -124,7 +122,7 @@ await page.evaluate(() => { const r = window.__sim.rider; const n = r.normal; r.
 await page.keyboard.down('ArrowUp'); await ride(120); console.log('straight up the fall line', JSON.stringify(await state())); await page.keyboard.up('ArrowUp');
 await ride(60);
 // strap back in and ride off
-await page.keyboard.press('KeyB');
+await page.keyboard.press('KeyE'); // FEAT-124: E straps in and out
 await ride(30); await shot('10_strap_in', 0.5, 3.5, 0.8, 0.6);
 await ride(40);
 console.log('strapped', JSON.stringify(await state()));

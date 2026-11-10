@@ -28,7 +28,7 @@ export class Prefetch {
     }
     this.lx = x; this.ly = y;
     this.ax = x + this.vx * LOOK_AHEAD_S; this.ay = y + this.vy * LOOK_AHEAD_S;
-    const box = (x0: number, y0: number, x1: number, y1: number) => { pack.fine?.request(x0, y0, x1, y1); pack.mask?.request(x0, y0, x1, y1); };
+    const box = (x0: number, y0: number, x1: number, y1: number) => { pack.fine?.request(x0, y0, x1, y1); pack.mask?.request(x0, y0, x1, y1); pack.moguls?.request(x0, y0, x1, y1); };
     box(x - AROUND, y - AROUND, x + AROUND, y + AROUND);
     // corridor from the rider to the look-ahead point
     box(Math.min(x, this.ax) - CORRIDOR, Math.min(y, this.ay) - CORRIDOR, Math.max(x, this.ax) + CORRIDOR, Math.max(y, this.ay) + CORRIDOR);

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
-import type { Rider } from '../sim/Rider';
+import { EDGE_FULL, type Rider } from '../sim/Rider';
 import { pointAt, type Course } from '../sim/Courses';
 import { OFF_COURSE, type GhostSample } from '../sim/TimeTrial';
 import { RiderView } from './RiderView';
@@ -23,7 +23,11 @@ export class TrialWorld {
   readonly ghost: RiderView;
   private readonly gates = new Map<string, THREE.Group>();
   private readonly poleMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.5, metalness: 0.4 });
-  private readonly fake: Record<string, unknown> = { normal: [0, 0, 1], onGround: true, crashed: 0, edgeAngle: 0, brakePsi: 0, jumpCharge: 0, landingShock: 0, lateralG: 0, skid: 0, brakeAmt: 0, brakeSide: 0, brakeAcc: 0, scrape: 0, slip: 0, speed: 0, vx: 0, vy: 0, airTime: 0 };
+  /** the ghost as the rider view reads it. BUG-059: with the BUG-056 lead reads (no lead: the steer is
+   *  not recorded, as in a replay) and the fields the air and press poses read */
+  private readonly fake: Record<string, unknown> = { normal: [0, 0, 1], onGround: true, crashed: 0, hardCarve: 0, crashSide: 0, carveShort: 0, edgeAngle: 0, edge: 0, brakePsi: 0, jumpCharge: 0, landingShock: 0, lateralG: 0, skid: 0, brakeAmt: 0, brakeSide: 0, brakeAcc: 0, scrape: 0, slip: 0, speed: 0, vx: 0, vy: 0, airTime: 0,
+    lean: 0, flip: 0, flipRate: 0, squat: 0, turnRate: 0, switch: false, goofy: false,
+    predictEdge(this: { edge: number }) { return this.edge; }, predictIncline: () => 0, predictLean: () => 0 };
   enabled = false;
   // boundary walls for the active course
   private walls: THREE.Mesh[] = [];
@@ -173,7 +177,8 @@ export class TrialWorld {
     if (!s || !this.enabled) { this.ghost.group.visible = false; return; }
     this.ghost.group.visible = true;
     const f = this.fake;
-    f.x = s.x; f.y = s.y; f.z = s.z; f.heading = f.boardYaw = s.h; f.lateralG = s.lg; f.edgeAngle = s.e;
+    f.x = s.x; f.y = s.y; f.z = s.z; f.heading = f.boardYaw = s.h; f.lateralG = s.lg; f.edgeAngle = s.e; f.edge = s.e * EDGE_FULL;
+    f.switch = (s.f & 8) !== 0; f.goofy = (s.f & 16) !== 0; // FEAT-139: drawn the way round the best run was ridden
     f.onGround = (s.f & 1) !== 0; f.crashed = (s.f & 4) !== 0 ? 1 : 0;
     const n = this.pack.groundNormal(s.x, s.y) as number[];
     f.normal = [n[0], n[1], n[2]];
