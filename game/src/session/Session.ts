@@ -307,7 +307,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
 
     // ---------------------------------------------------------------- FEAT-128: the main menu inside the session (attract)
     const shot = attractShot(pack, start);
-    const ghosts = new AttractGhosts(pack, { x: shot.x, y: shot.y, r: 60 }); // stacked as they pass 60 m out from the camera
+    const ghosts = new AttractGhosts(pack);
     ghosts.group.name = 'attract ghosts'; scene.add(ghosts.group);
     ghosts.setVisible(false);
     void ghosts.load(import.meta.env.BASE_URL, opts.attractFiles[pack.meta.slug]?.ghosts ?? []);
