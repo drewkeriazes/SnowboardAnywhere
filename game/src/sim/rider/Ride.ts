@@ -2,7 +2,7 @@
 import type { Rider } from '../Rider';
 import { newSnowState, type SnowState } from '../SnowConditions';
 import type { Input } from './types';
-import { FAKIE_SPEED, FEEL, type Feel, G, GROOMED_BONUS, HARD_DEEP, HARD_DRAG, PD_NOSE_DRAG, PD_TAIL_EASE, PLANE_SPEED, POWDER_DRAG, PRESS_DRAG, PRESS_GRIP, SINK_DRAG, SINK_NOSE, SINK_NOSE_SPEED, SINK_SPEED, SINK_TAIL, SKATE_ACC, SKATE_MAX, SKATE_PERIOD, SKATE_SLOPE, SQUAT_AERO, SQUAT_GRIP, STAND_EDGE, SWITCH_GRIP } from './tuning';
+import { FAKIE_SPEED, FEEL, type Feel, G, GROOMED_BONUS, HARD_DEEP, HARD_DRAG, PD_NOSE_DRAG, PD_TAIL_EASE, PLANE_SPEED, POWDER_DRAG, PRESS_DRAG, SHRUB_DRAG, SHRUB_DRAG_V, PRESS_GRIP, SINK_DRAG, SINK_NOSE, SINK_NOSE_SPEED, SINK_SPEED, SINK_TAIL, SKATE_ACC, SKATE_MAX, SKATE_PERIOD, SKATE_SLOPE, SQUAT_AERO, SQUAT_GRIP, STAND_EDGE, SWITCH_GRIP } from './tuning';
 import { carve, grip } from './EdgeModel';
 import { brake } from './Brake';
 import { jump, followGround } from './Jumps';
@@ -82,7 +82,8 @@ function drag(r: Rider, c: RideStep, dt: number, input: Input): void {
   const snowDrag = snow.drag0 + snow.drag1 * spd
     + snow.powder * POWDER_DRAG * Math.min(spd, PLANE_SPEED) * (0.6 + 0.6 * deep) + sinkNow * SINK_DRAG * G
     + 0.35 * r.skid * G * snow.skidScrub * (1 + H) // FEAT-148: a hard carve's deep edge scrubs twice as hard
-    + HARD_DRAG * H * Math.abs(latAcc); // FEAT-148: the deep edge plows snow
+    + HARD_DRAG * H * Math.abs(latAcc) // FEAT-148: the deep edge plows snow
+    + r.surface.shrub * (SHRUB_DRAG + SHRUB_DRAG_V * spd); // FEAT-159: brushing through willow or juniper
   const dragAcc = aero + snowDrag + plough;
   if (spd > 0.01) {
     const d = Math.min(dragAcc * dt, spd);

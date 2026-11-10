@@ -5,10 +5,11 @@
 //   distance.png        a row from 20 m to 2 km with the real LOD bands, and tiles either side of each band edge
 //   lineup-snow-<l>.png the lineup at snow load 0.5, 1 and as snow ghosts (FEAT-157)
 //   snow-<species>.png  LOD0 | LOD1 | LOD2 | impostor per snow level (bare, 0.5, 1, ghost), spruce, fir and Douglas-fir by default
+//   shrubs.png          the shrubs (willow, juniper, sagebrush, Gambel oak, young conifers) at snow depths 0, 0.5 and 1.5 m (FEAT-159)
 // and prints the triangles per species per LOD, the texture memory and the build times; exit 1 when a
 // budget is broken (LOD0 600 conifers / 400 aspen / 200 krummholz and snags, LOD1 96, LOD2 8, textures 24 MB,
-// generation 150 ms).
-// node tools/treeshot.mjs [outDir] [--headed | --gpu | --cpu] [--only=lineup,lods,distance,snow] [--species=0,3]
+// generation 150 ms; shrubs: willow and oak 60, juniper and sagebrush 40, young conifers the kit's LOD1 96).
+// node tools/treeshot.mjs [outDir] [--headed | --gpu | --cpu] [--only=lineup,lods,distance,snow,shrubs] [--species=0,3]
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -19,7 +20,7 @@ import { GAME } from './paths.mjs';
 const args = process.argv.slice(2);
 const positional = args.filter((a) => !a.startsWith('--'));
 const outDir = positional[0] ?? 'shots-trees';
-const only = (args.find((a) => a.startsWith('--only='))?.slice(7) ?? 'lineup,lods,distance,snow').split(',');
+const only = (args.find((a) => a.startsWith('--only='))?.slice(7) ?? 'lineup,lods,distance,snow,shrubs').split(',');
 fs.mkdirSync(outDir, { recursive: true });
 
 const esbuild = await import('esbuild');
@@ -56,6 +57,7 @@ if (only.includes('impostors')) await save('impostors.png', 'impostorAtlas');
 if (only.includes('lineup')) await save('lineup.png', 'lineup');
 if (only.includes('lods')) for (let s = 0; s < species.length; s++) if (!lodsOf || lodsOf.includes(s)) await save(`lods-${species[s].toLowerCase().replace(/[^a-z]+/g, '-')}.png`, 'lods', s);
 if (only.includes('distance')) await save('distance.png', 'distance');
+if (only.includes('shrubs')) await save('shrubs.png', 'shrubs');
 if (only.includes('snow')) {
   for (const l of [0.5, 1, 'ghost']) await save(`lineup-snow-${l}.png`, 'lineup', l);
   for (const s of lodsOf ?? [0, 3, 5]) await save(`snow-${species[s].toLowerCase().replace(/[^a-z]+/g, '-')}.png`, 'snowLods', s);
@@ -82,6 +84,12 @@ for (const t of stats.triangles) {
   if (t.lod1 > 96) fails.push(`${t.species} LOD1 ${t.lod1} > 96`);
   if (t.lod2 > 8) fails.push(`${t.species} LOD2 ${t.lod2} > 8`);
 }
+console.log('\nshrub triangles (largest variant; FEAT-159)');
+for (const t of stats.shrubs) {
+  console.log(`${t.kind.padEnd(20)} ${String(t.tris).padStart(4)}  (budget ${t.budget})`);
+  if (t.tris > t.budget) fails.push(`${t.kind} ${t.tris} triangles > ${t.budget}`);
+}
+console.log(`shrub generation ${stats.shrubMs.toFixed(0)} ms`);
 const mb = (stats.textureBytes.atlas + stats.textureBytes.impostors) / (1024 * 1024);
 console.log(`\ntexture memory: atlas ${(stats.textureBytes.atlas / 1048576).toFixed(1)} MB + impostors and snow mask ${(stats.textureBytes.impostors / 1048576).toFixed(1)} MB = ${mb.toFixed(1)} MB (budget 24)`);
 const gen = stats.ms.atlas + stats.ms.geometry;

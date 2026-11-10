@@ -72,15 +72,29 @@ const KIT_BEGIN = /* glsl */ `
   vSnowRel = (ktm * vec4(transformed, 1.0)).xyz - kOrigin;
   vSnowHold = snowHold; vSnowY = position.y;
   treeSnowLoad(kOrigin);
+  #ifdef SHRUB
+    // FEAT-159: no snow ghosts in the shrub layer; a half-buried mat or sapling holds the mound's snow
+    vShrub = aShrub; vShrubH = length(ktm[1].xyz);
+    vSnowGhost = 0.0;
+    vSnowLoad = max(vSnowLoad, aShrub.y);
+  #endif
 `;
 /** FEAT-157: the snow varyings the mesh LODs pass on (the offset from the tree's base keeps the noise precise far from the origin) */
 const SNOW_VERT_HEAD = TREE_SNOW_VERT + /* glsl */ `
   attribute float snowHold;
   varying vec3 vSnowRel; varying float vSnowHold; varying float vSnowY;
+  #ifdef SHRUB
+    // FEAT-159, per instance: the snow line (share of the height under the snow) and the mound cover (0..1)
+    attribute vec2 aShrub;
+    varying vec2 vShrub; varying float vShrubH;
+  #endif
 `;
 const SNOW_FRAG_HEAD = TREE_SNOW_COMMON + /* glsl */ `
   uniform float uSnowK;
   varying vec3 vSnowRel; varying float vSnowHold; varying float vSnowY;
+  #ifdef SHRUB
+    varying vec2 vShrub; varying float vShrubH;
+  #endif
 `;
 /** after color_fragment: the snow on this fragment, the needle colour under it, and the ghost's alpha */
 const SNOW_COLOR = /* glsl */ `
@@ -101,6 +115,18 @@ const SNOW_COLOR = /* glsl */ `
     snowCov = max(snowCov, vSnowGhost * (1.0 - smoothstep(0.3, 0.5, a0))); // the filled gaps are rime
     diffuseColor.rgb = mix(diffuseColor.rgb, TREE_SNOW_ALB * (0.88 + 0.12 * sn), snowCov);
   }
+  #ifdef SHRUB
+  {
+    // FEAT-159: the snow drifted round the stems where they come out of it (5 to 25 cm up), and on a
+    // buried mat or sapling the mound over it, a few dark tips showing through
+    float sn2 = treeSnowNoise(vSnowRel * 4.1 + 7.0);
+    float above = (vSnowY - vShrub.x) * vShrubH;
+    float drift = 1.0 - smoothstep(0.05, 0.12 + 0.13 * sn2, above);
+    float mound = smoothstep(0.35, 0.7, vShrub.y * (0.7 + 0.6 * sn2));
+    float c = max(drift, mound);
+    if (c > snowCov) { snowCov = c; diffuseColor.rgb = mix(kNeedle, TREE_SNOW_ALB * (0.9 + 0.1 * sn2), c); }
+  }
+  #endif
 `;
 /** snow lies flat: its normal leans toward up so it is lit like the ground; rime on a ghost keeps the crown's round shading */
 const SNOW_NORMAL = /* glsl */ `
@@ -128,7 +154,13 @@ const FAR_GAIN = 1.3;
 
 const NORMAL_NO_FLIP = THREE.ShaderChunk.normal_fragment_begin.replace('normal *= faceDirection;', '');
 
-export interface TreeMaterialOpts { band: Band; wind: { value: number }; alphaToCoverage: boolean; /** FEAT-157: the LOD's snow amount factor (1 for the cards) */ snowK?: number }
+export interface TreeMaterialOpts {
+  band: Band; wind: { value: number }; alphaToCoverage: boolean;
+  /** FEAT-157: the LOD's snow amount factor (1 for the cards) */
+  snowK?: number;
+  /** FEAT-159: the shrub layer: reads the per-instance `aShrub` (snow line, mound cover), no snow ghosts (its own program) */
+  shrub?: boolean;
+}
 
 /** LOD0 / LOD1: the standard material with the kit hooks. The hook's source is the same for both, so they share one program. */
 export function treeMaterial(atlas: THREE.Texture, o: TreeMaterialOpts): THREE.MeshStandardMaterial {
@@ -152,7 +184,8 @@ export function treeMaterial(atlas: THREE.Texture, o: TreeMaterialOpts): THREE.M
  reflectedLight.directSpecular *= ${SPEC_K.toFixed(2)};
  ${SNOW_LIGHTS}`);
   };
-  mat.customProgramCacheKey = () => 'treekit';
+  if (o.shrub) mat.defines = { ...mat.defines, SHRUB: '' };
+  mat.customProgramCacheKey = () => (o.shrub ? 'treekit-shrub' : 'treekit');
   return mat;
 }
 
@@ -171,7 +204,8 @@ export function treeDepthMaterial(atlas: THREE.Texture, o: TreeMaterialOpts): TH
       .replace('#include <alphatest_fragment>', `if (vSnowGhost > 0.0) diffuseColor.a = treeSnowAlpha(diffuseColor.a, treeSnowNoise(vSnowRel * 3.3), vSnowGhost * vSnowLoad);
         #include <alphatest_fragment>`);
   };
-  mat.customProgramCacheKey = () => 'treekit-depth';
+  if (o.shrub) mat.defines = { ...mat.defines, SHRUB: '' };
+  mat.customProgramCacheKey = () => (o.shrub ? 'treekit-shrub-depth' : 'treekit-depth');
   return mat;
 }
 

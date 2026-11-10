@@ -45,6 +45,8 @@ export interface Params {
   csm: boolean;
   nocsm: boolean;
   nomoguls: boolean;
+  /** FEAT-159: one snowpack depth everywhere (m) for burying the shrubs, instead of the season's */
+  snowdepth: number | null;
 }
 
 export function parseParams(search: string, hosted = !!import.meta.env.VITE_HOST_NAME): Params {
@@ -78,5 +80,6 @@ export function parseParams(search: string, hosted = !!import.meta.env.VITE_HOST
     csm: p.has('csm'),
     nocsm: p.has('nocsm'),
     nomoguls: p.has('nomoguls'),
+    snowdepth: num('snowdepth'),
   };
 }

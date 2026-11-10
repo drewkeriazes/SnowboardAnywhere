@@ -86,6 +86,8 @@ export class GameAudio {
   private wasOnGround = true;
   private wasRiding = false;
   private brushT = 0;
+  /** FEAT-159: last frame's brush under the board (a swish on the way in) */
+  private wasShrub = 0;
   /** FEAT-140: time to the next board creak near the limits of a press */
   private creakT = 0;
 
@@ -371,6 +373,12 @@ export class GameAudio {
   private ramp(): void { this.pick([() => this.burst('bandpass', 650, 0.2, 0.5, 1.0, 1200), () => this.burst('bandpass', 560, 0.22, 0.5, 1.0, 1100), () => this.burst('bandpass', 720, 0.18, 0.45, 1.0, 1300)])(); }
   private graze(): void { this.pick([() => this.burst('lowpass', 420, 0.16, 0.4), () => this.burst('lowpass', 380, 0.18, 0.4), () => this.burst('lowpass', 460, 0.15, 0.38)])(); }
   private brush(): void { this.burst('highpass', 2500 + Math.random() * 1500, 0.12, 0.12, 0.5); }
+  /** FEAT-159: the board through willow stems or a juniper mat: a twiggy scratch and a soft swish, louder the more brush and speed (k 0..1) */
+  private shrubBrush(k: number, v: number): void {
+    const g = (0.4 + 0.6 * k) * (0.4 + 0.6 * v);
+    this.burst('highpass', 2200 + Math.random() * 2200, 0.08 + 0.06 * Math.random(), 0.16 * g, 0.6);
+    this.burst('bandpass', 700 + Math.random() * 500, 0.16, 0.12 * g, 0.7, 2400);
+  }
   private towerClunk(): void { this.pick([() => this.tone(140, 0.18, 0.2, 'square', 90), () => this.tone(160, 0.16, 0.2, 'square', 95), () => this.tone(125, 0.2, 0.22, 'square', 85)])(); this.burst('bandpass', 1800, 0.08, 0.1, 2); }
   private bullWheel(): void { this.burst('lowpass', 120, 1.2, 0.3); this.tone(70, 1.0, 0.1, 'triangle'); }
 
@@ -507,7 +515,11 @@ export class GameAudio {
     this.creakT -= dt;
     const pb = r.pressing && onSnow ? Math.abs(r.pressBalance) : 0;
     if (pb > 0.65 && this.creakT <= 0) { const k = Math.min(1, (pb - 0.65) / 0.35); this.creakT = 0.45 - 0.25 * k + Math.random() * 0.12; this.creak(k); }
-    if (onSnow && s.canopy > 0.5 && spd > 6 && this.brushT <= 0) { this.brushT = 0.4 + Math.random() * 1.6; this.brush(); }
+    // FEAT-159: brush under the board: a swish on the way in, then every 0.1 to 0.25 s while it lasts
+    const shrub = onSnow && spd > 1.5 ? s.shrub : 0;
+    if (shrub > 0.05 && (this.brushT <= 0 || this.wasShrub <= 0.05)) { this.brushT = 0.1 + Math.random() * 0.15; this.shrubBrush(shrub, Math.min(1, spd / 15)); }
+    else if (onSnow && s.canopy > 0.5 && spd > 6 && this.brushT <= 0) { this.brushT = 0.4 + Math.random() * 1.6; this.brush(); }
+    this.wasShrub = shrub;
     if (riding && !this.wasRiding) { this.chime(); this.bullWheel(); }
     if (!riding && this.wasRiding) { this.unloadChime(); this.bullWheel(); }
     if (passedTower) this.towerClunk();

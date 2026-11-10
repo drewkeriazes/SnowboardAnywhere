@@ -57,6 +57,8 @@ export const CLIMB_MAX = 35, CRAWL_MAX = 45, CRAWL = 0.45, BODY_L = 2.5;
  *  the drag per m/s before that (per unit powder), and the nose-sink drag (g) at a standstill that
  *  is gone by SINK_SPEED m/s */
 export const PLANE_SPEED = 12; export const POWDER_DRAG = 0.012, SINK_DRAG = 0.08, SINK_SPEED = 6;
+/** FEAT-159: riding through brush (surface.shrub 1): this drag (m/s^2) plus SHRUB_DRAG_V per m/s; 2.5 m/s^2 at 15 m/s, so a willow clump costs a few tenths of a m/s */
+export const SHRUB_DRAG = 1.0, SHRUB_DRAG_V = 0.1;
 /** FEAT-152 presses in deep powder (scaled by powder x depth): weight forward digs the nose in (up to
  *  SINK_NOSE times the nose dig, and on to SINK_NOSE_SPEED times the speed), weight back lifts it out
  *  (SINK_TAIL of the dig gone, the speed it lasts to cut by the same share); the press's own drag is

@@ -24,6 +24,8 @@ export interface SurfaceInfo {
   canopy: number;
   /** FEAT-059: mogul amplitude under the rider, metres (0 off the bump fields) */
   moguls: number;
+  /** FEAT-159: 0..1 brush the board is riding through (willow, juniper, sagebrush, oak, small conifers above the snow) */
+  shrub: number;
 }
 
 export type Discipline = 'board' | 'ski';

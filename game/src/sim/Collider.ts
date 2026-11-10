@@ -52,11 +52,62 @@ export class Collider {
     return (cx + 0x8000) * 0x10000 + (cy + 0x8000);
   }
 
-  add(x: number, y: number, radius: number, zBase: number, zTop: number, kind = 0): void {
+  /** Add a cylinder; returns its entry, which the caller may change in place (zBase [3], zTop [4]) or `remove`. */
+  add(x: number, y: number, radius: number, zBase: number, zTop: number, kind = 0): Float32Array {
     const k = this.key(Math.floor(x / CELL), Math.floor(y / CELL));
     let arr = this.cells.get(k);
     if (!arr) { arr = []; this.cells.set(k, arr); }
-    arr.push(new Float32Array([x, y, radius, zBase, zTop, kind]));
+    const e = new Float32Array([x, y, radius, zBase, zTop, kind]);
+    arr.push(e);
+    return e;
+  }
+
+  /** Remove a cylinder `add` returned (no-op when its cell was cleared already). */
+  remove(e: Float32Array): void {
+    const arr = this.cells.get(this.key(Math.floor(e[0] / CELL), Math.floor(e[1] / CELL)));
+    const i = arr ? arr.indexOf(e) : -1;
+    if (i >= 0) arr!.splice(i, 1);
+  }
+
+  /**
+   * FEAT-159: brush (willow, juniper, sagebrush, oak, small conifers): nothing to collide with, but a
+   * board riding through is slowed a little and makes a sound. Packed [x, y, radius, zTop, drag]; set
+   * zTop [3] in place as the snow buries it (a top below the board is not touched).
+   */
+  private readonly brush = new Map<string, Float32Array[]>();
+  addBrush(x: number, y: number, radius: number, zTop: number, drag: number): Float32Array {
+    const k = this.key(Math.floor(x / CELL), Math.floor(y / CELL));
+    let arr = this.brush.get(k);
+    if (!arr) { arr = []; this.brush.set(k, arr); }
+    const e = new Float32Array([x, y, radius, zTop, drag]);
+    arr.push(e);
+    return e;
+  }
+  removeBrush(e: Float32Array): void {
+    const arr = this.brush.get(this.key(Math.floor(e[0] / CELL), Math.floor(e[1] / CELL)));
+    const i = arr ? arr.indexOf(e) : -1;
+    if (i >= 0) arr!.splice(i, 1);
+  }
+  /**
+   * FEAT-159: 0..1 how much brush a board of half-width r at (x, y, z) is riding through: the strongest
+   * overlap, times the brush's drag and how far its top stands above the board (full from 0.4 m).
+   */
+  brushAt(x: number, y: number, z: number, r: number): number {
+    if (this.brush.size === 0) return 0;
+    const cx = Math.floor(x / CELL), cy = Math.floor(y / CELL);
+    let best = 0;
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      const arr = this.brush.get(this.key(cx + i, cy + j));
+      if (arr) for (const b of arr) {
+        const up = b[3] - z;
+        if (up <= 0) continue;
+        const reach = b[2] + r, d = Math.hypot(x - b[0], y - b[1]);
+        if (d >= reach) continue;
+        const v = b[4] * Math.min(1, (reach - d) / (0.5 * b[2] + r)) * Math.min(1, up / 0.4);
+        if (v > best) best = v;
+      }
+    }
+    return best;
   }
 
   private readonly walls = new Map<string, Float32Array[]>(); // packed [x1, y1, x2, y2, zBase, zTop, ledge, realTop]
