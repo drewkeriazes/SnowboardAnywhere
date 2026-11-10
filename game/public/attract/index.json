@@ -62,6 +62,46 @@
         "code": "9252996d539a9370",
         "pack": ""
       }
+    },
+    "shotGhosts": {
+      "back-bowls": [
+        "line-red-lead.json",
+        "line-red-mate.json",
+        "line-orange-lead.json",
+        "line-orange-mate.json",
+        "line-yellow-lead.json",
+        "line-yellow-mate.json",
+        "line-green-lead.json",
+        "line-green-mate.json",
+        "line-blue-lead.json",
+        "line-blue-mate.json",
+        "line-purple-lead.json",
+        "line-purple-mate.json",
+        "line2-l-black-lead.json",
+        "line2-l-black-mate.json",
+        "line2-l-orange-lead.json",
+        "line2-l-orange-mate.json",
+        "line2-l-pink-lead.json",
+        "line2-l-pink-mate.json",
+        "line2-l-purple-lead.json",
+        "line2-l-purple-mate.json",
+        "line2-l-red-lead.json",
+        "line2-l-red-mate.json",
+        "line2-l-yellow-lead.json",
+        "line2-l-yellow-mate.json",
+        "line2-m-lime-lead.json",
+        "line2-m-lime-mate.json",
+        "line2-m-teal-lead.json",
+        "line2-m-teal-mate.json",
+        "line2-r-cyan-lead.json",
+        "line2-r-cyan-mate.json",
+        "line2-r-pink-lead.json",
+        "line2-r-pink-mate.json",
+        "line2-r-purple-lead.json",
+        "line2-r-purple-mate.json",
+        "line2-r-yellow-lead.json",
+        "line2-r-yellow-mate.json"
+      ]
     }
   }
 }

@@ -24,6 +24,9 @@ export interface AttractTake {
   samples: ReplaySample[];
   /** FEAT-179: marks a take made for the far slopes (from lines drawn on the shot); timed like every other take */
   backdrop?: boolean;
+  /** FEAT-181: the shot it was made for (tools/ghost_lines.mjs) and the pack's meta.build it was ridden on (a rebuilt pack can leave it floating) */
+  shot?: string;
+  build?: string;
 }
 
 /**

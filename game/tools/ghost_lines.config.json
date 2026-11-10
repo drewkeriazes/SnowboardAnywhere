@@ -1,0 +1,46 @@
+{
+  "_doc": "FEAT-181: every tunable of tools/ghost_lines.mjs. `defaults` are the values that worked on Vail (docs/research/ghost-lines-prototype/README.md); `resorts.<slug>` overrides any of them for one resort (the same nesting, only the keys that differ). Tuning is editing this file, not code; note each change in the README's Learnings.",
+  "defaults": {
+    "extract": {
+      "_doc": "a drawn pixel: saturation over sat and value over value, or every channel under blackMax; not in the render (no render pixel within 2 px closer than notInRender in any channel); drawn colours are hue peaks at least hueSplit degrees apart, a pixel joining the peak nearest in hue + valueWeight x value (0..255) within joinCost; two strokes of one colour whose ends meet within joinPx are one line; a line is at least minCells cells of cellPx. A JPEG softens colours and black: jpeg replaces any of these for one",
+      "sat": 0.45, "value": 90, "blackMax": 6, "notInRender": 50, "hueSplit": 20, "valueWeight": 0.3, "joinCost": 35, "joinPx": 30, "cellPx": 6, "minCells": 20,
+      "jpeg": { "sat": 0.33, "blackMax": 12 }
+    },
+    "fit": {
+      "_doc": "a snip (not the tool's own drawing frame): the shot rendered renderWidth wide at `phases` drift phases, matched over scales sMin..sMax; under minMatch is a warning",
+      "renderWidth": 2600, "phases": 11, "sMin": 0.25, "sMax": 2.5, "minMatch": 0.3
+    },
+    "cast": {
+      "_doc": "rays marched out to maxM; a line splits where neighbouring hits jump over max(jumpM, jumpFrac x distance), the longest run kept (every run of minRun+ points when the rider is then on screen under minInViewS)",
+      "maxM": 12000, "jumpM": 30, "jumpFrac": 0.05, "minRun": 5, "minInViewS": 3
+    },
+    "waypoints": {
+      "_doc": "from the high end, each lower than the last, spacingFrac x distance from the camera apart (minM..maxM); reached within reachFrac of that spacing (reachMinM..reachedM)",
+      "spacingFrac": 0.06, "minM": 4, "maxM": 50, "reachFrac": 0.6, "reachMinM": 3, "reachedM": 18
+    },
+    "bot": {
+      "_doc": "the steering bot on the rider physics (fall line off): steer = clamp(steerGain x heading error, +-steerCap), brake over brakeFrac x the distance from the camera (brakeMin..brakeOver m/s), tuck under tuckUnder, a swingM carving swing on a swingWaveM wave (none within swingNearM of the camera, full from swingFullM); skip a waypoint after stallS under stallSpeed; start at startSpeed m/s out of sight (beyond crestBeyondM never back over a crest); end endAfterS after out of sight; at most maxS",
+      "steerGain": 1.6, "steerCap": 0.75, "brakeOver": 16, "brakeMin": 6, "brakeFrac": 0.15, "tuckUnder": 8, "swingM": 7, "swingWaveM": 40, "swingNearM": 30, "swingFullM": 200,
+      "stallSpeed": 2.5, "stallS": 2, "startSpeed": 8, "crestBeyondM": 300, "endAfterS": 1.5, "maxS": 180
+    },
+    "group": {
+      "_doc": "riders per line (riders); the first partner gapM across (+-driftM over driftPeriodS), lagS behind; each further one gapMinM..gapMaxM further out on alternating sides, lagS more behind; never two within minGapM (else the gaps grow by loosen); a partner that would start in view within nearM swaps sides; all trimmed to cutBeforeS before the first comes into sight",
+      "riders": 2, "gapM": 5, "gapMinM": 4, "gapMaxM": 8, "driftM": 1.5, "driftPeriodS": 23, "lagS": 0.5,
+      "minGapM": 2.5, "loosen": 0.35, "nearM": 300, "cutBeforeS": 1
+    },
+    "outfits": {
+      "_doc": "OUTFIT_PRESETS names; a line whose median cast distance is over farM gets the bright ones",
+      "farM": 250,
+      "all": ["Classic red", "Neon 90s", "Safety orange", "Powder blue", "Forest", "All black"],
+      "bright": ["Neon 90s", "Safety orange", "Classic red", "Powder blue"]
+    },
+    "check": {
+      "_doc": "the report's limits: lead to partner pairMinM..pairMaxM; any two takes (new and existing) closer than takeGapM while both ride; menu frames at times (s) for the pictures and the draw calls",
+      "pairMinM": 4, "pairMaxM": 12, "takeGapM": 2.5, "times": [3, 10, 20, 30, 45]
+    }
+  },
+  "resorts": {
+    "vail": {},
+    "breckenridge": {}
+  }
+}
