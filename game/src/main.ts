@@ -1,4 +1,5 @@
 import './ui/theme.css';
+import './ui/hud.css';
 import { parseParams } from './core/params';
 import { Game } from './core/Game';
 

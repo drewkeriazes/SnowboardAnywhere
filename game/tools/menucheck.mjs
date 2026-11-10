@@ -291,6 +291,44 @@ await key('ArrowLeft');
 await qfocus('clouds'); await key('ArrowRight');
 check('quick toggle changes the weather', (await saved()).clouds === 'broken', (await saved()).clouds);
 await key('ArrowLeft');
+// FEAT-169: Weather heads a group (snow, new snow, valley fog), closed with a summary; Enter opens it, Esc closes it onto Weather
+const qAt = () => page.evaluate(() => document.activeElement?.dataset.q ?? null);
+const wg = () => page.evaluate(() => ({ open: !document.querySelector('#pause .qsub').hidden, sum: document.querySelector('#pause .qhead .sum').textContent, exp: document.querySelector('#pause .qhead').getAttribute('aria-expanded') }));
+const wg0 = await wg();
+check('Weather starts closed with a snow summary', !wg0.open && wg0.sum.length > 0 && wg0.exp === 'false', JSON.stringify(wg0));
+await key('Enter');
+const wg1 = await wg();
+await key('ArrowDown');
+const sub0 = await qAt();
+const snow0 = (await saved()).snowDay ?? 'mid';
+await key('ArrowRight');
+const snow1 = (await saved()).snowDay;
+check('Enter opens Weather, down goes into it, right changes the snow', wg1.open && wg1.exp === 'true' && wg1.sum === '' && sub0 === 'snowDay' && snow1 !== snow0, JSON.stringify({ wg1, sub0, snow0, snow1 }));
+await key('ArrowDown'); await key('ArrowDown');
+const fogAt = await qAt();
+await key('ArrowDown');
+check('down walks New snow, Valley fog, then out to Time of day', fogAt === 'valleyFog' && (await qAt()) === 'timeOfDay', `${fogAt} -> ${await qAt()}`);
+await key('ArrowUp'); await key('ArrowUp');
+await key('ArrowRight');
+check('quick New snow applies at once', (await saved()).newSnow !== 'none' && await page.evaluate(() => window.__sim.settings.newSnow !== 'none'), (await saved()).newSnow);
+await key('ArrowLeft');
+await key('Escape');
+const wg2 = await wg();
+check('Esc in the group closes it onto Weather, pause stays', !wg2.open && (await qAt()) === 'clouds' && await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display !== 'none'), `${JSON.stringify(wg2)} at ${await qAt()}`);
+// the open state is kept for the session: open it, resume, pause again
+await page.evaluate(() => document.querySelector('#pause .qhead .lbl').click());
+const wgClick = (await wg()).open;
+await page.evaluate(() => document.querySelector('#pause button[data-a="resume"]').focus());
+await key('Escape'); await page.waitForTimeout(200); await key('Escape'); await page.waitForTimeout(200);
+check('a click opens Weather and it stays open across a pause', wgClick && (await wg()).open && (await active()) === 'resume', JSON.stringify(await wg()));
+// Settings > Conditions shows the value set from Quick
+await page.evaluate(() => document.querySelector('#pause button[data-a="settings"]')?.click());
+await page.waitForTimeout(300);
+await openCat('conditions');
+const segOn = await page.evaluate(() => document.querySelector('#settings [data-row="snowDay"] .seg button.on')?.dataset.v);
+check('Settings shows the snow set from Quick', segOn === snow1, `${segOn} vs ${snow1}`);
+await key('Escape');
+await page.evaluate(() => document.querySelector('#pause .qhead .lbl').click()); // closed again for the checks below
 // Mode: its own screen, Q / E across Free ride / Time trial / Outrun, Esc back onto Mode
 await page.evaluate(() => document.querySelector('#pause button[data-a="mode"]')?.focus());
 await key('Enter');
@@ -327,6 +365,10 @@ if (shots) {
   await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
   await page.screenshot({ path: path.join(outDir, 'pause-390x844.png') });
   await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(200);
+  await page.evaluate(() => document.querySelector('#pause .qhead .lbl').click());
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(outDir, 'pause-weather.png') });
+  await page.evaluate(() => document.querySelector('#pause .qhead .lbl').click());
 }
 // pause > Settings: over the live game, with the fps readout; changes apply at once
 await page.evaluate(() => document.querySelector('#pause button[data-a="settings"]')?.click());

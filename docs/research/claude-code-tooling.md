@@ -22,7 +22,7 @@ Use in this repo: `npm run dev` then "open http://localhost:5173/?pack=vail, sta
 ```
 # already defined in the repo's .mcp.json (FEAT-088); no install needed
 ```
-Start the dev server first. The repo's `.mcp.json` pins it with `DEV_PORT=5173` and `BRIDGE_PORT=9222`; without that it reads `package.json` in the folder Claude was started in (the repo root has none) and falls back to port 3000. The bridge and keeps a tab at `localhost:9222` that must stay open. Repo: https://github.com/DmitriyGolub/threejs-devtools-mcp
+Start the dev server first. The repo's `.mcp.json` pins it with `DEV_PORT=5173` and `BRIDGE_PORT=9222`; without that it reads `package.json` in the folder Claude was started in (the repo root has none) and falls back to port 3000. The bridge and keeps a tab at `localhost:9222` that must stay open. Since FEAT-174 it is off by default and set to `BROWSER=none` (it used to open that tab with every new chat); turn it on in `/mcp` and open the tab yourself. Repo: https://github.com/DmitriyGolub/threejs-devtools-mcp
 
 ### 3. parallax-threejs (catalog, community)
 Three.js and GLSL debugging plugin that bundles chrome-devtools-mcp, playwright-mcp, Spector (WebGL call capture) and threejs-devtools-mcp, plus `/checkpoint`, `/diff`, `/sweep`, `/ship-check` commands for SHA-indexed visual regression and agents `shader-reviewer`, `visual-debugger`, `scenario-author`. This is the single most relevant plugin for M1, M3 and M5 work on the terrain material and tree shaders. Install from the catalog (search "parallax-threejs"). Overlaps with items 1 and 2; if you install this, you may not need them separately.

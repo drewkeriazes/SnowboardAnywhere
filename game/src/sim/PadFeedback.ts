@@ -1,6 +1,7 @@
 import { dualSense, triggerFeedback, triggerOff, triggerWeapon } from './DualSense';
 import type { PadState } from './Pad';
 import type { Rider } from './Rider';
+import type { Events } from '../core/Events';
 
 /**
  * FEAT-137: what the controller does back. Rumble through the standard Gamepad API
@@ -81,6 +82,16 @@ export class PadFeedback {
   footfall(dist: number): void {
     const k = Math.max(0, 1 - dist / 120);
     if (k > 0) this.pulse(0.1 + 0.08 * k, 0.15 + 0.85 * k * k, 0.1 * k, 'monster');
+  }
+
+  /** FEAT-163: the rumble other systems announce: time trial start, gates and finish, Outrun footfalls. */
+  listen(events: Events): void {
+    events.on('trial', ({ event: e }) => {
+      if (e.kind === 'start') this.trialEvent('start');
+      else if (e.kind === 'split') this.trialEvent('split');
+      else if (e.kind === 'finish') this.trialEvent('finish', e.isBest);
+    });
+    events.on('outrun', ({ event: e }) => { if (e.kind === 'footfall' && e.m) this.footfall(e.m.dist); });
   }
 
   /** Per frame while the game runs. `pad` is the controller read this frame. */

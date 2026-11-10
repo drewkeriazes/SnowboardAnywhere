@@ -28,6 +28,10 @@ export interface CoverLevelMeta {
   w: number;
   h: number;
   file: string;
+  /** BUG-069: optional greyscale PNG, same grid: the forest share under closed stands of drawn trees (the near view) */
+  stands?: string;
+  /** FEAT-168: G of the `stands` image is the share of each cell under the drawn trees' crowns (height-weighted), for their shadows */
+  crowns?: boolean;
 }
 
 export interface CoverMeta {

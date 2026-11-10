@@ -3,19 +3,19 @@ import { MOGUL_CREEP_M_PER_DAY } from '../terrain/Moguls';
 import { LENSES, resolveLens, type GoggleLens, type LensId } from '../world/Lens';
 import { setDeformHold } from '../world/Deform';
 import { treeSnowState } from '../world/trees';
-import { keysOf, type Settings } from '../ui/Settings';
+import type { Settings } from '../ui/Settings';
 import { contextPrompt } from '../ui/ContextPrompt';
 import { keyHints } from '../ui/KeyHints';
 import { hudLine } from '../ui/HudLine';
 import { padFx } from '../sim/PadFeedback';
+import type { Events } from '../core/Events';
 import type { Input, Rider } from '../sim/Rider';
 import type { Controls } from '../sim/Controls';
 import type { LiftRide } from '../sim/LiftRide';
+import type { LiftRuntime } from '../world/Lifts';
 import type { Prefetch } from '../sim/Prefetch';
 import type { RunStats } from '../sim/RunStats';
 import type { Replay } from '../sim/Replay';
-import type { Outrun } from '../sim/Outrun';
-import type { TimeTrial } from '../sim/TimeTrial';
 import type { ChaseCamera } from '../world/ChaseCamera';
 import type { SunClock } from '../world/SunClock';
 import type { CloudCover } from '../world/Clouds';
@@ -23,19 +23,18 @@ import type { GoggleView } from '../ui/GoggleView';
 import type { AutoQuality } from '../ui/AutoQuality';
 import type { RunCard } from '../ui/RunCard';
 import type { SpeedLines } from '../ui/SpeedLines';
-import type { OutrunUI } from '../ui/OutrunUI';
-import type { TrialHud } from '../ui/TrialHud';
 import type { ResortMap } from '../ui/ResortMap';
 import type { Labels } from '../ui/Labels';
 import type { KeyLabels } from '../ui/KeyLabels';
 import type { PressMeter } from '../ui/PressMeter';
 import type { TouchControls } from '../ui/TouchControls';
-import type { ChaseAudio } from '../audio/ChaseAudio';
 import type { GameAudio } from '../audio/Audio';
 import type { Pack } from '../pack/Pack';
 import type { Params } from '../core/params';
 import type { FpsMeter } from '../core/FpsMeter';
 import type { World } from '../session/World';
+import type { Modes } from '../modes/Modes';
+import type { ModeFrame } from '../modes/RideMode';
 
 /** FEAT-077: how skied out the snow gets by late afternoon for each Snow conditions setting */
 const SKIED_BASE: Record<string, number> = { fresh: 0.15, mid: 0.9, spring: 0.7 };
@@ -87,16 +86,14 @@ export interface SkyState { weather: CloudCover; snowCover: number }
 
 /** Everything the frame reads or drives, handed in by the session. */
 export interface RideParts extends World {
-  params: Params; settings: Settings; pack: Pack; renderer: THREE.WebGLRenderer; canvas: HTMLCanvasElement; audio: GameAudio;
-  rider: Rider; liftRide: LiftRide; prefetch: Prefetch; cam: ChaseCamera; controls: Controls; touch: TouchControls | null;
+  params: Params; settings: Settings; pack: Pack; renderer: THREE.WebGLRenderer; canvas: HTMLCanvasElement; audio: GameAudio; events: Events;
+  rider: Rider; liftRide: LiftRide<LiftRuntime>; prefetch: Prefetch; cam: ChaseCamera; controls: Controls; touch: TouchControls | null;
   goggles: GoggleView; lens: GoggleLens; runStats: RunStats; runCard: RunCard; speedLines: SpeedLines; replay: Replay;
-  outrun: Outrun; outrunUI: OutrunUI; trial: TimeTrial; trialHud: TrialHud; map: ResortMap; labels: Labels; sun: SunClock;
+  /** FEAT-164: Free ride, Time trial, Outrun */
+  modes: Modes; map: ResortMap; labels: Labels; sun: SunClock;
   auto: AutoQuality; keyLabels: KeyLabels; pressMeter: PressMeter; fps: FpsMeter; sky: SkyState;
   /** mouse movement to hand to the cameras this frame (px); the right stick and the gyro add to it */
   look: { dx: number; dy: number };
-  /** the Outrun chase sounds (a new set per run) */
-  chase(): ChaseAudio | null;
-  trialsOn(): boolean;
   /** re-apply what the adaptive quality level scales */
   applyAuto(): void;
   /** the main render (with the first-person body pass and the lens) */
@@ -121,7 +118,6 @@ export class RideFrame {
   private boardMsg = '';
   private boardMsgT = 0;
   private elapsed = 0;
-  private countLast = -1;
   private lensWorn: LensId | null = null;
   private promptShown = '';
   private helpShown = '';
@@ -133,11 +129,11 @@ export class RideFrame {
   private fx = 0;
   private fy = 0;
   private liftTop: [number, number, number] | null = null;
-  private readonly eatPosing = new Set<number>();
-  private readonly eatLook = new THREE.Vector3();
   private readonly chairPos = new THREE.Vector3();
   private readonly eye = new THREE.Vector3();
   private readonly pressHead = new THREE.Vector3();
+  /** FEAT-164: one reused frame for modes.update (a mutable ModeFrame), so the frame allocates nothing */
+  private readonly modeFrame: { -readonly [K in keyof ModeFrame]: ModeFrame[K] } = { dt: 0, tuck: false, onLift: false, frozen: false, elapsed: 0 };
   private readonly hud = document.getElementById('hud')!;
   private readonly prompt = document.getElementById('prompt')!;
   private readonly helpEl = document.getElementById('help');
@@ -159,9 +155,6 @@ export class RideFrame {
   /** a short message in the prompt (strap in or out refused) */
   say(msg: string): void { this.boardMsg = msg; this.boardMsgT = msg ? 1.5 : 0; }
 
-  /** a new Outrun: the countdown beeps from 3 again */
-  resetCountdown(): void { this.countLast = -1; }
-
   /** Everything but the render, in order. */
   update(dt: number, stepped: boolean, plan: FramePlan): void {
     const { params, settings, auto, touch, cam } = this.p;
@@ -177,8 +170,10 @@ export class RideFrame {
     this.photoMode(eyeMode, plan);
     const runs = this.simulate(dt, plan);
     this.syncView(dt, runs);
-    this.outrunFrame(dt);
-    this.trialsFrame(dt, runs);
+    // 7. FEAT-164: the modes (Outrun's chase and eat, the trial gates) and their HUDs
+    const mf = this.modeFrame;
+    mf.dt = dt; mf.tuck = this.input.tuck; mf.onLift = this.onLift; mf.frozen = !runs.trial; mf.elapsed = this.elapsed;
+    this.p.modes.update(mf);
     this.p.audio.update(this.p.rider, this.input.tuck, this.onLift, dt, this.p.liftRide.passedTower);
     this.p.rider.lastHit = '';
     this.cameras(dt, eyeMode, plan, runs);
@@ -219,17 +214,17 @@ export class RideFrame {
 
   /** 5. Simulation on the sim pose: lift ride, the rider (its own 1/120 s fixed steps), replay recording, run stats, rumble. */
   private simulate(dt: number, plan: FramePlan): Runs {
-    const { rider, outrun, liftRide, replay, runStats, runCard, controls, riderView } = this.p;
+    const { rider, modes, liftRide, replay, runStats, runCard, controls, riderView } = this.p;
     const input = this.input, detached = this.detached;
-    rider.boost = outrun.boosting;
-    const runs = RUNS[outrun.phase === 'caught' ? 'eaten' : plan.drive];
+    rider.boost = modes.boosting;
+    const runs = RUNS[modes.holdsRider ? 'eaten' : plan.drive];
     const onLift = this.onLift = !detached && runs.lift && liftRide.update(rider, dt, plan.interact, input.tuck);
     if (!detached && !onLift && runs.physics) rider.update(dt, input);
     if (!onLift && runs.record) replay.record(dt, rider, input.tuck); // FEAT-043 (not the still rider behind the menu)
-    if (runs.stats && !outrun.active) runStats.update(dt, rider, onLift); // FEAT-055
+    if (runs.stats && modes.countsRunStats) runStats.update(dt, rider, onLift); // FEAT-055
     runCard.update(dt);
     // FEAT-137: rumble (landings, crashes, rock, moguls), the DualSense lightbar and adaptive triggers
-    padFx.update(dt, controls.pad, { rider, riding: runs.physics && !detached && !onLift && !rider.unstrapped, monsterDist: outrun.running ? outrun.dist : Infinity, lens: riderView.mats.goggles.color.getHex() });
+    padFx.update(dt, controls.pad, { rider, riding: runs.physics && !detached && !onLift && !rider.unstrapped, monsterDist: modes.monsterDist, lens: riderView.mats.goggles.color.getHex() });
     return runs;
   }
 
@@ -247,72 +242,17 @@ export class RideFrame {
     rider.restoreSimPose();
   }
 
-  /** 7. Outrun: sim, events to sound and effects, the eat sequence, the monsters, the HUD */
-  private outrunFrame(dt: number): void {
-    const { outrun, monsters, eat, outrunUI, map, cam, audio, settings, rider, riderView, liftRide, keyLabels } = this.p;
-    const chase = this.p.chase(), eatPosing = this.eatPosing;
-    if (outrun.active) {
-      outrun.update(dt, rider, this.onLift ? liftRide : null);
-      for (const e of outrun.events) {
-        if (e.kind === 'wake') chase?.roar('wake');
-        else if (e.kind === 'spawn') { if (e.m && e.m.id > 1) chase?.roar('spawn'); }
-        else if (e.kind === 'roar') chase?.roar('spawn');
-        else if (e.kind === 'sight') chase?.roar('sight');
-        else if (e.kind === 'closecall') { chase?.roar('angry'); chase?.closeCall(); }
-        else if (e.kind === 'footfall' && e.m) { chase?.footfall(e.m.dist); padFx.footfall(e.m.dist); if (e.m.dist < 30) cam.kick = Math.max(cam.kick, 0.7 * (1 - e.m.dist / 30)); }
-        else if (e.kind === 'second') this.p.showToast('Another one.', 2500);
-        else if (e.kind === 'escaped') { chase?.roar('giveup'); chase?.stop(); audio.resumeMusic(); chase?.fanfare(); }
-        else if (e.kind === 'caught' && e.m) {
-          const view = monsters.view(e.m.id);
-          audio.scratchStop(); chase?.stop();
-          if (view) eat.start(e.m, view, rider, riderView, settings.outfit, settings.discipline, outrun.cfg.gentle);
-        }
-      }
-      if (outrun.phase === 'countdown') { const n = Math.ceil(3 - outrun.t); if (n !== this.countLast) { this.countLast = n; chase?.countBeep(false); } }
-      else if (outrun.phase === 'headstart' && this.countLast !== 0) { this.countLast = 0; chase?.countBeep(true); }
-      eatPosing.clear();
-      if (eat.active) { eat.update(dt); if (outrun.nearest) eatPosing.add(outrun.nearest.id); }
-      monsters.update(outrun, dt, eatPosing);
-      if (eat.done && !outrunUI.cardOpen) outrunUI.showCard(outrun, 'eaten');
-      if (outrun.phase === 'escaped' && outrun.t > 2.5 && !outrunUI.cardOpen) outrunUI.showCard(outrun, 'escaped');
-      map.monsters = outrun.monsters.map((m) => [m.x, m.y]);
-      if (chase) {
-        const n = outrun.nearest;
-        if (n) chase.setMonster(n.x, n.z + 1.5, -n.y);
-        chase.update(dt, outrun.dist, outrun.phase === 'chase', outrun.boosting);
-      }
-    }
-    outrunUI.update(outrun, settings.units === 'metric', keyLabels.padKey('boost') || keysOf(settings, 'boost'));
-  }
-
-  /** 8. Time trials: the sim, gates, ghost, route walls, the trial HUD */
-  private trialsFrame(dt: number, runs: Runs): void {
-    const { trial, trialWorld, trialHud, rider, map, pack, cam } = this.p;
-    if (this.p.trialsOn()) {
-      if (this.onLift) trial.cancel('On a lift'); else if (rider.unstrapped) trial.cancel('Unstrapped'); else if (runs.trial) trial.update(rider, dt, this.input.tuck);
-      trialWorld.updateGates(rider.x, rider.y);
-      trialWorld.updateGhost(trial.ghostAt(trial.time), dt);
-      const active = trial.state !== 'idle' ? trial.course : null;
-      const showWalls = trial.state === 'running' || (trial.state === 'armed' && trial.candidates.length === 1);
-      trialWorld.updateRoute(showWalls ? active : null, trial.along, trial.nextTarget, this.elapsed, trial.outside > 0);
-      map.trialRoute = active ? active.points : null;
-      trialHud.update(dt, trial, pack, cam.camera);
-    } else { trialHud.hide(); map.trialRoute = null; }
-  }
-
-  /** 10. Cameras on the render pose, then lens, goggles, speed lines and the press meter through the final camera */
+  /** 9. Cameras on the render pose, then lens, goggles, speed lines and the press meter through the final camera */
   private cameras(dt: number, eyeMode: boolean, plan: FramePlan, runs: Runs): void {
-    const { rider, cam, controls, look, riderView, outrun, settings, eat, goggles, lens, env, speedLines, pressMeter, liftRide } = this.p;
+    const { rider, cam, controls, look, riderView, modes, settings, eat, goggles, lens, env, speedLines, pressMeter, liftRide } = this.p;
     const input = this.input, onLift = this.onLift, detached = this.detached;
     rider.applyRenderPose();
     if (cam.mode === 'free') { cam.updateFree(dt, controls.keys, look.dx, look.dy); look.dx = look.dy = 0; }
     else if (eyeMode) { cam.updateEye(dt, controls.keys, look.dx, look.dy); look.dx = look.dy = 0; }
     else if (cam.firstPerson) { cam.updateFirstPerson(rider, dt, input.tuck, onLift || controls.looking, look.dx, look.dy, riderView.eye(this.eye)); look.dx = look.dy = 0; }
     else if (plan.replay?.trackside) plan.replay.trackside();
-    else { cam.freeLook(controls.looking, dt, look.dx, look.dy, controls.glancing); look.dx = look.dy = 0; cam.baseFov = settings.fov + (outrun.boosting ? 12 : 0) + (plan.replay?.photoFov ?? 0); cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); } // FEAT-124: look behind (G) in every mode
-    // the eat sequence owns the camera: high in front of the monster, looking down at it (FEAT-104)
-    if (eat.active) { eat.cameraPose(cam.camera.position, this.eatLook); cam.camera.lookAt(this.eatLook); if (cam.camera.fov !== 60) { cam.camera.fov = 60; cam.camera.updateProjectionMatrix(); } }
-    this.p.chase()?.setListener(cam.camera);
+    else { cam.freeLook(controls.looking, dt, look.dx, look.dy, controls.glancing); look.dx = look.dy = 0; cam.baseFov = settings.fov + modes.fovBoost + (plan.replay?.photoFov ?? 0); cam.update(rider, dt, input.tuck, onLift && liftRide.airborneRide); } // FEAT-124: look behind (G) in every mode
+    modes.afterCamera(cam.camera); // the eat sequence owns the camera (FEAT-104); the chase sounds hear from it
     goggles.strength = settings.goggleStrength;
     {
       // FEAT-130: the lens follows the setting (Auto: the weather and the sun); the rider and the frame wear it
@@ -333,7 +273,7 @@ export class RideFrame {
       const on = rider.pressing && !plan.replay && !detached && !eat.active;
       let px = -999, py = -999;
       if (on && cam.firstPerson) { px = window.innerWidth * 0.5; py = window.innerHeight * 0.78; }
-      else if (on || pressMeter.root.style.opacity !== '0') {
+      else if (on || pressMeter.visible) {
         riderView.eye(this.pressHead); this.pressHead.y += 0.4; this.pressHead.project(cam.camera);
         if (this.pressHead.z < 1) { px = (this.pressHead.x + 1) / 2 * window.innerWidth; py = (1 - this.pressHead.y) / 2 * window.innerHeight; }
       }
@@ -341,7 +281,7 @@ export class RideFrame {
     }
   }
 
-  /** 11. Sky and effects from the camera: shadows, clouds, snowfall, particle light, tree fade, the deformation stamp */
+  /** 10. Sky and effects from the camera: shadows, clouds, snowfall, particle light, tree fade, the deformation stamp */
   private skyAndEffects(dt: number): void {
     const { env, clouds, renderer, cam, snow, particleLight, pack, rider, riderView, puffs, veg, treeFade, settings, eat, terrain, deform } = this.p;
     env.updateCSM();
@@ -361,7 +301,7 @@ export class RideFrame {
     deform.update(renderer, rider.x, rider.z, -rider.y, rider.vx, -rider.vy);
   }
 
-  /** 12. Streaming around the rider (or the camera when detached), the snow on the ground, lifts and landmarks, the live sun */
+  /** 11. Streaming around the rider (or the camera when detached), the snow on the ground, lifts and landmarks, the live sun */
   private streaming(dt: number): void {
     const { cam, terrain, rider, liftRide, prefetch, pack, veg, rocks, sky, snow, settings, sun, params, zr, resortTop, roads, riderChair, lifts, bridges, liftLines, landmarks, map } = this.p;
     const onLift = this.onLift, detached = this.detached;
@@ -410,15 +350,15 @@ export class RideFrame {
     bridges.maintain(dt, rider.x, rider.y);
     liftLines.maintain(rider.x, rider.y);
     const passed = landmarks.maintain(rider.x, rider.y);
-    if (passed) this.p.showToast(passed.name, 3000);
+    if (passed) this.p.events.emit({ type: 'landmark', name: passed.name });
     sun.update(dt, settings);
     lifts.updateMarkers(this.elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
     map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
   }
 
-  /** 13. Prompt and key hints, the sky's follow, tile eviction, the map, horizon labels */
+  /** 12. Prompt and key hints, the sky's follow, tile eviction, the map, horizon labels */
   private hudAndMap(dt: number, plan: FramePlan): void {
-    const { keyLabels, liftRide, lifts, rider, controls, settings, cam, outrun, env, pack, terrain, map, labels, fps } = this.p;
+    const { keyLabels, liftRide, lifts, rider, controls, settings, cam, modes, env, pack, terrain, map, labels, fps } = this.p;
     const onLift = this.onLift, detached = this.detached, fx = this.fx, fy = this.fy;
     this.showPrompt(contextPrompt(keyLabels, {
       onLift, liftRide, lifts, mapOpen: plan.fullMap, detached, rider, boardMsg: this.boardMsgT > 0 ? this.boardMsg : '', usingPad: controls.usingPad, metric: settings.units === 'metric',
@@ -429,7 +369,7 @@ export class RideFrame {
     cam.glance = controls.glancing;
     if (this.helpEl && this.helpT <= 0) {
       this.helpT = 0.25;
-      let h = keyHints(keyLabels, controls.usingPad, { onLift: liftRide.riding, outrunRunning: outrun.running, onFoot: rider.onFoot, onGround: rider.onGround, liftNearby: !!liftRide.nearby });
+      let h = keyHints(keyLabels, controls.usingPad, { onLift: liftRide.riding, outrunRunning: modes.outrun.running, onFoot: rider.onFoot, onGround: rider.onGround, liftNearby: !!liftRide.nearby });
       if (this.boardNote) h = `<b>${this.boardNote}</b><br>` + h;
       if (h !== this.helpShown) { this.helpShown = h; this.helpEl.innerHTML = h; }
     }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { LiftFeature } from '../pack/types';
 import type { Pack } from '../pack/Pack';
+import { LOAD_OFFSET, rideLength, type LiftKind, type LiftLine, type LiftNetwork, type Vec3 } from '../sim/LiftLine';
 import { towerGeometry, towerHeadGeometry, footingGeometry, chairGeometry, gondolaGeometry, surfaceHangerGeometry, terminalGeometry, carpetGeometry } from './LiftModels';
 
 /**
@@ -10,36 +11,22 @@ import { towerGeometry, towerHeadGeometry, footingGeometry, chairGeometry, gondo
  * Tower positions come from OSM pylons when mapped, otherwise spaced along the line; spans that
  * would run too close to the ground get virtual towers.
  */
-export type LiftKind = 'chair' | 'gondola' | 'surface' | 'carpet';
 const SPEEDS: Record<LiftKind, number> = { chair: 2.6, gondola: 5.0, surface: 2.2, carpet: 0.9 };
 const SPACING: Record<LiftKind, number> = { chair: 22, gondola: 60, surface: 10, carpet: 0 };
-/** metres along the line from the station node to where you board / unload */
-export const LOAD_OFFSET = 8;
 /** Height of the chair seat below the cable (hanger + chair). */
 export const SEAT_DROP = 2.1;
 export const CHAIR_SPEED = SPEEDS.chair;
 
-export interface LiftRuntime {
+/** A built lift: the line the sims ride (sim/LiftLine) plus its cable curve and chairs. */
+export interface LiftRuntime extends LiftLine {
   feature: LiftFeature;
-  kind: LiftKind;
-  speed: number;
-  /** how far below the cable the rider sits (chair, gondola floor); surface and carpet put the rider on the snow */
-  riderDrop: number;
   curve: THREE.Vector3[]; // cable centre line (three.js coords), station a -> station b
   cum: number[]; // cumulative length
-  length: number;
   carriers: THREE.InstancedMesh | null;
   nCarriers: number;
   spacing: number;
   offset: number;
-  lateral: [number, number];
   yaw: number;
-  /** true when station a (curve start) is the lower terminal, so riding up means d: 0 -> length */
-  upFromA: boolean;
-  bottom: [number, number, number]; // pack coords of the loading point
-  top: [number, number, number]; // pack coords of the unloading point
-  /** distance from the bottom station node of each tower along the line (sorted ascending) */
-  towerUp: number[];
 }
 
 function kindOf(type: string): LiftKind {
@@ -78,7 +65,7 @@ export function cableMaterial(): THREE.LineBasicMaterial {
   return mat;
 }
 
-export class Lifts {
+export class Lifts implements LiftNetwork<LiftRuntime> {
   readonly group = new THREE.Group();
   private readonly lifts: LiftRuntime[] = [];
   private readonly mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.35 });
@@ -91,6 +78,7 @@ export class Lifts {
   private readonly s = new THREE.Vector3(1, 1, 1);
   private readonly tmp = new THREE.Vector3();
   private readonly tmp2 = new THREE.Vector3();
+  private readonly seat = new THREE.Vector3();
   private readonly geos = {
     tower: towerGeometry(), head: towerHeadGeometry(), footing: footingGeometry(),
     chair2: chairGeometry(2), chair4: chairGeometry(4), chair6: chairGeometry(6), gondola: gondolaGeometry(),
@@ -384,17 +372,20 @@ export class Lifts {
   }
 
   /** Rideable length between the loading and unloading points. */
-  rideLength(l: LiftRuntime): number { return Math.max(1, l.length - 2 * LOAD_OFFSET); }
+  rideLength(l: LiftRuntime): number { return rideLength(l); }
 
-  /** Rider position (three.js coords) at distance `up` metres from the loading point along the line. */
-  seatAt(l: LiftRuntime, up: number, out: THREE.Vector3): THREE.Vector3 {
+  /** Rider position (pack coords) at distance `up` metres from the loading point along the line. */
+  seatAt(l: LiftRuntime, up: number, out: Vec3): Vec3 {
+    const p = this.seat; // three.js coords along the curve
     const dd = up + LOAD_OFFSET;
     const d = l.upFromA ? dd : l.length - dd;
-    this.pointAt(l, Math.max(0, Math.min(l.length, d)), out);
-    if (l.kind === 'carpet') return out; // on the belt
-    const side = l.upFromA ? 1 : -1;
-    const off = ((l as any).lateralOff as number) ?? 1.6;
-    out.x += l.lateral[0] * off * side; out.z -= l.lateral[1] * off * side; out.y -= l.riderDrop;
+    this.pointAt(l, Math.max(0, Math.min(l.length, d)), p);
+    if (l.kind !== 'carpet') { // a carpet carries you on the belt
+      const side = l.upFromA ? 1 : -1;
+      const off = ((l as any).lateralOff as number) ?? 1.6;
+      p.x += l.lateral[0] * off * side; p.z -= l.lateral[1] * off * side; p.y -= l.riderDrop;
+    }
+    out.x = p.x; out.y = -p.z; out.z = p.y;
     return out;
   }
 

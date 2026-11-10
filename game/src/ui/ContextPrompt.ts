@@ -1,11 +1,11 @@
 import type { Rider } from '../sim/Rider';
 import type { LiftRide } from '../sim/LiftRide';
-import type { Lifts } from '../world/Lifts';
+import type { Lifts, LiftRuntime } from '../world/Lifts';
 import type { KeyLabels } from './KeyLabels';
 
 export interface PromptState {
   onLift: boolean;
-  liftRide: LiftRide;
+  liftRide: LiftRide<LiftRuntime>;
   lifts: Lifts;
   mapOpen: boolean;
   /** free fly or the eye camera */

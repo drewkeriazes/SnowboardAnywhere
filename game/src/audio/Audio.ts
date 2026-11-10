@@ -1,4 +1,6 @@
 import type { Rider, SurfaceInfo } from '../sim/Rider';
+import type { OutrunEvent } from '../sim/Outrun';
+import type { Events } from '../core/Events';
 import type { SnowState } from '../sim/SnowConditions';
 import { Jukebox, type JukeStyle } from './Jukebox';
 import { ChaseAudio } from './ChaseAudio';
@@ -286,6 +288,32 @@ export class GameAudio {
     return this.chaseAudio;
   }
   stopMusic(): void { this.music?.pause(); this.jukebox?.stop(); }
+
+  /** FEAT-163: the one-shots other systems announce: footsteps, the trial chimes, the Outrun and eat sounds. */
+  listen(events: Events): void {
+    events.on('footstep', (e) => this.footstep(e.surface, e.speed, e.sink, e.snow));
+    events.on('trial', ({ event: e }) => { if (e.kind === 'start' || e.kind === 'finish') this.chime(); });
+    events.on('outrun', ({ event: e }) => this.outrunEvent(e));
+    events.on('eatSound', ({ sound: k }) => {
+      const chase = this.chaseAudio;
+      if (!chase) return;
+      if (k === 'roar') chase.roar('angry'); else if (k === 'pop') chase.pop(); else if (k === 'gulp') chase.gulp();
+      else if (k === 'burp') chase.burp(); else if (k === 'spit') chase.spit(); else if (k === 'sting') chase.sting();
+    });
+    events.on('treeCrack', () => this.chaseAudio?.crack());
+  }
+  /** an Outrun sim event to the chase sounds (the chase audio exists once an Outrun started with the context up) */
+  private outrunEvent(e: OutrunEvent): void {
+    const chase = this.chaseAudio;
+    if (e.kind === 'wake') chase?.roar('wake');
+    else if (e.kind === 'spawn') { if (e.m && e.m.id > 1) chase?.roar('spawn'); }
+    else if (e.kind === 'roar') chase?.roar('spawn');
+    else if (e.kind === 'sight') chase?.roar('sight');
+    else if (e.kind === 'closecall') { chase?.roar('angry'); chase?.closeCall(); }
+    else if (e.kind === 'footfall' && e.m) chase?.footfall(e.m.dist);
+    else if (e.kind === 'escaped') { chase?.roar('giveup'); chase?.stop(); this.resumeMusic(); chase?.fanfare(); }
+    else if (e.kind === 'caught' && e.m) { this.scratchStop(); chase?.stop(); }
+  }
 
   // ---------------------------------------------------------------- one-shots
   private jitter(): number { return 0.92 + Math.random() * 0.16; }

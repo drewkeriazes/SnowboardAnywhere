@@ -83,7 +83,16 @@ start); A = 255 minus built-up (inverted so a decoder that premultiplies alpha k
 level is 4 m over the pack bounds: the 2 m mask's canopy, contrast-lifted as the shader lifts the
 under-detected lidar canopy (0.08 to 0.45) and then box-averaged, with the pack's OSM runs burned in as
 cleared strips (areas filled, lines at 0.6 of their corridor width; gladed runs keep their trees), the
-mask's rock, and the mean tree height per 16 m from the tree instances.
+mask's rock, and the mean tree height per 16 m from the tree instances. The forest is then weighted by
+the pack's tree instances (BUG-069), so a sparse stand the lidar canopy reads as closed is not a dark patch
+around its few trees. R, the forest seen from far off, is weighted by the share of the ground under the
+crowns (averaged over 16 m, full weight from 0.2 up). The level's optional `stands` image (greyscale, same
+grid, `cover/pack-stands.png`) is the forest seen from near, where single trees show: only closed stands
+keep it (the crown share averaged over 10 m passes 0.05 to 0.14, and the stand is at least 40 m across:
+smaller clumps are dropped, holes that size inside a stand filled). The shader shows `stands` to 1.2 km and
+R from 2.8 km. With `"crowns": true` on the level the image is RGB and its G is where the drawn trees
+stand: the share of each cell under their crowns, each tree weighted by its height over 12 m (FEAT-168; the
+shader throws their shadows on the snow from it). A pack without tree instances keeps the canopy as is.
 
 The `mid` (16 m over the mid height grid, 40 km) and `far` (100 m over the far ring's data, 200 km) levels
 come from the land cover (DATA-019): ESA WorldCover 2021 classes and the ETH 2020 canopy height, read on a
@@ -165,7 +174,7 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
   "dir": { same fields as mask },                          // optional, DATA-002
   "moguls": { same fields as mask },                       // optional, FEAT-059
   "cover": { "heightMax": 40, "blend": 500,                 // optional, FEAT-153
-             "levels": [{ "name": "pack", "res": 4, "minX", "minY", "w", "h", "file": "cover/pack.png" },
+             "levels": [{ "name": "pack", "res": 4, "minX", "minY", "w", "h", "file": "cover/pack.png", "stands": "cover/pack-stands.png", "crowns": true },
                         { "name": "mid", "res": 16, ... }, { "name": "far", "res": 100, ... }] },
   "instances": { "cellSize": 1000, "minX", "minY", "cellsX", "cellsY", "treeCount", "rockCount", "treeCells", "rockCells",
                  "shrubCount", "shrubCells" },              // shrub fields optional, DATA-020

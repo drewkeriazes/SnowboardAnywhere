@@ -1,7 +1,8 @@
 import type { Controls } from '../sim/Controls';
 import type { Rider } from '../sim/Rider';
 import type { LiftRide } from '../sim/LiftRide';
-import type { Outrun } from '../sim/Outrun';
+import type { LiftRuntime } from '../world/Lifts';
+import type { Modes } from '../modes/Modes';
 import type { Replay, ReplaySample } from '../sim/Replay';
 import type { Pack } from '../pack/Pack';
 import type { TouchControls } from '../ui/TouchControls';
@@ -9,7 +10,7 @@ import type { FramePlan, RideFrame } from './RideFrame';
 import { backPressed, type GameState, type GameStates } from './GameState';
 
 export interface RewindParts {
-  controls: Controls; touch: TouchControls | null; rider: Rider; liftRide: LiftRide; outrun: Outrun; replay: Replay; pack: Pack; frame: RideFrame;
+  controls: Controls; touch: TouchControls | null; rider: Rider; liftRide: LiftRide<LiftRuntime>; modes: Modes; replay: Replay; pack: Pack; frame: RideFrame;
   /** back on the snow at a recorded moment; the recording carries on from there */
   rewindTo(s: ReplaySample): void;
 }
@@ -29,8 +30,8 @@ export class RewindState implements GameState {
 
   /** the rewind key is held, and there is a recording on the board to go back along */
   wanted(): boolean {
-    const { controls, outrun, liftRide, replay, rider } = this.p;
-    return controls.held('rewind') && !outrun.active && !liftRide.riding && replay.samples.length > 1 && rider.strapState === 'none';
+    const { controls, modes, liftRide, replay, rider } = this.p;
+    return controls.held('rewind') && !modes.rewindBlocked && !liftRide.riding && replay.samples.length > 1 && rider.strapState === 'none';
   }
 
   enter(): void { this.t = 0; }

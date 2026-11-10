@@ -3,5 +3,6 @@
     "allow": [
       "PowerShell(git fetch 2>$null)"
     ]
-  }
+  },
+  "disabledMcpjsonServers": ["threejs-devtools"]
 }
