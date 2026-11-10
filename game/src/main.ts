@@ -279,6 +279,11 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     let replayCam: 'follow' | 'trackside' | 'free' = 'follow';
     const trackPos = new THREE.Vector3(); let trackSet = false;
     let rewinding = false, rewindT = 0;
+    /** samples (at 20 Hz) recorded before the replay viewer opens: about a second of riding */
+    const MIN_REPLAY_SAMPLES = 20;
+    /** Why the replay viewer can't open now, or null when it can (the K key and the pause menu's Replay both ask). */
+    const replayBlockedReason = (): string | null =>
+      outrun.active ? 'not during Outrun' : liftRide.riding ? 'not on a lift' : rider.unstrapped ? 'strap in first' : replay.samples.length <= MIN_REPLAY_SAMPLES ? 'ride a little first' : null;
     const openReplay = () => {
       replayOpen = true; replayT = Math.max(replay.start, replay.end - 30); replayPlay = true; replaySpeed = 1; replayCam = 'follow'; trackSet = false; photoFov = 0;
       replayHour = typeof settings.timeOfDay === 'number' ? settings.timeOfDay : 12;
@@ -501,7 +506,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       day: { runs: runStats.day.runs, vertical: runStats.day.vertical },
       metric: settings.units === 'metric',
       mode: outrun.active ? { kind: 'outrun' } : trialMode ? { kind: 'trial', course: trialMode } : { kind: 'free' },
-      replayBlocked: outrun.active ? 'not during Outrun' : liftRide.riding ? 'not on a lift' : rider.unstrapped ? 'strap in first' : replay.samples.length <= 20 ? 'ride a little first' : null,
+      replayBlocked: replayBlockedReason(),
       courses: courses.map((c) => ({ id: c.id, name: c.name, length: c.length, best: trial.loadBest(c)?.time ?? null })),
     });
     /** Mode: back to Free ride, or a time trial course (gates on for the session, the rider at its start) */
@@ -732,7 +737,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       }
       // ---- FEAT-043: replay viewer (the sim is frozen and the recording plays on the rider). While it is open,
       // restart / trial / map / piste / fly / board are ignored so the viewer acts like a modal (P is the photo key here)
-      if (controls.action('replay') && !outrun.active && !liftRide.riding && !rider.unstrapped && replay.samples.length > 20) { if (replayOpen) closeReplay(); else openReplay(); }
+      if (controls.action('replay') && !replayBlockedReason()) { if (replayOpen) closeReplay(); else openReplay(); }
       if (replayOpen) {
         const k = controls.keys;
         // FEAT-137 on a controller: Cross play, D-pad left / right scrub, R1 / L1 speed, Triangle camera, Square hide, Circle close
