@@ -1,22 +1,24 @@
 import { MENU_KEYS, MENU_PAD, type NavIntent } from './MenuKeys';
 import type { InputKind } from './MenuNav';
-import { PAD, lastPadKind } from '../sim/Pad';
+import { PAD, activePad, lastPadKind } from '../sim/Pad';
 import { padGlyph } from './PadGlyphs';
 import { keyName } from './Settings';
 
-/** a hint: a menu intent, or 'move' (the arrows / D-pad) and 'cat' (Q E / LB RB), with its label */
-export type Hint = [NavIntent | 'move' | 'cat', string];
+/** a hint: a menu intent, or 'move' (the arrows / D-pad up and down), 'adjust' (left and right) and 'cat' (Q E / LB RB), with its label */
+export type Hint = [NavIntent | 'move' | 'adjust' | 'cat', string];
 
 function keyChip(i: Hint[0]): string {
-  if (i === 'move') return '↑↓';
+  if (i === 'move') return `${keyName(MENU_KEYS.up[0])}${keyName(MENU_KEYS.down[0])}`;
+  if (i === 'adjust') return `${keyName(MENU_KEYS.left[0])}${keyName(MENU_KEYS.right[0])}`;
   if (i === 'cat') return `${keyName(MENU_KEYS.prevCat[0])} ${keyName(MENU_KEYS.nextCat[0])}`;
   return MENU_KEYS[i].map((c) => (c === 'Escape' ? 'Esc' : keyName(c))).join(' / ');
 }
 /** the controller's own glyphs (FEAT-137: PlayStation shapes or Xbox letters) */
 function padChip(i: Hint[0]): string {
-  const k = lastPadKind ?? 'xbox';
+  const k = activePad()?.kind ?? lastPadKind ?? 'ps'; // as Settings > Controls
   if (i === 'move') return padGlyph(k, PAD.UP) + padGlyph(k, PAD.DOWN);
-  if (i === 'cat') return `${padGlyph(k, PAD.LB)} ${padGlyph(k, PAD.RB)}`;
+  if (i === 'adjust') return padGlyph(k, PAD.LEFT) + padGlyph(k, PAD.RIGHT);
+  if (i === 'cat') return `${padGlyph(k, MENU_PAD.prevCat!)} ${padGlyph(k, MENU_PAD.nextCat!)}`;
   const b = MENU_PAD[i];
   return b === undefined ? '' : padGlyph(k, b);
 }

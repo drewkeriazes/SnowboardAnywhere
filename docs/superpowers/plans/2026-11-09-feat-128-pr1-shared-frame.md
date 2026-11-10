@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Superseded in part (2026-11-09):** FEAT-137 (controller support) landed on `main` while this plan was built and was merged in. `ui/PadMap.ts`, MenuNav's own pad poll and `Controls.holdPadUntilRelease` were dropped in favour of `sim/Pad.ts`, `ui/PadGlyphs.ts`, `ui/PadNav.ts` (which hands its presses to `MenuNav.padIntent` on MenuNav screens) and `Controls.padMute`. The design doc's Navigation section has the current picture.
+
 **Goal:** Give every menu one look (style tokens, bundled fonts, focus style) and one way to move around (keyboard, gamepad, mouse, touch), with button hints read from tables instead of typed by hand, without changing the menus' layout yet.
 
 **Architecture:** A stylesheet of CSS variables replaces the hard-coded colours in `index.html`. A small focus manager (`ui/MenuNav.ts`) keeps a stack of open screens; only the top one takes input, from a capture-phase key listener and its own gamepad poll. Two tables, the pad map (`ui/PadMap.ts`) and the fixed menu keys (`ui/MenuKeys.ts`), feed both the input code and every hint line.

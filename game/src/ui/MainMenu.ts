@@ -1,5 +1,6 @@
 import type { GameAudio } from '../audio/Audio';
-import { playlistSelect, renderPanel, saveSettings, type Settings } from './Settings';
+import { playlistSelect, saveSettings, type Settings } from './Settings';
+import { closeSettings, openSettings } from './SettingsOverlay';
 import { closeScreen, lastInputKind, openScreen, Screen } from './MenuNav';
 import { renderHints, type Hint } from './HintBar';
 
@@ -39,7 +40,6 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
         <div class="ds-connect" style="display:none"><button data-ds-connect>Turn on DualSense rumble and lightbar</button><div class="hint ds-status">Click it with the mouse and pick the controller (once: it reconnects by itself after that).</div></div>
         <button data-a="settings">Settings</button>
         <button data-a="controls" class="ghost">Controls</button>
-        <div class="settings hidden"></div>
         <div class="hintbar"></div>
         ${hostedLine()}
       </div>`;
@@ -58,42 +58,23 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
       show(start.custom);
       reset.addEventListener('click', () => { start.onReset(); show(false); });
     }
-    const panel = wrap.querySelector('.settings') as HTMLElement;
-    // playlist picker on the menu itself, kept in step with the one under Settings > Audio
+    // playlist picker on the menu itself (Settings > Audio > Station is the same setting)
     const pick = wrap.querySelector('.music select') as HTMLSelectElement;
-    const syncPick = () => { pick.value = settings.playlist; const other = panel.querySelector<HTMLSelectElement>('select[data-k="playlist"]'); if (other) other.value = settings.playlist; };
     pick.value = settings.playlist;
-    pick.addEventListener('input', () => { settings.playlist = pick.value; saveSettings(settings); audio.setPlaylist(settings.playlist); syncPick(); onChange(settings, 'playlist'); });
-    const sp = renderPanel(panel, settings, (s, what) => { audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music); audio.setSource(s.musicSource); audio.setPlaylist(s.playlist); syncPick(); onChange(s, what); });
-    const credits = panel.querySelector('.credits') as HTMLElement;
-    const fillCredits = () => {
-      const c = audio.credits;
-      credits.innerHTML = c.length
-        ? `<div class="hint">Music</div>` + c.map((t) => `<div class="credit">${t.title}${t.artist ? ` by ${t.artist}` : ''}${t.license ? ` <span class="dim">(${t.license})</span>` : ''}${t.url ? ` <a href="${t.url}" target="_blank" rel="noopener">source</a>` : ''}${t.playlist ? ` <span class="dim">${t.playlist}</span>` : ''}</div>`).join('')
-          + `<div class="hint">Playlists without tracks play the built-in jukebox (procedural, no samples).</div>`
-        : `<div class="hint">No playlist shipped: the built-in jukebox plays procedural music in each playlist's style. Drop tracks in game/public/music/ (see README there).</div>`;
-      credits.innerHTML += `<div class="hint">Textures</div><div class="credit">Rock and talus: Rock030, Gravel040 by ambientCG.com <span class="dim">(CC0)</span></div>`;
-    };
-    fillCredits();
-    void audio.loaded.then(fillCredits);
-    // FEAT-128: keyboard and gamepad navigation, hints from the key tables
-    const settingsBtn = wrap.querySelector<HTMLButtonElement>('button[data-a="settings"]')!;
+    pick.addEventListener('input', () => { settings.playlist = pick.value; saveSettings(settings); audio.setPlaylist(settings.playlist); onChange(settings, 'playlist'); });
+    // FEAT-128: the settings screen over the menu; the menu applies the audio itself (no session yet)
+    const openSet = (cat?: 'controls') => openSettings(settings, {
+      overGame: false, cat, credits: () => audio.credits,
+      onChange: (s, what) => { audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music); audio.setSource(s.musicSource); audio.setPlaylist(s.playlist); pick.value = s.playlist; syncDiscipline(); onChange(s, what); },
+    });
+    const syncDiscipline = () => wrap.querySelectorAll<HTMLButtonElement>('button[data-d]').forEach((x) => x.classList.toggle('on', x.dataset.d === settings.discipline));
+    // keyboard and gamepad navigation, hints from the key tables
     const hintEl = wrap.querySelector('.hintbar') as HTMLElement;
-    const panelOpen = () => !panel.classList.contains('hidden');
-    const showHints = () => {
-      const h: Hint[] = [['select', 'Select'], ['move', 'Move']];
-      if (panelOpen()) h.push(['cat', 'Tabs'], ['back', 'Close settings']);
-      else h.push(['discipline', 'Snowboard / Skis']);
-      renderHints(hintEl, h, lastInputKind());
-    };
-    const closePanel = () => { panel.classList.add('hidden'); screen.focus(settingsBtn); showHints(); };
+    const showHints = () => renderHints(hintEl, [['select', 'Select'], ['move', 'Move'], ['discipline', 'Snowboard / Skis']] as Hint[], lastInputKind());
     const screen = new Screen(wrap, {
       primary: () => wrap.querySelector<HTMLButtonElement>('button[data-a="ride"]'),
-      onBack: () => { if (panelOpen()) closePanel(); },
       onIntent: (i, down) => {
-        if (!down) return false;
-        if ((i === 'prevCat' || i === 'nextCat') && panelOpen()) { sp.cycleTab(i === 'nextCat' ? 1 : -1); return true; }
-        if (i === 'discipline' && !panelOpen()) { wrap.querySelector<HTMLButtonElement>(`button[data-d="${settings.discipline === 'board' ? 'ski' : 'board'}"]`)?.click(); return true; }
+        if (down && i === 'discipline') { wrap.querySelector<HTMLButtonElement>(`button[data-d="${settings.discipline === 'board' ? 'ski' : 'board'}"]`)?.click(); return true; }
         return false;
       },
       onInputKind: showHints,
@@ -102,15 +83,16 @@ export function showMainMenu(resortName: string, audio: GameAudio, settings: Set
     showHints();
     wrap.querySelectorAll<HTMLButtonElement>('button[data-d]').forEach((b) => b.addEventListener('click', () => {
       settings.discipline = b.dataset.d as 'board' | 'ski';
-      wrap.querySelectorAll<HTMLButtonElement>('button[data-d]').forEach((x) => x.classList.toggle('on', x === b));
+      syncDiscipline();
       onChange(settings, 'discipline');
-      try { localStorage.setItem('settings', JSON.stringify(settings)); } catch { /* ignore */ }
+      saveSettings(settings);
     }));
     wrap.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => b.addEventListener('click', () => {
       audio.start();
       audio.setVolumes(settings.mute ? 0 : settings.sfx, settings.mute ? 0 : settings.music);
-      if (b.dataset.a === 'controls') { sp.openTab('controls'); panel.classList.remove('hidden'); screen.focus(panel.querySelector<HTMLElement>('.tabs button.on')); showHints(); return; } // FEAT-128: the bindings, read from the keymap
-      if (b.dataset.a === 'settings') { if (panelOpen()) closePanel(); else { panel.classList.remove('hidden'); screen.focus(panel.querySelector<HTMLElement>('.tabs button.on')); showHints(); } return; }
+      if (b.dataset.a === 'controls') { openSet('controls'); return; } // the bindings, read from the keymap
+      if (b.dataset.a === 'settings') { openSet(); return; }
+      closeSettings();
       closeScreen(screen);
       wrap.remove();
       resolve({ action: b.dataset.a as 'ride' | 'map' });

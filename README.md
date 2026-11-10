@@ -5,7 +5,7 @@ real trees, and the actual lifts, runs and buildings from OpenStreetMap. Ride Va
 take the chairs back up, race your own ghost, or outrun the snow monster.
 
 Built with Three.js, TypeScript and Vite. Resorts so far: Vail and Breckenridge (pick one on the main menu).
-Modes: free ride, time trials (turn on in Settings > Game) and Outrun (Esc > Outrun).
+Modes: free ride, time trials (turn on in Settings > Gameplay) and Outrun (Esc > Outrun).
 
 ## Play
 
@@ -72,9 +72,26 @@ Every action has two slots in Settings > Controls (click a slot, press a key or 
 The replay viewer lists its own keys on screen.
 
 Menus work with the keyboard, a gamepad, the mouse or touch: arrows or the D-pad move, Enter / Space or Cross / A select, Esc or Circle / B go back
-(Esc or Circle / B resumes from pause), Q / E or L1 / R1 (LB / RB) switch settings tabs, B on the keyboard or Square / X on the pad
-switches Snowboard / Skis on the main menu. The hint bar at the bottom of each menu shows the keys or buttons for whichever you used last.
+(Esc or Circle / B resumes from pause), B on the keyboard or Square / X on the pad switches Snowboard / Skis on the main menu.
+The hint bar at the bottom of each menu shows the keys or buttons for whichever you used last.
 The main menu's Controls button opens your current bindings.
+
+Settings opens full screen: categories on the left (Gameplay, Controls, Camera, Graphics, Conditions, Map and world, Audio,
+Rider, Accessibility, Credits), the settings in the middle, and what the focused one does on the right.
+
+| Settings key (pad) | Action |
+| --- | --- |
+| Q / E (L1 / R1) | previous / next category |
+| left / right | change the focused setting |
+| Enter / Space (Cross / A) | toggle it, or step to the next choice |
+| R (Square / X), twice | reset the category (Reset all is under the categories) |
+| V (Triangle / Y), hold | peek at the game (from the pause menu) |
+| Esc (Circle / B) | clear the search, then close |
+
+Type in the search box to find a setting in any category. Graphics has presets (Low, Medium, High, and Ultra:
+High plus cascaded shadows at full resolution) over its advanced options, Gameplay has Feel presets (Arcade,
+Balanced, Realistic). Accessibility has UI scale and Reduce motion (camera shake, first person shake and speed
+lines off together). Opened from the pause menu, changes show at once behind the screen, with the frame rate in the corner.
 
 ### Controllers
 
@@ -99,7 +116,7 @@ shapes on a DualSense or DualShock); press a key and they switch back to the key
 | Options (Start) or PS | pause |
 
 In menus the D-pad or left stick moves, ✕ picks, ○ goes back (resumes from the pause menu), L1 / R1 switch
-the settings tabs, and left / right change a slider or a list. Settings > Controls > Controller has
+the settings categories, and left / right change a setting. Settings > Controls > Controller has
 vibration on / off and its strength, the stick and trigger dead zones, the look speed, invert look Y, and two
 slots per action to rebind the buttons (click a slot or press ✕ on it, then press the button).
 
@@ -109,7 +126,7 @@ chop and rock at speed off the groomers (none on groomed snow, softer at a crawl
 balance needle nears either end: a heavy rumble when it is about to catch the loaded end (ease off), a
 light buzz when the board is about to drop flat (lean in more).
 
-**DualSense extras** (Chrome or Edge, USB or Bluetooth): Settings > Controls > Connect DualSense extras,
+**DualSense extras** (Chrome or Edge, USB or Bluetooth): Settings > Controls > DualSense extras > Connect,
 clicked with the mouse, opens the browser's device picker; pick the controller. After that it reconnects
 by itself. Chrome on Windows gives a DualSense no rumble on its own, so its rumble comes through the
 extras: the main and pause menus show a "Turn on DualSense rumble and lightbar" button while one is
@@ -129,7 +146,7 @@ Off the loaded end (the cross) the board catches and you fall over that end, or 
 the other end (the bar) the board drops flat. There is no time limit: a long press only needs quicker,
 finer corrections. Let go any time to end it cleanly. Hold the press key through a trick to land
 straight into the press ("Backside 360 to nose press"). A toast gives the press time and distance,
-with your best for the resort. Settings > Game > Press balance: Easy, Normal, Hard or Off.
+with your best for the resort. Settings > Gameplay > Press balance: Easy, Normal, Hard or Off (the Feel presets set it too).
 
 Hold Shift while you steer for a hard carve: the rider drops low, drives the edge in to 80 degrees
 and lays over toward the snow with the inside hand dragging, for the tightest turn the board allows
@@ -142,7 +159,7 @@ butt (heelside). Only in deep powder does the board plane instead, a deep surfy 
 You can ride switch (the other foot forward, the tail leading). Land a 180, or slide back down the
 hill tail first, and you carry on switch until you turn round again with another 180 or by stopping
 and sliding off the other way. The HUD shows SWITCH while you do, and spins are named on landing
-("Backside 180", "Switch frontside 360"). Pick your normal stance in Settings > Rider > Stance:
+("Backside 180", "Switch frontside 360"). Pick your normal stance in Settings > Gameplay > Stance:
 Regular (left foot forward) or Goofy (right foot forward).
 
 The snow changes how the board rides (FEAT-053). Groomers are fast and grippy. Off the groomers,
@@ -154,8 +171,8 @@ A tail press (Z) lifts the nose out and keeps your speed, and is easier to hold;
 buries the nose, slows you and pulls you over it. Open off-piste
 gets tracked out into chop as the day goes on and rattles the board. High exposed ridges are
 wind-scoured ice, and spring mornings leave the groomers icy: the edge holds less and skids sooner.
-Low sunny faces turn to slush in the afternoon, heavy and slow. Settings > Graphics (Snow conditions:
-Fresh corduroy, Mid-season or Spring; New snow; Weather) and Settings > Game (Time of day) all change it. The HUD names
+Low sunny faces turn to slush in the afternoon, heavy and slow. Settings > Conditions (Snow conditions:
+Fresh, Mid-season or Spring; New snow; Weather; Time of day) all change it. The HUD names
 the snow under you (Groomed, Powder, Chop, Ice, Slush, Rock); on foot it also shows how deep the
 boots sink.
 
@@ -165,7 +182,7 @@ pushed snow. Hard turns throw spray: light wisps on a groomer, clouds that hang 
 burst when you land. Settings > Graphics > Snow dents turns the sag off (the Low preset turns it off
 too).
 
-In first person you look through goggle lenses (Settings > Graphics > Goggle lens). In flat light
+In first person you look through goggle lenses (Settings > Camera > Goggle lens). In flat light
 (a storm, overcast, deep shade) the snow's bumps, rollers and dips are hard to see; a warm lens (Rose,
 Orange, Yellow) cuts the blue and brings their shape back, Yellow most of all in a storm. The mirrored
 lenses (Green, Blue, Purple) darken the view for sunny days, Clear is for night, and Auto picks one for
