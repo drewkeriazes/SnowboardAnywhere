@@ -234,10 +234,10 @@ export class Shrubs {
     cell.data = d;
   }
 
-  /** the snow surface and its aspect under shrub i, once the fine height tile there is in (NaN until then) */
+  /** the snow surface and its aspect under shrub i: inside the fine set once its tile is in (NaN until then), outside it from the mid / far sets at once */
   private resolve(cell: Cell, i: number): void {
     const d = cell.data!, x = d[i * 6], y = d[i * 6 + 1], fine = this.pack.fine;
-    if (fine && (!fine.contains(x, y) || Number.isNaN(fine.sample(x, y)))) return;
+    if (fine && fine.contains(x, y) && Number.isNaN(fine.sample(x, y))) return; // inside the fine set, tile not loaded yet
     cell.gz![i] = this.pack.terrainHeight(x, y);
     // the aspect from a 4 m difference (the slope the snow lies on, not the 1 m bumps)
     const e = 4, hl = this.pack.demHeight(x - e, y), hr = this.pack.demHeight(x + e, y), hd = this.pack.demHeight(x, y - e), hu = this.pack.demHeight(x, y + e);
@@ -316,7 +316,7 @@ export class Shrubs {
     }
     this.stats.drawn = drawn;
     this.stats.buried = buried;
-    // shrubs on the pack's z until their fine tile is in (and without colliders): try again shortly
+    // shrubs inside the fine set whose tile is not in yet (on the pack's z, without colliders): try again shortly
     this.retry = unresolved > 0 ? performance.now() + 500 : Infinity;
   }
 
