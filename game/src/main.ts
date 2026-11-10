@@ -546,7 +546,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     // The eye camera sits on the resort's backdrop shot and drifts; ghosts ride a line; the rider is hidden and
     // still, the HUD hidden, and the riding keys and buttons do nothing (the menu has them).
     const shot = attractShot(pack, start);
-    const ghosts = new AttractGhosts(pack);
+    const ghosts = new AttractGhosts(pack, { x: shot.x, y: shot.y, r: 60 }); // stacked as they pass 60 m out from the camera
     add('attract ghosts', ghosts.group);
     ghosts.setVisible(false);
     void ghosts.load(import.meta.env.BASE_URL, opts.attractFiles[pack.meta.slug]?.ghosts ?? []);

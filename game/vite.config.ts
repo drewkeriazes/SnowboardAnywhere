@@ -87,6 +87,21 @@ function saveAttractTakes(): Plugin {
   return {
     name: 'save-attract-takes',
     configureServer(server) {
+      // the attract folder straight from disk: Vite doesn't watch it (a save must not reload the page), so its
+      // list of public files would miss a take saved after the server started
+      server.middlewares.use((req, res, next) => {
+        if (req.method !== 'GET' || !req.url) return next();
+        const u = req.url.split('?')[0];
+        const at = u.indexOf('/attract/');
+        if (at < 0) return next();
+        let rel: string;
+        try { rel = decodeURIComponent(u.slice(at + '/attract/'.length)); } catch { return next(); }
+        const file = path.join(dir, rel);
+        if (!file.startsWith(dir + path.sep) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) return next();
+        res.setHeader('content-type', file.endsWith('.json') ? 'application/json' : file.endsWith('.jpg') ? 'image/jpeg' : 'application/octet-stream');
+        res.setHeader('cache-control', 'no-cache');
+        fs.createReadStream(file).pipe(res);
+      });
       server.middlewares.use((req, res, next) => {
         if (req.url !== '/__attract/save' || req.method !== 'POST') return next();
         // the dev server listens on the home network (host: true): only the game's own page, JSON, a few MB

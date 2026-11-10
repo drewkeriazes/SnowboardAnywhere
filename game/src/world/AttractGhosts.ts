@@ -9,7 +9,8 @@ import { RiderView } from './RiderView';
  * FEAT-128: riders dropping a line behind the main menu. Each ghost replays a take Drew recorded and
  * ships with the game (`game/public/attract/index.json` lists each resort's files, each an `AttractTake`):
  * the samples step a full `RiderView` the way the replay viewer poses the rider (no physics). The takes
- * start a couple of seconds apart and loop together.
+ * are stacked into one group: each is lined up on the moment it rides `anchor.r` metres from the camera,
+ * and they pass that point `STAGGER` seconds apart, so they come down the line together and loop together.
  */
 export interface AttractTake {
   version: 1;
@@ -26,14 +27,16 @@ export interface AttractTake {
 /** seconds between the ghosts' drops, and the pause before the group goes again */
 const STAGGER = 1.6, GAP = 2.5;
 
-interface Ghost { replay: Replay; rider: Rider; view: RiderView; offset: number; dur: number }
+interface Ghost { replay: Replay; rider: Rider; view: RiderView; offset: number; dur: number; anchorT: number }
+/** where the group lines up: a distance from the backdrop camera (pack metres) */
+export interface GhostAnchor { x: number; y: number; r: number }
 
 export class AttractGhosts {
   readonly group = new THREE.Group();
   private ghosts: Ghost[] = [];
   private t = 0;
 
-  constructor(private readonly pack: Pack) { this.group.name = 'attract ghosts'; }
+  constructor(private readonly pack: Pack, private readonly anchor: GhostAnchor | null = null) { this.group.name = 'attract ghosts'; }
 
   /** Load the resort's takes, `files` from the attract manifest (none is fine: the backdrop rides empty). */
   async load(base: string, ghosts: string[]): Promise<number> {
@@ -57,7 +60,19 @@ export class AttractGhosts {
     view.setOutfit({ ...(OUTFIT_PRESETS[take.outfit] ?? Object.values(OUTFIT_PRESETS)[this.ghosts.length % Object.values(OUTFIT_PRESETS).length]) });
     view.group.visible = false; view.sprayObject.visible = false;
     this.group.add(view.group, view.sprayObject);
-    this.ghosts.push({ replay, rider, view, offset: this.ghosts.length * STAGGER, dur: replay.end });
+    // the take's own moment at the anchor: the first sample that far from the camera (else its start)
+    const a = this.anchor;
+    const at = a ? replay.samples.find((s) => Math.hypot(s.x - a.x, s.y - a.y) >= a.r) : undefined;
+    this.ghosts.push({ replay, rider, view, offset: 0, dur: replay.end, anchorT: at ? at.t : 0 });
+    this.stack();
+  }
+
+  /** Line the takes up on their anchor moments, STAGGER apart in the order they were added, the earliest starting at 0. */
+  private stack(): void {
+    const raw = this.ghosts.map((g, i) => i * STAGGER - g.anchorT);
+    const min = Math.min(...raw);
+    this.ghosts.forEach((g, i) => { g.offset = raw[i] - min; });
+    this.t = 0;
   }
 
   get count(): number { return this.ghosts.length; }

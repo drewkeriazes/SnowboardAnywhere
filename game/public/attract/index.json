@@ -3,6 +3,10 @@
     "stills": [
       "back-bowls"
     ],
-    "ghosts": []
+    "ghosts": [
+      "take-1.json",
+      "take-2.json",
+      "take-3.json"
+    ]
   }
 }
