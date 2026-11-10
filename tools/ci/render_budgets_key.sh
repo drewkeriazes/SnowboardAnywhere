@@ -6,7 +6,7 @@
 set -euo pipefail
 rev=${1:-HEAD}
 files="game/tools/cishot.mjs game/tools/browser.mjs game/tools/paths.mjs
-tools/ci/render_report.py tools/ci/synth_key.sh tools/ci/render_budgets_key.sh tools/ci/local_render_budgets.mjs
+tools/ci/render_report.py tools/ci/synth_key.sh tools/ci/render_budgets_key.sh tools/ci/local_render_budgets.mjs tools/ci/render_budgets_lib.mjs
 .github/workflows/checks.yml game/package-lock.json"
 for f in $files; do
   echo "$f $(git rev-parse --verify -q "$rev:$f" || echo missing)"

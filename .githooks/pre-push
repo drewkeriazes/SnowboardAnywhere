@@ -1,0 +1,15 @@
+#!/bin/sh
+# FEAT-183: switched on with `git config core.hooksPath .githooks` (once per clone; every worktree shares it).
+# core.hooksPath hides .git/hooks, so a local pre-push there runs first, as it would without this folder.
+# Then, only with `git config sa.gpuBudgets true` (Drew's PC), tools/ci/pre_push_render_budgets.mjs runs CI's
+# render-budgets on the GPU before the push. That part never blocks the push. Skip: --no-verify or
+# SA_SKIP_GPU_BUDGETS=1.
+input=$(cat)
+local_hook="$(git rev-parse --git-common-dir)/hooks/pre-push"
+if [ -x "$local_hook" ]; then
+  printf '%s\n' "$input" | "$local_hook" "$@" || exit $?
+fi
+[ "$(git config --type=bool sa.gpuBudgets 2>/dev/null)" = true ] || exit 0
+[ -f tools/ci/pre_push_render_budgets.mjs ] || exit 0
+printf '%s\n' "$input" | node tools/ci/pre_push_render_budgets.mjs "$@"
+exit 0
