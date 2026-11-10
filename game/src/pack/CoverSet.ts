@@ -19,7 +19,7 @@ export class CoverLevel {
   private cw = 0;
   private ch = 0;
   private cres = 0;
-  /** forest channel at full resolution, mipmapped */
+  /** forest at full resolution, mipmapped: R from far off, G from near */
   texture: THREE.DataTexture | null = null;
 
   constructor(meta: CoverLevelMeta) {
@@ -36,10 +36,21 @@ export class CoverLevel {
     const { w, h } = this.meta;
     const px = decodeRGBA(bmp, w, h);
     bmp.close();
-    // GPU: the forest channel only
-    const r = new Uint8Array(w * h);
-    for (let i = 0; i < w * h; i++) r[i] = px[i * 4];
-    const tex = new THREE.DataTexture(r, w, h, THREE.RedFormat, THREE.UnsignedByteType);
+    // GPU: R = the forest as seen from far off, G = from near, where single trees show (BUG-069: only the
+    // closed stands of drawn trees; the same as R for a level without a `stands` image)
+    let near: Uint8ClampedArray | null = null;
+    if (this.meta.stands) {
+      try {
+        const r2 = await fetch(`${baseUrl}/${this.meta.stands}`);
+        if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
+        const b2 = await createImageBitmap(await r2.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+        near = decodeRGBA(b2, w, h);
+        b2.close();
+      } catch (e) { console.warn(`cover ${this.meta.stands} not loaded`, e); }
+    }
+    const r = new Uint8Array(w * h * 2);
+    for (let i = 0; i < w * h; i++) { r[i * 2] = px[i * 4]; r[i * 2 + 1] = near ? near[i * 4] : px[i * 4]; }
+    const tex = new THREE.DataTexture(r, w, h, THREE.RGFormat, THREE.UnsignedByteType);
     tex.minFilter = THREE.LinearMipmapLinearFilter;
     tex.magFilter = THREE.LinearFilter;
     tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;

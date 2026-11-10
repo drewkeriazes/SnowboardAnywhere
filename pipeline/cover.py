@@ -42,7 +42,25 @@ PACK_RUN_K = 0.6
 # DATA-019 land cover levels: (name, cell size m, sub-samples per side). mid spans the mid height grid,
 # far the far ring's data (cfg far_ring size_m)
 LC_LEVELS = (("mid", 16.0, 4), ("far", 100.0, 3))
-HEIGHT_SIGMA = 3.0      # cells: canopy height is averaged over the forested cells around (it only lifts coarse chunks)
+# BUG-069: the lifted lidar canopy reads a sparse stand (a tree every 10 m or so) as closed canopy, so far off
+# its snow went black between the few trees drawn there. The pack level's forest is weighted by the trees the
+# client draws, twice:
+#   R (seen from far off, where single trees no longer read): by the share of the ground under their crowns,
+#     averaged over FAR_SIGMA m, full weight from CROWN_FULL up (dense timber on Vail draws 0.2 to 0.4, sparse
+#     bowl stands 0.05 to 0.15), so timber stays a solid dark mass and sparse stands fade to mostly white.
+#   stands (seen from near, where every tree shows): only closed stands keep it: the crown share (averaged
+#     over CROWN_SIGMA m) passes CROWN_LO..CROWN_HI and the stand is at least 2 x STAND_MIN_R m across (a grey
+#     opening, then a closing to fill the holes), so a clump of a dozen trees on open snow is carried by its
+#     trees alone instead of a dark patch around them.
+FAR_SIGMA = 16.0
+CROWN_FULL = 0.2
+CROWN_SIGMA = 10.0
+CROWN_LO, CROWN_HI = 0.05, 0.14
+STAND_MIN_R = 20.0
+# natural crown radius / height per species id, as game/src/world/trees/species.ts SPECIES[].radius
+# (tests/test_cover.py parses species.ts and fails if they drift apart)
+CROWN_RATIO = np.array([0.13, 0.17, 1.1, 0.1, 0.09, 0.17, 0.35, 0.05])
+HEIGHT_SIGMA = 3.0     # cells: canopy height is averaged over the forested cells around (it only lifts coarse chunks)
 WC_TREE, WC_BUILT, WC_BARE = 10, 50, 60
 ETH_NODATA = 255
 TREE_MIN_H = 3.0        # m: WorldCover trees shorter than this in ETH are shrubs or clearings
@@ -97,25 +115,66 @@ def burn_runs(runs, w, h, res, min_x, max_y, k=1.0, to_px=None):
     return np.asarray(img, np.float32) / 255.0
 
 
-def tree_heights(pack_dir, meta, cell, w, h):
-    """mean tree height (m) per `cell` m over the pack bounds from the tree instances, row 0 = north; 0 = no trees"""
+def tree_records(pack_dir, meta):
+    """the pack's tree instances, one (n, 6) float32 array per cell: x, y, z, height, crown radius, species"""
     inst = meta.get("instances") or {}
-    b = meta["bounds"]
-    nx, ny = int(math.ceil((b["maxX"] - b["minX"]) / cell)), int(math.ceil((b["maxY"] - b["minY"]) / cell))
-    hs = np.zeros((ny, nx), np.float64); cn = np.zeros((ny, nx), np.float64)
     d = os.path.join(pack_dir, "trees")
     names = inst.get("treeCells") or ([f[:-4] for f in os.listdir(d) if f.endswith(".bin")] if os.path.isdir(d) else [])
     for nm in names:
         p = os.path.join(d, f"{nm}.bin")
-        if not os.path.exists(p):
-            continue
-        t = np.fromfile(p, "<f4").reshape(-1, 6)
+        if os.path.exists(p):
+            yield np.fromfile(p, "<f4").reshape(-1, 6)
+
+
+def tree_heights(pack_dir, meta, cell, w, h):
+    """mean tree height (m) per `cell` m over the pack bounds from the tree instances, row 0 = north; 0 = no trees"""
+    b = meta["bounds"]
+    nx, ny = int(math.ceil((b["maxX"] - b["minX"]) / cell)), int(math.ceil((b["maxY"] - b["minY"]) / cell))
+    hs = np.zeros((ny, nx), np.float64); cn = np.zeros((ny, nx), np.float64)
+    for t in tree_records(pack_dir, meta):
         c = ((t[:, 0] - b["minX"]) / cell).astype(int); r = ((b["maxY"] - t[:, 1]) / cell).astype(int)
         ok = (c >= 0) & (c < nx) & (r >= 0) & (r < ny)
         np.add.at(hs, (r[ok], c[ok]), t[ok, 3]); np.add.at(cn, (r[ok], c[ok]), 1)
     mean = np.where(cn > 0, hs / np.maximum(cn, 1), 0).astype(np.float32)
     k = int(round(cell / PACK_RES))
     return np.repeat(np.repeat(mean, k, 0), k, 1)[:h, :w]
+
+
+def crown_radii(species, height, crown):
+    """the crown radius (m) the client draws per record, as game/src/world/trees/species.ts: speciesFor (an id
+    outside the table draws as species 0) then crownRadius (the natural radius of the species times the
+    height, pulled 0.85..1.25x toward the crown in the record)"""
+    s = np.rint(species).astype(int)
+    sp = np.where((s >= 0) & (s < len(CROWN_RATIO)), s, 0)
+    nat = CROWN_RATIO[sp] * height
+    k = np.where((nat > 0) & (crown > 0), crown / np.maximum(nat, 1e-6), 1.0)
+    return nat * np.clip(k, 0.85, 1.25)
+
+
+def crown_area(pack_dir, meta, w, h):
+    """BUG-069: the share of each PACK_RES cell over the pack bounds (row 0 = north) under the crowns the
+    client draws, unsmoothed. Overlapping crowns are summed, so a cell can pass 1 and a clump reads a little
+    denser than the ground it shades; fine for weighting the cover, which saturates at CROWN_FULL anyway."""
+    b = meta["bounds"]
+    area = np.zeros((h, w), np.float64)
+    for t in tree_records(pack_dir, meta):
+        cr = crown_radii(t[:, 5], t[:, 3], t[:, 4])
+        c = ((t[:, 0] - b["minX"]) / PACK_RES).astype(int); r = ((b["maxY"] - t[:, 1]) / PACK_RES).astype(int)
+        ok = (c >= 0) & (c < w) & (r >= 0) & (r < h)
+        np.add.at(area, (r[ok], c[ok]), np.pi * cr[ok] ** 2)
+    return (area / PACK_RES ** 2).astype(np.float32)
+
+
+def closed_stand(crowns):
+    """BUG-069: 0..1 weight of the ground under a closed stand of drawn trees, from their smoothed crown share"""
+    from scipy import ndimage
+    dense = smoothstep(CROWN_LO, CROWN_HI, crowns).astype(np.float32)
+    r = int(round(STAND_MIN_R / PACK_RES))
+    yy, xx = np.mgrid[-r:r + 1, -r:r + 1]
+    disc = (xx * xx + yy * yy) <= r * r
+    # drop the clumps, then fill the holes the same size inside the stands that stay
+    core = ndimage.grey_closing(ndimage.grey_opening(dense, footprint=disc), footprint=disc)
+    return ndimage.gaussian_filter(core, 1.0)
 
 
 def to_rgba(forest, height, rock, built):
@@ -146,8 +205,21 @@ def pack_level(pack_dir, meta, runs, log=print):
     log(f"  pack cover {w} x {h} at {PACK_RES:g} m: forest {forest.mean()*100:.1f}%, "
         f"runs clear {(forest * burn).sum() / max(forest.sum(), 1) * 100:.1f}% of it")
     forest *= 1 - burn
+    crowns = crown_area(pack_dir, meta, w, h)
+    stands = None
+    if crowns.any():   # a pack without tree instances keeps its canopy (the ground then carries the forest)
+        from scipy import ndimage
+        before = forest.sum()
+        stands = forest * closed_stand(ndimage.gaussian_filter(crowns, CROWN_SIGMA / PACK_RES))
+        forest *= np.clip(ndimage.gaussian_filter(crowns, FAR_SIGMA / PACK_RES) / CROWN_FULL, 0, 1)
+        log(f"  drawn trees keep {forest.sum() / max(before, 1) * 100:.1f}% of the forest from far off, "
+            f"closed stands {stands.sum() / max(before, 1) * 100:.1f}% from near (BUG-069)")
     height = tree_heights(pack_dir, meta, 16.0, w, h)
-    return write_level(pack_dir, "pack", to_rgba(forest, height, rock, np.zeros_like(forest)), PACK_RES, b["minX"], b["minY"])
+    lv = write_level(pack_dir, "pack", to_rgba(forest, height, rock, np.zeros_like(forest)), PACK_RES, b["minX"], b["minY"])
+    if stands is not None:
+        lv["stands"] = "cover/pack-stands.png"
+        Image.fromarray((np.clip(stands, 0, 1) * 255 + 0.5).astype(np.uint8), "L").save(os.path.join(pack_dir, lv["stands"]), optimize=True)
+    return lv
 
 
 # ------------------------------------------------------------------ DATA-019: land cover outside the pack
