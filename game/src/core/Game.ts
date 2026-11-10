@@ -4,7 +4,8 @@ import { GameAudio } from '../audio/Audio';
 import { availableResorts } from '../resorts';
 import { landmarkStart } from '../world/Landmarks';
 import { LENSES, type LensSetting } from '../world/Lens';
-import { attractShot, loadAttractManifest, resortNumbers } from '../world/AttractShots';
+import { attractShot, loadAttractManifest, resortNumbers, shippedStill } from '../world/AttractShots';
+import { cachedMenuStill } from '../ui/MenuStill';
 import { MainMenu } from '../ui/MainMenu';
 import { LoadingScreen } from '../ui/Loading';
 import { applyUiScale, loadSettings } from '../ui/Settings';
@@ -61,10 +62,12 @@ export class Game {
     const skipMenu = params.cam === 'eye';
     const shot = attractShot(pack, landmarkStart(pack.meta.slug) ?? pack.meta.start);
     const attractFiles = headless ? {} : await loadAttractManifest(import.meta.env.BASE_URL);
-    const mine = attractFiles[pack.meta.slug] ?? {};
+    // FEAT-177: the still is the frame this browser kept at its last crossfade (same build, pack and quality), else
+    // the shipped one when it was rendered from this build of the pack, else none (the menu over the loading bar)
+    const still = headless || skipMenu ? '' : (await cachedMenuStill(pack, shot, settings)) || shippedStill(import.meta.env.BASE_URL, attractFiles, pack, shot.id);
     const menu = headless ? null : new MainMenu({
       slug: pack.meta.slug, resortName: pack.meta.name, shot, numbers: resortNumbers(pack),
-      still: mine.stills?.includes(shot.id) ? `${import.meta.env.BASE_URL}attract/${pack.meta.slug}/${shot.id}.jpg` : '', resorts, audio, settings, credits: () => audio.credits,
+      still, resorts, audio, settings, credits: () => audio.credits,
     });
     // BUG-063: whatever shows first (the menu over its still, or the loading screen) paints before the session's heavy setup
     let loading: LoadingScreen | null = null;

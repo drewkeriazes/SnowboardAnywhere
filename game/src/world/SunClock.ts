@@ -17,9 +17,9 @@ export class SunClock {
   }
 
   /** true when the sun follows the real clock */
-  live(s: Settings): boolean { return s.timeOfDay === 'now' || this.timeParam === 'now'; }
+  live(s: Pick<Settings, 'timeOfDay'>): boolean { return s.timeOfDay === 'now' || this.timeParam === 'now'; }
 
-  apply(s: Settings): void {
+  apply(s: Pick<Settings, 'timeOfDay' | 'month'>): void {
     const mode: 'pack' | 'now' | number = this.timeParam ?? s.timeOfDay;
     if (mode === 'pack') { this.env.setSun(this.pack.meta.sun.azimuth, this.pack.meta.sun.elevation); return; }
     let date: Date, hour: number;
@@ -30,7 +30,7 @@ export class SunClock {
   }
 
   /** on the live clock, move the sun once a minute */
-  update(dt: number, s: Settings): void {
+  update(dt: number, s: Pick<Settings, 'timeOfDay' | 'month'>): void {
     if (!this.live(s)) return;
     this.clock += dt;
     if (this.clock > 60) { this.clock = 0; this.apply(s); }
