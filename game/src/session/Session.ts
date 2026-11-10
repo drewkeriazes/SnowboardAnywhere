@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { Pack } from '../pack/Pack';
 import { Terrain } from '../terrain/Terrain';
 import { MOGUL_CREEP_M_PER_DAY } from '../terrain/Moguls';
 import { Rider } from '../sim/Rider';
@@ -45,7 +44,6 @@ import { TrialWorld } from '../world/TrialWorld';
 import { ResortMap } from '../ui/ResortMap';
 import { LiftRide } from '../sim/LiftRide';
 import { Prefetch } from '../sim/Prefetch';
-import { GameAudio } from '../audio/Audio';
 import { MainMenu, type MenuChoice } from '../ui/MainMenu';
 import { attractShot, shotPose, type AttractManifest } from '../world/AttractShots';
 import { AttractGhosts, takeFrom } from '../world/AttractGhosts';
@@ -58,7 +56,10 @@ import { sunPosition, guessUtcOffset } from '../world/Sun';
 import { keyName, keysOf, saveSettings, FALL_LINE, type Settings } from '../ui/Settings';
 import { STAMINA, switchName, type PressEnd } from '../sim/Rider';
 import { PressMeter } from '../ui/PressMeter';
-import { hasCustomStart, resetStart, spawnKey } from '../spawn';
+import { hasCustomStart, resetStart, spawnFromUrl, spawnKey } from '../spawn';
+import { GameLoop } from '../core/GameLoop';
+import { installSimDebug } from '../core/debugHooks';
+import type { GameContext } from '../core/GameContext';
 import { PAD } from '../sim/Pad';
 import { padFx } from '../sim/PadFeedback';
 import { padGlyph, padGlyphs, stickGlyph } from '../ui/PadGlyphs';
@@ -68,22 +69,23 @@ const NEW_SNOW: Record<string, number> = { none: 0, dusting: 0.25, '6in': 0.6, p
 /** FEAT-077: how skied out the snow gets by late afternoon for each Snow conditions setting */
 const SKIED_BASE: Record<string, number> = { fresh: 0.15, mid: 0.9, spring: 0.7 };
 
-const params = new URLSearchParams(location.search);
-const headless = params.has('headless');
-/** FEAT-138: `npm run host` builds for other computers on the home network; dev-only tools stay off there */
-const hosted = !!import.meta.env.VITE_HOST_NAME;
-const debugHud = params.has('debug') && !hosted; // BUG-053: extra HUD line with the edge model numbers
 
 /** How a session starts: in the main menu (attract) or riding, with the loading screen when there is no menu over it. */
 export interface SessionOpts { menu: MainMenu | null; attract: boolean; loading: LoadingScreen | null; attractFiles: AttractManifest }
 
-/** Resolves when the player quits with no main menu to go back to (never, with one: Quit returns to it). */
-export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanvasElement, audio: GameAudio, settings: Settings, opts: SessionOpts): Promise<void> {
+/** One resort loaded and playable: its scene, the rider, the menus over it. */
+export interface Session {
+  /** resolves when the player quits with no main menu to go back to (never, with one: Quit returns to it) */
+  readonly quit: Promise<void>;
+}
+
+export function createSession(ctx: GameContext, opts: SessionOpts): Session {
+  const { params, canvas, renderer, scene, pack, settings, audio } = ctx;
+  const { headless, hosted, debugHud } = params;
   const { menu, loading } = opts;
-  return new Promise<void>((resolveQuit) => {
+  const quit = new Promise<void>((resolveQuit) => {
     const hud = document.getElementById('hud')!;
     const status = document.getElementById('status')!;
-    const scene = new THREE.Scene();
     const zr = pack.meta.zRange ?? [0, 3000];
     const env = new Environment(scene, renderer, pack.meta.sun.azimuth, pack.meta.sun.elevation, zr[0], (zr[0] + zr[1]) / 2);
     // names show up in the Three.js DevTools scene tree and in scene.getObjectByName()
@@ -93,7 +95,7 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
     const snow = new Snow();
     add('snowfall', snow.points);
     const terrain = new Terrain(pack);
-    if (debugHud && params.get('debug') === 'moguls') terrain.setMogulDebug(true); // BUG-062
+    if (debugHud && params.debug === 'moguls') terrain.setMogulDebug(true); // BUG-062
     add('terrain', terrain.group);
     const collider = new Collider();
     const veg = new Vegetation(pack, collider);
@@ -117,7 +119,7 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
     add('roads', roads.group);
     const landmarks = new Landmarks(pack, collider); // FEAT-132: hand-placed signs (the Back Bowls gateway)
     add('landmarks', landmarks.group);
-    const bridges = new Bridges(pack, collider, params.has('bridgeguess')); // BUG-022: OSM-tagged bridges and creek-bed dips; ?bridgeguess adds segment chords
+    const bridges = new Bridges(pack, collider, params.bridgeguess); // BUG-022: OSM-tagged bridges and creek-bed dips; ?bridgeguess adds segment chords
     add('bridges', bridges.group);
     const tracks = new Tracks(pack);
     add('tracks', tracks.group);
@@ -204,7 +206,7 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
     const cam = new ChaseCamera(pack, window.innerWidth / window.innerHeight);
     cam.collider = collider; // BUG-032: keep the chase camera out of trees
     const controls = new Controls(canvas);
-    const touch = TouchControls.wanted() ? new TouchControls(controls) : null;
+    const touch = TouchControls.wanted(params.touch) ? new TouchControls(controls) : null;
     // cascaded shadows: every lit material gets the CSM hook
     env.registerMaterial(terrain.material);
     for (const m of Object.values(veg.mat)) env.registerMaterial(m);
@@ -215,7 +217,7 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
     for (const m of eat.materials) env.registerMaterial(m);
     for (const m of landmarks.materials) env.registerMaterial(m);
     let csmSize = 0;
-    if (!params.has('noimpostors')) veg.enableImpostors(renderer, true);
+    if (!params.noimpostors) veg.enableImpostors(renderer, true);
     const goggles = new GoggleView();
     const lens = new GoggleLens(); // FEAT-130: the tinted lens pass in first person
     let lensWorn: LensId | null = null;
@@ -265,9 +267,9 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
     // ---------------------------------------------------------------- sun / time of day
     const [lon, lat] = pack.meta.lonlat;
     const utcOff = guessUtcOffset(lon);
-    const timeParam = params.get('time'); // ?time=now or ?time=16.5
+    const timeParam = params.time; // ?time=now or ?time=16.5
     const applySun = (s: Settings) => {
-      const mode: 'pack' | 'now' | number = timeParam === 'now' ? 'now' : timeParam && !Number.isNaN(Number(timeParam)) ? Number(timeParam) : s.timeOfDay;
+      const mode: 'pack' | 'now' | number = timeParam ?? s.timeOfDay;
       if (mode === 'pack') { env.setSun(pack.meta.sun.azimuth, pack.meta.sun.elevation); return; }
       let date: Date, hour: number;
       if (mode === 'now') { const now = new Date(); date = now; hour = now.getUTCHours() + now.getUTCMinutes() / 60 + utcOff; }
@@ -278,7 +280,7 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
     let sunClock = 0;
     // ?weather=overcast (FEAT-078) and __sim.setWeather (shoot_spots.mjs, per spot) override the
     // saved Weather setting for this session without saving it; picking a Weather in the menu clears it
-    let weatherOverride: CloudCover | null = parseWeather(params.get('weather'));
+    let weatherOverride: CloudCover | null = parseWeather(params.weather);
     const initialWeather = weatherOverride;
     /** the weather on screen right now (FEAT-093: saved with P-key shots) */
     const currentWeather = (): CloudCover => weatherOverride ?? settings.clouds ?? 'scattered';
@@ -291,11 +293,10 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
     // FEAT-062: adaptive quality; its level scales resolution, cloud steps, trees and snowfall in applySettings
     const auto = new AutoQuality();
     const autoClouds = (q: 'high' | 'medium' | 'low'): 'high' | 'medium' | 'low' => auto.current.cloudsDown ? (q === 'high' ? 'medium' : 'low') : q;
-    let lastDraw = 0;
     /** FEAT-044: the deformation window and the spray budget from the preset, the Snow dents setting, ?nodeform and the auto level */
     const applyDeform = (s: Settings): void => {
       const q = auto.current;
-      deform.enabled = s.snowDeform !== false && s.quality !== 'low' && !params.has('nodeform') && q.deform > 0;
+      deform.enabled = s.snowDeform !== false && s.quality !== 'low' && !params.nodeform && q.deform > 0;
       const small = q.deform < 1 || s.quality === 'medium';
       deform.configure(small ? 256 : 512, small ? 48 : 64);
       riderView.spray.setCount((s.quality === 'high' ? 8192 : s.quality === 'medium' ? 4096 : 2048) * q.snow);
@@ -325,7 +326,7 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
       env.setCirrus(weather === 'cirrus'); // FEAT-084
       // flat light: the snow surface reads poorly under a storm, a little less under overcast
       terrain.setFlatLight(storm ? 1 : overcast ? 0.85 : 0);
-      env.setValleyFog(!!s.valleyFog || params.has('valleyfog')); // ?valleyfog forces it on for render checks
+      env.setValleyFog(!!s.valleyFog || params.valleyfog); // ?valleyfog forces it on for render checks
       // falling snow: the storm, or light flurries under overcast (a sixth of the flakes, no visibility cut)
       snow.points.visible = storm || weather === 'flurries';
       const flakes = s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500;
@@ -340,7 +341,7 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
       audio.setPlaylist(s.playlist);
       renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2) * auto.current.res); // FEAT-062: auto quality scales it
       if (renderer.shadowMap.enabled !== s.shadows) { renderer.shadowMap.enabled = s.shadows; renderer.shadowMap.needsUpdate = true; scene.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) m.needsUpdate = true; }); }
-      const wantSize = (s.csmExperimental || params.has('csm')) && !params.has('nocsm') ? (s.quality === 'high' ? 2048 : 1024) : 0;
+      const wantSize = (s.csmExperimental || params.csm) && !params.nocsm ? (s.quality === 'high' ? 2048 : 1024) : 0;
       if (csmSize !== wantSize) { csmSize = wantSize; if (wantSize) env.enableCSM(cam.camera, wantSize, 3); else env.disableCSM(); }
       env.sun.visible = wantSize === 0;
       env.sun.shadow.mapSize.set(s.quality === 'high' ? 4096 : 2048, s.quality === 'high' ? 4096 : 2048);
@@ -376,10 +377,10 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
     const saveKey = spawnKey(pack.meta.slug);
     let saved: { x: number; y: number; h: number } | null = null;
     try { saved = JSON.parse(localStorage.getItem(saveKey) ?? 'null'); } catch { saved = null; }
-    const at = new URLSearchParams(location.search); // re-read: the menu's "Reset to resort start" may have removed x/y/h
-    let sx = at.has('x') ? Number(at.get('x')) : saved?.x ?? start.x;
-    let sy = at.has('y') ? Number(at.get('y')) : saved?.y ?? start.y;
-    let sh = at.has('h') ? Number(at.get('h')) * Math.PI / 180 : saved?.h ?? start.heading;
+    const at = spawnFromUrl(); // re-read: the menu's "Reset to resort start" may have removed x/y/h
+    let sx = at.x ?? saved?.x ?? start.x;
+    let sy = at.y ?? saved?.y ?? start.y;
+    let sh = at.h ?? saved?.h ?? start.heading;
     const setSpawn = (x: number, y: number, h: number) => {
       sx = x; sy = y; sh = h;
       try { localStorage.setItem(saveKey, JSON.stringify({ x, y, h })); } catch { /* private mode */ }
@@ -576,12 +577,11 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
 
     // ---------------------------------------------------------------- scene setup
     applySettings(settings, 'init');
-    cam.mode = params.get('cam') === 'fp' ? 'fp' : settings.camera;
+    cam.mode = params.cam === 'fp' ? 'fp' : settings.camera;
     // ?cam=eye&pitch=&fov=&eye=&spot= (DATA-008): a still camera at eye height over x, y for
     // real vs game photo pairs; HUD hidden, rider frozen, P saves the shot (see docs/compare/README.md)
-    const num = (k: string, d: number) => { const v = Number(params.get(k)); return params.has(k) && Number.isFinite(v) ? v : d; };
-    if (params.get('cam') === 'eye') cam.setEye(sx, sy, sh * 180 / Math.PI, num('pitch', 0), num('fov', 75), num('eye', 1.7));
-    const spotName = params.get('spot') ?? '';
+    if (params.cam === 'eye') cam.setEye(sx, sy, sh * 180 / Math.PI, params.pitch ?? 0, params.fov ?? 75, params.eye ?? 1.7);
+    const spotName = params.spot;
     let shotPending = false;
     /** Scripted shots (game/tools/shoot_spots.mjs): jump the eye camera and stream the tiles around it. */
     const eyeAt = (x: number, y: number, h: number, pitch: number, fov: number, height = 1.7) => {
@@ -636,10 +636,10 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
       const tail = isBest ? (best > 0 ? ' · new best!' : '') : ` · best ${best.toFixed(1)} s`;
       showToast(`${name} ${t.toFixed(1)} s, ${fmtDistance(dist, settings.units === 'metric')}${PRESS_HOW[how]}${tail}`, 2600);
     };
-    if (params.get('cam') === 'eye' && !headless) showToast('Eye camera: click, then mouse to look · WASD move · Q/E height · [ ] zoom · P save shot · ` free fly', 10000);
+    if (params.cam === 'eye' && !headless) showToast('Eye camera: click, then mouse to look · WASD move · Q/E height · [ ] zoom · P save shot · ` free fly', 10000);
     audio.onTrack = (name) => showToast(`\u266B ${name}`);
     // the menu may already have started a song before onTrack was set (BUG-033): announce it now
-    if (audio.nowPlaying && !headless && params.get('cam') !== 'eye') showToast(`\u266B ${audio.nowPlaying}`);
+    if (audio.nowPlaying && !headless && params.cam !== 'eye') showToast(`\u266B ${audio.nowPlaying}`);
     const prompt = document.getElementById('prompt')!;
     let promptShown = '';
     // FEAT-124: restart hold and its ring, and the contextual key hints in the corner
@@ -668,8 +668,10 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
     window.addEventListener('resize', onResize);
 
     let alive = true;
+    const loop = new GameLoop(headless, { everyFrame, tick: frame, targetFps: () => settings.targetFps });
     const dispose = () => {
       alive = false;
+      loop.stop();
       canvas.removeEventListener('click', onClick);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('resize', onResize);
@@ -700,7 +702,6 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
       renderer.clear();
     };
 
-    let last = performance.now();
     let fpsAcc = 0, fpsN = 0, fps = 0;
     let elapsed = 0;
     const clockStart = performance.now();
@@ -727,28 +728,20 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
       renderer.autoClear = auto; renderer.shadowMap.autoUpdate = shadows;
     }
 
-    /** headless only: exact frame dt for __step, so scripted runs replay step for step */
-    let fixedDt: number | null = null;
     /** BUG-063: the loading screen, hidden once the first real frames have run behind it */
     let hideLoading: LoadingScreen | null = null, loadFrames = 0;
     const HIDE_AFTER_FRAMES = 3;
     /** FEAT-128: frames until the menu's still crossfades into the live view (0: not waiting) */
     let menuReadyIn = 0;
-    function frame(): void {
-      if (!alive) return;
+    /** every display frame, drawn or skipped by the 30 fps cap */
+    function everyFrame(): void {
       if (hideLoading && ++loadFrames >= HIDE_AFTER_FRAMES) { hideLoading.hide(); hideLoading = null; }
       if (menuReadyIn > 0 && --menuReadyIn === 0) menu?.setReady();
-      const now = performance.now();
-      // FEAT-062: a 30 fps target skips display frames (a millisecond of slack for timer jitter)
-      // against a running deadline so the average hits 30 even when the refresh rate does not divide evenly (75, 100 Hz)
-      const capped = !headless && !fixedDt && settings.targetFps === 30;
-      if (capped && now < lastDraw - 1) { requestAnimationFrame(frame); return; }
-      // lastDraw holds the next deadline; reset it to now if we fell more than a frame behind
-      lastDraw = capped ? (now - lastDraw > 1000 / 30 ? now : lastDraw) + 1000 / 30 : now;
-      const dt = fixedDt ?? Math.min(0.1, (now - last) / 1000);
-      last = now;
+    }
+    /** one drawn frame (the update order is written down in docs/developer-guide.md) */
+    function frame(dt: number, stepped: boolean): void {
       // FEAT-062: feed the frame time; a level change re-applies the scaled settings
-      if (!headless && !fixedDt && !paused && auto.frame(dt, settings.autoQuality ? (settings.targetFps || 60) : 0)) applyAuto();
+      if (!headless && !stepped && !paused && auto.frame(dt, settings.autoQuality ? (settings.targetFps || 60) : 0)) applyAuto();
       // FEAT-140: on the snow on the board, W / S and the stick balance a held press instead of tucking and braking
       controls.balancing = rider.pressMode !== 'off' && rider.discipline === 'board' && (rider.onGround || rider.pressing) && !rider.unstrapped && rider.crashed <= 0;
       const input = controls.update(dt);
@@ -769,7 +762,7 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
       if (paused) {
         padFx.idle(controls.pad); controls.endFrame(); touch?.pressed.clear(); render();
         fpsAcc += dt; fpsN++; if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; } // FEAT-128: Settings shows the live frame rate over the paused game
-        if (!headless) requestAnimationFrame(frame); return;
+        return;
       }
       touch?.setVisible(!map.fullOpen && !attract);
       if (outrunAfterMap && !map.fullOpen) { outrunAfterMap = false; startOutrun(); }
@@ -1068,7 +1061,7 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
         const d = live ? new Date() : new Date(Date.UTC(new Date().getFullYear(), settings.month - 1, 15));
         const seasonStart = Date.UTC(d.getUTCMonth() >= 10 ? d.getUTCFullYear() : d.getUTCFullYear() - 1, 10, 15);
         const seasonDays = Math.max(0, Math.min(150, (d.getTime() - seasonStart) / 86400000));
-        pack.setMoguls(params.has('nomoguls') ? 0 : 1 - 0.6 * snowCover, MOGUL_CREEP_M_PER_DAY * seasonDays);
+        pack.setMoguls(params.nomoguls ? 0 : 1 - 0.6 * snowCover, MOGUL_CREEP_M_PER_DAY * seasonDays);
         terrain.setMoguls(pack.mogulScale, pack.mogulCreep);
       }
       rocks.setSnow(Math.min(1, snowCover * 3), snow.wind.x, snow.wind.y); // boulder tops fill three times faster than the slopes
@@ -1161,12 +1154,6 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
           (rider.brakeAmt > 0 ? ` &middot; brake &Psi; ${(rider.brakePsi * 180 / Math.PI).toFixed(0)}&deg; &gamma; ${(Math.abs(rider.slip) * 180 / Math.PI).toFixed(0)}&deg; ${rider.brakeAcc.toFixed(1)} m/s&sup2; mod ${rider.brakeMod.toFixed(2)}` : '') +
           // FEAT-053: the snow weights and what they set
           `<br>snow groomed ${rider.snow.groomed.toFixed(2)} powder ${rider.snow.powder.toFixed(2)} chop ${rider.snow.chop.toFixed(2)} ice ${rider.snow.ice.toFixed(2)} slush ${rider.snow.slush.toFixed(2)} rock ${rider.snow.rock.toFixed(2)} &middot; depth ${(rider.snow.depth * 100).toFixed(0)} cm &middot; grip x${rider.snow.grip.toFixed(2)} &middot; turn x${rider.snow.turn.toFixed(2)} &middot; drag ${rider.snow.drag0.toFixed(2)} + ${rider.snow.drag1.toFixed(4)}v &middot; chop ${rider.chop.toFixed(2)} &middot; sink ${rider.noseSink.toFixed(2)}</span>` : '');
-      (window as any).__sim = { attract, ghosts, menu, shot, rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, eyeAt, outrun, monsters, startOutrun, stopOutrun, treeFadeUniforms,
-        /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
-        setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
-        /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */
-        applySettings: (what: string) => applySettings(settings, what) };
-      if (!headless) requestAnimationFrame(frame);
     }
 
     /**
@@ -1215,15 +1202,14 @@ export function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HT
       else if (opts.attract && menu && alive) { await warmUp({ set: (f, l) => menu.setProgress(f, l) }); menuReadyIn = HIDE_AFTER_FRAMES; }
       if (!alive) return;
       status.textContent = '';
-      last = performance.now();
-      if (headless) {
-        (window as any).__step = (n: number, dtOverride = 1 / 60) => { fixedDt = dtOverride; for (let i = 0; i < n; i++) frame(); fixedDt = null; last = performance.now(); };
-        (window as any).__shot = () => { last = performance.now() - 1000 / 60; frame(); return canvas.toDataURL('image/png'); };
-        frame();
-      } else {
-        requestAnimationFrame(frame);
-      }
+      installSimDebug({ ghosts, menu, shot, rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, eyeAt, outrun, monsters, startOutrun, stopOutrun, treeFadeUniforms,
+        /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
+        setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
+        /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */
+        applySettings: (what: string) => applySettings(settings, what) }, { attract: () => attract, fps: () => fps });
+      loop.start(canvas);
     })();
     void clockStart;
   });
+  return { quit };
 }

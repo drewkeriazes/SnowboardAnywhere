@@ -1,7 +1,9 @@
 import './ui/theme.css';
-import { main } from './core/Game';
+import { parseParams } from './core/params';
+import { Game } from './core/Game';
 
-main().catch((e) => {
+// FEAT-160: the entry point. Where things live and the order a frame runs in: docs/developer-guide.md (Code layout).
+new Game(parseParams(location.search)).start().catch((e) => {
   console.error(e);
   const st = document.getElementById('status')!;
   st.style.maxWidth = '720px'; st.style.textAlign = 'center';
