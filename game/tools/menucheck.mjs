@@ -1,8 +1,9 @@
-// Menu check (FEAT-128): walks the main menu, the settings panel and the pause menu with the keyboard
-// and a fake gamepad and checks focus moves, values change, hints come from the key tables, Esc cancels
-// a rebind without closing anything, Esc resumes exactly once, and A on Resume doesn't jump.
+// Menu check (FEAT-128): walks the main menu, the settings screen and the pause menu with the keyboard
+// and a fake gamepad and checks focus moves, values change and persist, presets, search, reset, peek,
+// hints come from the key tables, Esc cancels a rebind without closing anything, Esc resumes exactly
+// once, and A on Resume doesn't jump.
 // node tools/menucheck.mjs [pack] [--headed | --gpu | --cpu] [--shots]   (run after `npx vite build`; exit 1 on a failed check)
-//   --shots saves the main menu, settings and pause to shots/menus/
+//   --shots saves the main menu, settings (over the menu, over the game, phone sizes) and pause to shots/menus/
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -27,6 +28,7 @@ const fails = [];
 const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? `: ${detail}` : ''}`); if (!ok) fails.push(name); };
 const outDir = path.join('shots', 'menus');
 if (shots) fs.mkdirSync(outDir, { recursive: true });
+const url = `http://localhost:${server.address().port}/index.html?pack=${pack}&lowgfx${process.env.SHOT_QUERY ?? ''}`;
 
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
 const errors = [];
@@ -37,88 +39,146 @@ await page.addInitScript(() => {
   const buttons = Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 }));
   window.__pad = { buttons, axes: [0, 0, 0, 0] };
   navigator.getGamepads = () => [{ id: 'menucheck pad', index: 0, connected: true, mapping: 'standard', timestamp: performance.now(), buttons, axes: window.__pad.axes, vibrationActuator: null }];
-  localStorage.clear();
+  if (!sessionStorage.getItem('menucheck')) { localStorage.clear(); sessionStorage.setItem('menucheck', '1'); }
 });
-await page.goto(`http://localhost:${server.address().port}/index.html?pack=${pack}&lowgfx${process.env.SHOT_QUERY ?? ''}`);
+await page.goto(url);
 await page.waitForSelector('#menu .panel', { timeout: 60000 });
 await page.waitForTimeout(300);
 
-const active = () => page.evaluate(() => { const a = document.activeElement; return a ? (a.dataset.a ?? a.dataset.t ?? a.dataset.k ?? a.dataset.d ?? a.tagName) : null; });
+/** the focused item: a settings row by its id, else the button's data-a / data-cat, else the tag */
+const active = () => page.evaluate(() => { const a = document.activeElement; if (!a) return null; const r = a.closest('[data-row]'); return a.dataset.row ?? (r && a.matches('.key') ? `slot:${r.dataset.row}` : null) ?? a.dataset.a ?? a.dataset.cat ?? a.dataset.k ?? a.dataset.d ?? (a.matches('.search') ? 'search' : a.tagName); });
 const key = async (k) => { await page.keyboard.press(k); await page.waitForTimeout(60); };
 const pad = async (i, holdMs = 90) => { await page.evaluate((i) => { window.__pad.buttons[i].pressed = true; window.__pad.buttons[i].value = 1; }, i); await page.waitForTimeout(holdMs); await page.evaluate((i) => { window.__pad.buttons[i].pressed = false; window.__pad.buttons[i].value = 0; }, i); await page.waitForTimeout(80); };
 const hints = () => page.evaluate(() => [...document.querySelectorAll('.hintbar')].filter((e) => e.offsetParent).map((e) => [...e.querySelectorAll(':scope > span')].map((x) => `[${x.querySelector('kbd')?.textContent}] ${x.lastChild?.textContent}`).join(' ')).join(' | '));
+const setOpen = () => page.evaluate(() => { const el = document.querySelector('#settings'); return !!el && getComputedStyle(el).display !== 'none'; });
+const cat = () => page.evaluate(() => document.querySelector('#settings .cats button.on')?.dataset.cat ?? null);
+const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem('settings') ?? '{}'));
+/** focus a settings row by id (as the arrows would) */
+const focusRow = (id) => page.evaluate((id) => { const el = document.querySelector(`#settings [data-row="${id}"][data-nav]`); el?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, movementX: 2, movementY: 2 })); el?.focus(); return !!el; }, id);
+const openCat = (c) => page.evaluate((c) => document.querySelector(`#settings .cats button[data-cat="${c}"]`)?.click(), c);
 
 // ---- main menu
 check('focus starts on primary', (await active()) === 'ride', `focused ${await active()}`);
 await key('ArrowDown');
 const afterDown = await active();
 check('arrow down moves focus', afterDown !== 'ride' && afterDown !== null && afterDown !== 'BODY', `focused ${afterDown}`);
-// with the settings panel closed, walking down never lands inside it
-let inHidden = false;
-for (let i = 0; i < 8; i++) { await key('ArrowDown'); if (await page.evaluate(() => !!document.activeElement?.closest('.settings.hidden'))) inHidden = true; }
-check('hidden rows skipped', !inHidden);
 check('keyboard hints', /Enter/.test(await hints()), await hints());
 check('no stale key line', await page.evaluate(() => !/Space jump|steer ·/.test(document.querySelector('#menu')?.textContent ?? '')));
 if (shots) await page.screenshot({ path: path.join(outDir, 'main.png') });
 
-// settings: Enter on Settings opens it, Q / E switch tabs, Esc closes and returns focus
+// ---- settings over the menu: opens on the first Gameplay row, the detail panel follows the focus
 await page.evaluate(() => document.querySelector('#menu button[data-a="settings"]')?.focus());
-await page.evaluate(() => { const b = document.querySelector('#menu button[data-a="settings"]'); b?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); });
 await key('Enter');
-check('Enter opens settings', await page.evaluate(() => !document.querySelector('#menu .settings:not(.outrun)')?.classList.contains('hidden')));
-const tab0 = await page.evaluate(() => document.querySelector('#menu .tabs button.on')?.dataset.t);
+check('Enter opens settings on the first row', await setOpen() && (await cat()) === 'gameplay' && (await active()) === 'feel', `open ${await setOpen()}, cat ${await cat()}, focused ${await active()}`);
+check('over the menu: blurred, no peek', await page.evaluate(() => document.querySelector('#settings').classList.contains('over-menu') && getComputedStyle(document.querySelector('#settings .peek')).display === 'none'));
+await key('ArrowDown');
+check('detail panel follows the focus', await page.evaluate(() => /press balance/i.test(document.querySelector('#settings .detail h3')?.textContent ?? '')), await page.evaluate(() => document.querySelector('#settings .detail h3')?.textContent));
+check('detail shows what the presets do', await page.evaluate(() => /Arcade: easy/.test(document.querySelector('#settings .detail .presets')?.textContent ?? '')));
+// the settings hint bar: keys from the tables, peek only over the game
+const sh = await hints();
+check('settings hints from the key tables', /\[Q E\] Category/.test(sh) && /\[R\] Reset gameplay/.test(sh) && /\[Esc\] Back/.test(sh) && !/peek/i.test(sh), sh);
+// Q / E switch category
 await key('KeyE');
-const tab1 = await page.evaluate(() => document.querySelector('#menu .tabs button.on')?.dataset.t);
-check('Q / E switch settings tabs', tab0 === 'audio' && tab1 === 'graphics', `${tab0} -> ${tab1}`);
+const c1 = await cat();
 await key('KeyQ');
-// letters typed on a select are the select's own (type-ahead), not tab switches
-await page.evaluate(() => document.querySelector('#menu .settings select[data-k="musicSource"]')?.focus());
-await key('KeyE');
-check('letters in a select do not switch tabs', (await page.evaluate(() => document.querySelector('#menu .tabs button.on')?.dataset.t)) === 'audio');
-// Controls tab: Esc while a key slot listens cancels the slot only
-await page.click('#menu .tabs button[data-t="controls"]');
-const slot = page.locator('#menu button.key').first();
+check('Q / E switch category', c1 === 'controls' && (await cat()) === 'gameplay', `${c1} -> ${await cat()}`);
+// left / right change the focused row; the value is saved
+await focusRow('invertSteer');
+await key('ArrowRight');
+check('right turns a toggle on and saves it', (await saved()).invertSteer === true, JSON.stringify((await saved()).invertSteer));
+await key('Enter');
+check('Enter flips a toggle', (await saved()).invertSteer === false);
+await openCat('camera');
+await focusRow('fov');
+const fov0 = (await saved()).fov ?? 68;
+await key('ArrowRight'); await key('ArrowRight');
+check('right steps a slider', (await saved()).fov === fov0 + 2, `${fov0} -> ${(await saved()).fov}`);
+await focusRow('camera');
+await key('ArrowRight');
+check('right steps a picker', (await saved()).camera === 'close', (await saved()).camera);
+// Graphics presets: Low moves the advanced options; changing one of them shows Custom
+await openCat('graphics');
+await focusRow('gfx');
+await page.evaluate(() => document.querySelector('#settings [data-row="gfx"] .seg button[data-v="high"]')?.click());
+await page.evaluate(() => document.querySelector('#settings [data-row="gfx"] .seg button[data-v="low"]')?.click());
+const low = await saved();
+check('Graphics preset Low sets the advanced options', low.quality === 'low' && low.shadows === false && low.treeDensity === 0.3, JSON.stringify([low.quality, low.shadows, low.treeDensity]));
+await focusRow('shadows');
+await key('Enter');
+check('changing an advanced option shows Custom', await page.evaluate(() => document.querySelector('#settings [data-row="gfx"]').classList.contains('custom') && !document.querySelector('#settings [data-row="gfx"] .seg button.on')));
+await page.evaluate(() => document.querySelector('#settings [data-row="gfx"] .seg button[data-v="ultra"]')?.click());
+const ultra = await saved();
+check('Ultra is High plus cascaded shadows', ultra.quality === 'high' && ultra.csmExperimental === true && ultra.shadows === true);
+await page.evaluate(() => document.querySelector('#settings [data-row="gfx"] .seg button[data-v="high"]')?.click());
+// Feel preset
+await openCat('gameplay');
+await page.evaluate(() => document.querySelector('#settings [data-row="feel"] .seg button[data-v="realistic"]')?.click());
+check('Feel Realistic sets press balance Hard', (await saved()).pressBalance === 'hard');
+await page.evaluate(() => document.querySelector('#settings [data-row="feel"] .seg button[data-v="balanced"]')?.click());
+// per-category reset: one press arms, a second resets
+await openCat('camera');
+await focusRow('fov');
+await key('KeyR');
+check('one R only arms the reset', (await saved()).fov === fov0 + 2 && await page.evaluate(() => document.querySelector('#settings [data-reset-cat="camera"]').classList.contains('armed')));
+await key('KeyR');
+check('a second R resets the category', (await saved()).fov === 68 && (await saved()).camera === 'chase', `fov ${(await saved()).fov} camera ${(await saved()).camera}`);
+// search: filters across categories, letters stay in the box, Esc clears then closes
+await page.focus('#settings .search');
+await page.keyboard.type('speed', { delay: 20 });
+const found = await page.evaluate(() => [...document.querySelectorAll('#settings .srow[data-nav]')].filter((r) => r.offsetParent).map((r) => r.dataset.row));
+check('search finds rows in any category', found.includes('speedFov') && found.includes('lookSens') && found.includes('gyroSens') && !found.includes('fov') && !found.includes('shadows'), found.join(','));
+check('letters typed in search do not switch category', (await page.evaluate(() => document.querySelector('#settings .search').value)) === 'speed');
+await key('Escape');
+check('Esc clears the search first', await setOpen() && (await page.evaluate(() => document.querySelector('#settings .search').value)) === '');
+// Accessibility: UI scale and Reduce motion
+await openCat('access');
+await focusRow('uiScale');
+await key('ArrowRight'); await key('ArrowRight');
+check('UI scale sets the token', (await page.evaluate(() => document.documentElement.style.getPropertyValue('--ui-scale'))) === '1.1');
+await key('ArrowLeft'); await key('ArrowLeft');
+await focusRow('reduceMotion');
+await key('Enter');
+await openCat('camera');
+check('Reduce motion marks the shake rows overridden', await page.evaluate(() => document.querySelector('#settings [data-row="camShake"]').classList.contains('overridden') && document.documentElement.classList.contains('reduce-motion')));
+await openCat('access'); await focusRow('reduceMotion'); await key('Enter');
+// Controls: Esc while a key slot listens cancels the slot only
+await openCat('controls');
+const slot = page.locator('#settings [data-mount="keys"] button.key').first();
 const before = await slot.textContent();
 await slot.click();
 await key('Escape');
-check('rebind Esc cancels only the slot', (await slot.textContent()) === before && await page.evaluate(() => !document.querySelector('#menu .settings:not(.outrun)')?.classList.contains('hidden')), `slot "${await slot.textContent()}"`);
-if (shots) await page.screenshot({ path: path.join(outDir, 'settings.png') });
-await key('Escape');
-check('Esc closes settings, focus back on Settings', await page.evaluate(() => document.querySelector('#menu .settings:not(.outrun)')?.classList.contains('hidden')) && (await active()) === 'settings', `focused ${await active()}`);
-
-// the Controls button opens settings on the Controls tab (the bindings, read from the keymap)
-await page.evaluate(() => document.querySelector('#menu .tabs button[data-t="audio"]')?.click());
-const hasControls = await page.evaluate(() => !!document.querySelector('#menu button[data-a="controls"]'));
-await page.evaluate(() => document.querySelector('#menu button[data-a="controls"]')?.focus());
-await key('Enter');
-check('Controls opens the Controls tab', hasControls && await page.evaluate(() => !document.querySelector('#menu .settings:not(.outrun)')?.classList.contains('hidden') && document.querySelector('#menu .tabs button.on')?.dataset.t === 'controls'));
-// the controller's menu buttons in Settings > Controls are glyphs read from the tables, not typed text
-check('controller menu hint from the tables', await page.evaluate(() => { const el = document.querySelector('#menu [data-padnav-hint]'); return !!el && el.querySelectorAll('.pg').length >= 5 && !/Cross \/ A to pick/.test(el.textContent ?? ''); }));
-// a controller-button slot (FEAT-137) waiting for a press: Esc cancels the slot only, the panel stays open
-const pslot = page.locator('#menu .padkeys button.key').first();
+check('rebind Esc cancels only the slot', (await slot.textContent()) === before && await setOpen(), `slot "${await slot.textContent()}"`);
+check('controller menu hint from the tables', await page.evaluate(() => { const el = document.querySelector('#settings [data-padnav-hint]'); return !!el && el.querySelectorAll('.pg').length >= 5; }));
+const pslot = page.locator('#settings [data-mount="padkeys"] button.key').first();
 const pBefore = await pslot.innerHTML();
 await pslot.click();
 await key('Escape');
-check('pad rebind Esc cancels only the slot', (await pslot.innerHTML()) === pBefore && await page.evaluate(() => !document.querySelector('#menu .settings:not(.outrun)')?.classList.contains('hidden')), `panel open ${await page.evaluate(() => !document.querySelector('#menu .settings:not(.outrun)')?.classList.contains('hidden'))}`);
-// with the controller, focus walks past the keyboard key slots (a controller can't press a key)
-await page.evaluate(() => document.querySelector('#menu .tabs button.on')?.focus());
+check('pad rebind Esc cancels only the slot', (await pslot.innerHTML()) === pBefore && await setOpen());
+// the action rows act inside the screen (Reset keys does not start a ride)
+await page.evaluate(() => document.querySelector('#settings [data-row="keys-reset"]')?.click());
+await page.waitForTimeout(150);
+check('settings actions stay in the screen', await setOpen() && await page.evaluate(() => !!document.querySelector('#menu')));
+// with the controller, focus walks past the keyboard key slots and the colour pickers
+await page.evaluate(() => document.querySelector('#settings .cats button[data-cat="controls"]')?.focus());
 let onKeySlot = false;
 const walk = [];
-for (let i = 0; i < 14; i++) { await pad(13, 50); const w = await page.evaluate(() => { const a = document.activeElement; return (a?.matches('.keys button.key, input[type=color]') ? 'SLOT ' : '') + (a?.className + ':' + (a?.dataset.k ?? a?.dataset.paction ?? a?.textContent?.slice(0, 12))); }); walk.push(w); if (w.startsWith('SLOT')) onKeySlot = true; }
+for (let i = 0; i < 18; i++) { await pad(13, 50); const w = await page.evaluate(() => { const a = document.activeElement; return (a?.matches('[data-mount="keys"] button.key') ? 'SLOT ' : '') + (a?.dataset.row ?? a?.dataset.paction ?? a?.className); }); walk.push(w); if (w.startsWith('SLOT')) onKeySlot = true; }
 check('pad focus skips keyboard key slots', !onKeySlot, walk.join(' > '));
-// buttons inside the settings panel (Reset keys, Test vibration, ...) act in the panel, they don't start a ride
-await page.evaluate(() => document.querySelector('#menu .settings button[data-a="keys-reset"]')?.click());
-await page.waitForTimeout(150);
-check('settings buttons stay in the menu', await page.evaluate(() => !!document.querySelector('#menu') && !document.querySelector('#menu .settings:not(.outrun)')?.classList.contains('hidden')));
+check('hints switch to pad labels', await page.evaluate(() => document.querySelectorAll('#settings .hintbar kbd.pad svg').length >= 3), await hints());
+// R1 / L1 switch category on the pad
+await pad(5);
+check('R1 switches category', (await cat()) === 'camera', await cat());
+if (shots) await page.screenshot({ path: path.join(outDir, 'settings-menu.png') });
 await key('Escape');
-
-// gamepad: D-pad moves focus, hints switch to pad labels
-await page.evaluate(() => document.querySelector('#menu button[data-a="ride"]')?.focus());
-await pad(13); // D-pad down
-check('pad D-pad moves focus', (await active()) !== 'ride', `focused ${await active()}`);
-if (shots) await page.screenshot({ path: path.join(outDir, 'main-pad.png') });
-check('hints switch to pad labels', /\[A\] Select/.test(await hints()) && !/Enter/.test(await hints()) && await page.evaluate(() => document.querySelectorAll('#menu .hintbar kbd.pad svg').length >= 3), await hints());
-await key('ArrowUp');
+check('Esc closes settings, focus back on Settings', !(await setOpen()) && (await active()) === 'settings', `focused ${await active()}`);
+// the Controls button opens the Controls category
+await page.evaluate(() => document.querySelector('#menu button[data-a="controls"]')?.click());
+check('Controls opens the Controls category', await setOpen() && (await cat()) === 'controls');
+if (shots) {
+  for (const [w, h] of [[390, 844], [844, 390]]) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(200); await page.screenshot({ path: path.join(outDir, `settings-${w}x${h}.png`) }); }
+  await page.setViewportSize({ width: 1280, height: 800 });
+}
+await key('Escape');
 
 // ---- into a session: Free ride
 await page.evaluate(() => document.querySelector('#menu button[data-a="ride"]')?.click());
@@ -140,26 +200,53 @@ const heldFocus = await active();
 await page.evaluate(() => { window.__pad.axes[1] = 0; });
 await page.waitForTimeout(150);
 check('held stick keeps focus on Resume', heldFocus === 'resume', `focused ${heldFocus}`);
-// pause > Settings > Controls: Esc on a listening key slot cancels the slot, pause and panel stay open
+// pause > Settings: over the live game, with the fps readout; changes apply at once
 await page.evaluate(() => document.querySelector('#pause button[data-a="settings"]')?.click());
-await page.evaluate(() => document.querySelector('#pause .tabs button[data-t="controls"]')?.click());
-const kslot = page.locator('#pause .keys button.key').first();
+await page.waitForTimeout(700);
+check('settings over the game, with fps', await setOpen() && await page.evaluate(() => document.querySelector('#settings').classList.contains('over-game') && /fps/.test(document.querySelector('#settings .fps').textContent)));
+// the readout is the live frame rate of the paused game, not the last one before the pause
+await page.waitForTimeout(1200);
+const rates = await page.evaluate(() => new Promise((res) => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 < 1000) requestAnimationFrame(f); else res({ raf: n * 1000 / (performance.now() - t0), shown: parseFloat(document.querySelector('#settings .fps').textContent) }); }; requestAnimationFrame(f); }));
+check('fps readout is live while paused', Math.abs(rates.shown - rates.raf) < Math.max(6, rates.raf * 0.25), `shown ${rates.shown}, frames ${rates.raf.toFixed(0)}/s`);
+await openCat('camera'); await focusRow('fov'); await key('ArrowRight');
+check('a change applies to the running game', await page.evaluate(() => window.__sim.cam.baseFov === window.__sim.settings.fov && window.__sim.settings.fov === 69));
+await key('ArrowLeft');
+// typing in search never reaches the game behind (M is the map)
+await page.focus('#settings .search');
+await page.keyboard.type('m', { delay: 20 });
+check('typing in search does not open the map', await page.evaluate(() => !window.__sim.map.fullOpen));
+await key('Escape');
+// Peek: hold V (or Y) hides the screen, release brings it back (V typed in the search box is a letter, so from a row)
+await focusRow('fov');
+await page.keyboard.down('KeyV'); await page.waitForTimeout(150);
+const peekOn = await page.evaluate(() => document.body.classList.contains('peeking'));
+await page.keyboard.up('KeyV'); await page.waitForTimeout(150);
+check('hold V peeks, release returns', peekOn && await page.evaluate(() => !document.body.classList.contains('peeking')));
+await page.evaluate(() => { window.__pad.buttons[3].pressed = true; window.__pad.buttons[3].value = 1; }); await page.waitForTimeout(200);
+const padPeek = await page.evaluate(() => document.body.classList.contains('peeking'));
+await page.evaluate(() => { window.__pad.buttons[3].pressed = false; window.__pad.buttons[3].value = 0; }); await page.waitForTimeout(200);
+check('hold Y peeks, release returns', padPeek && await page.evaluate(() => !document.body.classList.contains('peeking')));
+if (shots) await page.screenshot({ path: path.join(outDir, 'settings-game.png') });
+// Esc on a listening key slot cancels the slot, settings stays open
+await openCat('controls');
+const kslot = page.locator('#settings [data-mount="keys"] button.key').first();
 const kBefore = await kslot.textContent();
 await kslot.click();
 await key('Escape');
 await page.waitForTimeout(150);
-check('pause rebind Esc cancels only the slot', (await kslot.textContent()) === kBefore && await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display !== 'none' && !document.querySelector('#pause .settings:not(.outrun)')?.classList.contains('hidden')));
-// a slot still listening when the pause closes (Start) stops listening: the next key while riding is not bound, and the menus answer keys again
+check('pause rebind Esc cancels only the slot', (await kslot.textContent()) === kBefore && await setOpen());
+// a slot still listening when the pause closes (Start) stops listening and the screen closes: the next key while riding is not bound
 const keysBefore = await page.evaluate(() => JSON.stringify(window.__sim.settings.keys));
 await kslot.click();
 await pad(9); // Start
 await page.waitForTimeout(200);
 await key('KeyJ');
 const keysAfter = await page.evaluate(() => JSON.stringify(window.__sim.settings.keys));
+const closedAll = !(await setOpen()) && await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display === 'none' && !document.body.classList.contains('settings-open'));
 await key('Escape');
 const f0 = await active();
 await key('ArrowDown');
-check('closing pause cancels a listening slot', keysAfter === keysBefore && f0 === 'resume' && (await active()) !== 'resume', `keys same ${keysAfter === keysBefore}, focus ${f0} -> ${await active()}`);
+check('closing pause closes settings and cancels a listening slot', keysAfter === keysBefore && closedAll && f0 === 'resume' && (await active()) !== 'resume', `keys same ${keysAfter === keysBefore}, closed ${closedAll}, focus ${f0} -> ${await active()}`);
 await key('Escape');
 await page.waitForTimeout(300);
 
