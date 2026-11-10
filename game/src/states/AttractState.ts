@@ -19,6 +19,10 @@ export interface AttractParts {
   /** the start the menu names (a landmark, the start run, else the resort start) */
   startLabel(): string;
   menuCourses(): PauseCourse[];
+  /** FEAT-177: draw the shot's own conditions (on, entering) or the player's (off, leaving) */
+  holdShotConditions(on: boolean): void;
+  /** FEAT-177: put what the shot shows over time back to its start (the clouds) */
+  shotFromStart(): void;
 }
 
 /**
@@ -29,6 +33,8 @@ export interface AttractParts {
 export class AttractState implements GameState {
   readonly name = 'attract';
   private t = 0;
+  /** FEAT-177: restart the ghosts once this frame has put the camera on the shot's start pose */
+  private ghostsFromStart = false;
   private readonly plan: FramePlan = { drive: 'menu', touch: false, fullMap: false, interact: false, replay: null };
 
   constructor(private readonly p: AttractParts) {}
@@ -37,6 +43,8 @@ export class AttractState implements GameState {
     const { menu, shot, cam, pack, ghosts, runCard, controls, settings, map } = this.p;
     this.t = 0;
     if (map.fullOpen) map.close();
+    this.p.holdShotConditions(true);
+    this.p.shotFromStart();
     const p = shotPose(shot, 0);
     cam.setEye(p.x, p.y, p.h, p.pitch, p.fov, p.eye);
     pack.fine?.request(shot.x - 600, shot.y - 600, shot.x + 600, shot.y + 600); pack.mask?.request(shot.x - 600, shot.y - 600, shot.x + 600, shot.y + 600);
@@ -52,6 +60,7 @@ export class AttractState implements GameState {
   exit(): void {
     const { ghosts, controls, cam, settings, rider } = this.p;
     ghosts.setVisible(false);
+    this.p.holdShotConditions(false);
     document.body.classList.remove('attract');
     controls.guardLeave = true;
     controls.padMute(); // the Cross that pressed RIDE is not a jump
@@ -68,7 +77,18 @@ export class AttractState implements GameState {
     cam.setEye(p.x, p.y, p.h, p.pitch, p.fov, p.eye);
     ghosts.update(dt);
     frame.update(dt, stepped, this.plan);
+    if (this.ghostsFromStart) { this.ghostsFromStart = false; ghosts.restartOutOfView(cam.camera); }
   }
 
   render(): void { this.p.frame.draw(); }
+
+  /**
+   * FEAT-177: the shot from its start, as the still shows it: the pose at t = 0, the clouds, and the ghosts at a
+   * moment when none is in frame (they ride in). The session calls it on the frame the menu crossfades to live.
+   */
+  restart(): void {
+    this.t = 0; // update() adds this frame's dt: the shot's start, give or take a frame (as the still: shoot_attract.mjs draws one frame)
+    this.p.shotFromStart();
+    this.ghostsFromStart = true;
+  }
 }

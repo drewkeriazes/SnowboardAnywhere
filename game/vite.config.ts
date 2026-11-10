@@ -142,4 +142,6 @@ export default defineConfig({
   // FEAT-128: a saved take (public/attract) must not reload the page you are recording in
   server: { host: true, port: 5173, watch: { ignored: ['**/public/attract/**'] } },
   build: { target: 'es2022', sourcemap: false, chunkSizeWarningLimit: 1500 },
+  // FEAT-177: a new id each build, so the main menu's kept still (ui/MenuStill.ts) never outlives the build that drew it
+  define: { 'import.meta.env.VITE_BUILD_ID': JSON.stringify(Date.now().toString(36)) },
 });

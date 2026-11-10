@@ -22,6 +22,8 @@ export interface Params {
   stance: 'regular' | 'goofy' | null;
   /** ?lowgfx: the low preset, no shadows, sparse trees (SwiftShader runs) */
   lowgfx: boolean;
+  /** FEAT-177 ?menuframe: keep the live frame at the main menu's crossfade in window.__menuFrame (shoot_attract.mjs --compare) */
+  menuframe: boolean;
   /** ?cam=eye|fp */
   cam: string | null;
   /** ?pitch= &fov= &eye= for ?cam=eye (DATA-008), null when absent or not a number */
@@ -53,6 +55,7 @@ export function parseParams(search: string, hosted = !!import.meta.env.VITE_HOST
   return {
     pack: p.get('pack') ?? '',
     headless: p.has('headless'),
+    menuframe: p.has('menuframe'),
     hosted,
     debug,
     debugHud: debug !== null && !hosted,

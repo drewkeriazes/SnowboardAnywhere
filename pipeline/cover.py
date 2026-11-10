@@ -398,6 +398,8 @@ if __name__ == "__main__":
     meta["cover"] = entry
     if any(lv["name"] in ("mid", "far") for lv in entry["levels"]):
         meta["attribution"] = meta.get("attribution", []) + [a for a in ATTRIBUTION if a not in meta.get("attribution", [])]
+    from packwriter import stamp_build
+    stamp_build(meta)  # FEAT-177: the cover changed, so the pack is a new build
     with open(mp, "w") as f:
         json.dump(meta, f, indent=1)
     for lv in entry["levels"]:

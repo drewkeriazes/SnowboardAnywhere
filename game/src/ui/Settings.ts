@@ -95,6 +95,9 @@ export interface Settings {
   /** FEAT-128 Accessibility: scales the menus, HUD, prompts and touch controls (the --ui-scale token), 0.8 .. 1.5 */
   uiScale: number;
 }
+
+/** FEAT-177: the settings that change what the mountain looks like (the main menu draws its shot's own while it is up) */
+export type Conditions = Pick<Settings, 'clouds' | 'timeOfDay' | 'month' | 'newSnow' | 'snowDay' | 'valleyFog'>;
 export interface Outfit { jacket: string; pants: string; helmet: string; board: string; gloves: string }
 export const OUTFIT_PRESETS: Record<string, Outfit> = {
   'Classic red': { jacket: '#ef4444', pants: '#1f2937', helmet: '#111111', board: '#1d4ed8', gloves: '#111111' },
