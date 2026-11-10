@@ -194,7 +194,10 @@ function ride(deg, amp, secs, onStep = null) {
   // the field appears under the rider at t = 3 s (its tile loaded late)
   const late = ride(25, 0, 12, (t, p) => { if (t >= 3) p.st.amp = 0.7; });
   check('late tile: rider never sinks more than 0.1 m into the snow', late.maxDrop <= 0.1, `${late.maxDrop.toFixed(2)} m`);
-  check('late tile: no air over 1 s', late.maxAir <= 1.0, `${late.maxAir.toFixed(2)} s`);
+  // BUG-072: the longest air comes from an ordinary bump well after the tile lands (FEAT-147's bumps throw
+  // over 1 s on their own), so compare with the same field loaded on time instead of a fixed limit
+  check('late tile: no more air than the same field loaded on time', late.maxAir <= bumps.maxAir + 0.05,
+    `${late.maxAir.toFixed(2)} vs ${bumps.maxAir.toFixed(2)} s`);
   check('late tile: no crash', !late.crashed);
   // FEAT-147: a steep run's chest-high bumps, straight down with no input: rough and slow, but ridable
   const steep = ride(33, 1, 12);
