@@ -124,6 +124,7 @@ function saveAttractTakes(): Plugin {
 export default defineConfig({
   base: './',
   plugins: [servePacks(), saveCompareShots(), saveAttractTakes()],
-  server: { host: true, port: 5173 },
+  // FEAT-128: a saved take (public/attract) must not reload the page you are recording in
+  server: { host: true, port: 5173, watch: { ignored: ['**/public/attract/**'] } },
   build: { target: 'es2022', sourcemap: false, chunkSizeWarningLimit: 1500 },
 });
