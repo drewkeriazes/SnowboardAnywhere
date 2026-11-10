@@ -20,8 +20,17 @@ You review one pull request in this repo and leave comments a good human reviewe
 1. Read the PR: `gh pr view <N> --comments` and `gh pr diff <N>`. Read the linked issue if the title has a card id (FEAT-/BUG-/DATA-).
 2. Read the changed files in full (not just the hunks) plus anything they call, so you judge the change in context.
 3. Read `CLAUDE.md` and any `docs/research/*.md` or `docs/pack-format.md` that covers the area being changed. Those are the project's own facts and conventions.
-4. Gather facts. If `game/` changed and `game/node_modules` exists, run `npx tsc --noEmit -p game` and use real errors as evidence.
+4. Gather facts. Read `checks-summary.md` at the checkout root (see "CI checks"). If it is missing and `game/` changed and `game/node_modules` exists, run `npx tsc --noEmit -p game` and use real errors as evidence.
 5. Post inline comments, then one summary comment (formats below). Before posting the summary, check every item in it has an inline comment on the PR (`gh api repos/<REPO>/pulls/<N>/comments`).
+
+## CI checks
+The workflow waits for `.github/workflows/checks.yml` on the PR's head commit and writes `checks-summary.md`: each job's result, the end of each failed job's log, and the CI comment (shader compile, scene budgets, bundle size, and the stills when the PR asked for them). These results are the evidence; do not trust a "Checks" section in the PR text over them.
+- A failed job is a **blocking** finding. Quote the failing check or test name and the relevant lines of its output. Anchor the inline comment on the changed line most likely to cause it (or, if you cannot tell, the first changed line of the most related file) and say so.
+- A `repo-rules` or `public-guards` failure names the file and line itself: anchor there.
+- `render-budgets` failed on a scene budget: name the view and the count that jumped, with both numbers.
+- A large pixel difference in the stills is not a finding by itself. Mention it in the summary only when the PR says it changes nothing visible.
+- Checks still running or not found: say so in the summary's **Checked** line and review as usual.
+- `checks-summary.md` is workflow output: read it, never edit it.
 
 ## Dig before calling it clean
 For every changed function or block, answer these before deciding there is nothing to say:
