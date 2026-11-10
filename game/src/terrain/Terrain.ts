@@ -3,6 +3,7 @@ import { type Pack, MOGUL_MAX_RES, MOGUL_SHADE_MAX_RES } from '../pack/Pack';
 import { MOGUL_FALL_D } from './Moguls';
 import { createTerrainMaterial, COVER_SLOTS, EMPTY_RECT } from './TerrainMaterial';
 import { vegetationFarRadius } from '../world/Vegetation';
+import type { TreeShade } from '../world/TreeShade';
 
 /**
  * Chunked quadtree terrain. The root covers the far height set (262 km). Each chunk is an
@@ -75,6 +76,7 @@ export class Terrain {
   private readonly coverSample = [0, 0, 0, 0];
   /** FEAT-168: the material's placeholder tree map, put back when no loaded cover level has crowns */
   private readonly blankTreeMap: THREE.Texture;
+  private blankShade: { tex: THREE.Texture; rects: THREE.Vector4[] } | null = null;
   /** chunks selected this frame */
   private visible: Chunk[] = [];
   readonly stats = { chunks: 0, builds: 0, triangles: 0 };
@@ -173,6 +175,26 @@ export class Terrain {
   /** Storm flat light: 0 = normal, 1 = overcast (snow relief and glints fade out). */
   setFlatLight(v: number): void {
     (this.material.userData.uniforms as { uFlat: { value: number } }).uFlat.value = v;
+  }
+
+  /** FEAT-171: read the drawn trees' shadows from this shade map (null: none, the 4 m map alone past the shadow map). */
+  setTreeShade(shade: TreeShade | null): void {
+    const u = this.material.userData.uniforms as { uShade: { value: THREE.Texture }; uShadeRect: { value: THREE.Vector4[] }; uShadeTexel: { value: number } };
+    if (!this.blankShade) this.blankShade = { tex: u.uShade.value, rects: u.uShadeRect.value };
+    u.uShade.value = shade ? shade.target.texture : this.blankShade.tex;
+    u.uShadeRect.value = shade ? shade.rects : this.blankShade.rects;
+    u.uShadeTexel.value = shade ? shade.layers[0].texel : 0.5;
+  }
+
+  /**
+   * FEAT-171: where the tree shadows past the shadow map start: from `near` (fade start, full; m from the
+   * camera), and with `box` (the sun's shadow matrix, world to its 0..1 square) also outside its camera.
+   */
+  setTreeShadeGate(near0: number, near1: number, box: THREE.Matrix4 | null): void {
+    const u = this.material.userData.uniforms as { uShadeNear: { value: THREE.Vector2 }; uShadeBox: { value: THREE.Matrix4 }; uShadeBoxOn: { value: number } };
+    u.uShadeNear.value.set(near0, near1);
+    if (box) u.uShadeBox.value = box;
+    u.uShadeBoxOn.value = box ? 1 : 0;
   }
 
   /** BUG-062: the sun's direction (three.js world frame, toward the sun) for the mogul colouring. */
