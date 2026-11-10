@@ -80,7 +80,7 @@ function snowLightsChunk(): string {
 export const LIFT_RAMP = 2000;
 /** FEAT-153: cover level slots in the shader (coarsest first) */
 export const COVER_SLOTS = 3;
-const EMPTY_RECT = new THREE.Vector4(-1e7, -1e7, -1e7 + 1000, -1e7 + 1000); // weight 0 everywhere, finite uv
+export const EMPTY_RECT = new THREE.Vector4(-1e7, -1e7, -1e7 + 1000, -1e7 + 1000); // weight 0 everywhere, finite uv
 function coverUniforms() {
   const blank = new THREE.DataTexture(new Uint8Array(2), 1, 1, THREE.RGFormat, THREE.UnsignedByteType);
   blank.needsUpdate = true;
@@ -249,7 +249,12 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         #define TREE_SHADOW_MAX 48.0
         #define TREE_SHADOW_NEAR 200.0
         #define TREE_SHADOW_FULL 320.0
-        float treeShadow(vec2 p, float dist) {
+        // g: the uv's screen gradients (dFdx, dFdy), taken in main() before the caller's branch; the fetches
+        // here sit in per-pixel control flow, where implicit derivatives are undefined
+        float treeShadow(vec2 p, float dist, vec4 g) {
+          // off the map (EMPTY_RECT when the pack has no crowns level) or with the sun down: skip the 8 fetches
+          float w = covW(p, uTreeMapRect);
+          if (w <= 0.0 || uSunDir.y < 0.02) return 0.0;
           float sunH = length(uSunDir.xz);
           vec2 toSun = vec2(uSunDir.x, -uSunDir.z) / max(sunH, 1e-4);
           float len = min(TREE_SHADOW_H * sunH / max(uSunDir.y, 0.05), TREE_SHADOW_MAX);
@@ -257,10 +262,9 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           for (int i = 0; i < 8; i++) {
             float t = (float(i) + 0.5) / 8.0;
             // a conifer's shadow narrows to its tip
-            acc += texture2D(uTreeMap, covUV(p + toSun * len * t, uTreeMapRect)).b * (1.0 - 0.75 * t);
+            acc += textureGrad(uTreeMap, covUV(p + toSun * len * t, uTreeMapRect), g.xy, g.zw).b * (1.0 - 0.75 * t);
           }
-          float on = step(uTreeMapRect.x, uTreeMapRect.z - 1.0) * covW(p, uTreeMapRect) * step(0.02, uSunDir.y);
-          return clamp(acc * 1.6, 0.0, 1.0) * on * smoothstep(TREE_SHADOW_NEAR, TREE_SHADOW_FULL, dist);
+          return clamp(acc * 1.6, 0.0, 1.0) * w * smoothstep(TREE_SHADOW_NEAR, TREE_SHADOW_FULL, dist);
         }
         // set in main() before lighting, read by the snow terms in RE_Direct_Physical
         float gSnowW;
@@ -468,8 +472,11 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         timber = mix(timber, snow * 0.8, smoothstep(0.62, 0.9, crown) * crownK * 0.6); // snowy gaps between crowns
         base = mix(base, timber, fd * uTimberMix);
         gSnowW = wSnow * (1.0 - fd);
-        // FEAT-168: no shadows in flat light, none on the canopy itself
-        float treeShade = treeShadow(pxyF, dist) * (1.0 - fd) * (1.0 - uFlat);
+        // FEAT-168: no shadows in flat light, none on the canopy itself, none inside the shadow map's reach
+        // (the sample offsets are the same for every pixel, so each sample's uv gradient is this one's)
+        vec2 treeUV = covUV(pxyF, uTreeMapRect);
+        vec4 treeG = vec4(dFdx(treeUV), dFdy(treeUV));
+        float treeShade = (dist > TREE_SHADOW_NEAR && uFlat < 0.99 && fd < 0.99) ? treeShadow(pxyF, dist, treeG) * (1.0 - fd) * (1.0 - uFlat) : 0.0;
         gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd) * (1.0 - 0.6 * uSpring); // wet spring snow sparkles less
         diffuseColor.rgb = base;
         if (uDebugFar.w > 0.5) diffuseColor.rgb = mix(vec3(0.9), vec3(0.9, 0.1, 0.1), fd);

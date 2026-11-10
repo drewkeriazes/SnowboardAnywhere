@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { type Pack, MOGUL_MAX_RES, MOGUL_SHADE_MAX_RES } from '../pack/Pack';
 import { MOGUL_FALL_D } from './Moguls';
-import { createTerrainMaterial, COVER_SLOTS } from './TerrainMaterial';
+import { createTerrainMaterial, COVER_SLOTS, EMPTY_RECT } from './TerrainMaterial';
 import { vegetationFarRadius } from '../world/Vegetation';
 
 /**
@@ -73,6 +73,8 @@ export class Terrain {
   private frame = 0;
   private readonly maskSample = [0, 0, 0, 0];
   private readonly coverSample = [0, 0, 0, 0];
+  /** FEAT-168: the material's placeholder tree map, put back when no loaded cover level has crowns */
+  private readonly blankTreeMap: THREE.Texture;
   /** chunks selected this frame */
   private visible: Chunk[] = [];
   readonly stats = { chunks: 0, builds: 0, triangles: 0 };
@@ -89,6 +91,7 @@ export class Terrain {
   constructor(pack: Pack) {
     this.pack = pack;
     this.material = createTerrainMaterial();
+    this.blankTreeMap = (this.material.userData.uniforms as { uTreeMap: { value: THREE.Texture } }).uTreeMap.value;
     const far = pack.meta.terrain.far ?? pack.meta.terrain.mid ?? pack.meta.terrain.fine!;
     this.rootMinX = far.minX;
     this.rootMinY = far.minY;
@@ -120,10 +123,15 @@ export class Terrain {
     }
     u.uCovBlend.value = cover.meta.blend;
     // FEAT-168: the level that knows where the drawn trees stand, for their shadows past the shadow map
+    // (none: back to the empty rect, which the shader treats as off, so no stale shadows after a pack switch)
     const trees = loaded.find((l) => l.hasTrees);
+    const treeRect = (u.uTreeMapRect as unknown as { value: THREE.Vector4 }).value;
     if (trees) {
       u.uTreeMap.value = trees.texture!;
-      (u.uTreeMapRect as unknown as { value: THREE.Vector4 }).value.set(...trees.rect);
+      treeRect.set(...trees.rect);
+    } else {
+      u.uTreeMap.value = this.blankTreeMap;
+      treeRect.copy(EMPTY_RECT);
     }
     for (const c of this.chunks.values()) if (c.mesh && c.res > 8) this.dirty.add(c.key);
   }
