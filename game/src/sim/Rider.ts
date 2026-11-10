@@ -142,11 +142,8 @@ const GIN_FIGHT = 0.5;
  *  side-slips unless an edge is in. A flat board follows its slide down the hill (FALL_FOLLOW) and the
  *  weight on the leading foot drops that end at up to FALL_YAW x sin(slope) rad/s, gone by FALL_EDGE
  *  of edge and halved by FALL_YAW_SPEED m/s. Standing on a slope needs STAND_EDGE x fallLine of uphill edge or the brake.
- *  Side-slipping downhill (the velocity more than 30 deg off the board, over CATCH_SLIDE m/s of it
- *  sideways at over CATCH_SPEED) onto the downhill edge past CATCH_EDGE for CATCH_TIME s catches it:
- *  a slam (realistic only). A skidded carve transition slips 10 to 15 deg and never trips it. */
+ *  The edge catch (realistic only): see CATCH_* below. */
 const GRIP_FLAT_REAL = 0.12, FALL_YAW = 2, FALL_YAW_SPEED = 15, FALL_EDGE = 12 * D2R, STAND_EDGE = 10 * D2R;
-const CATCH_SPEED = 3, CATCH_SLIDE = 2, CATCH_EDGE = 15 * D2R, CATCH_TIME = 0.05;
 /** the weathervane swings the leading end: full nose (or tail) once moving FALL_LEAD_V m/s along the board,
  *  nothing sliding straight sideways; climbing, it fades out from across the hill and is gone at
  *  cos(angle from the fall line) = -FALL_CLIMB (about 135 deg), so a climb falls back into switch */
@@ -155,13 +152,16 @@ const FALL_LEAD_V = 1.5, FALL_CLIMB = 0.7;
  *  main swing: gravity bends the slide down the hill and the board follows it); FALL_YAW is only the
  *  leading foot's weight dropping that end */
 const FALL_FOLLOW = 2;
-/** sliding sideways down the hill on a flat base (under FLAT_SAFE of uphill edge, over FLAT_SLIDE m/s
- *  sideways) the downhill edge catches at FLAT_CATCH per second times the roughness (FLAT_ROUGH on a
- *  groomer, plus chop jolts and moguls) times the slide (full FLAT_SPAN m/s past FLAT_SLIDE) */
-/** a traverse (for the edge catch): within 45 deg of straight across (|sin| over TRAVERSE_ACROSS) a slope over
- *  asin(TRAVERSE_SLOPE) (12 deg; flatter patches pause the count), the uphill turn rate smoothed over TRAVERSE_SMOOTH s under TRAVERSE_TURN rad/s, for TRAVERSE_SETTLE s */
-const TRAVERSE_ACROSS = Math.cos(45 * D2R), TRAVERSE_SLOPE = Math.sin(12 * D2R), TRAVERSE_SMOOTH = 0.3, TRAVERSE_TURN = 0.3, TRAVERSE_SETTLE = 0.4;
-const FLAT_SAFE = 6 * D2R, FLAT_SLIDE = 1.5, FLAT_SPAN = 3, FLAT_CATCH = 1.5, FLAT_ROUGH = 0.15;
+/** FEAT-134 the edge catch (realistic only): the board sliding sideways toward an edge that meets the snow.
+ *  The leading edge (on the side the board slides toward: the downhill edge in a side-slip, the outside
+ *  edge in a skid) dug in past CATCH_EDGE catches at up to CATCH_DIG per second; a flat base, at up to
+ *  CATCH_FLAT per second times the roughness (CATCH_ROUGH on a groomer, plus chop jolts and moguls); a
+ *  trailing edge of CATCH_GUARD or more keeps it off the snow. Both times the drift (none under
+ *  CATCH_DRIFT m/s sideways, full CATCH_DRIFT_SPAN past it) and the slip (none under CATCH_SLIP off the
+ *  board, full CATCH_SLIP_SPAN past it), so a carve, even a skidded carve transition, never qualifies.
+ *  Seeded, so runs replay. */
+const CATCH_EDGE = 15 * D2R, CATCH_GUARD = 6 * D2R, CATCH_DIG = 25, CATCH_FLAT = 1.5, CATCH_ROUGH = 0.15;
+const CATCH_DRIFT = 1, CATCH_DRIFT_SPAN = 2, CATCH_SLIP = 20 * D2R, CATCH_SLIP_SPAN = 20 * D2R;
 /** the board's slip past its line (rad) before the carve lets go: from SLIP_HOLD on, the arc stops
  *  driving the heading, gone by SLIP_HOLD + SLIP_WASH (a skid that settles, not a spin) */
 const SLIP_HOLD = 4 * D2R, SLIP_WASH = 30 * D2R;
@@ -463,12 +463,8 @@ export class Rider {
   discipline: Discipline = 'board';
   /** FEAT-134: how hard the fall line works on the board: 1 realistic, 0.5 assisted, 0 off (Settings > Rider) */
   fallLine = 1;
-  /** seconds the downhill edge has been catching (a slam past CATCH_TIME) */
-  private catchT = 0;
-  /** seconds the board has ridden steadily across a steep slope (a traverse; ?debug shows it) */
-  traverseT = 0;
-  /** the rate the board is coming round up the hill (rad/s, smoothed over TRAVERSE_SMOOTH) */
-  private upTurn = 0;
+  /** the edge catch's chance per second this step (FEAT-134; ?debug shows it) */
+  catchRisk = 0;
   /** sim randomness: seeded on reset so the same inputs replay the same run */
   readonly rng = new Rng(1);
   /** physics steps so far, and how many of them sampled a coarser height set than the point has */
@@ -516,7 +512,7 @@ export class Rider {
     this.heading = heading; this.switch = false; this.onGround = true; this.airTime = 0; this.jumpCharge = 0;
     this.crashed = 0; this.crashFall = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
     this.edge = 0; this.edgeTarget = 0; this.leanTarget = 0; this.lean = 0; this.pressing = false; this.pressBalance = 0; this.pressDir = 0; this.pressLock = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.landingShock = 0;
-    this.hardCarve = 0; this.hardDrive = 0; this.carveShort = 0; this.washout = 0; this.crashSide = 0; this.catchT = 0; this.traverseT = 0; this.upTurn = 0;
+    this.hardCarve = 0; this.hardDrive = 0; this.carveShort = 0; this.washout = 0; this.crashSide = 0; this.catchRisk = 0;
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
     this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false; this.mantle = 0; this.stepT = 0;
     this.sprinting = false; this.crawling = false; this.slipT = 0; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
@@ -919,16 +915,6 @@ export class Rider {
       }
     } else this.chopT = 0;
     this.turnRate = turnRate;
-    // FEAT-134: a traverse is the board held across a steep slope, flat or on its uphill edge, not
-    // coming round up the hill: the uphill turn rate smoothed over TRAVERSE_SMOOTH s stays under
-    // TRAVERSE_TURN (taps on the uphill edge come and go; a linked turn finishing across the hill keeps
-    // turning up it right to the edge change). Leaving the band or turning up resets it; once the
-    // downhill edge is in it holds its count (the edge going in is what the catch looks at)
-    const sinTo = Math.sin(Math.atan2(n[0], n[1]) - this.heading);
-    this.upTurn += (-turnRate * Math.sign(sinTo) - this.upTurn) * Math.min(1, dt / TRAVERSE_SMOOTH);
-    // a flatter patch under TRAVERSE_SLOPE pauses it (real slopes wobble) instead of resetting it
-    if (Math.abs(sinTo) <= TRAVERSE_ACROSS || this.upTurn > TRAVERSE_TURN) this.traverseT = 0;
-    else if (this.edge * gLat <= 0 && fall > TRAVERSE_SLOPE) this.traverseT = this.upTurn < -TRAVERSE_TURN ? 0 : this.traverseT + dt; // coming round downhill (the nose dropping, a turn starting) is not a traverse
     this.turnRadius = Math.abs(turnRate) > 1e-3 ? spd / Math.abs(turnRate) : Infinity;
     const dHeading = turnRate * dt;
     this.heading += dHeading;
@@ -1018,24 +1004,21 @@ export class Rider {
     if (skidding) latAcc = Math.sign(latAcc) * maxLat;
     latAcc *= 1 - swing;
     this.skid += (Math.max(skidding ? Math.min(1, Math.abs(vLat) / 6) : 0, Math.min(1, this.carveShort / HARD_SKID)) - this.skid) * Math.min(1, dt * 10);
-    // catching the downhill edge (FEAT-134, realistic only): sliding downhill fast onto the edge on
-    // the downhill side trips the board, a slam like catching an edge for real; so does forcing the
-    // downhill edge out of a settled traverse with the board still across the hill (the weight is on
-    // the uphill side: let it go flat and the nose come round first). The rider goes over that edge,
-    // down the hill (crashSide, so the ragdoll falls that way)
-    const slideCatch = Math.abs(vLat) > Math.max(CATCH_SLIDE, 0.5 * spd) && vLat * gLat > 0;
-    const traverseCatch = this.traverseT > TRAVERSE_SETTLE && fall > TRAVERSE_SLOPE;
-    if (this.fallLine >= 1 && spd > CATCH_SPEED && (slideCatch || traverseCatch) && this.edge * gLat > 0 && psi > CATCH_EDGE && this.brakeAmt === 0) {
-      this.catchT += dt;
-      if (this.catchT > CATCH_TIME) { this.crashed = 1.3; this.crashSide = Math.sign(this.edge); this.crashFall = 0; this.catchT = 0; this.lastHit = 'catch'; }
-    } else this.catchT = 0;
-    // a flat base sliding down the hill sideways (realistic only): a bump, chop or a mogul can dig the
-    // downhill edge in, so the slide is a gamble the faster it goes and the rougher the snow, and a
-    // little uphill edge (FLAT_SAFE) is what keeps the downhill edge off the snow. Seeded, so runs replay
-    if (this.fallLine >= 1 && this.crashed <= 0 && this.brakeAmt === 0 && vLat * gLat > 0 && Math.abs(vLat) > Math.max(FLAT_SLIDE, 0.5 * spd) && -Math.sign(gLat) * this.edge < FLAT_SAFE) {
-      const rough = FLAT_ROUGH + snow.jolt + Math.min(1, this.surface.moguls / 0.4);
-      const slide = Math.min(1, (Math.abs(vLat) - FLAT_SLIDE) / FLAT_SPAN);
-      if (this.rng.next() < FLAT_CATCH * rough * slide * dt) { this.crashed = 1.3; this.crashSide = Math.sign(gLat); this.crashFall = 0; this.lastHit = 'catch'; }
+    // the edge catch (FEAT-134, realistic only): the board sliding sideways toward an edge that meets
+    // the snow. The snow stops that edge and the rider goes over it, the way the board was sliding
+    // (crashSide, so the ragdoll falls that way). A carve never slides sideways enough to qualify
+    this.catchRisk = 0;
+    if (this.fallLine >= 1 && this.crashed <= 0 && this.brakeAmt === 0 && spd > 0.5) {
+      const slipA = Math.asin(Math.min(1, Math.abs(vLat) / spd));
+      const exposed = Math.min(1, Math.max(0, (Math.abs(vLat) - CATCH_DRIFT) / CATCH_DRIFT_SPAN)) * Math.min(1, Math.max(0, (slipA - CATCH_SLIP) / CATCH_SLIP_SPAN));
+      if (exposed > 0) {
+        const lead = this.edge * Math.sign(vLat); // + the leading edge is in, - the trailing edge
+        const dig = Math.min(1, Math.max(0, lead / CATCH_EDGE));
+        const bare = (1 - dig) * (1 - Math.min(1, Math.max(0, -lead / CATCH_GUARD)));
+        const rough = CATCH_ROUGH + snow.jolt + Math.min(1, this.surface.moguls / 0.4);
+        this.catchRisk = (CATCH_DIG * dig + CATCH_FLAT * bare * rough) * exposed;
+        if (this.rng.next() < this.catchRisk * dt) { this.crashed = 1.3; this.crashSide = Math.sign(vLat); this.crashFall = 0; this.lastHit = 'catch'; }
+      }
     }
     ax += latAcc * lx; ay += latAcc * ly;
     this.lateralG += ((latAcc / G) - this.lateralG) * Math.min(1, dt * 12);

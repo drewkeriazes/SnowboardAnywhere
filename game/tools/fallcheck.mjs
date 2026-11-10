@@ -163,34 +163,30 @@ check('off: a flat board traverses on rails as before', off30.toFall > 85 && Mat
   check('realistic: catching the downhill edge in a side-slip is a slam', real.crashed && real.t < 0.5, real.crashed ? `${real.t.toFixed(2)} s` : 'no crash');
   check('a little uphill edge in the same slide checks it instead', !uphill.crashed && uphill.speed < 2 && uphill.across > 60, uphill.crashed ? 'crashed' : `${uphill.speed.toFixed(1)} m/s, ${uphill.across.toFixed(0)} deg after 1 s`);
   check('assisted: no edge catch', !assist.crashed, assist.crashed ? 'crashed' : 'no crash');
-  // forcing the downhill edge out of a traverse (the card's "engaging the downhill edge on a traverse at
-  // speed catches it"): hold the uphill edge across the hill for 1 s, then steer hard downhill. The way
-  // riders are taught, letting the board go flat until the nose comes round first, rides away
-  const force = (deg, v, fallLine, release) => {
-    const r = start(deg, v, EAST, fallLine), inp = input();
-    inp.steer = 0.4;
-    let t = 0, phase = 0;
-    while (t < 4 && r.crashed <= 0) {
-      if (phase === 0 && t >= 1) { phase = 1; inp.steer = release ? 0 : -1; }
-      if (phase === 1 && release && Math.abs(wrap(r.heading)) < 55 * D) { phase = 2; inp.steer = -1; }
-      r.update(DT, inp); t += DT;
-    }
-    return { crashed: r.crashed > 0, t, side: r.crashSide, toFall: Math.abs(wrap(r.heading)) / D, speed: r.speed };
-  };
-  // the same on a keyboard: the traverse held by short taps on the uphill edge (0.1 s on, 0.25 s off) for 1.5 s, then the downhill edge
-  const tapped = (() => {
-    const r = start(25, 10, EAST, 1), inp = input();
+  // the catch is about sliding sideways, not about which edge: turning onto the downhill edge out of a
+  // clean traverse (steady, or held with keyboard taps) is just a turn and never slams
+  const turnOut = (taps) => {
+    const r = start(30, 10, EAST, 1), inp = input();
     let t = 0;
-    while (t < 3.5 && r.crashed <= 0) { inp.steer = t < 1.5 ? ((t % 0.35) < 0.1 ? 1 : 0) : -1; r.update(DT, inp); t += DT; }
-    return { crashed: r.crashed > 0, t, toFall: Math.abs(wrap(r.heading)) / D };
-  })();
-  console.log(`keyboard traverse on 25 deg at 10 m/s (uphill taps for 1.5 s), then the downhill edge: ${tapped.crashed ? `slams ${(tapped.t - 1.5).toFixed(2)} s after` : `no crash, ${tapped.toFall.toFixed(0)} deg from the fall line`}`);
-  check('a keyboard traverse (taps on the uphill edge) then the downhill edge is a slam too', tapped.crashed && tapped.t - 1.5 < 0.4, tapped.crashed ? `${(tapped.t - 1.5).toFixed(2)} s` : 'no crash');
-  const forced = force(30, 10, 1, false), forcedFast = force(25, 14, 1, false), patient = force(30, 10, 1, true), forcedAssist = force(30, 10, 0.5, false), gentle = force(10, 10, 1, false);
-  console.log(`downhill edge out of a 10 m/s traverse: forced on 30 deg ${forced.crashed ? `slams ${(forced.t - 1).toFixed(2)} s after the steer (side ${forced.side})` : 'no crash'}, 25 deg at 14 m/s ${forcedFast.crashed ? 'slams' : 'no crash'}; flat until the nose comes round, then the edge: ${patient.crashed ? 'slams' : `rides away, ${patient.toFall.toFixed(0)} deg from the fall line, ${patient.speed.toFixed(1)} m/s`}; assisted ${forcedAssist.crashed ? 'slams' : 'no crash'}; 10 deg ${gentle.crashed ? 'slams' : 'no crash'}`);
-  check('realistic: forcing the downhill edge out of a traverse on a steep slope is a slam, down the hill', forced.crashed && forcedFast.crashed && forced.side === -1 && forced.t - 1 < 0.4, forced.crashed ? `${(forced.t - 1).toFixed(2)} s, side ${forced.side}; 25 deg ${forcedFast.crashed}` : 'no crash');
-  check('letting the board go flat and the nose come round first, then the edge, rides away', !patient.crashed, patient.crashed ? `slammed at ${patient.t.toFixed(2)} s` : 'no crash');
-  check('assisted, or a gentle slope: the same forced edge just turns', !forcedAssist.crashed && !gentle.crashed, `assisted ${forcedAssist.crashed}, 10 deg ${gentle.crashed}`);
+    while (t < 3 && r.crashed <= 0) { inp.steer = t < 1.5 ? (taps ? ((t % 0.5) < 0.2 ? 1 : 0) : 0.4) : -1; r.update(DT, inp); t += DT; }
+    return { crashed: r.crashed > 0, toFall: Math.abs(wrap(r.heading)) / D };
+  };
+  const outSteady = turnOut(false), outTaps = turnOut(true);
+  console.log(`downhill edge out of a clean 10 m/s traverse on 30 deg: steady ${outSteady.crashed ? 'slams' : `turns, ${outSteady.toFall.toFixed(0)} deg from the fall line after`}; keyboard taps ${outTaps.crashed ? 'slams' : 'turns'}`);
+  check('turning onto the downhill edge out of a clean traverse is just a turn', !outSteady.crashed && !outTaps.crashed, `steady ${outSteady.crashed}, taps ${outTaps.crashed}`);
+  // and it is not about the slope either: sliding sideways at 4 m/s on the flat, the leading edge catches, the trailing edge stops it
+  const flatSlide = (steer) => {
+    const r = start(0, 0, EAST, 1), inp = input();
+    r.vy = 4; // sliding toward the heading's left (north) with the board across
+    inp.steer = steer;
+    let t = 0;
+    while (t < 1 && r.crashed <= 0) { r.update(DT, inp); t += DT; }
+    return { crashed: r.crashed > 0, t, side: r.crashSide };
+  };
+  const lead = flatSlide(-1), trail = flatSlide(1);
+  console.log(`sliding sideways on the flat at 4 m/s: leading edge ${lead.crashed ? `slams at ${lead.t.toFixed(2)} s (side ${lead.side})` : 'no crash'}, trailing edge ${trail.crashed ? 'slams' : 'stops it'}`);
+  check('sliding sideways onto the leading edge slams on the flat too, over that edge', lead.crashed && lead.side === -1, lead.crashed ? `${lead.t.toFixed(2)} s, side ${lead.side}` : 'no crash');
+  check('the trailing edge in the same slide never catches', !trail.crashed, trail.crashed ? 'crashed' : 'no crash');
   // linked hard carves at speed must not catch, and must not scrub much more speed than with the fall line off
   const linked = (fallLine) => {
     const r = start(15, 20, 0, fallLine), inp = input();
@@ -202,7 +198,7 @@ check('off: a flat board traverses on rails as before', off30.toFall > 85 && Mat
   console.log(`linked 1 s full carves from 20 m/s on 15 deg for 6 s: slowest ${on.minSpeed.toFixed(1)} m/s realistic, ${off.minSpeed.toFixed(1)} m/s off`);
   check('linked carves at speed never catch an edge', !on.crashed, on.crashed ? 'crashed' : 'no crash');
   // linked turns finished right across a steep slope (even past it, climbing a little) change onto the
-  // downhill edge every time, and must never count as a forced edge out of a traverse
+  // downhill edge every time, and must never catch
   let steepCatches = 0, steepRuns = 0;
   for (const deg of [20, 30, 35]) for (const v of [8, 15]) for (const swing of [85, 100]) for (const amt of [1, 0.6]) {
     const r = start(deg, v, 0, 1), inp = input();
