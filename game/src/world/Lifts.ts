@@ -251,6 +251,12 @@ export class Lifts implements LiftNetwork<LiftRuntime> {
     const carriers = new THREE.InstancedMesh(carrierGeo, this.mat, nCarriers);
     carriers.name = 'carriers';
     carriers.castShadow = true;
+    // BUG-075: three computes an InstancedMesh's culling sphere once, from the instance matrices at its
+    // first cull, and a rebuilt lift's carriers were still at the origin then (maintain runs after update),
+    // so they culled against a ball at (0, 0, 0). The carriers always ride the cable: bound that instead.
+    if (!carrierGeo.boundingSphere) carrierGeo.computeBoundingSphere();
+    carriers.boundingSphere = new THREE.Box3().setFromPoints(pts).getBoundingSphere(new THREE.Sphere());
+    carriers.boundingSphere.radius += lateralOff + carrierGeo.boundingSphere!.radius + carrierGeo.boundingSphere!.center.length();
     group.add(carriers);
     const riderDrop = kind === 'gondola' ? 3.3 : kind === 'surface' ? 0 : SEAT_DROP;
     const towerUp = towers.map((t) => Math.hypot(t[0] - lo[0], t[1] - lo[1])).sort((p, q) => p - q);
@@ -275,19 +281,22 @@ export class Lifts implements LiftNetwork<LiftRuntime> {
     this.level[i] = level;
     this.group.add(group);
     this.placeMarker(rt);
+    this.placeCarriers(rt, this.time, null); // this frame's update has run: don't draw the new carriers at the origin
   }
 
   /**
    * Called every frame: rebuild lifts as better terrain arrives. Level 1 once the mid set covers
    * the whole line; level 2 (1 m) for lifts whose bottom is within 400 m of the rider once the
-   * fine tiles along the line are in.
+   * fine tiles along the line are in. At most `cap` rebuilds a pass; returns how many it did.
+   * cishot.mjs passes dt 1 and cap Infinity each settle poll so the stills never depend on how many
+   * frames ran (BUG-075).
    */
-  maintain(dt: number, riderX: number, riderY: number): void {
+  maintain(dt: number, riderX: number, riderY: number, cap = 2): number {
     this.maintainAcc += dt;
-    if (this.maintainAcc < 0.5) return;
+    if (this.maintainAcc < 0.5) return 0;
     this.maintainAcc = 0;
     let rebuilt = 0;
-    for (let i = 0; i < this.lifts.length && rebuilt < 2; i++) {
+    for (let i = 0; i < this.lifts.length && rebuilt < cap; i++) {
       const l = this.lifts[i].feature, st = l.stations;
       const xs = st.map((p) => p[0]), ys = st.map((p) => p[1]);
       const x0 = Math.min(...xs) - 30, x1 = Math.max(...xs) + 30, y0 = Math.min(...ys) - 30, y1 = Math.max(...ys) + 30;
@@ -299,6 +308,7 @@ export class Lifts implements LiftNetwork<LiftRuntime> {
         if (this.pack.fine.request(x0, y0, x1, y1)) { this.rebuild(i, 2); rebuilt++; }
       }
     }
+    return rebuilt;
   }
 
   private sag(span: number, kind: LiftKind): number { return kind === 'surface' ? Math.min(1.2, span * 0.012) : Math.min(6, span * 0.025); }
@@ -399,26 +409,31 @@ export class Lifts implements LiftNetwork<LiftRuntime> {
 
   /** Move the carriers. `hide`: the rider's own chair position; the line's carrier nearest it is hidden. */
   update(time: number, hide: THREE.Vector3 | null = null): void {
-    for (const l of this.lifts) {
-      if (!l.carriers) continue;
-      let hideI = -1, hideD = 6;
-      const [lx, ly] = l.lateral;
-      const off = ((l as any).lateralOff as number) ?? 1.6;
-      this.q.setFromAxisAngle(this.tmp2.set(0, 1, 0), -l.yaw);
-      const loop = 2 * l.length;
-      for (let i = 0; i < l.nCarriers; i++) {
-        let d = (i * l.spacing + time * l.speed + l.offset) % loop;
-        let side = 1;
-        if (d > l.length) { d = loop - d; side = -1; } // returning side
-        this.pointAt(l, d, this.tmp);
-        this.p.set(this.tmp.x + lx * off * side, this.tmp.y, this.tmp.z - ly * off * side);
-        if (hide) { const d = Math.hypot(this.p.x - hide.x, this.p.z - hide.z); if (d < hideD) { hideD = d; hideI = i; } }
-        this.m.compose(this.p, this.q, this.s.set(1, 1, 1));
-        l.carriers.setMatrixAt(i, this.m);
-      }
-      if (hideI >= 0) { this.m.makeScale(0, 0, 0); l.carriers.setMatrixAt(hideI, this.m); }
-      l.carriers.instanceMatrix.needsUpdate = true;
+    this.time = time;
+    for (const l of this.lifts) this.placeCarriers(l, time, hide);
+  }
+
+  /** sim time of the last update(), for carriers placed by a rebuild */
+  private time = 0;
+  private placeCarriers(l: LiftRuntime, time: number, hide: THREE.Vector3 | null): void {
+    if (!l.carriers) return;
+    let hideI = -1, hideD = 6;
+    const [lx, ly] = l.lateral;
+    const off = ((l as any).lateralOff as number) ?? 1.6;
+    this.q.setFromAxisAngle(this.tmp2.set(0, 1, 0), -l.yaw);
+    const loop = 2 * l.length;
+    for (let i = 0; i < l.nCarriers; i++) {
+      let d = (i * l.spacing + time * l.speed + l.offset) % loop;
+      let side = 1;
+      if (d > l.length) { d = loop - d; side = -1; } // returning side
+      this.pointAt(l, d, this.tmp);
+      this.p.set(this.tmp.x + lx * off * side, this.tmp.y, this.tmp.z - ly * off * side);
+      if (hide) { const d = Math.hypot(this.p.x - hide.x, this.p.z - hide.z); if (d < hideD) { hideD = d; hideI = i; } }
+      this.m.compose(this.p, this.q, this.s.set(1, 1, 1));
+      l.carriers.setMatrixAt(i, this.m);
     }
+    if (hideI >= 0) { this.m.makeScale(0, 0, 0); l.carriers.setMatrixAt(hideI, this.m); }
+    l.carriers.instanceMatrix.needsUpdate = true;
   }
 }
 
