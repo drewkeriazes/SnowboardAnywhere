@@ -153,7 +153,7 @@ jobs:
               echo '```'
             done
             stills=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
-              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- ci-stills -->"))) | .body' | head -c 20000)
+              --jq '.[] | select((.user.login == "github-actions[bot]" or .user.login == "${{ github.repository_owner }}") and (.body | startswith("<!-- ci-stills -->"))) | .body' | head -c 20000)
             if [ -n "$stills" ]; then echo; echo "$stills"; fi
           } > checks-summary.md
           cat checks-summary.md
