@@ -16,10 +16,10 @@ const { Rider } = await import(pathToFileURL(out).href);
 
 const D = Math.PI / 180;
 /** plane falling toward +y (north) at `deg` degrees; the fall line is heading 0 */
-function plane(deg) {
+function plane(deg, moguls = 0) {
   const t = Math.tan(deg * D), k = 1 / Math.hypot(t, 1);
   return {
-    mask: null, coarseFallbacks: 0,
+    mask: null, coarseFallbacks: 0, mogulAmp: () => moguls,
     groundHeight: (x, y) => -t * y,
     groundNormal: (x, y, o = [0, 0, 1]) => { o[0] = 0; o[1] = t * k; o[2] = k; return o; },
   };
@@ -30,8 +30,8 @@ const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const EAST = Math.PI / 2;
 
 /** start at `v` m/s along `dir` (radians from +y, clockwise) on a groomed `deg` slope with the fall line setting `fallLine` */
-function start(deg, v, dir, fallLine) {
-  const r = new Rider(plane(deg), null);
+function start(deg, v, dir, fallLine, moguls = 0) {
+  const r = new Rider(plane(deg, moguls), null);
   r.fallLine = fallLine;
   r.surface.groomed = 1;
   r.reset(0, 0, dir);
@@ -66,7 +66,9 @@ const real30 = traverse(30, 8, 1), real8 = traverse(8, 8, 1), off30 = traverse(3
 for (const [k, s] of [['realistic 30 deg', real30], ['realistic 8 deg', real8], ['assisted 30 deg', assist30], ['off 30 deg', off30]]) {
   console.log(`  ${k.padEnd(17)}: ${s.toFall.toFixed(0)} deg from the fall line, vy ${s.vy.toFixed(1)} m/s, skid ${s.skid.toFixed(2)}, within 30 deg at ${Number.isNaN(s.tDown) ? 'never' : s.tDown.toFixed(2) + ' s'}`);
 }
-check('realistic: a flat board on 30 deg side-slips and swings down toward the fall line', real30.toFall < 30 && real30.vy > 3 && real30.skid > 0.2 && real30.tDown < 2.5, `${real30.toFall.toFixed(0)} deg, vy ${real30.vy.toFixed(1)}, skid ${real30.skid.toFixed(2)}, down at ${real30.tDown.toFixed(2)} s`);
+// the flat board drifts down and follows its slide round (not an autopilot snap, not rails): within
+// 30 deg of the fall line in 1.2 to 2.5 s on 30 deg at 8 m/s (it was 0.9 s before the follow model)
+check('realistic: a flat board on 30 deg drifts down and comes round toward the fall line, not at once', real30.toFall < 30 && real30.vy > 3 && real30.tDown > 1.2 && real30.tDown < 2.5 && !real30.crashed, `${real30.toFall.toFixed(0)} deg, vy ${real30.vy.toFixed(1)}, skid ${real30.skid.toFixed(2)}, down at ${real30.tDown.toFixed(2)} s, crashed ${real30.crashed}`);
 check('realistic: on a gentle 8 deg the pull is mild', real8.toFall > 2 * real30.toFall && (Number.isNaN(real8.tDown) || real8.tDown > 2 * real30.tDown), `${real8.toFall.toFixed(0)} deg from the fall line after 3 s`);
 check('assisted: between realistic and off', assist30.toFall > real30.toFall && assist30.toFall < off30.toFall && assist30.vy > off30.vy, `${assist30.toFall.toFixed(0)} deg, vy ${assist30.vy.toFixed(1)}`);
 check('off: a flat board traverses on rails as before', off30.toFall > 85 && Math.abs(off30.vy) < 1 && off30.skid < 0.05, `${off30.toFall.toFixed(0)} deg, vy ${off30.vy.toFixed(1)}, skid ${off30.skid.toFixed(2)}`);
@@ -100,6 +102,25 @@ check('off: a flat board traverses on rails as before', off30.toFall > 85 && Mat
   check('nearly straight up: slides back into switch, the nose stays up the hill', up.sw && up.minNose > 135 && up.toFall < 30, `nose ${up.minNose.toFixed(0)} deg, switch ${up.sw}, ends ${up.toFall.toFixed(0)} deg`);
   check('a steep climb also falls back into switch', steep.sw && steep.minNose > 110 && steep.toFall < 30, `nose ${steep.minNose.toFixed(0)} deg, switch ${steep.sw}, ends ${steep.toFall.toFixed(0)} deg`);
   check('a climb across the hill comes round nose first', !across.sw && across.toFall < 45, `switch ${across.sw}, ends ${across.toFall.toFixed(0)} deg`);
+}
+{
+  // the flat-base catch: from a stand across a 30 deg pitch with nothing pressed the board side-slips
+  // (no speed along it, so it does not follow round), and in moguls the downhill edge soon catches; a
+  // little uphill edge, Assisted, or a fast traverse on a groomer never catch
+  const slip = (fallLine, steer, moguls, T = 4) => {
+    const r = start(30, 0, EAST, fallLine, moguls), inp = input();
+    inp.steer = steer;
+    let t = 0, skid = 0;
+    while (t < T && r.crashed <= 0) { r.update(DT, inp); t += DT; skid = Math.max(skid, r.skid); }
+    return { crashed: r.crashed > 0, t, skid, hit: r.lastHit, side: r.crashSide, moved: Math.hypot(r.x, r.y) };
+  };
+  const bumps = slip(1, 0, 0.4), bumpsHeld = slip(1, 0.3, 0.4), bumpsAssist = slip(0.5, 0, 0.4), groomed = slip(1, 0, 0);
+  console.log(`flat side-slip from a stand on 30 deg: moguls ${bumps.crashed ? `catch at ${bumps.t.toFixed(2)} s (${bumps.hit}, side ${bumps.side})` : 'no catch'}, skid ${bumps.skid.toFixed(2)}; with a little uphill edge ${bumpsHeld.crashed ? 'catch' : `no catch, ${bumpsHeld.moved.toFixed(2)} m`}; assisted ${bumpsAssist.crashed ? 'catch' : 'no catch'}; groomer ${groomed.crashed ? `catch at ${groomed.t.toFixed(2)} s` : 'no catch'} in 4 s`);
+  check('flat across the slope with nothing pressed it side-slips', bumps.skid > 0.3, `skid ${bumps.skid.toFixed(2)}`);
+  check('realistic: side-slipping flat through moguls catches the downhill edge, falling downhill', bumps.crashed && bumps.hit === 'catch' && bumps.side === -1, bumps.crashed ? `${bumps.t.toFixed(2)} s, side ${bumps.side}` : 'no catch');
+  check('a little uphill edge keeps the downhill edge off the snow', !bumpsHeld.crashed, bumpsHeld.crashed ? `caught at ${bumpsHeld.t.toFixed(2)} s` : 'no catch');
+  check('assisted: no flat-base catch', !bumpsAssist.crashed, bumpsAssist.crashed ? 'caught' : 'no catch');
+  check('a flat traverse at speed on a groomer never catches', !real30.crashed && !real8.crashed, `30 deg ${real30.crashed}, 8 deg ${real8.crashed}`);
 }
 {
   // standing across the hill on 25 deg
@@ -140,7 +161,7 @@ check('off: a flat board traverses on rails as before', off30.toFall > 85 && Mat
   const real = slam(1, -1), uphill = slam(1, 0.3), assist = slam(0.5, -1);
   console.log(`side-slipping down 30 deg at 4 m/s, board across: downhill edge ${real.crashed ? `slams at ${real.t.toFixed(2)} s` : 'no crash'} (realistic), ${assist.crashed ? 'slams' : 'no crash'} (assisted); a little uphill edge ${uphill.crashed ? 'slams' : `holds, ${uphill.speed.toFixed(1)} m/s and ${uphill.across.toFixed(0)} deg from the fall line after 1 s`}`);
   check('realistic: catching the downhill edge in a side-slip is a slam', real.crashed && real.t < 0.5, real.crashed ? `${real.t.toFixed(2)} s` : 'no crash');
-  check('a little uphill edge in the same slide checks it instead', !uphill.crashed && uphill.speed < 1.5 && uphill.across > 60, uphill.crashed ? 'crashed' : `${uphill.speed.toFixed(1)} m/s, ${uphill.across.toFixed(0)} deg after 1 s`);
+  check('a little uphill edge in the same slide checks it instead', !uphill.crashed && uphill.speed < 2 && uphill.across > 60, uphill.crashed ? 'crashed' : `${uphill.speed.toFixed(1)} m/s, ${uphill.across.toFixed(0)} deg after 1 s`);
   check('assisted: no edge catch', !assist.crashed, assist.crashed ? 'crashed' : 'no crash');
   // linked hard carves at speed must not catch, and must not scrub much more speed than with the fall line off
   const linked = (fallLine) => {

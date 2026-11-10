@@ -139,18 +139,26 @@ const STEER_YAW = 0.25;
 const GIN_FIGHT = 0.5;
 /** FEAT-134 the fall line, all scaled by `fallLine` (1 realistic, 0.5 assisted, 0 off = rails as before).
  *  A flat base holds only GRIP_FLAT_REAL g sideways (a waxed base on snow), so across a slope it
- *  side-slips unless an edge is in. A flat board weathervanes toward the fall line at up to
- *  FALL_YAW x sin(slope) rad/s (a feel term: the rider's weight on the front foot), gone by FALL_EDGE
+ *  side-slips unless an edge is in. A flat board follows its slide down the hill (FALL_FOLLOW) and the
+ *  weight on the leading foot drops that end at up to FALL_YAW x sin(slope) rad/s, gone by FALL_EDGE
  *  of edge and halved by FALL_YAW_SPEED m/s. Standing on a slope needs STAND_EDGE x fallLine of uphill edge or the brake.
  *  Side-slipping downhill (the velocity more than 30 deg off the board, over CATCH_SLIDE m/s of it
  *  sideways at over CATCH_SPEED) onto the downhill edge past CATCH_EDGE for CATCH_TIME s catches it:
  *  a slam (realistic only). A skidded carve transition slips 10 to 15 deg and never trips it. */
-const GRIP_FLAT_REAL = 0.12, FALL_YAW = 4, FALL_YAW_SPEED = 20, FALL_EDGE = 12 * D2R, STAND_EDGE = 10 * D2R;
+const GRIP_FLAT_REAL = 0.12, FALL_YAW = 3, FALL_YAW_SPEED = 15, FALL_EDGE = 12 * D2R, STAND_EDGE = 10 * D2R;
 const CATCH_SPEED = 3, CATCH_SLIDE = 2, CATCH_EDGE = 15 * D2R, CATCH_TIME = 0.05;
 /** the weathervane swings the leading end: full nose (or tail) once moving FALL_LEAD_V m/s along the board,
- *  with FALL_LEAD_BIAS m/s toward the nose through a stop; climbing, it fades out from across the hill and
- *  is gone at cos(angle from the fall line) = -FALL_CLIMB (about 135 deg), so a climb falls back into switch */
-const FALL_LEAD_V = 1.5, FALL_LEAD_BIAS = 1.0, FALL_CLIMB = 0.7;
+ *  nothing sliding straight sideways; climbing, it fades out from across the hill and is gone at
+ *  cos(angle from the fall line) = -FALL_CLIMB (about 135 deg), so a climb falls back into switch */
+const FALL_LEAD_V = 1.5, FALL_CLIMB = 0.7;
+/** a flat board follows its slide at up to FALL_FOLLOW rad/s times the sine of its slip angle (the
+ *  main swing: gravity bends the slide down the hill and the board follows it); FALL_YAW is only the
+ *  leading foot's weight dropping that end */
+const FALL_FOLLOW = 2;
+/** sliding sideways down the hill on a flat base (under FLAT_SAFE of uphill edge, over FLAT_SLIDE m/s
+ *  sideways) the downhill edge catches at FLAT_CATCH per second times the roughness (FLAT_ROUGH on a
+ *  groomer, plus chop jolts and moguls) times the slide (full FLAT_SPAN m/s past FLAT_SLIDE) */
+const FLAT_SAFE = 6 * D2R, FLAT_SLIDE = 1.5, FLAT_SPAN = 3, FLAT_CATCH = 1.5, FLAT_ROUGH = 0.15;
 /** the board's slip past its line (rad) before the carve lets go: from SLIP_HOLD on, the arc stops
  *  driving the heading, gone by SLIP_HOLD + SLIP_WASH (a skid that settles, not a spin) */
 const SLIP_HOLD = 4 * D2R, SLIP_WASH = 30 * D2R;
@@ -862,17 +870,22 @@ export class Rider {
     const fall = Math.hypot(n[0], n[1]);
     const gLat = ax * lx + ay * ly;
     let fallRate = 0;
-    if (this.fallLine > 0 && fall > 0.03 && spd > 0.3) {
+    if (this.fallLine > 0 && spd > 0.3 && psi < FALL_EDGE) {
       const toFall = wrap(Math.atan2(n[0], n[1]) - this.heading);
-      const flat = Math.max(0, 1 - psi / FALL_EDGE);
-      // the leading end swings down: the nose riding forward, the tail sliding back before the switch
-      // turn-round, blended through a stop with a little bias to the nose (weight on the front foot)
-      const lead = Math.max(-1, Math.min(1, (this.vx * hx + this.vy * hy + FALL_LEAD_BIAS) / FALL_LEAD_V));
+      const flat = (1 - psi / FALL_EDGE) ** 2 * (1 - this.brakeAmt) * this.fallLine;
+      const vA = this.vx * hx + this.vy * hy;
+      // the leading end: the nose riding forward, the tail sliding back before the switch turn-round
+      const lead = Math.max(-1, Math.min(1, vA / FALL_LEAD_V));
       // pointed up the hill the leading end does not come round: the board slows, stops and slides
       // back tail first into switch; full across the hill, gone by about 135 deg from the fall line
-      const down = Math.cos(toFall) * Math.sign(lead);
+      const down = Math.cos(toFall) * (Math.sign(vA) || 1);
       const climb = down >= 0 ? 1 : Math.max(0, 1 + down / FALL_CLIMB);
-      fallRate = FALL_YAW * fall * Math.sin(toFall) * lead * climb * flat * flat / (1 + spd / FALL_YAW_SPEED) * (1 - this.brakeAmt) * this.fallLine;
+      // a flat board follows its slide: the leading end turns toward where the board is going, as
+      // gravity bends the slide down the hill. Sliding straight sideways (a flat board let go across
+      // the hill from a stand) it does not turn at all: it side-slips, and the downhill edge may catch
+      fallRate = FALL_FOLLOW * ((this.vx * lx + this.vy * ly) / spd) * lead * climb * flat;
+      // and the weight over the leading foot drops that end a little, less at speed
+      if (fall > 0.03) fallRate += FALL_YAW * fall * Math.sin(toFall) * lead * climb * flat / (1 + spd / FALL_YAW_SPEED);
     }
     // slow or flat: a pivot (a skidded turn) straight from the steer, gone by F.pivotFade; from about
     // there on a small steer yaw (STEER_YAW) keeps the board coming round through an edge change.
@@ -995,6 +1008,14 @@ export class Rider {
       this.catchT += dt;
       if (this.catchT > CATCH_TIME) { this.crashed = 1.3; this.crashSide = Math.sign(this.edge); this.crashFall = 0; this.catchT = 0; this.lastHit = 'catch'; }
     } else this.catchT = 0;
+    // a flat base sliding down the hill sideways (realistic only): a bump, chop or a mogul can dig the
+    // downhill edge in, so the slide is a gamble the faster it goes and the rougher the snow, and a
+    // little uphill edge (FLAT_SAFE) is what keeps the downhill edge off the snow. Seeded, so runs replay
+    if (this.fallLine >= 1 && this.crashed <= 0 && this.brakeAmt === 0 && vLat * gLat > 0 && Math.abs(vLat) > Math.max(FLAT_SLIDE, 0.5 * spd) && -Math.sign(gLat) * this.edge < FLAT_SAFE) {
+      const rough = FLAT_ROUGH + snow.jolt + Math.min(1, this.surface.moguls / 0.4);
+      const slide = Math.min(1, (Math.abs(vLat) - FLAT_SLIDE) / FLAT_SPAN);
+      if (this.rng.next() < FLAT_CATCH * rough * slide * dt) { this.crashed = 1.3; this.crashSide = Math.sign(gLat); this.crashFall = 0; this.lastHit = 'catch'; }
+    }
     ax += latAcc * lx; ay += latAcc * ly;
     this.lateralG += ((latAcc / G) - this.lateralG) * Math.min(1, dt * 12);
 
