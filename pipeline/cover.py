@@ -43,11 +43,14 @@ PACK_RUN_K = 0.6
 # far the far ring's data (cfg far_ring size_m)
 LC_LEVELS = (("mid", 16.0, 4), ("far", 100.0, 3))
 # BUG-069: the lifted lidar canopy reads a sparse stand (a tree every 10 m or so) as closed canopy, so far off
-# its snow went black between the few trees drawn there. The pack level's forest is weighted by the share of
-# the ground under the drawn crowns (averaged over CROWN_SIGMA m), full weight from CROWN_FULL up: dense
-# timber on Vail draws 0.2 to 0.4 and keeps its cover, sparse bowl stands draw 0.05 to 0.15 and go mostly white.
-CROWN_SIGMA = 16.0
-CROWN_FULL = 0.2
+# its snow went black between the few trees drawn there. The pack level's forest is kept only where the drawn
+# trees make a closed stand: the share of the ground under their crowns (averaged over CROWN_SIGMA m) passes
+# CROWN_LO..CROWN_HI (dense timber on Vail draws 0.2 to 0.4, sparse bowl stands 0.05 to 0.15), and the stand
+# is at least 2 x STAND_MIN_R m across (a grey opening), so a clump of a dozen trees on open snow is carried
+# by its trees alone instead of a dark patch around them.
+CROWN_SIGMA = 10.0
+CROWN_LO, CROWN_HI = 0.05, 0.14
+STAND_MIN_R = 20.0
 # natural crown radius / height per species id, as game/src/world/trees/species.ts SPECIES[].radius
 CROWN_RATIO = np.array([0.13, 0.17, 1.1, 0.1, 0.09, 0.17, 0.35, 0.05])
 HEIGHT_SIGMA = 3.0     # cells: canopy height is averaged over the forested cells around (it only lifts coarse chunks)
@@ -148,6 +151,18 @@ def crown_share(pack_dir, meta, w, h):
     return ndimage.gaussian_filter((area / PACK_RES ** 2).astype(np.float32), CROWN_SIGMA / PACK_RES)
 
 
+def closed_stand(crowns):
+    """BUG-069: 0..1 weight of the ground that is under a closed stand of drawn trees (see CROWN_LO above)"""
+    from scipy import ndimage
+    dense = smoothstep(CROWN_LO, CROWN_HI, crowns).astype(np.float32)
+    r = int(round(STAND_MIN_R / PACK_RES))
+    yy, xx = np.mgrid[-r:r + 1, -r:r + 1]
+    disc = (xx * xx + yy * yy) <= r * r
+    # drop the clumps, then fill the holes the same size inside the stands that stay
+    core = ndimage.grey_closing(ndimage.grey_opening(dense, footprint=disc), footprint=disc)
+    return ndimage.gaussian_filter(core, 1.0)
+
+
 def to_rgba(forest, height, rock, built):
     """pack the channels; G, B and A are quantised (2.5 m of canopy, 1/8 of rock, 1/4 of built-up), which
     the per-vertex lift and the rock threshold never resolve, so the PNGs compress about 3x better"""
@@ -179,8 +194,8 @@ def pack_level(pack_dir, meta, runs, log=print):
     crowns = crown_share(pack_dir, meta, w, h)
     if crowns.any():   # a pack without tree instances keeps its canopy (the ground then carries the forest)
         before = forest.sum()
-        forest *= np.clip(crowns / CROWN_FULL, 0, 1)
-        log(f"  drawn crowns keep {forest.sum() / max(before, 1) * 100:.1f}% of the forest (BUG-069)")
+        forest *= closed_stand(crowns)
+        log(f"  closed stands of drawn trees keep {forest.sum() / max(before, 1) * 100:.1f}% of the forest (BUG-069)")
     height = tree_heights(pack_dir, meta, 16.0, w, h)
     return write_level(pack_dir, "pack", to_rgba(forest, height, rock, np.zeros_like(forest)), PACK_RES, b["minX"], b["minY"])
 
