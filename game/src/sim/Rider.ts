@@ -145,7 +145,7 @@ const GIN_FIGHT = 0.5;
  *  Side-slipping downhill (the velocity more than 30 deg off the board, over CATCH_SLIDE m/s of it
  *  sideways at over CATCH_SPEED) onto the downhill edge past CATCH_EDGE for CATCH_TIME s catches it:
  *  a slam (realistic only). A skidded carve transition slips 10 to 15 deg and never trips it. */
-const GRIP_FLAT_REAL = 0.12, FALL_YAW = 3, FALL_YAW_SPEED = 15, FALL_EDGE = 12 * D2R, STAND_EDGE = 10 * D2R;
+const GRIP_FLAT_REAL = 0.12, FALL_YAW = 2, FALL_YAW_SPEED = 15, FALL_EDGE = 12 * D2R, STAND_EDGE = 10 * D2R;
 const CATCH_SPEED = 3, CATCH_SLIDE = 2, CATCH_EDGE = 15 * D2R, CATCH_TIME = 0.05;
 /** the weathervane swings the leading end: full nose (or tail) once moving FALL_LEAD_V m/s along the board,
  *  nothing sliding straight sideways; climbing, it fades out from across the hill and is gone at
@@ -158,6 +158,9 @@ const FALL_FOLLOW = 2;
 /** sliding sideways down the hill on a flat base (under FLAT_SAFE of uphill edge, over FLAT_SLIDE m/s
  *  sideways) the downhill edge catches at FLAT_CATCH per second times the roughness (FLAT_ROUGH on a
  *  groomer, plus chop jolts and moguls) times the slide (full FLAT_SPAN m/s past FLAT_SLIDE) */
+/** a traverse (for the edge catch): within asin(TRAVERSE_ACROSS) of straight across (about 25 deg) a slope
+ *  over asin(TRAVERSE_SLOPE) (15 deg), not turning up the hill faster than TRAVERSE_TURN rad/s, for TRAVERSE_SETTLE s */
+const TRAVERSE_ACROSS = 0.9, TRAVERSE_SLOPE = Math.sin(15 * D2R), TRAVERSE_TURN = 0.3, TRAVERSE_SETTLE = 0.4;
 const FLAT_SAFE = 6 * D2R, FLAT_SLIDE = 1.5, FLAT_SPAN = 3, FLAT_CATCH = 1.5, FLAT_ROUGH = 0.15;
 /** the board's slip past its line (rad) before the carve lets go: from SLIP_HOLD on, the arc stops
  *  driving the heading, gone by SLIP_HOLD + SLIP_WASH (a skid that settles, not a spin) */
@@ -462,6 +465,8 @@ export class Rider {
   fallLine = 1;
   /** seconds the downhill edge has been catching (a slam past CATCH_TIME) */
   private catchT = 0;
+  /** seconds the board has ridden steadily across a steep slope (a traverse); a turn finishing up the hill resets it */
+  private traverseT = 0;
   /** sim randomness: seeded on reset so the same inputs replay the same run */
   readonly rng = new Rng(1);
   /** physics steps so far, and how many of them sampled a coarser height set than the point has */
@@ -509,7 +514,7 @@ export class Rider {
     this.heading = heading; this.switch = false; this.onGround = true; this.airTime = 0; this.jumpCharge = 0;
     this.crashed = 0; this.crashFall = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
     this.edge = 0; this.edgeTarget = 0; this.leanTarget = 0; this.lean = 0; this.pressing = false; this.pressBalance = 0; this.pressDir = 0; this.pressLock = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.landingShock = 0;
-    this.hardCarve = 0; this.hardDrive = 0; this.carveShort = 0; this.washout = 0; this.crashSide = 0; this.catchT = 0;
+    this.hardCarve = 0; this.hardDrive = 0; this.carveShort = 0; this.washout = 0; this.crashSide = 0; this.catchT = 0; this.traverseT = 0;
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
     this.onFoot = false; this.strapState = 'none'; this.strapT = 0; this.stamina = STAMINA; this.tired = false; this.mantle = 0; this.stepT = 0;
     this.sprinting = false; this.crawling = false; this.slipT = 0; this.exertion = 0; this.slideVx = this.slideVy = this.walkVx = this.walkVy = 0;
@@ -912,6 +917,12 @@ export class Rider {
       }
     } else this.chopT = 0;
     this.turnRate = turnRate;
+    // FEAT-134: a traverse is the board held flat or on its uphill edge across a steep slope. A turn
+    // finishing up the hill (the end of a linked carve) or leaving the across band resets it; once the
+    // downhill edge is in it holds its count (the edge going in is what the catch looks at)
+    const sinTo = Math.sin(Math.atan2(n[0], n[1]) - this.heading);
+    if (Math.abs(sinTo) <= TRAVERSE_ACROSS || fall <= TRAVERSE_SLOPE || turnRate * Math.sign(sinTo) < -TRAVERSE_TURN) this.traverseT = 0;
+    else if (this.edge * gLat <= 0) this.traverseT += dt;
     this.turnRadius = Math.abs(turnRate) > 1e-3 ? spd / Math.abs(turnRate) : Infinity;
     const dHeading = turnRate * dt;
     this.heading += dHeading;
@@ -1002,9 +1013,13 @@ export class Rider {
     latAcc *= 1 - swing;
     this.skid += (Math.max(skidding ? Math.min(1, Math.abs(vLat) / 6) : 0, Math.min(1, this.carveShort / HARD_SKID)) - this.skid) * Math.min(1, dt * 10);
     // catching the downhill edge (FEAT-134, realistic only): sliding downhill fast onto the edge on
-    // the downhill side trips the board, a slam like catching an edge for real; the rider goes over
-    // that edge, down the hill (crashSide, so the ragdoll falls that way)
-    if (this.fallLine >= 1 && spd > CATCH_SPEED && Math.abs(vLat) > Math.max(CATCH_SLIDE, 0.5 * spd) && vLat * gLat > 0 && vLat * this.edge > 0 && psi > CATCH_EDGE && this.brakeAmt === 0) {
+    // the downhill side trips the board, a slam like catching an edge for real; so does forcing the
+    // downhill edge out of a settled traverse with the board still across the hill (the weight is on
+    // the uphill side: let it go flat and the nose come round first). The rider goes over that edge,
+    // down the hill (crashSide, so the ragdoll falls that way)
+    const slideCatch = Math.abs(vLat) > Math.max(CATCH_SLIDE, 0.5 * spd) && vLat * gLat > 0;
+    const traverseCatch = this.traverseT > TRAVERSE_SETTLE;
+    if (this.fallLine >= 1 && spd > CATCH_SPEED && (slideCatch || traverseCatch) && this.edge * gLat > 0 && psi > CATCH_EDGE && this.brakeAmt === 0) {
       this.catchT += dt;
       if (this.catchT > CATCH_TIME) { this.crashed = 1.3; this.crashSide = Math.sign(this.edge); this.crashFall = 0; this.catchT = 0; this.lastHit = 'catch'; }
     } else this.catchT = 0;

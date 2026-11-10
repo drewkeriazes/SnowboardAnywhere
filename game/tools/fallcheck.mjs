@@ -163,6 +163,25 @@ check('off: a flat board traverses on rails as before', off30.toFall > 85 && Mat
   check('realistic: catching the downhill edge in a side-slip is a slam', real.crashed && real.t < 0.5, real.crashed ? `${real.t.toFixed(2)} s` : 'no crash');
   check('a little uphill edge in the same slide checks it instead', !uphill.crashed && uphill.speed < 2 && uphill.across > 60, uphill.crashed ? 'crashed' : `${uphill.speed.toFixed(1)} m/s, ${uphill.across.toFixed(0)} deg after 1 s`);
   check('assisted: no edge catch', !assist.crashed, assist.crashed ? 'crashed' : 'no crash');
+  // forcing the downhill edge out of a traverse (the card's "engaging the downhill edge on a traverse at
+  // speed catches it"): hold the uphill edge across the hill for 1 s, then steer hard downhill. The way
+  // riders are taught, letting the board go flat until the nose comes round first, rides away
+  const force = (deg, v, fallLine, release) => {
+    const r = start(deg, v, EAST, fallLine), inp = input();
+    inp.steer = 0.4;
+    let t = 0, phase = 0;
+    while (t < 4 && r.crashed <= 0) {
+      if (phase === 0 && t >= 1) { phase = 1; inp.steer = release ? 0 : -1; }
+      if (phase === 1 && release && Math.abs(wrap(r.heading)) < 55 * D) { phase = 2; inp.steer = -1; }
+      r.update(DT, inp); t += DT;
+    }
+    return { crashed: r.crashed > 0, t, side: r.crashSide, toFall: Math.abs(wrap(r.heading)) / D, speed: r.speed };
+  };
+  const forced = force(30, 10, 1, false), forcedFast = force(25, 14, 1, false), patient = force(30, 10, 1, true), forcedAssist = force(30, 10, 0.5, false), gentle = force(10, 10, 1, false);
+  console.log(`downhill edge out of a 10 m/s traverse: forced on 30 deg ${forced.crashed ? `slams ${(forced.t - 1).toFixed(2)} s after the steer (side ${forced.side})` : 'no crash'}, 25 deg at 14 m/s ${forcedFast.crashed ? 'slams' : 'no crash'}; flat until the nose comes round, then the edge: ${patient.crashed ? 'slams' : `rides away, ${patient.toFall.toFixed(0)} deg from the fall line, ${patient.speed.toFixed(1)} m/s`}; assisted ${forcedAssist.crashed ? 'slams' : 'no crash'}; 10 deg ${gentle.crashed ? 'slams' : 'no crash'}`);
+  check('realistic: forcing the downhill edge out of a traverse on a steep slope is a slam, down the hill', forced.crashed && forcedFast.crashed && forced.side === -1 && forced.t - 1 < 0.4, forced.crashed ? `${(forced.t - 1).toFixed(2)} s, side ${forced.side}; 25 deg ${forcedFast.crashed}` : 'no crash');
+  check('letting the board go flat and the nose come round first, then the edge, rides away', !patient.crashed, patient.crashed ? `slammed at ${patient.t.toFixed(2)} s` : 'no crash');
+  check('assisted, or a gentle slope: the same forced edge just turns', !forcedAssist.crashed && !gentle.crashed, `assisted ${forcedAssist.crashed}, 10 deg ${gentle.crashed}`);
   // linked hard carves at speed must not catch, and must not scrub much more speed than with the fall line off
   const linked = (fallLine) => {
     const r = start(15, 20, 0, fallLine), inp = input();
@@ -173,6 +192,20 @@ check('off: a flat board traverses on rails as before', off30.toFall > 85 && Mat
   const on = linked(1), off = linked(0);
   console.log(`linked 1 s full carves from 20 m/s on 15 deg for 6 s: slowest ${on.minSpeed.toFixed(1)} m/s realistic, ${off.minSpeed.toFixed(1)} m/s off`);
   check('linked carves at speed never catch an edge', !on.crashed, on.crashed ? 'crashed' : 'no crash');
+  // linked turns finished right across a steep slope (even past it, climbing a little) change onto the
+  // downhill edge every time, and must never count as a forced edge out of a traverse
+  let steepCatches = 0, steepRuns = 0;
+  for (const deg of [20, 30, 35]) for (const v of [8, 15]) for (const swing of [85, 100]) for (const amt of [1, 0.6]) {
+    const r = start(deg, v, 0, 1), inp = input();
+    inp.steer = amt; steepRuns++;
+    for (let i = 0; i < 120 * 10 && r.crashed <= 0; i++) {
+      const h = wrap(r.heading) / D;
+      if (inp.steer > 0 && h > swing) inp.steer = -amt; else if (inp.steer < 0 && h < -swing) inp.steer = amt;
+      r.update(DT, inp);
+    }
+    if (r.crashed > 0) steepCatches++;
+  }
+  check('linked turns finished across a steep slope never catch', steepCatches === 0, `${steepCatches} of ${steepRuns} runs caught`);
   check('linked carves scrub little extra speed with the fall line on', on.minSpeed > off.minSpeed - 1.5, `${on.minSpeed.toFixed(1)} vs ${off.minSpeed.toFixed(1)} m/s`);
 }
 fs.rmSync(path.dirname(out), { recursive: true, force: true });
