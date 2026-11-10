@@ -72,7 +72,7 @@ export function gfxPresetOf(s: Settings): GfxPreset | 'custom' {
 export type FeelPreset = 'arcade' | 'balanced' | 'realistic';
 /** Feel presets set the gameplay feel options together: press balance and the fall line (FEAT-134; jump mode joins as it lands) */
 const FEEL: Record<FeelPreset, Partial<Settings>> = {
-  arcade: { pressBalance: 'easy', fallLine: 'off' }, balanced: { pressBalance: 'on', fallLine: 'assist' }, realistic: { pressBalance: 'hard', fallLine: 'real' },
+  arcade: { pressBalance: 'easy', fallLine: 'off' }, balanced: { pressBalance: 'on', fallLine: 'real' }, realistic: { pressBalance: 'hard', fallLine: 'real' },
 };
 export function applyFeelPreset(s: Settings, p: FeelPreset): void { Object.assign(s, FEEL[p]); }
 export function feelPresetOf(s: Settings): FeelPreset | 'custom' {
