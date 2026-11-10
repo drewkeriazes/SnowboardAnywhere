@@ -24,6 +24,16 @@ export interface AttractTake {
   samples: ReplaySample[];
   /** FEAT-179: marks a take made for the far slopes (from lines drawn on the shot); timed like every other take */
   backdrop?: boolean;
+  /** FEAT-181: the shot it was made for (tools/ghost_lines.mjs) and the pack's meta.build it was ridden on (a rebuilt pack can leave it floating) */
+  shot?: string;
+  build?: string;
+  /**
+   * FEAT-181: seconds after the menu goes live before the take first sets off, and how often it sets off again
+   * (seconds, at least its length; the rest of the time it isn't there). Without them it starts at once and loops
+   * on its own length. The variants of a line are sent off at intervals this way, so its riders don't all leave at once.
+   */
+  delay?: number;
+  every?: number;
 }
 
 /**
@@ -35,6 +45,8 @@ export interface AttractTake {
  */
 interface Ghost {
   replay: Replay; rider: Rider; view: RiderView; dur: number;
+  /** FEAT-181: when it first sets off and how often after (AttractTake.delay / every) */
+  delay: number; every: number;
   from: number; to: number; fadeIn: boolean; fadeOut: boolean; mats: THREE.Material[]; casters: THREE.Object3D[]; alpha: number;
   /** FEAT-179: the meshes a mid-distance (NEAR_M..LOD_M) and a far (past LOD_M) ghost doesn't draw, and those hidden now with their visibility before */
   midHide: THREE.Object3D[]; farHide: THREE.Object3D[]; lodHidden: THREE.Object3D[]; lodVis: boolean[];
@@ -114,7 +126,8 @@ export class AttractGhosts {
     view.group.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o); });
     const named = (o: THREE.Object3D, keep: string[]) => keep.some((k) => o.name.startsWith(k));
     const midHide = meshes.filter((o) => !named(o, MID_KEEP)), farHide = meshes.filter((o) => !named(o, FAR_KEEP));
-    this.ghosts.push({ replay, rider, view, dur: replay.end, from: 0, to: replay.end, fadeIn: false, fadeOut: false, mats, casters, alpha: 1, midHide, farHide, lodHidden: [], lodVis: [], hidden: false, px: 0, py: 0, pz: 0, posed: false, skipped: 0, shadow: true });
+    const every = Math.max(replay.end, take.every ?? 0), delay = Math.max(0, take.delay ?? 0);
+    this.ghosts.push({ replay, rider, view, dur: replay.end, delay, every, from: 0, to: replay.end, fadeIn: false, fadeOut: false, mats, casters, alpha: 1, midHide, farHide, lodHidden: [], lodVis: [], hidden: false, px: 0, py: 0, pz: 0, posed: false, skipped: 0, shadow: true });
     if (this.view) this.fitWindows();
   }
 
@@ -159,10 +172,15 @@ export class AttractGhosts {
   /** FEAT-177: is any ghost on screen now (for the camera given)? One faded out (opacity about 0) doesn't count. */
   anyInView(cam: THREE.Camera): boolean {
     this.setFrustum(cam);
-    return this.ghosts.some((g) => g.view.group.visible && !g.hidden && g.alpha > 0.05 && this.seen(g, this.lt(g)));
+    return this.ghosts.some((g) => g.view.group.visible && !g.hidden && g.alpha > 0.05 && this.lt(g) >= 0 && this.seen(g, this.lt(g)));
   }
-  /** a ghost's time in its take now: each starts over as soon as it ends */
-  private lt(g: Ghost): number { return g.dur > 0 ? this.t % g.dur : 0; }
+  /** a ghost's time in its take now (-1 when it isn't out: before its delay, or between its runs): each starts over every `every` seconds */
+  private lt(g: Ghost): number {
+    if (g.dur <= 0) return 0;
+    if (this.t < g.delay) return -1;
+    const lt = (this.t - g.delay) % g.every;
+    return lt <= g.dur ? lt : -1;
+  }
 
   /**
    * FEAT-179 (cost): is the rider's head behind the terrain from the camera at `c` (three.js space)? A march along

@@ -19,7 +19,7 @@ import { ResortMap } from '../ui/ResortMap';
 import { LiftRide } from '../sim/LiftRide';
 import { Prefetch } from '../sim/Prefetch';
 import { MainMenu, type MenuChoice } from '../ui/MainMenu';
-import { attractShot, shotPose, CONDITION_FIELDS, type AttractManifest, type ShotConditions } from '../world/AttractShots';
+import { attractShot, shotPose, CONDITION_FIELDS, type AttractManifest, type AttractShot, type ShotConditions } from '../world/AttractShots';
 import { AttractGhosts } from '../world/AttractGhosts';
 import { LoadingScreen } from '../ui/Loading';
 import { PauseMenu, type PauseInfo } from '../ui/PauseMenu';
@@ -40,7 +40,8 @@ import { Toast } from '../ui/Toast';
 import { SceneRender } from '../world/SceneRender';
 import { SunClock } from '../world/SunClock';
 import { warmUp as warmUpWorld } from './warmUp';
-import { saveShot as saveShotFile, saveTake as saveTakeFile } from './devSaves';
+import { saveShot as saveShotFile, saveTake as saveTakeFile, saveMenuShot } from './devSaves';
+import { askMenuShot } from '../ui/MenuShotForm';
 import { buildWorld } from './World';
 import { mountLeadTunePanel } from '../ui/LeadTunePanel';
 import { RestartRing } from '../ui/RestartRing';
@@ -62,7 +63,7 @@ import { Modes } from '../modes/Modes';
 const NEW_SNOW: Record<string, number> = { none: 0, dusting: 0.25, '6in': 0.6, powder: 1 };
 
 /** How a session starts: in the main menu (attract) or riding, with the loading screen when there is no menu over it. */
-export interface SessionOpts { menu: MainMenu | null; attract: boolean; loading: LoadingScreen | null; attractFiles: AttractManifest }
+export interface SessionOpts { menu: MainMenu | null; attract: boolean; loading: LoadingScreen | null; attractFiles: AttractManifest; shots: AttractShot[] }
 
 /** One resort loaded and playable: its scene, the rider, the menus over it. */
 export interface Session {
@@ -306,7 +307,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     };
 
     // ---------------------------------------------------------------- FEAT-128: the main menu inside the session (attract)
-    const shot = attractShot(pack, start);
+    const shot = attractShot(pack, start, opts.shots);
     const ghosts = new AttractGhosts(pack);
     ghosts.group.name = 'attract ghosts'; scene.add(ghosts.group);
     ghosts.setVisible(false);
@@ -360,6 +361,13 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       pack.mask?.request(x - 600, y - 600, x + 600, y + 600);
     };
     /** Save the canvas: into docs/compare through the dev server when ?spot= is set, else a browser download. */
+    /** FEAT-181 (?debug): the eye camera's view as the resort's menu shot, in the conditions on screen now */
+    const menuShot = params.debug === null ? null : () => askMenuShot({ id: shot.id === 'start' ? '' : shot.id, place: shot.place === pack.meta.name ? '' : shot.place, region: shot.region || pack.meta.name }, (labels, candidate) => {
+      const c = conditions();
+      const hour = c.timeOfDay === 'now' ? new Date().getHours() + new Date().getMinutes() / 60 : c.timeOfDay;
+      saveMenuShot({ slug: pack.meta.slug, eye: cam.eyePose(), labels, hosted, candidate, toast: (t, ms) => showToast(t, ms),
+        conditions: { clouds: c.clouds, timeOfDay: hour, month: c.month, newSnow: c.newSnow ?? 'none', snowDay: c.snowDay, valleyFog: c.valleyFog, cloudTime: 0 } });
+    });
     const saveShot = (dataUrl: string, jpgUrl: string) =>
       saveShotFile({ dataUrl, jpgUrl, eye: cam.eyePose(), spot: spotName, slug: pack.meta.slug, weather: currentWeather(), hosted, toast: (t) => showToast(t) });
     pack.fine?.request(sx - 600, sy - 600, sx + 600, sy + 600);
@@ -392,7 +400,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     const rewind = new RewindState({ controls, touch, rider, liftRide, modes, replay, pack, frame, rewindTo }, states);
     states
       .add(new RidingState({
-        controls, touch, cam, settings, rider, liftRide, modes, runs: world.runs, audio, map, frame, ring: restartRing, replayBlockedReason,
+        controls, touch, cam, settings, rider, liftRide, modes, runs: world.runs, audio, map, frame, ring: restartRing, replayBlockedReason, menuShot,
         rewindWanted: () => rewind.wanted(), restartRun,
       }, states))
       .add(rewind)

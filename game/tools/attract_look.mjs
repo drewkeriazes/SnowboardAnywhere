@@ -28,10 +28,13 @@ function files(rel) {
   return fs.readdirSync(abs).sort().flatMap((n) => files(`${rel}/${n}`));
 }
 
-/** the code half of the look key: sha256 over each LOOK file's path and text, first 16 hex digits */
-export function lookCode() {
+/** a resort's shots (FEAT-181: data, not code): its own, so another resort's new shot doesn't stale this one's still */
+const shotsFile = (slug) => `game/public/attract/${slug}/shots.json`;
+
+/** the code half of a resort's look key: sha256 over each LOOK file's path and text and the resort's shots.json, first 16 hex digits */
+export function lookCode(slug) {
   const h = crypto.createHash('sha256');
-  for (const f of LOOK.flatMap(files).sort()) {
+  for (const f of [...LOOK.flatMap(files), ...(slug ? files(shotsFile(slug)) : [])].sort()) {
     h.update(f + '\0');
     h.update(fs.readFileSync(path.join(REPO, f), 'utf8').replace(/\r\n/g, '\n'));
     h.update('\0');
@@ -40,21 +43,22 @@ export function lookCode() {
 }
 
 /** a file the PR changed is a LOOK file */
-const isLook = (f) => LOOK.some((l) => f === l || f.startsWith(l + '/'));
+const isLook = (f) => LOOK.some((l) => f === l || f.startsWith(l + '/')) || /^game\/public\/attract\/[^/]+\/shots\.json$/.test(f);
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  const code = lookCode();
   const man = JSON.parse(fs.readFileSync(path.join(REPO, MANIFEST), 'utf8'));
   const stale = [];
+  const codes = {};
   for (const [slug, e] of Object.entries(man)) {
+    const code = (codes[slug] = lookCode(slug));
     for (const id of e.stills ?? []) {
       const look = e.looks?.[id];
       if (look?.code !== code) stale.push(`${slug}/${id}`);
       if (!args.includes('--check')) console.log(`${slug}/${id}: recorded ${look ? `${look.code} (pack build ${look.pack || 'none'})` : 'no look key'}${look?.code === code ? '' : ', stale'}`);
     }
   }
-  if (!args.includes('--check')) { console.log(`current code key ${code}`); process.exit(0); }
+  if (!args.includes('--check')) { console.log(`current code keys: ${Object.entries(codes).map(([k, v]) => `${k} ${v}`).join(', ')}`); process.exit(0); }
   const bi = args.indexOf('--base');
   const base = bi >= 0 ? args[bi + 1] : 'origin/main';
   let changed = [];
@@ -64,5 +68,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     const packs = [...new Set(stale.map((s) => s.split('/')[0]))].join(' ');
     console.log(`::warning file=${MANIFEST}::Main menu still is stale (${stale.join(', ')}): ${touched.length ? `this PR changes the look (${touched.slice(0, 4).join(', ')}${touched.length > 4 ? ', ...' : ''}) but not the still` : 'its look key no longer matches the code'}. On Drew's PC: cd game && npx vite build && node tools/shoot_attract.mjs ${packs} --gpu, then commit the JPEG and index.json.`);
   }
-  console.log(`attract look: code ${code}; ${stale.length ? `stale: ${stale.join(', ')}` : 'stills up to date'}${touched.length ? `; look files changed: ${touched.length}` : ''}`);
+  console.log(`attract look: code ${Object.entries(codes).map(([k, v]) => `${k} ${v}`).join(', ')}; ${stale.length ? `stale: ${stale.join(', ')}` : 'stills up to date'}${touched.length ? `; look files changed: ${touched.length}` : ''}`);
 }

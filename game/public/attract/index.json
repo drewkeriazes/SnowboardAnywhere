@@ -1,5 +1,6 @@
 {
   "vail": {
+    "shots": true,
     "stills": [
       "back-bowls"
     ],
@@ -59,9 +60,131 @@
     ],
     "looks": {
       "back-bowls": {
-        "code": "26b27a922536dfa8",
+        "code": "112cc5c04c09d336",
         "pack": ""
       }
+    },
+    "shotGhosts": {
+      "back-bowls": [
+        "line-red-lead.json",
+        "line-red-mate.json",
+        "line-orange-lead.json",
+        "line-orange-mate.json",
+        "line-yellow-lead.json",
+        "line-yellow-mate.json",
+        "line-green-lead.json",
+        "line-green-mate.json",
+        "line-blue-lead.json",
+        "line-blue-mate.json",
+        "line-purple-lead.json",
+        "line-purple-mate.json",
+        "line2-l-black-lead.json",
+        "line2-l-black-mate.json",
+        "line2-l-orange-lead.json",
+        "line2-l-orange-mate.json",
+        "line2-l-pink-lead.json",
+        "line2-l-pink-mate.json",
+        "line2-l-purple-lead.json",
+        "line2-l-purple-mate.json",
+        "line2-l-red-lead.json",
+        "line2-l-red-mate.json",
+        "line2-l-yellow-lead.json",
+        "line2-l-yellow-mate.json",
+        "line2-m-lime-lead.json",
+        "line2-m-lime-mate.json",
+        "line2-m-teal-lead.json",
+        "line2-m-teal-mate.json",
+        "line2-r-cyan-lead.json",
+        "line2-r-cyan-mate.json",
+        "line2-r-pink-lead.json",
+        "line2-r-pink-mate.json",
+        "line2-r-purple-lead.json",
+        "line2-r-purple-mate.json",
+        "line2-r-yellow-lead.json",
+        "line2-r-yellow-mate.json"
+      ]
+    }
+  },
+  "breckenridge": {
+    "shots": true,
+    "stills": [
+      "top-of-imperial-bowl"
+    ],
+    "ghosts": [
+      "top-of-imperial-bowl-run-1-v1-1.json",
+      "top-of-imperial-bowl-run-1-v1-2.json",
+      "top-of-imperial-bowl-run-1-v2-1.json",
+      "top-of-imperial-bowl-run-1-v2-2.json",
+      "top-of-imperial-bowl-run-1-v3-1.json",
+      "top-of-imperial-bowl-run-1-v3-2.json",
+      "top-of-imperial-bowl-run-2-v1-1.json",
+      "top-of-imperial-bowl-run-2-v1-2.json",
+      "top-of-imperial-bowl-run-2-v2-1.json",
+      "top-of-imperial-bowl-run-2-v2-2.json",
+      "top-of-imperial-bowl-run-2-v3-1.json",
+      "top-of-imperial-bowl-run-2-v3-2.json",
+      "top-of-imperial-bowl-blue-v1-1.json",
+      "top-of-imperial-bowl-blue-v1-2.json",
+      "top-of-imperial-bowl-blue-v2-1.json",
+      "top-of-imperial-bowl-blue-v2-2.json",
+      "top-of-imperial-bowl-blue-v3-1.json",
+      "top-of-imperial-bowl-blue-v3-2.json",
+      "top-of-imperial-bowl-pink-v1-1.json",
+      "top-of-imperial-bowl-pink-v1-2.json",
+      "top-of-imperial-bowl-pink-v2-1.json",
+      "top-of-imperial-bowl-pink-v2-2.json",
+      "top-of-imperial-bowl-pink-v3-1.json",
+      "top-of-imperial-bowl-pink-v3-2.json",
+      "top-of-imperial-bowl-cyan-v1-1.json",
+      "top-of-imperial-bowl-cyan-v1-2.json",
+      "top-of-imperial-bowl-cyan-v2-1.json",
+      "top-of-imperial-bowl-cyan-v2-2.json",
+      "top-of-imperial-bowl-cyan-v3-1.json",
+      "top-of-imperial-bowl-cyan-v3-2.json",
+      "top-of-imperial-bowl-green-1.json",
+      "top-of-imperial-bowl-green-2.json"
+    ],
+    "looks": {
+      "top-of-imperial-bowl": {
+        "code": "aa53d1d86a726766",
+        "pack": "20261110T191519Z-1adfa7"
+      }
+    },
+    "shotGhosts": {
+      "top-of-imperial-bowl": [
+        "top-of-imperial-bowl-run-1-v1-1.json",
+        "top-of-imperial-bowl-run-1-v1-2.json",
+        "top-of-imperial-bowl-run-1-v2-1.json",
+        "top-of-imperial-bowl-run-1-v2-2.json",
+        "top-of-imperial-bowl-run-1-v3-1.json",
+        "top-of-imperial-bowl-run-1-v3-2.json",
+        "top-of-imperial-bowl-run-2-v1-1.json",
+        "top-of-imperial-bowl-run-2-v1-2.json",
+        "top-of-imperial-bowl-run-2-v2-1.json",
+        "top-of-imperial-bowl-run-2-v2-2.json",
+        "top-of-imperial-bowl-run-2-v3-1.json",
+        "top-of-imperial-bowl-run-2-v3-2.json",
+        "top-of-imperial-bowl-blue-v1-1.json",
+        "top-of-imperial-bowl-blue-v1-2.json",
+        "top-of-imperial-bowl-blue-v2-1.json",
+        "top-of-imperial-bowl-blue-v2-2.json",
+        "top-of-imperial-bowl-blue-v3-1.json",
+        "top-of-imperial-bowl-blue-v3-2.json",
+        "top-of-imperial-bowl-pink-v1-1.json",
+        "top-of-imperial-bowl-pink-v1-2.json",
+        "top-of-imperial-bowl-pink-v2-1.json",
+        "top-of-imperial-bowl-pink-v2-2.json",
+        "top-of-imperial-bowl-pink-v3-1.json",
+        "top-of-imperial-bowl-pink-v3-2.json",
+        "top-of-imperial-bowl-cyan-v1-1.json",
+        "top-of-imperial-bowl-cyan-v1-2.json",
+        "top-of-imperial-bowl-cyan-v2-1.json",
+        "top-of-imperial-bowl-cyan-v2-2.json",
+        "top-of-imperial-bowl-cyan-v3-1.json",
+        "top-of-imperial-bowl-cyan-v3-2.json",
+        "top-of-imperial-bowl-green-1.json",
+        "top-of-imperial-bowl-green-2.json"
+      ]
     }
   }
 }

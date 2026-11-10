@@ -1,0 +1,11 @@
+[
+  {
+    "id": "back-bowls",
+    "note": "on the ridge just behind the Legendary Back Bowls gateway (world/Landmarks.ts), angled down: the sign on the right, the bowls opening on the left (the pose from the FEAT-128 mockups); the conditions are the look of Drew's photo of the sign (FEAT-132): a bluebird day, late morning in February; elev is the sign's own ELEV. 11,250 ft",
+    "x": -727, "y": 524, "h": 150, "pitch": -12, "fov": 50, "eye": 9,
+    "place": "Back Bowls", "region": "Vail · Colorado",
+    "elev": { "m": 3429, "where": "at the gateway" },
+    "dolly": 4, "pan": 1.5, "period": 26,
+    "conditions": { "clouds": "off", "timeOfDay": 11, "month": 2, "newSnow": "none", "snowDay": "mid", "valleyFog": false, "cloudTime": 0 }
+  }
+]

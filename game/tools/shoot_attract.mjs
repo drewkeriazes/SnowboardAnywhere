@@ -32,8 +32,9 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, r));
 const base = `http://localhost:${server.address().port}`;
 const browser = await launchBrowser();
-const code = lookCode();
 const manFile = path.join(REPO, 'game', 'public', 'attract', 'index.json');
+// FEAT-181: the shot is data (attract/<pack>/shots.json) read from the build's copy of public/: give it the current files
+fs.cpSync(path.join(REPO, 'game', 'public', 'attract'), path.join(DIST, 'attract'), { recursive: true });
 let failed = 0;
 
 /** render one pack's still headless, write it and its look key; returns the shot and the JPEG's data URL */
@@ -85,6 +86,7 @@ async function shoot(pack) {
   const e = (man[pack] ??= {});
   e.stills = [...new Set([...(e.stills ?? []), shot.id])];
   e.ghosts ??= [];
+  const code = lookCode(pack);
   e.looks = { ...(e.looks ?? {}), [shot.id]: { code, pack: build } };
   fs.writeFileSync(manFile, JSON.stringify(man, null, 2) + '\n');
   console.log(`${pack}/${shot.id}`, JSON.stringify({ x: shot.x, y: shot.y, h: shot.h, pitch: shot.pitch, fov: shot.fov, eye: shot.eye }), JSON.stringify(shot.conditions), '->', path.relative(REPO, out).split(path.sep).join('/'), `look ${code} pack ${build || 'none'}`, errors.length ? `errors: ${errors.join(' | ')}` : '');

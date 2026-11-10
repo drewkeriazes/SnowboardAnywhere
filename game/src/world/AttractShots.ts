@@ -2,13 +2,16 @@ import type { Pack } from '../pack/Pack';
 import type { Settings } from '../ui/Settings';
 
 /**
- * FEAT-128: the main menu's backdrop shots, one or more per resort, hand-picked so the place is
- * recognisable. The menu runs inside the session: the eye camera sits on the shot and drifts slowly while
- * ghosts ride a line through it. Each shot ships with a still rendered from the same pose
- * (`game/public/attract/<slug>/<id>.jpg`, `tools/shoot_attract.mjs`), shown while the session loads.
+ * FEAT-128: the main menu's backdrop shots, hand-picked so the place is recognisable. The menu runs inside the
+ * session: the eye camera sits on the shot and drifts slowly while ghosts ride lines through it. Each shot ships
+ * with a still rendered from the same pose (`game/public/attract/<slug>/<id>.jpg`, `tools/shoot_attract.mjs`),
+ * shown while the session loads. FEAT-181: the shots are data, `game/public/attract/<slug>/shots.json` (the menu
+ * uses the first), written by the eye camera's Shift+P with ?debug (`/__attract/shot`, `tools/ghost_lines.mjs`).
  */
 export interface AttractShot {
   id: string;
+  /** why the shot is where it is (for people; the game doesn't read it) */
+  note?: string;
   /** pack metres, heading in degrees clockwise from north, pitch in degrees (+ up), vertical fov, eye height above the snow (m) */
   x: number; y: number; h: number; pitch: number; fov: number; eye: number;
   /** the big title (the place in the shot) and the line above it */
@@ -35,29 +38,30 @@ export const DEFAULT_CONDITIONS: ShotConditions = { clouds: 'few', timeOfDay: 'p
 /** the Settings fields a shot's conditions override (a pick of any of them in the menu's Settings ends the override) */
 export const CONDITION_FIELDS = ['clouds', 'timeOfDay', 'month', 'newSnow', 'snowDay', 'valleyFog'] as const;
 
-export const ATTRACT_SHOTS: Record<string, AttractShot[]> = {
-  vail: [
-    {
-      // on the ridge just behind the Legendary Back Bowls gateway (world/Landmarks.ts), angled down: the
-      // sign on the right, the bowls opening on the left (the pose from the FEAT-128 mockups)
-      id: 'back-bowls', x: -727, y: 524, h: 150, pitch: -12, fov: 50, eye: 9,
-      place: 'Back Bowls', region: 'Vail · Colorado',
-      elev: { m: 11250 * 0.3048, where: 'at the gateway' }, // the sign's own "ELEV. 11,250" ft (Landmarks.ts)
-      dolly: 4, pan: 1.5, period: 26,
-      // the look of Drew's photo of the sign (FEAT-132): a bluebird day (no clouds), late morning in February
-      conditions: { clouds: 'off', timeOfDay: 11, month: 2, newSnow: 'none', snowDay: 'mid', valleyFog: false, cloudTime: 0 },
-    },
-  ],
-};
+/**
+ * FEAT-181: a resort's shots (`attract/<slug>/shots.json`), asked for only when the manifest says it has some
+ * (`shots: true`), so a resort without one requests nothing and nothing 404s; [] then.
+ */
+export async function loadAttractShots(base: string, slug: string, man: AttractManifest): Promise<AttractShot[]> {
+  if (!man[slug]?.shots) return [];
+  try {
+    const r = await fetch(`${base}attract/${slug}/shots.json`, { cache: 'no-cache' });
+    if (!r.ok) return [];
+    const shots = await r.json() as AttractShot[];
+    return Array.isArray(shots) ? shots.filter((s) => s && typeof s.id === 'string' && Number.isFinite(s.x) && Number.isFinite(s.y)) : [];
+  } catch { return []; }
+}
 
 /**
  * `game/public/attract/index.json`: per resort, the shot ids with a rendered still, the ghost take files, and
  * (FEAT-177) each still's look key from `tools/shoot_attract.mjs`: `code`, a hash of the source files that
- * change the picture (`tools/attract_look.mjs`, checked in CI), and `pack`, the pack's `meta.build` it was
- * rendered from (checked here: a still from another build of the pack is never shown).
+ * change the picture and of the resort's `shots.json` (`tools/attract_look.mjs`, checked in CI), and `pack`, the
+ * pack's `meta.build` it was rendered from (checked here: a still from another build of the pack is never shown).
+ * FEAT-181: `shots` says the resort has `shots.json`; `shotGhosts` lists, per shot, the takes `tools/ghost_lines.mjs` made for it (also in `ghosts`): a new
+ * shot replaces the old one and its generated takes with it; recorded `take-*` files are never in it.
  */
 export interface StillLook { code: string; pack: string }
-export type AttractManifest = Record<string, { stills?: string[]; ghosts?: string[]; looks?: Record<string, StillLook> }>;
+export type AttractManifest = Record<string, { shots?: boolean; stills?: string[]; ghosts?: string[]; looks?: Record<string, StillLook>; shotGhosts?: Record<string, string[]> }>;
 
 /** The shipped still for a shot, or '' when there is none or it was rendered from another build of the pack. */
 export function shippedStill(base: string, man: AttractManifest, pack: Pack, shotId: string): string {
@@ -72,9 +76,9 @@ export async function loadAttractManifest(base: string): Promise<AttractManifest
   try { const r = await fetch(`${base}attract/index.json`, { cache: 'no-cache' }); return r.ok ? await r.json() as AttractManifest : {}; } catch { return {}; }
 }
 
-/** The shot for a resort: its first hand-picked one, else the start looking downhill from 15 m up. */
-export function attractShot(pack: Pack, start: { x: number; y: number; heading: number }): AttractShot {
-  const s = ATTRACT_SHOTS[pack.meta.slug]?.[0];
+/** The shot for a resort: its first hand-picked one (`loadAttractShots`), else the start looking downhill from 15 m up. */
+export function attractShot(pack: Pack, start: { x: number; y: number; heading: number }, shots: AttractShot[]): AttractShot {
+  const s = shots[0];
   if (s) return s;
   return {
     id: 'start', x: start.x, y: start.y, h: start.heading * 180 / Math.PI, pitch: -10, fov: 55, eye: 15,

@@ -21,6 +21,8 @@ export interface RidingParts {
   modes: Modes; runs: RunsOverlay; audio: GameAudio; map: ResortMap; frame: RideFrame;
   /** FEAT-124: the restart hold's fill ring (the session owns it and disposes it) */
   ring: RestartRing;
+  /** FEAT-181 (?debug): ask for the menu shot's labels and save the eye camera's view as the resort's menu shot */
+  menuShot: (() => void) | null;
   /** why the replay viewer can't open now, or null */
   replayBlockedReason(): string | null;
   /** the rewind is held and allowed */
@@ -64,7 +66,11 @@ export class RidingState implements GameState {
     }
     // the map's state follows the map (ResortMap.onOpenChange) and takes the rest of this frame
     if (controls.action('map') || touch?.once('map')) { map.open(); return; }
-    if (controls.action('piste')) { if (cam.mode === 'eye') frame.shotPending = true; else runs.toggle(); }
+    if (controls.action('piste')) {
+      // the eye camera: P saves a compare shot; Shift+P (FEAT-181, ?debug) makes the view the resort's menu shot
+      const shift = controls.keys.has('ShiftLeft') || controls.keys.has('ShiftRight');
+      if (cam.mode === 'eye') { if (shift && this.p.menuShot) this.p.menuShot(); else frame.shotPending = true; } else runs.toggle();
+    }
     if (controls.action('track')) audio.nextTrack();
     if (controls.action('fly')) { cam.mode = cam.mode === 'free' ? settings.camera : 'free'; if (cam.mode === 'free') cam.enterFree(); }
     // board on / off: unstrap when nearly stopped, strap in standing still. FEAT-124: E (interact)
