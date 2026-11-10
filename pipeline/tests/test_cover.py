@@ -116,17 +116,22 @@ def _pack_forest(pack_dir, meta):
 def test_pack_without_trees_keeps_canopy(tmp_path):
     from cover import crown_area
     pack_dir, meta = _pack(tmp_path)
-    assert not crown_area(pack_dir, meta, 100, 100).any()
+    area, shade = crown_area(pack_dir, meta, 100, 100)
+    assert not area.any() and not shade.any()
     r, lv = _pack_forest(pack_dir, meta)
-    assert r.min() == 1.0 and "stands" not in lv
+    assert r.min() == 1.0 and "stands" not in lv and "crowns" not in lv
 
 
 def test_sparse_stand_fades_from_far(tmp_path):
     """a tree every 10 m (5.3 m2 of crown per 100 m2, about 0.05 share) keeps under 0.3 of the forest"""
     from cover import crown_area
     pack_dir, meta = _pack(tmp_path, spacing=10.0)
-    share = crown_area(pack_dir, meta, 100, 100)[20:80, 20:80].mean()
+    area, shade = crown_area(pack_dir, meta, 100, 100)
+    share = area[20:80, 20:80].mean()
     assert 0.04 < share < 0.07
+    # FEAT-168: the shadow raster weights each crown by its height over SHADOW_H (10 m trees here)
+    from cover import SHADOW_H
+    assert np.allclose(shade, area * 10.0 / SHADOW_H)
     r, _ = _pack_forest(pack_dir, meta)
     assert r[20:80, 20:80].max() < 0.3
 
@@ -138,4 +143,8 @@ def test_dense_timber_keeps_full_forest(tmp_path):
     r, lv = _pack_forest(pack_dir, meta)
     assert r[20:80, 20:80].min() == 1.0
     stands = np.asarray(Image.open(os.path.join(pack_dir, lv["stands"]))) / 255.0
-    assert stands[20:80, 20:80].min() > 0.95
+    assert stands[20:80, 20:80, 0].min() > 0.95
+    # FEAT-168: G of the stands image is the height-weighted crown share, flagged on the level
+    from cover import crown_area
+    _, shade = crown_area(pack_dir, meta, stands.shape[1], stands.shape[0])
+    assert lv["crowns"] and np.abs(stands[..., 1] - np.clip(shade, 0, 1)).max() <= 1 / 255 + 1e-6
