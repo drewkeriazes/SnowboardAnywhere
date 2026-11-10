@@ -52,7 +52,7 @@ import { PauseMenu } from './ui/PauseMenu';
 import { Labels } from './ui/Labels';
 import { TouchControls } from './ui/TouchControls';
 import { sunPosition, guessUtcOffset } from './world/Sun';
-import { loadSettings, keyName, keysOf, saveSettings, type Settings } from './ui/Settings';
+import { applyUiScale, loadSettings, keyName, keysOf, saveSettings, type Settings } from './ui/Settings';
 import { STAMINA, switchName, type PressEnd } from './sim/Rider';
 import { PressMeter } from './ui/PressMeter';
 import { availableResorts } from './resorts';
@@ -92,6 +92,7 @@ async function main(): Promise<void> {
   const lp = params.get('lens'); if (lp && (lp === 'auto' || lp in LENSES)) settings.goggleLens = lp as LensSetting; // FEAT-130: ?lens=yellow for render checks
   const sp = params.get('stance'); if (sp === 'regular' || sp === 'goofy') settings.stance = sp; // FEAT-139
   if (params.has('lowgfx')) { settings.quality = 'low'; settings.shadows = false; settings.treeDensity = 0.3; settings.pixelRatio = 1; }
+  applyUiScale(settings); // FEAT-128: UI scale and Reduce motion (Accessibility)
   // before the menu, so the first song comes from the saved source and playlist
   audio.source = settings.musicSource;
   audio.playlist = settings.playlist;
@@ -442,7 +443,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     };
     map.onPick = pickHandler;
 
-    const pause = new PauseMenu(settings, applySettings);
+    const pause = new PauseMenu(settings, applySettings, { fps: () => fps, credits: () => audio.credits });
     let paused = false;
     const setPaused = (p: boolean) => {
       paused = p;
@@ -673,7 +674,11 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       mouseDx += controls.gyroDx; mouseDy += controls.gyroDy; // FEAT-137: DualSense gyro look (0 unless on)
       // pause has priority; Esc closes the map first if it is open
       if (controls.once('Escape') || touch?.once('pause')) { if (replayOpen) closeReplay(); else if (map.fullOpen) map.close(); else setPaused(!paused); }
-      if (paused) { padFx.idle(controls.pad); controls.endFrame(); touch?.pressed.clear(); render(); if (!headless) requestAnimationFrame(frame); return; }
+      if (paused) {
+        padFx.idle(controls.pad); controls.endFrame(); touch?.pressed.clear(); render();
+        fpsAcc += dt; fpsN++; if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; } // FEAT-128: Settings shows the live frame rate over the paused game
+        if (!headless) requestAnimationFrame(frame); return;
+      }
       touch?.setVisible(!map.fullOpen);
       elapsed += dt;
       // FEAT-124: restart needs a 0.6 s hold (a fill ring), so a stray tap next to E or W doesn't reset the run
@@ -903,10 +908,10 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         lens.lens = cam.mode === 'fp' && !eat.active ? worn : 'off';
         lens.strength = settings.lensStrength ?? 1;
       }
-      cam.fpShake = settings.fpShake ?? 0.3; // BUG-051
+      cam.fpShake = settings.reduceMotion ? 0 : settings.fpShake ?? 0.3; // BUG-051
       goggles.update(rider, dt, cam.mode === 'fp', cam.mode === 'fp' && settings.fpVignette, onLift);
       // FEAT-045 speed feel toggles, and the speed lines (not on a lift, in free fly or the eat)
-      cam.speedFov = settings.speedFov; cam.camShake = settings.camShake; speedLines.enabled = settings.speedLines;
+      cam.speedFov = settings.speedFov; cam.camShake = settings.camShake && !settings.reduceMotion; speedLines.enabled = settings.speedLines && !settings.reduceMotion; // FEAT-128: Reduce motion turns them off together
       speedLines.update(rider.speed, dt, !detached && !onLift && !eat.active && !paused && !rider.onFoot && !frozen);
       rider.restoreSimPose();
       cam.camera.updateMatrixWorld();

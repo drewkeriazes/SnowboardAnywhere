@@ -21,12 +21,15 @@ export interface ScreenOpts {
   onIntent?: (i: NavIntent, down: boolean) => boolean;
   /** the last input kind changed (hint bars re-render) */
   onInputKind?: (k: InputKind) => void;
+  /** the focus moved (a detail panel follows it) */
+  onFocus?: (el: HTMLElement | null) => void;
 }
 
-const FOCUSABLE = 'button, select, input, [data-nav]';
+/** what takes focus; `data-nav="skip"` marks a control inside a focusable row (a segment, a slider), which the row drives */
+const FOCUSABLE = ['button', 'select', 'input', '[data-nav]'].map((s) => `${s}:not([data-nav=skip])`).join(', ');
 /** what the controller can't operate: keyboard rebind slots wait for a key, colour pickers need the mouse (as FEAT-137's PadNav) */
-const PAD_SKIP = '.keys button.key, input[type=color]';
-const visible = (el: HTMLElement): boolean => el.isConnected && el.getClientRects().length > 0 && !(el as HTMLButtonElement).disabled && el.dataset.nav !== 'skip';
+const PAD_SKIP = '.keys button.key, input[type=color], [data-pad-skip]';
+const visible = (el: HTMLElement): boolean => el.isConnected && el.getClientRects().length > 0 && !(el as HTMLButtonElement).disabled && el.dataset.nav !== 'skip' && !el.closest('.miss, .gone');
 const isText = (el: Element | null): boolean => el instanceof HTMLInputElement && ['text', 'search', 'email', 'number', 'password'].includes(el.type);
 
 export class Screen {
@@ -54,10 +57,12 @@ export class Screen {
   focus(el: HTMLElement | null, scroll = true): void {
     this.cur?.classList.remove('nav-focus');
     this.cur = el;
-    if (!el) return;
-    el.classList.add('nav-focus');
-    el.focus({ preventScroll: true });
-    if (scroll) el.scrollIntoView({ block: 'nearest' });
+    if (el) {
+      el.classList.add('nav-focus');
+      el.focus({ preventScroll: true });
+      if (scroll) el.scrollIntoView({ block: 'nearest' });
+    }
+    this.opts.onFocus?.(el);
   }
 
   get focused(): HTMLElement | null {

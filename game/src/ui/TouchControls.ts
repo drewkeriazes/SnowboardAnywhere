@@ -37,7 +37,10 @@ export class TouchControls {
     this.stick = this.el.querySelector('.stick') as HTMLDivElement;
     this.knob = this.el.querySelector('.knob') as HTMLDivElement;
     const R = 56; // px travel
-    const setStick = (dx: number, dy: number) => {
+    const setStick = (sx: number, sy: number) => {
+      // the finger moves in screen pixels; the stick is drawn at the UI scale (FEAT-128: CSS zoom on #touch)
+      const z = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')) || 1;
+      const dx = sx / z, dy = sy / z;
       const l = Math.hypot(dx, dy) || 1, k = Math.min(1, l / R);
       const nx = (dx / l) * k, ny = (dy / l) * k;
       this.knob.style.transform = `translate(${(nx * R).toFixed(0)}px, ${(ny * R).toFixed(0)}px)`;
