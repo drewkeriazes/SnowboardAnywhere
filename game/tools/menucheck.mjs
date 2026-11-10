@@ -220,7 +220,11 @@ await key('Escape');
 // a time trial course from the card row: RIDE puts the rider above its start gate, gates on for the session
 await page.evaluate(() => { document.querySelector('#menu .card[data-mode="trial"]').click(); document.querySelector('#menu .pop button[data-course]').click(); });
 check('a course from the card row sets the mode', await page.evaluate(() => document.querySelector('#menu .card[data-mode="trial"]').classList.contains('on') && document.querySelector('#menu button.ride').dataset.mode === 'Time trial'));
-if (shots) await page.screenshot({ path: path.join(outDir, 'main.png') });
+if (shots) {
+  await page.screenshot({ path: path.join(outDir, 'main.png') });
+  for (const [w, h] of [[390, 844], [844, 390]]) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await page.screenshot({ path: path.join(outDir, `main-${w}x${h}.png`) }); }
+  await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(200);
+}
 await page.evaluate(() => document.querySelector('#menu button.ride').click());
 await page.waitForTimeout(400);
 const rode = await page.evaluate(() => ({ attract: window.__sim.attract, gates: window.__sim.trialWorld.enabled, cam: window.__sim.cam.mode, menu: getComputedStyle(document.querySelector('#menu')).display }));

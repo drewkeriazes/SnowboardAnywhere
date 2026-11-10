@@ -803,7 +803,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         controls.suspendFrame(); // the menu has the keys and buttons: nothing reaches the riding actions
         mouseDx = mouseDy = 0;
         attractT += dt;
-        const p = shotPose(shot, attractT);
+        const p = shotPose(shot, settings.reduceMotion ? 0 : attractT); // Reduce motion: the backdrop holds still
         cam.setEye(p.x, p.y, p.h, p.pitch, p.fov, p.eye);
         ghosts.update(dt);
       }

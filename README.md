@@ -4,8 +4,8 @@ A browser snowboarding game set on real mountains, rebuilt at 1:1 from public da
 real trees, and the actual lifts, runs and buildings from OpenStreetMap. Ride Vail top to bottom,
 take the chairs back up, race your own ghost, or outrun the snow monster.
 
-Built with Three.js, TypeScript and Vite. Resorts so far: Vail and Breckenridge (pick one on the main menu).
-Modes: free ride, time trials and Outrun, picked in Esc > Mode (time trial gates can also stay on all the time: Settings > Gameplay).
+Built with Three.js, TypeScript and Vite. Resorts so far: Vail and Breckenridge (Change resort on the main menu).
+Modes: free ride, time trials and Outrun, picked on the main menu's cards or in Esc > Mode (time trial gates can also stay on all the time: Settings > Gameplay).
 
 ## Play
 
@@ -75,6 +75,14 @@ Menus work with the keyboard, a gamepad, the mouse or touch: arrows or the D-pad
 (Esc or Circle / B resumes from pause), B on the keyboard or Square / X on the pad switches Snowboard / Skis on the main menu.
 The hint bar at the bottom of each menu shows the keys or buttons for whichever you used last.
 The main menu's Controls button opens your current bindings.
+
+The main menu sits over the live resort: on Vail, the ridge behind the Legendary Back Bowls gateway, with the
+title naming the place and the resort's numbers. RIDE starts the mode picked on the cards along the bottom: Free
+ride, Time trial (pick a course: you start just above its start gate) or Outrun (its options), and "or drop in from
+the map" picks a spot first. The resort card switches Snowboard / Skis; Change resort lists the built resorts.
+Settings, Controls and Credits sit in the top corner. The menu shows at once over a still of the view while the
+resort loads behind it (a slim bar in the corner); RIDE pressed early waits for the load. Quit to main menu comes
+back here without reloading. Sound starts with your first click or key press (browsers don't count a controller).
 
 Esc pauses: the left column names where you are and shows this run's time, distance, vertical and top speed, then
 Resume, Restart, Map, Mode, Replay and Settings, and quick toggles for the camera, weather, time of day and music
