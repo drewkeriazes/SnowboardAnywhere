@@ -46,7 +46,7 @@ export const treeFadeUniforms = {
   uFadeK: { value: 0 },
 };
 
-/** vertex shader helpers; `treeFade(base, height, crown, localY)` is 0 (solid) .. 1 (fully faded). three.js world coordinates (y up). */
+/** vertex shader helpers (the tree kit's materials, trees/materials.ts); `treeFade(base, height, crown, localY)` is 0 (solid) .. 1 (fully faded). three.js world coordinates (y up). */
 export const TREE_FADE_VERT = /* glsl */ `
   uniform vec3 uFadeCam; uniform vec3 uFadeRider; uniform vec3 uFadeAhead; uniform vec3 uFadeAheadSlow; uniform vec3 uFadeNext; uniform float uFadeK;
   varying float vTreeFade;
@@ -107,29 +107,6 @@ export const TREE_FADE_FRAG_HEAD = /* glsl */ `
 export const TREE_FADE_FRAG_BODY = /* glsl */ `
   if (vTreeFade > 0.001 && treeBayer8(gl_FragCoord.xy) < vTreeFade * ${MAX_DISCARD.toFixed(2)}) discard;
 `;
-
-/**
- * Add the fade to an instanced tree MeshStandardMaterial (unit tree: base at the origin, height 1
- * along +y, scaled by the instance matrix). Call before the material is registered for CSM.
- */
-export function addTreeFade(mat: THREE.MeshStandardMaterial): void {
-  mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, treeFadeUniforms);
-    shader.vertexShader = TREE_FADE_VERT + shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
-      {
-        #ifdef USE_INSTANCING
-          mat4 tm = modelMatrix * instanceMatrix;
-        #else
-          mat4 tm = modelMatrix;
-        #endif
-        float th = length(tm[1].xyz);
-        vTreeFade = treeFade(tm[3].xyz, th, length(tm[0].xyz) * 0.25, position.y);
-      }`);
-    shader.fragmentShader = TREE_FADE_FRAG_HEAD + shader.fragmentShader.replace('#include <clipping_planes_fragment>', `${TREE_FADE_FRAG_BODY}\n#include <clipping_planes_fragment>`);
-  };
-  mat.customProgramCacheKey = () => 'treefade';
-  mat.needsUpdate = true;
-}
 
 export interface FadeRider { x: number; y: number; z: number; vx: number; vy: number }
 

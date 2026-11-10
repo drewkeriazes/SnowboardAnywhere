@@ -348,7 +348,7 @@ export class RideFrame {
     const pl = particleLight.update(dt, env, (x, y) => pack.terrainHeight(x, y), rider.x, rider.y, rider.z);
     riderView.spray.setLight(pl); riderView.spray.setViewHeight(renderer.domElement.height); riderView.spray.wind.set(snow.wind.x * 0.3, snow.wind.y * 0.3);
     (puffs.points.material as THREE.PointsMaterial).color.copy(pl);
-    veg.setSun(env.sun.color, env.sun.intensity);
+    veg.setLight(env.sunDir, env.sun.color, env.sun.intensity, env.hemi.color, env.hemi.groundColor, env.hemi.intensity);
     // FEAT-155: trees in the way of the view downhill go see-through (third-person cameras only)
     treeFade.update(cam.camera, rider, (x, y) => pack.groundHeight(x, y), dt, settings.seeThroughTrees !== false && !this.detached && !cam.firstPerson && !eat.active);
     terrain.setSun(env.sunDir); // BUG-062: the mogul colouring's sun term
@@ -367,7 +367,7 @@ export class RideFrame {
     // terrain, mask and instance tiles stream ahead along the direction of travel
     const liftTop = this.liftTop = onLift && liftRide.lift ? liftRide.lift.top : null;
     prefetch.update(pack, fx, fy, dt, liftTop);
-    veg.update(fx, fy, prefetch.ax, prefetch.ay);
+    veg.update(fx, fy, prefetch.ax, prefetch.ay, cp);
     rocks.update(fx, fy, prefetch.ax, prefetch.ay);
     if (sky.weather === 'storm') sky.snowCover = Math.min(1, sky.snowCover + dt / 600);
     else if (sky.weather === 'flurries') sky.snowCover = Math.min(1, sky.snowCover + dt / 3000);
