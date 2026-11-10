@@ -176,13 +176,10 @@ function distance(): string {
   // a row receding along -z, offset sideways in a zig-zag so each one shows
   const ds: number[] = [];
   for (let d = 20; d <= 2000; d *= 1.12) ds.push(d);
-  ds.forEach((d, i) => { const s = [0, 3, 5, 4, 1][i % 5]; addTree(s, i % 4, (i % 2 ? 1 : -1) * (3 + d * 0.06), -d, HEIGHT[s], 0); });
-  // real bands: each mesh is drawn by all four LOD materials and the band picks; add the other LODs at the same spots
-  const base = [...trees.children];
-  ds.forEach((d, i) => { const s = [0, 3, 5, 4, 1][i % 5]; for (const lod of [1, 2, 3] as const) addTree(s, i % 4, (i % 2 ? 1 : -1) * (3 + d * 0.06), -d, HEIGHT[s], lod); });
-  void base;
-  const cam = new THREE.PerspectiveCamera(50, W / 900, 0.5, 6000);
-  cam.position.set(0, 3, 6); cam.lookAt(0, 2, -200);
+  // every LOD at each spot: the real bands pick which one draws
+  ds.forEach((d, i) => { const s = [0, 3, 5, 4, 1][i % 5]; for (const lod of [0, 1, 2, 3] as const) addTree(s, i % 4, (i % 2 ? 1 : -1) * (6 + d * 0.1), -d, HEIGHT[s], lod); });
+  const cam = new THREE.PerspectiveCamera(40, W / 900, 0.5, 6000);
+  cam.position.set(0, 2, 0); cam.lookAt(0, 6, -200);
   light('front', new THREE.Vector3(0, 0, -100), 200);
   ctx.drawImage(render(cam, W, 900), 0, 0);
   label(ctx, 'row from 20 m to 2 km, real LOD bands (0-80 cards, 80-400 cones, 400-1500 crossed quads, then impostors)', 10, 22);
