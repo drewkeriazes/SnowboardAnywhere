@@ -37,8 +37,9 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 
 - `game/` the client (Three.js 0.172, TypeScript, Vite). `cd game && npm install && npm run dev`.
   - `src/main.ts` the entry point: parses the URL and starts `core/Game`
-  - `src/core/` engine-level code with no snowboarding in it (FEAT-160): `params.ts` every URL parameter parsed once into a typed `Params`; `Game.ts` boot (pick and load the pack, apply the URL overrides to the settings, the renderer, the main menu or loading screen, then the session); `GameLoop.ts` requestAnimationFrame, the 30 fps cap and the headless `window.__step` / `__shot`; `GameContext.ts` the services a session shares (params, canvas, renderer, scene, pack, settings, audio); `debugHooks.ts` builds `window.__sim` once (keep its field names, the test tools read them)
-  - `src/session/` one resort loaded and playable: `Session.ts` (`createSession`) wires the systems and runs the frame in the update order below; `World.ts` builds everything the session draws, in a fixed order; `warmUp.ts` streams the start area behind the loading screen (BUG-063); `devSaves.ts` the dev-server saves (P-key compare shots, menu ghost takes)
+  - `src/core/` engine-level code with no snowboarding in it (FEAT-160): `params.ts` every URL parameter parsed once into a typed `Params`; `Game.ts` boot (pick and load the pack, apply the URL overrides to the settings, the renderer, the main menu or loading screen, then the session); `GameLoop.ts` requestAnimationFrame, the 30 fps cap and the headless `window.__step` / `__shot`; `GameContext.ts` the services a session shares (params, canvas, renderer, scene, pack, settings, audio); `debugHooks.ts` builds `window.__sim` once (keep its field names, the test tools read them); `StateMachine.ts` (FEAT-162) the `State` interface (`enter` / `update` / `render` / `exit`) and the machine that runs the active one; `FpsMeter.ts` the half-second frame rate
+  - `src/states/` the session's states (FEAT-162, see "States" below): `GameState.ts` their names and the shared Back press; `LoadingState`, `AttractState` (the main menu), `RidingState`, `RewindState`, `PausedState`, `ReplayState`, `MapState`; `RideFrame.ts` one frame of the world under any state that shows it, in the update order below, told by the state's `FramePlan` who moves the rider
+  - `src/session/` one resort loaded and playable: `Session.ts` (`createSession`) wires the systems and the states, and its frame reads the devices then runs the active state; `World.ts` builds everything the session draws, in a fixed order; `warmUp.ts` streams the start area behind the loading screen (BUG-063); `devSaves.ts` the dev-server saves (P-key compare shots, menu ghost takes)
   - `src/pack/` pack loader, tiled height / mask sampling, bridge decks
   - `src/terrain/` quadtree LOD terrain and snow material
   - `src/sim/` rider physics, controls (controller source `Pad.ts`, DualSense WebHID `DualSense.ts`, rumble and lights `PadFeedback.ts`), collisions, lift riding, time trials, replay recording, Outrun, run stats (`RunStats.ts`)
@@ -53,25 +54,39 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 - `docs/` plans, handoff, board, research and data notes
 - `tools/` repo helpers: `card_id.py` (next free card id, duplicate ids; set `PYTHONUTF8=1` on Windows), `gmaps2game.py` (Street View URL to an eye-camera link)
 
+### States
+
+The session is a state machine (`core/StateMachine.ts`, FEAT-162). One state is active; it decides which systems tick and it takes the input, so a menu and the riding keys never both see a key.
+
+| state | entered | who moves the rider | keys it takes |
+|---|---|---|---|
+| `loading` | the session starts | nobody (no frame runs: the loop starts when it ends) | none |
+| `attract` (main menu) | after loading with a menu; Quit to main menu | nobody, hidden (`menu`) | none: input is suspended, the menu has it |
+| `riding` | RIDE; leaving any state below | the physics (`ride`) | every riding action; Esc pauses |
+| `rewind` | the rewind key held while riding | the recording (`recording`) | the rewind key; Esc lands where it got to, then pauses |
+| `paused` | Esc while riding | nothing ticks; the frame only renders | Esc resumes; the pause menu's own actions |
+| `replay` (K) | K, or the pause menu's Replay | the recording (`recording`) | the viewer's keys; Esc, K or Circle close it |
+| `map` (M) | the full map opening, however (M, the pause menu, RIDE's "or drop in") | nobody, though a lift carries on (`hold`) | the map's (mouse, touch, stick, + / -); Esc, M or Circle close it; the music key |
+
+A state that changes the state inside its update hands the rest of that frame to the new state (its update runs next with the same dt), so Esc closing the map or K opening the viewer acts in the frame the key went down. The Map state follows `ResortMap.onOpenChange`, so a drop-in click, a tool calling `__sim.map.close()` or the pause menu all move it. While Outrun's monster has the rider (`caught`) the eat sequence moves it, whatever the state asked. `__sim.state` is the active state's name; `__sim.attract` is still there.
+
 ### The frame, in order
 
-`Session.ts` `frame(dt)` runs these in this order every drawn frame (FEAT-160). Keep the order when moving code: the view steps draw the pose the sim steps just made, the cameras read the rider view (the eye), and streaming and the sky follow the final camera.
+`Session.ts` `tickFrame(dt)` reads the devices (`RideFrame.readInput`: `controls.update`, the right stick and gyro into the mouse look), then runs the active state's update and render. Paused renders and closes the input frame. Every other state reads its own keys, then runs `RideFrame.update` and `draw`, which do these in this order every drawn frame (FEAT-160, FEAT-162). Keep the order when moving code: the view steps draw the pose the sim steps just made, the cameras read the rider view (the eye), and streaming and the sky follow the final camera.
 
-1. Adaptive quality takes the frame time (FEAT-062).
-2. Input: `controls.update`; behind the main menu (attract) the riding actions are suspended and the eye camera drifts; the right stick and gyro add to the mouse look.
-3. Esc: closes the replay viewer, then the map, else toggles pause. Paused, the frame only renders and returns.
-4. Session actions: Outrun after the map drop-in, the restart hold, the trial key, the replay viewer's keys and the replayed pose, the rewind, camera cycle, map, piste, track, fly, strap in or out.
-5. Simulation on the sim pose: lift ride, then the rider (its own 1/120 s fixed steps), replay recording, run stats, rumble.
-6. View sync on the render pose (interpolated between the last two physics steps): rider view, tracks, prints, puffs. Then the sim pose comes back.
-7. Outrun: its sim, its events to sound, rumble, camera kick and toasts, the eat sequence, the monsters, the Outrun HUD.
-8. Time trials: the sim, gates, ghost, route walls, the trial HUD.
-9. Audio (reads the sim pose and the lift).
-10. Cameras on the render pose: free, eye, first person, replay trackside, else the chase camera; the eat sequence overrides it; lens, goggles, speed lines. The press meter projects through the final camera.
-11. Sky and effects from the camera: shadows (CSM), clouds, snowfall, particle light, tree fade (FEAT-155), the deformation stamp (FEAT-044).
-12. Streaming around the rider (or the camera when detached): terrain, prefetch, trees, rocks; snow cover, the skied-out day, moguls; roads, the chair, lifts, bridges, lift lines, landmarks; the live sun.
-13. Prompt and key hints, the sky's follow, tile eviction, the map, horizon labels.
-14. Render, then the P-key shot (the drawing buffer is only readable in the same task), `controls.endFrame`, and the replay overlay restored.
-15. Frame rate and the HUD line.
+1. The state's keys: riding's restart hold, trial key, replay and rewind (they switch state), camera cycle, map, piste, track, fly, strap in or out, boost; the replay viewer's keys and the replayed pose; the rewind's scrub and pose; the map's stick, zoom and drop-in; behind the main menu the input is suspended and the backdrop camera drifts.
+2. Adaptive quality takes the frame time (FEAT-062); the touch buttons shown or hidden; the eye camera's photo look (no rider, spray, markers or piste lines).
+3. Simulation on the sim pose, as far as the state's drive allows (`RUNS` in `RideFrame.ts`): lift ride, then the rider (its own 1/120 s fixed steps), replay recording, run stats, rumble.
+4. View sync on the render pose (interpolated between the last two physics steps): rider view, tracks, prints, puffs. Then the sim pose comes back.
+5. Outrun: its sim, its events to sound, rumble, camera kick and toasts, the eat sequence, the monsters, the Outrun HUD.
+6. Time trials: the sim, gates, ghost, route walls, the trial HUD.
+7. Audio (reads the sim pose and the lift).
+8. Cameras on the render pose: free, eye, first person, replay trackside, else the chase camera; the eat sequence overrides it; lens, goggles, speed lines. The press meter projects through the final camera.
+9. Sky and effects from the camera: shadows (CSM), clouds, snowfall, particle light, tree fade (FEAT-155), the deformation stamp (FEAT-044).
+10. Streaming around the rider (or the camera when detached): terrain, prefetch, trees, rocks; snow cover, the skied-out day, moguls; roads, the chair, lifts, bridges, lift lines, landmarks; the live sun.
+11. Prompt and key hints, the sky's follow, tile eviction, the map (the full map while it is open, else the minimap), horizon labels.
+12. Render, then the P-key shot (the drawing buffer is only readable in the same task), `controls.endFrame`, and the replay overlay restored.
+13. Frame rate and the HUD line.
 
 ## Test tools (`game/tools/`)
 
@@ -81,6 +96,7 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 - `rider.mjs [pack] [outDir] [--headed]` rider close-up check: stand, tuck, carves, jump, crash and skis; records the worst boot-to-binding gap and saves side-view shots.
 - `walkcheck.mjs [pack] [outDir] [--headed] [--ski]` on-foot check: unstrap, walk, sprint, turn, strap back in; prints speed, stamina, foot-IK gap and bootprint spacing.
 - `outruncheck.mjs [pack] [outDir] [--gpu | --headed]` Outrun flow: chase, look back, the eat sequence.
+- `statecheck.mjs [pack] [--headed | --gpu | --cpu]` the session's states (FEAT-162) with real key presses: the replay viewer (K, Esc), pause, the rewind (hold, let go), the map (M, Esc, a drop-in, a tool's `map.close()`), and the riding keys doing nothing behind the map and the viewer. Reads `__sim.state`.
 - `menucheck.mjs [pack] [--gpu | --headed] [--shots]` menu navigation (FEAT-128): walks the main menu, the settings screen and pause with the keyboard and a fake gamepad (`window.__pad`); checks focus (first row on open, back on the opener on close), the detail panel, category switching (Q / E, R1), left / right and Enter on toggles, sliders and pickers saving to localStorage, the Graphics and Feel presets and Custom, reset arming then resetting, search across categories (letters stay in the box, never reach the game), UI scale and Reduce motion, hints from the key tables and the controller's glyphs, Esc cancelling a key or controller-button rebind (menu and pause), the controller skipping keyboard key slots, action rows staying in the screen, the main menu (it shows before the session is ready, the title, the live session behind it with riding keys and Esc doing nothing, B for Snowboard / Skis, the course list and Esc back onto its card, the Outrun card, Change resort, a course from the card row and RIDE putting the gates on, Quit back to the live menu with the course ended, a ghost take riding behind it, RIDE again in the same session), the pause menu (the place and stats, quick toggles applied at once, Mode's screen and E across modes, a course from Mode turning the gates on for the session and Free ride off again, Quit armed by one press and done by two), settings over the game (a live fps readout, a change applied to the running game, hold V or Y to peek), Esc resuming once, A on Resume not jumping, a stick held into pause not moving the focus, and closing pause closing settings and cancelling a listening slot. `--shots` saves the main menu, settings over the menu and the game, settings at 390 x 844 and 844 x 390, the main menu and pause (also at 390 x 844, the main menu at 844 x 390 too) to `game/shots/menus/`. About 40 s on the GPU.
 - `views.mjs <pack> <outDir> <views.json> [--headed | --gpu]` stills from fixed free-camera spots for look checks (`views-*.json` in the same folder).
 - `aerial.mjs <pack> <outDir> <poses.json> [variants.json] [--gpu | --headed]` (FEAT-154) stills from the eye camera (the menu's backdrop camera) at poses like the `AttractShots` ones (`x`, `y`, heading `h`, `pitch`, `fov`, `eye` metres above the snow, up to hundreds of metres for aerials), once per variant (`{ label, eval, undo }`, JavaScript run in the page before and after the variant's stills, for A/B of shader terms); steps until the tiles settle and prints the GPU frame time (30 frames each finished with a `readPixels`), draw calls and triangles per still. `SHOT_DIST=<dir>` (any tool that uses `tools/paths.mjs`) serves another build, for example `main` built with `npx vite build --outDir <dir>`, for a before / after with the same tool.
