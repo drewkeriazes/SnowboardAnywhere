@@ -12,16 +12,17 @@ const GPU_ARGS = process.platform === 'win32'
   : ['--enable-gpu', '--ignore-gpu-blocklist'];
 const CPU_ARGS = ['--disable-gpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
 
-/** Launch Chromium for a test tool from its command-line args. Returns the browser. */
-export async function launchBrowser(args = process.argv.slice(2)) {
+/** Launch Chromium for a test tool from its command-line args. Returns the browser.
+ *  `extraArgs`: more Chromium switches (cishot.mjs adds precise heap numbers and gc()). */
+export async function launchBrowser(args = process.argv.slice(2), extraArgs = []) {
   const headed = args.includes('--headed') || process.env.SHOT_HEADED === '1';
   const forceGpu = args.includes('--gpu');
   const forceCpu = args.includes('--cpu') || process.env.SHOT_CPU === '1';
   const mode = headed ? 'headed' : forceCpu ? 'cpu' : forceGpu || process.platform === 'win32' ? 'gpu' : 'cpu';
 
-  const browser = mode === 'headed' ? await chromium.launch({ headless: false })
-    : mode === 'gpu' ? await chromium.launch({ args: GPU_ARGS })
-    : await chromium.launch({ args: CPU_ARGS });
+  const browser = mode === 'headed' ? await chromium.launch({ headless: false, args: extraArgs })
+    : mode === 'gpu' ? await chromium.launch({ args: [...GPU_ARGS, ...extraArgs] })
+    : await chromium.launch({ args: [...CPU_ARGS, ...extraArgs] });
 
   const renderer = await rendererName(browser);
   const software = /swiftshader|llvmpipe|software/i.test(renderer);

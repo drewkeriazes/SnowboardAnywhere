@@ -19,7 +19,8 @@
 # you ask a Claude Code session.
 #
 # Pushes use GITHUB_TOKEN, so they do NOT start a new Claude PR review round.
-# Use Actions > Claude PR review > Run workflow if you want one.
+# Use Actions > Claude PR review > Run workflow if you want one. The Checks workflow
+# (checks.yml, FEAT-172) is started on the pushed commit by hand, with gh workflow run.
 
 name: Claude PR feedback
 
@@ -52,6 +53,7 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
+      actions: write # FEAT-172: start the Checks workflow after the push
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
@@ -160,6 +162,8 @@ jobs:
           git commit -q -m "${card:+$card: }address review: ${summary:-reviewer suggestion}"
           git push -q origin "HEAD:$HEAD_REF"
           reply "[pr-feedback] Done in $(git rev-parse HEAD): ${summary:-applied the suggestion}."
+          # FEAT-172: a GITHUB_TOKEN push starts no pull_request run, so start the Checks on the new commit
+          gh workflow run checks.yml --repo "$REPO" --ref "$HEAD_REF" -f pr="$PR" || echo "::warning::could not start the Checks workflow"
 
       - name: Report failure
         if: failure()
