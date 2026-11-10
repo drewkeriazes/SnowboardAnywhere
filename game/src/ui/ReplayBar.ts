@@ -32,11 +32,11 @@ export class ReplayBar {
   draw(s: ReplayBarState, clean: boolean): void {
     const { pg } = this.keys;
     this.el.style.display = clean ? 'none' : 'block';
-    this.el.innerHTML = `<div style="display:flex;justify-content:space-between"><b>REPLAY ${s.playing ? '&#9654;' : '&#10074;&#10074;'} ${s.speed}x</b><span>${fmtT(s.at)} / ${fmtT(s.span)}</span></div>` +
-      `<div style="height:6px;background:rgba(255,255,255,.2);border-radius:3px;margin:6px 0"><div style="height:6px;width:${(s.at / s.span * 100).toFixed(1)}%;background:#facc15;border-radius:3px"></div></div>` +
+    this.el.innerHTML = `<div class="head"><b>REPLAY ${s.playing ? '&#9654;' : '&#10074;&#10074;'} ${s.speed}x</b><span>${fmtT(s.at)} / ${fmtT(s.span)}</span></div>` +
+      `<div class="track"><div style="width:${(s.at / s.span * 100).toFixed(1)}%"></div></div>` +
       (s.usingPad
-        ? `<div style="opacity:.75">${pg(PAD.A)} play &middot; ${pg(PAD.LEFT)}${pg(PAD.RIGHT)} scrub &middot; ${pg(PAD.LB)} ${pg(PAD.RB)} speed &middot; ${pg(PAD.Y)} camera (${s.cam}) &middot; ${pg(PAD.X)} hide &middot; ${pg(PAD.B)} close</div>`
-        : `<div style="opacity:.75">Space play &middot; &larr; &rarr; scrub &middot; &uarr; &darr; speed &middot; C camera (${s.cam}) &middot; - = FOV &middot; , . time of day ${s.hour.toFixed(1)}h &middot; H hide &middot; P photo &middot; K / Esc close</div>`) +
-      (s.take ? `<div style="opacity:.75">Main menu take: I in ${s.take.in === null ? '-' : fmtT(s.take.in)} &middot; O out ${s.take.out === null ? '-' : fmtT(s.take.out)} &middot; L save</div>` : '');
+        ? `<div class="keys">${pg(PAD.A)} play &middot; ${pg(PAD.LEFT)}${pg(PAD.RIGHT)} scrub &middot; ${pg(PAD.LB)} ${pg(PAD.RB)} speed &middot; ${pg(PAD.Y)} camera (${s.cam}) &middot; ${pg(PAD.X)} hide &middot; ${pg(PAD.B)} close</div>`
+        : `<div class="keys">Space play &middot; &larr; &rarr; scrub &middot; &uarr; &darr; speed &middot; C camera (${s.cam}) &middot; - = FOV &middot; , . time of day ${s.hour.toFixed(1)}h &middot; H hide &middot; P photo &middot; K / Esc close</div>`) +
+      (s.take ? `<div class="keys">Main menu take: I in ${s.take.in === null ? '-' : fmtT(s.take.in)} &middot; O out ${s.take.out === null ? '-' : fmtT(s.take.out)} &middot; L save</div>` : '');
   }
 }

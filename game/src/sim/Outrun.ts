@@ -1,9 +1,8 @@
-import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Rider } from './Rider';
 import type { LiftRide } from './LiftRide';
 import { RIDE_SPEEDUP, FAST_FORWARD } from './LiftRide';
-import type { Lifts, LiftRuntime } from '../world/Lifts';
+import type { LiftLine, LiftNetwork, Vec3 } from './LiftLine';
 
 /**
  * Outrun mode (FEAT-097 to FEAT-101, research in docs/research/outrun-mode.md): a snow monster
@@ -34,7 +33,7 @@ export interface MonsterState {
   along: number;
   /** metres up the lift line (lift mode) */
   liftUp: number;
-  lift: LiftRuntime | null;
+  lift: LiftLine | null;
   /** gap behind the chair on the lift (m), and the climb rate once the rider has unloaded (m/s) */
   liftGap: number;
   liftRate: number;
@@ -57,6 +56,8 @@ export type OutrunEvent =
   | { kind: 'spawn' | 'roar' | 'sight' | 'closecall' | 'caught' | 'escaped' | 'second' | 'boost' | 'footfall' | 'treecrack' | 'wake'; m?: MonsterState; x?: number; y?: number; z?: number };
 
 export interface Best { score: number; time: number; date: string }
+/** What the chase reads of the rider's lift ride (any LiftRide, whatever lift type it carries). */
+type RideState = Pick<LiftRide, 'riding' | 'lift' | 'up' | 'fast'>;
 
 const SAMPLE_DT = 0.25;
 const MAX_CRUMBS = 600; // 150 s of trail
@@ -114,7 +115,7 @@ export class Outrun {
   private wasRiding = false;
   private readonly rng = () => Math.random();
 
-  constructor(private readonly pack: Pack, private readonly lifts: Lifts) {}
+  constructor(private readonly pack: Pack, private readonly lifts: LiftNetwork) {}
 
   get active(): boolean { return this.phase !== 'off'; }
   get running(): boolean { return this.phase === 'countdown' || this.phase === 'headstart' || this.phase === 'chase'; }
@@ -263,7 +264,7 @@ export class Outrun {
 
   // ---------------------------------------------------------------- per frame
   /** `ride` is the lift ride when the rider is on a lift (physics skipped), else null. */
-  update(dt: number, rider: Rider, ride: LiftRide | null): void {
+  update(dt: number, rider: Rider, ride: RideState | null): void {
     this.events.length = 0;
     if (!this.active) return;
     this.t += dt;
@@ -394,7 +395,7 @@ export class Outrun {
   }
 
   /** On a lift: run to the bottom terminal, then follow the cable a fixed gap behind the chair. */
-  private updateLift(m: MonsterState, ride: LiftRide, rider: Rider, dt: number): void {
+  private updateLift(m: MonsterState, ride: RideState, rider: Rider, dt: number): void {
     const l = ride.lift!;
     if (m.mode !== 'lift') {
       // reach the loading point first (the trail ends there)
@@ -437,11 +438,11 @@ export class Outrun {
     this.events.push({ kind: 'roar', m });
   }
 
-  private readonly seat = new THREE.Vector3();
+  private readonly seat: Vec3 = { x: 0, y: 0, z: 0 };
   private placeOnLift(m: MonsterState): void {
     const l = m.lift!;
     const s = this.lifts.seatAt(l, m.liftUp, this.seat);
-    const nx = s.x, ny = -s.z;
+    const nx = s.x, ny = s.y;
     const hx = nx - m.x, hy = ny - m.y;
     if (Math.hypot(hx, hy) > 0.05) m.heading = Math.atan2(hx, hy);
     m.x = nx; m.y = ny;
@@ -453,6 +454,6 @@ export class Outrun {
     const wasHop = m.hop;
     m.hop = Math.sin(u * Math.PI);
     if (wasHop > 0.1 && m.hop <= 0.1 && u < 0.5) { m.footfall = true; this.events.push({ kind: 'footfall', m, x: m.x, y: m.y, z: m.z }); }
-    m.z = s.y + l.riderDrop + 1.0 + 4 * m.hop;
+    m.z = s.z + l.riderDrop + 1.0 + 4 * m.hop;
   }
 }

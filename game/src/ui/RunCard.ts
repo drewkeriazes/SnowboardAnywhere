@@ -23,12 +23,12 @@ export class RunCard {
     // run names come from OSM via the pack: escape them before they go into innerHTML
     const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
     const name = s.names.length ? s.names.map(esc).join(' &rarr; ') : 'Off-piste';
-    const row = (k: string, v: string, pb = false) => `<div style="display:flex;justify-content:space-between;margin:2px 0"><span style="opacity:.7">${k}</span><b>${v}${pb ? ' <span style="color:#facc15">PB</span>' : ''}</b></div>`;
-    this.el.innerHTML = `<div style="font-weight:700;font-size:15px;margin-bottom:6px">${name}</div>
-      <canvas width="228" height="120" style="width:228px;height:120px;background:rgba(255,255,255,.06);border-radius:8px;margin-bottom:8px"></canvas>
+    const row = (k: string, v: string, pb = false) => `<div class="row"><span class="k">${k}</span><b>${v}${pb ? ' <span class="pb">PB</span>' : ''}</b></div>`;
+    this.el.innerHTML = `<div class="name">${name}</div>
+      <canvas width="228" height="120"></canvas>
       ${row('Time', tm(s.time), s.pbTime)}${row('Top speed', spd(s.topSpeed), s.pbSpeed)}${row('Distance', len(s.distance))}${row('Vertical', ht(s.vertical))}
       ${row('Longest air', `${s.maxAir.toFixed(1)} s`)}${row('Biggest drop', ht(Math.max(0, s.maxDrop)))}${row('Max g', s.maxG.toFixed(1))}
-      <div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,.15);opacity:.8">Today: ${s.day.runs} run${s.day.runs === 1 ? '' : 's'} &middot; ${ht(s.day.vertical)} &middot; ${s.day.lifts} lift${s.day.lifts === 1 ? '' : 's'}</div>`;
+      <div class="today">Today: ${s.day.runs} run${s.day.runs === 1 ? '' : 's'} &middot; ${ht(s.day.vertical)} &middot; ${s.day.lifts} lift${s.day.lifts === 1 ? '' : 's'}</div>`;
     this.drawLine(this.el.querySelector('canvas')!, s.line);
     this.el.style.display = 'block';
     this.t = 10;

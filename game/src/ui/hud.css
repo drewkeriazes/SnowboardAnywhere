@@ -6,13 +6,23 @@
 
 /* FEAT-043: the replay viewer's bar */
 #replay { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(720px, 92vw); color: #fff; background: rgba(20, 24, 34, .8); border-radius: 12px; padding: 8px 14px; font: 13px system-ui, sans-serif; display: none; pointer-events: none; z-index: 6; }
+#replay .head { display: flex; justify-content: space-between; }
+#replay .track { height: 6px; background: rgba(255, 255, 255, .2); border-radius: 3px; margin: 6px 0; }
+#replay .track div { height: 6px; background: #facc15; border-radius: 3px; }
+#replay .keys { opacity: .75; }
 
 /* FEAT-055: the after-run card */
 #run-card { position: fixed; left: 16px; top: 50%; transform: translateY(-50%); width: 260px; background: rgba(18, 22, 32, .88); color: #fff; border-radius: 14px; padding: 14px 16px; font: 13px system-ui, sans-serif; display: none; z-index: 6; box-shadow: 0 6px 24px rgba(0, 0, 0, .35); }
+#run-card .name { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+#run-card canvas { width: 228px; height: 120px; background: rgba(255, 255, 255, .06); border-radius: 8px; margin-bottom: 8px; }
+#run-card .row { display: flex; justify-content: space-between; margin: 2px 0; }
+#run-card .row .k { opacity: .7; }
+#run-card .pb { color: #facc15; }
+#run-card .today { margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, .15); opacity: .8; }
 
-/* FEAT-124: the restart hold fills this ring (--fill, set while held) */
+/* FEAT-124: the restart hold fills this ring (--hold, set while held) */
 #restart-ring { position: fixed; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px; border-radius: 50%; display: none; pointer-events: none; z-index: 7;
-  background: conic-gradient(#ffd166 var(--fill, 0deg), rgba(255, 255, 255, .18) 0);
+  background: conic-gradient(#ffd166 var(--hold), rgba(255, 255, 255, .18) 0);
   -webkit-mask: radial-gradient(circle, transparent 15px, #000 16px); mask: radial-gradient(circle, transparent 15px, #000 16px); }
 
 /* FEAT-140: the press meter over the head (its size comes from the drawing, set in PressMeter.ts) */
@@ -23,3 +33,5 @@
 
 /* BUG-056 ?debug: the body lead / board lag sliders */
 #lead-tune { position: fixed; right: 16px; top: 50%; transform: translateY(-50%); background: rgba(0, 0, 0, .5); color: #fff; font: 12px system-ui; padding: 8px 10px; border-radius: 6px; z-index: 20; }
+#lead-tune label { display: block; margin: 4px 0; }
+#lead-tune input { width: 140px; }

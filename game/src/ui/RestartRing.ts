@@ -10,7 +10,7 @@ export class RestartRing {
   /** `fill`: how far the hold has got, 0..1; null hides the ring. */
   update(fill: number | null): void {
     this.el.style.display = fill === null ? 'none' : 'block';
-    if (fill !== null) this.el.style.setProperty('--fill', `${fill * 360}deg`);
+    if (fill !== null) this.el.style.setProperty('--hold', `${fill * 360}deg`);
   }
 
   dispose(): void { this.el.remove(); }

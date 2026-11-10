@@ -1,9 +1,7 @@
-import * as THREE from 'three';
 import type { Rider } from './Rider';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from './Collider';
-import type { LiftRuntime, Lifts } from '../world/Lifts';
-import { LOAD_OFFSET } from './LiftLine';
+import { LOAD_OFFSET, type LiftLine, type LiftNetwork, type Vec3 } from './LiftLine';
 
 /**
  * Riding a lift back up. Near a bottom terminal and slow, pressing the board key puts the rider
@@ -20,11 +18,11 @@ const UNLOAD_RUN = 10; // m: and has this much clear snow straight downhill
 const UNLOAD_SEARCH = 60; // m: furthest the unload spot may move from the nominal point
 const UNLOAD_MIN_SLOPE = 4; // degrees: preferred minimum slope at the unload spot
 
-export class LiftRide {
-  lift: LiftRuntime | null = null;
+export class LiftRide<L extends LiftLine = LiftLine> {
+  lift: L | null = null;
   up = 0; // metres travelled from the bottom terminal
   /** nearest boardable lift within PROMPT_RANGE (for the prompt card), and its distance */
-  nearby: LiftRuntime | null = null;
+  nearby: L | null = null;
   nearbyDist = Infinity;
   /** cable height at the rider's position along the line (for the rider's own chair hanger) */
   cableY = 0;
@@ -36,14 +34,14 @@ export class LiftRide {
   canBoard = false;
   /** reason shown when in range but not boardable: 'fast' | 'air' | '' */
   blocker: 'fast' | 'air' | '' = '';
-  private readonly seat = new THREE.Vector3();
-  private readonly seat2 = new THREE.Vector3();
+  private readonly seat: Vec3 = { x: 0, y: 0, z: 0 };
+  private readonly seat2: Vec3 = { x: 0, y: 0, z: 0 };
 
-  constructor(private readonly pack: Pack, private readonly lifts: Lifts, private readonly collider: Collider | null = null) {}
+  constructor(private readonly pack: Pack, private readonly lifts: LiftNetwork<L>, private readonly collider: Collider | null = null) {}
 
   get riding(): boolean { return this.lift !== null; }
   /** FEAT-073: where boarding is allowed near a lift's loading point (null: anywhere in range) */
-  gate: ((l: LiftRuntime, x: number, y: number) => boolean) | null = null;
+  gate: ((l: L, x: number, y: number) => boolean) | null = null;
 
   /** Call every frame before the physics step. Returns true when the rider is on a lift (physics skipped). */
   /** true while fast-forwarding (for the prompt) */
@@ -73,7 +71,7 @@ export class LiftRide {
     return true;
   }
 
-  private board(rider: Rider, l: LiftRuntime): void {
+  private board(rider: Rider, l: L): void {
     rider.strapInNow(); // walked up on foot: strap in as you load
     this.lift = l;
     this.up = 0;
@@ -84,9 +82,9 @@ export class LiftRide {
   private place(rider: Rider): void {
     const l = this.lift!;
     this.lifts.seatAt(l, this.up, this.seat);
-    this.cableY = this.seat.y + l.riderDrop;
+    this.cableY = this.seat.z + l.riderDrop;
     this.lifts.seatAt(l, Math.min(this.lifts.rideLength(l), this.up + 2), this.seat2);
-    rider.x = this.seat.x; rider.y = -this.seat.z;
+    rider.x = this.seat.x; rider.y = this.seat.y;
     const len = this.lifts.rideLength(l);
     const ground = this.pack.groundHeight(rider.x, rider.y);
     if (l.kind === 'surface' || l.kind === 'carpet') {
@@ -95,12 +93,12 @@ export class LiftRide {
     } else {
       // the chair dips to the snow at the loading and unloading points
       const edge = Math.min(this.up, len - this.up);
-      rider.z = edge < 12 ? ground + 0.7 + (this.seat.y - ground - 0.7) * Math.max(0, edge / 12) : this.seat.y;
+      rider.z = edge < 12 ? ground + 0.7 + (this.seat.z - ground - 0.7) * Math.max(0, edge / 12) : this.seat.z;
     }
     rider.onGround = true;
     rider.normal[0] = 0; rider.normal[1] = 0; rider.normal[2] = 1;
     // face the direction of travel
-    const dx = this.seat2.x - this.seat.x, dy = -(this.seat2.z - this.seat.z);
+    const dx = this.seat2.x - this.seat.x, dy = this.seat2.y - this.seat.y;
     if (Math.hypot(dx, dy) > 0.01) rider.heading = rider.boardYaw = Math.atan2(dx, dy);
     // velocity for the chase camera (it follows the velocity direction above 2.5 m/s)
     const dl = Math.hypot(dx, dy) || 1;
