@@ -85,6 +85,8 @@ export const EMPTY_RECT = new THREE.Vector4(-1e7, -1e7, -1e7 + 1000, -1e7 + 1000
 function coverUniforms() {
   const blank = new THREE.DataTexture(new Uint8Array(2), 1, 1, THREE.RGFormat, THREE.UnsignedByteType);
   blank.needsUpdate = true;
+  const blankArray = new THREE.DataArrayTexture(new Uint8Array(3), 1, 1, 3);
+  blankArray.format = THREE.RedFormat; blankArray.needsUpdate = true;
   return {
     uCov0: { value: blank as THREE.Texture }, uCov1: { value: blank as THREE.Texture }, uCov2: { value: blank as THREE.Texture },
     uCovRect: { value: [EMPTY_RECT.clone(), EMPTY_RECT.clone(), EMPTY_RECT.clone()] },
@@ -92,6 +94,16 @@ function coverUniforms() {
     /** FEAT-168: the cover level whose B is where the drawn trees stand, and its rectangle (none by default) */
     uTreeMap: { value: blank as THREE.Texture },
     uTreeMapRect: { value: EMPTY_RECT.clone() },
+    /** FEAT-171: the drawn trees' shade map (TreeShade: a layer per nested square), each layer's centre x, y,
+     *  half-width (pack m) and 1 once drawn, and layer 0's texel (m) */
+    uShade: { value: blankArray as THREE.Texture },
+    uShadeRect: { value: [0, 1, 2].map(() => new THREE.Vector4(0, 0, 1, 0)) },
+    uShadeTexel: { value: 0.5 },
+    /** FEAT-171: where the tree shadows take over from the shadow map: from (x, full by y) m from the camera,
+     *  and with uShadeBoxOn 1 also outside the sun's shadow camera (uShadeBox, world to its 0..1 square) */
+    uShadeNear: { value: new THREE.Vector2(200, 320) },
+    uShadeBox: { value: new THREE.Matrix4() },
+    uShadeBoxOn: { value: 0 },
     uLiftNear: { value: 4500 },
   };
 }
@@ -248,8 +260,6 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         uniform vec4 uTreeMapRect;
         #define TREE_SHADOW_H 12.0
         #define TREE_SHADOW_MAX 48.0
-        #define TREE_SHADOW_NEAR 200.0
-        #define TREE_SHADOW_FULL 320.0
         // g: the uv's screen gradients (dFdx, dFdy), taken in main() before the caller's branch; the fetches
         // here sit in per-pixel control flow, where implicit derivatives are undefined
         float treeShadow(vec2 p, float dist, vec4 g) {
@@ -265,7 +275,32 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
             // a conifer's shadow narrows to its tip
             acc += textureGrad(uTreeMap, covUV(p + toSun * len * t, uTreeMapRect), g.xy, g.zw).b * (1.0 - 0.75 * t);
           }
-          return clamp(acc * 1.6, 0.0, 1.0) * w * smoothstep(TREE_SHADOW_NEAR, TREE_SHADOW_FULL, dist);
+          return clamp(acc * 1.6, 0.0, 1.0) * w;
+        }
+        // FEAT-171: the shade map (TreeShade.ts), each drawn tree's own shadow drawn from above into three
+        // nested squares around the camera (0.5, 1 and 2 m texels at full size). A pixel reads the layer
+        // whose texel is about its size on the ground, blending to the next at the change and stepping out
+        // to a coarser layer near a square's edge. Returns (shade, how much of it the map covers).
+        uniform highp sampler2DArray uShade;
+        uniform vec4 uShadeRect[3];
+        uniform float uShadeTexel;
+        uniform vec2 uShadeNear;
+        uniform mat4 uShadeBox;
+        uniform float uShadeBoxOn;
+        float shadeCov(vec2 p, vec4 r) { vec2 d = r.z - abs(p - r.xy); return r.w * smoothstep(0.0, r.z * 0.06, min(d.x, d.y)); }
+        float shadeAt(vec2 p, vec4 r, float layer) { return textureLod(uShade, vec3((p - r.xy) / (2.0 * r.z) + 0.5, layer), 0.0).r; }
+        vec2 treeShadeMap(vec2 p, float pixGround) {
+          float k = clamp(log2(max(pixGround / uShadeTexel, 1e-3)), 0.0, 2.0);
+          float w0 = clamp(1.0 - k, 0.0, 1.0), w2 = clamp(k - 1.0, 0.0, 1.0), w1 = 1.0 - w0 - w2;
+          float c0 = shadeCov(p, uShadeRect[0]), c1 = shadeCov(p, uShadeRect[1]), c2 = shadeCov(p, uShadeRect[2]);
+          float e0 = w0 * c0; w1 += w0 - e0;
+          float e1 = w1 * c1; w2 += w1 - e1;
+          float e2 = w2 * c2;
+          float s = 0.0;
+          if (e0 > 0.0) s += e0 * shadeAt(p, uShadeRect[0], 0.0);
+          if (e1 > 0.0) s += e1 * shadeAt(p, uShadeRect[1], 1.0);
+          if (e2 > 0.0) s += e2 * shadeAt(p, uShadeRect[2], 2.0);
+          return vec2(s, e0 + e1 + e2);
         }
         // set in main() before lighting, read by the snow terms in RE_Direct_Physical
         float gSnowW;
@@ -477,7 +512,21 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         // (the sample offsets are the same for every pixel, so each sample's uv gradient is this one's)
         vec2 treeUV = covUV(pxyF, uTreeMapRect);
         vec4 treeG = vec4(dFdx(treeUV), dFdy(treeUV));
-        float treeShade = (dist > TREE_SHADOW_NEAR && uFlat < 0.99 && fd < 0.99) ? treeShadow(pxyF, dist, treeG) * (1.0 - fd) * (1.0 - uFlat) : 0.0;
+        // FEAT-171: the shadow map covers the trees that cast into it (to the LOD1 edge, and only inside the
+        // sun's shadow camera); past that the shade map's crisp per-tree shadows, and where it doesn't
+        // reach the 4 m map, but only once one of its cells is under about 2 to 3 pixels (nearer, a cell
+        // spans so many pixels that its shadow is a soft smudge, not a tree's)
+        float shadeGate = smoothstep(uShadeNear.x, uShadeNear.y, dist);
+        if (uShadeBoxOn > 0.5) { vec4 sc = uShadeBox * vec4(wp, 1.0); vec2 e = abs(sc.xy - 0.5) * 2.0; shadeGate = max(shadeGate, smoothstep(0.9, 0.98, max(e.x, e.y))); }
+        float pixGround = max(length(dFdx(wp)), length(dFdy(wp)));
+        float cellPx = 1.0 / (float(textureSize(uTreeMap, 0).x) * max(min(length(treeG.xy), length(treeG.zw)), 1e-9));
+        float treeShade = 0.0;
+        if (shadeGate > 0.0 && uFlat < 0.99 && fd < 0.99 && uSunDir.y >= 0.02) {
+          vec2 sm = treeShadeMap(pxyF, pixGround);
+          float coarse = (1.0 - sm.y) * (1.0 - smoothstep(2.0, 3.0, cellPx));
+          treeShade = sm.x + (coarse > 0.001 ? coarse * treeShadow(pxyF, dist, treeG) : 0.0);
+          treeShade *= shadeGate * (1.0 - fd) * (1.0 - uFlat);
+        }
         gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd) * (1.0 - 0.6 * uSpring); // wet spring snow sparkles less
         diffuseColor.rgb = base;
         if (uDebugFar.w > 0.5) diffuseColor.rgb = mix(vec3(0.9), vec3(0.9, 0.1, 0.1), fd);

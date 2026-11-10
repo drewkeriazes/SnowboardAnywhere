@@ -1,0 +1,47 @@
+{
+  "name": "Sleepy Time Road, toward Blue Sky Basin",
+  "latlon": [
+    39.6041814,
+    -106.3544888
+  ],
+  "game": {
+    "x": -586,
+    "y": 453
+  },
+  "views": [
+    {
+      "id": "south-southeast",
+      "heading": 157.0,
+      "pitch": -14.7,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6041814,-106.3544888,3a,75y,156.99h,75.27t",
+      "x": -585.6,
+      "y": 453.0,
+      "h": 157.9,
+      "game": "http://localhost:5173/?pack=vail&x=-585.6&y=453.0&h=157.9&pitch=-14.7&fov=75.0&cam=eye&spot=sleepy-time-road/south-southeast"
+    },
+    {
+      "id": "south",
+      "heading": 165.8,
+      "pitch": -12.2,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6044973,-106.3535468,3a,75y,165.78h,77.84t",
+      "x": -504.2,
+      "y": 486.9,
+      "h": 166.6,
+      "game": "http://localhost:5173/?pack=vail&x=-504.2&y=486.9&h=166.6&pitch=-12.2&fov=75.0&cam=eye&spot=sleepy-time-road/south"
+    },
+    {
+      "id": "southwest",
+      "heading": 212.5,
+      "pitch": -4.1,
+      "fov": 75.0,
+      "streetview": "https://www.google.com/maps/@39.6033622,-106.3473051,3a,75y,212.47h,85.92t",
+      "x": 29.8,
+      "y": 352.9,
+      "h": 213.3,
+      "game": "http://localhost:5173/?pack=vail&x=29.8&y=352.9&h=213.3&pitch=-4.1&fov=75.0&cam=eye&spot=sleepy-time-road/southwest"
+    }
+  ],
+  "streetview_capture": "Mar 2012, Google (as the FEAT-171 card records it)"
+}

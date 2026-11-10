@@ -403,6 +403,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       frame.clear();
       goggles.destroy();
       lens.dispose();
+      veg.shade?.dispose(); veg.shade = null; // FEAT-171: its own scene and render target, outside the main scene
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
         if (m.geometry) m.geometry.dispose();

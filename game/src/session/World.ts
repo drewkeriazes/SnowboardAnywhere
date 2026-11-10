@@ -106,7 +106,8 @@ export function buildWorld(ctx: GameContext) {
   for (const m of Object.values(monsters.materials)) env.registerMaterial(m);
   for (const m of eat.materials) env.registerMaterial(m);
   for (const m of landmarks.materials) env.registerMaterial(m);
-  veg.enableImpostors(renderer, !params.noimpostors); // FEAT-156: bakes the LOD2 / impostor atlases either way
+  veg.enableImpostors(renderer, !params.noimpostors, params.lowgfx ? 1024 : 2048); // FEAT-156: bakes the LOD2 / impostor atlases either way
+  terrain.setTreeShade(veg.shade); // FEAT-171: the drawn trees' shadows past the shadow map
   return {
     zr, env, clouds, snow, terrain, collider, veg, treeFade, rocks, lifts, liftLines, resortTop, runs, buildings, roads, landmarks, bridges,
     tracks, bootprints, riderChair, puffs, particleLight, bigprints, deform, monsters, eat, courses, trialWorld, riderView,

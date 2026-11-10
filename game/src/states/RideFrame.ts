@@ -296,6 +296,11 @@ export class RideFrame {
     // FEAT-155: trees in the way of the view downhill go see-through (third-person cameras only)
     treeFade.update(cam.camera, rider, (x, y) => pack.groundHeight(x, y), dt, settings.seeThroughTrees !== false && !this.detached && !cam.firstPerson && !eat.active);
     terrain.setSun(env.sunDir); // BUG-062: the mogul colouring's sun term
+    // FEAT-171: the shade map's tree shadows take over past the trees that cast into the shadow map
+    // (the LOD1 edge) and outside the sun's shadow camera; with no shadow map at all, from 200 m as before
+    const realShadows = renderer.shadowMap.enabled && (env.csm ? env.csm.lights.some((l) => l.castShadow) : env.sun.visible && env.sun.castShadow);
+    if (!realShadows) terrain.setTreeShadeGate(200, 320, null);
+    else { const [n0, n1] = veg.castReach(); terrain.setTreeShadeGate(n0, n1, env.csm ? null : env.sun.shadow.matrix); }
     // FEAT-044: stamp the tracks and prints near the rider into the deformation texture (the soft sag around them)
     { const h = riderView.powderHold; setDeformHold(h.x, h.z, h.fx, h.fz, riderView.group.visible && !eat.active ? h.k : 0); } // FEAT-152: the snow wall ahead of a board buried in powder
     deform.update(renderer, rider.x, rider.z, -rider.y, rider.vx, -rider.vy);
