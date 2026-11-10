@@ -48,20 +48,42 @@ await page.waitForFunction(() => window.__step, null, { timeout: 120000 });
 page.setDefaultTimeout(600000);
 const spawn = await page.evaluate(() => { const r = window.__sim.rider; return { x: r.x, y: r.y, heading: r.heading }; });
 
-/** step frames until nothing is streaming or building for three checks in a row; false on timeout */
+/**
+ * Wait until nothing is streaming or building; false on timeout. Drawing is what is slow on a runner's
+ * software renderer, so most of the wait streams without drawing, as the loading screen does
+ * (session/warmUp.ts: terrain and trees updated directly, with big build budgets), and only a drawn frame
+ * that leaves nothing pending ends it (the frame also runs the prefetch, which asks for the mask tiles).
+ */
 async function settle(ms = SETTLE_MS) {
   const tEnd = Date.now() + ms;
-  let quiet = 0;
+  const pending = () => page.evaluate(() => {
+    const s = window.__sim, p = s.pack;
+    const tiles = [p.fine, p.mid, p.far, p.mask, p.ao, p.dir, p.moguls].reduce((n, t) => n + (t?.inFlight ?? 0), 0);
+    return tiles + (s.terrain.pending ?? 0) + (s.veg.pending ?? 0);
+  });
   while (Date.now() < tEnd) {
-    const left = await page.evaluate(() => {
-      const s = window.__sim, p = s.pack;
-      window.__step(1, 1 / 60);
-      const tiles = [p.fine, p.mid, p.far, p.mask, p.ao, p.dir, p.moguls].reduce((n, t) => n + (t?.inFlight ?? 0), 0);
-      return tiles + (s.terrain.pending ?? 0) + (s.veg.pending ?? 0);
-    });
-    quiet = left === 0 ? quiet + 1 : 0;
-    if (quiet >= 3) return true;
-    await page.waitForTimeout(150);
+    let quiet = 0;
+    while (quiet < 3 && Date.now() < tEnd) {
+      const left = await page.evaluate(() => {
+        const s = window.__sim, p = s.pack, t = s.terrain, v = s.veg, c = s.cam.camera;
+        const keep = [t.budgetMs, t.maxBuilds, v.budgetMs];
+        t.budgetMs = 50; t.maxBuilds = 64; v.budgetMs = 50;
+        c.updateMatrixWorld();
+        const cp = c.position;
+        t.update(cp.x, -cp.z, cp.y);
+        // RideFrame.streaming: trees around the rider, or around the camera when it is off the rider
+        // (the look-ahead point is the position itself: the rider stands at the spawn for every still)
+        const free = s.cam.mode === 'free', fx = free ? cp.x : s.rider.x, fy = free ? -cp.z : s.rider.y;
+        v.update(fx, fy, fx, fy, cp);
+        [t.budgetMs, t.maxBuilds, v.budgetMs] = keep;
+        const tiles = [p.fine, p.mid, p.far, p.mask, p.ao, p.dir, p.moguls].reduce((n, x) => n + (x?.inFlight ?? 0), 0);
+        return tiles + (t.pending ?? 0) + (v.pending ?? 0);
+      });
+      quiet = left === 0 ? quiet + 1 : 0;
+      await page.waitForTimeout(100);
+    }
+    await page.evaluate(() => window.__step(1, 1 / 60));
+    if (await pending() === 0) return true;
   }
   return false;
 }
@@ -112,7 +134,9 @@ async function place(kind) {
 }
 const stats = [];
 for (const v of views) {
+  const tv = Date.now();
   await place(v.place);
+  await page.evaluate(() => window.__step(1, 1 / 60)); // a frame moves the camera to where place() put it
   const settled = await settle();
   await place(v.place); // the settle frames moved the rider; put it (and the camera) back
   const st = await page.evaluate(() => {
@@ -125,8 +149,9 @@ for (const v of views) {
   });
   fs.writeFileSync(path.join(outDir, `${v.name}.png`), Buffer.from(st.url.split(',')[1], 'base64'));
   delete st.url;
-  stats.push({ name: v.name, settled, ...st });
-  console.log(v.name, settled ? '' : '(still streaming)', JSON.stringify(st));
+  const secs = Math.round((Date.now() - tv) / 1000);
+  stats.push({ name: v.name, settled, secs, ...st });
+  console.log(v.name, settled ? '' : '(still streaming)', `${secs} s`, JSON.stringify(st));
 }
 const heapMB = await page.evaluate(() => { window.gc?.(); return +((performance.memory?.usedJSHeapSize ?? 0) / 1048576).toFixed(1); });
 const gpu = await page.evaluate(() => { const gl = document.createElement('canvas').getContext('webgl2'); const e = gl?.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : 'unknown'; });
