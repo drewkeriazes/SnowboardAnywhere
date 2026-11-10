@@ -1,6 +1,5 @@
 import type * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
-import type { Rider } from '../sim/Rider';
 import type { World } from './World';
 
 /**
@@ -9,10 +8,11 @@ import type { World } from './World';
  * compile every shader in the background. Ends when nothing near the start is still downloading or
  * building, or after 20 s. The screen then stays up for the first few real frames (HIDE_AFTER_FRAMES in
  * the session), so whatever only the full frame draws (clouds, the body pass, GPU uploads) is paid behind it.
+ * The trees and rocks stream round `focus` (the rider, or the camera when it is off the rider: the menu shot, FEAT-177).
  */
 export async function warmUp(
   ls: { set(f: number, label: string): void },
-  w: Pick<World, 'terrain' | 'veg' | 'rocks'>, pack: Pack, rider: Rider,
+  w: Pick<World, 'terrain' | 'veg' | 'rocks'>, pack: Pack, focus: () => { x: number; y: number },
   renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera,
 ): Promise<void> {
   const { terrain, veg, rocks } = w;
@@ -25,8 +25,9 @@ export async function warmUp(
     camera.updateMatrixWorld();
     const cp = camera.position;
     terrain.update(cp.x, -cp.z, cp.y);
-    veg.update(rider.x, rider.y);
-    rocks.update(rider.x, rider.y);
+    const f = focus();
+    veg.update(f.x, f.y, f.x, f.y, cp);
+    rocks.update(f.x, f.y);
     const tl = tiles();
     const left = terrain.pending + tl + veg.pending + rocks.pending;
     peak = Math.max(peak, left);

@@ -19,13 +19,14 @@ import { ResortMap } from '../ui/ResortMap';
 import { LiftRide } from '../sim/LiftRide';
 import { Prefetch } from '../sim/Prefetch';
 import { MainMenu, type MenuChoice } from '../ui/MainMenu';
-import { attractShot, type AttractManifest } from '../world/AttractShots';
+import { attractShot, shotPose, CONDITION_FIELDS, type AttractManifest, type ShotConditions } from '../world/AttractShots';
 import { AttractGhosts } from '../world/AttractGhosts';
 import { LoadingScreen } from '../ui/Loading';
 import { PauseMenu, type PauseInfo } from '../ui/PauseMenu';
 import { Labels } from '../ui/Labels';
 import { TouchControls } from '../ui/TouchControls';
-import { saveSettings, FALL_LINE, type Settings } from '../ui/Settings';
+import { saveSettings, FALL_LINE, type Conditions, type Settings } from '../ui/Settings';
+import { saveMenuStill } from '../ui/MenuStill';
 import { PressMeter } from '../ui/PressMeter';
 import { listenHud } from '../ui/HudEvents';
 import { connectEventSources } from './eventSources';
@@ -123,13 +124,18 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
 
     // ---------------------------------------------------------------- sun / time of day
     const sun = new SunClock(env, pack, params.time); // ?time=now or ?time=16.5
-    const applySun = (s: Settings) => sun.apply(s);
+    const applySun = (c: Conditions) => sun.apply(c);
     // ?weather=overcast (FEAT-078) and __sim.setWeather (shoot_spots.mjs, per spot) override the
     // saved Weather setting for this session without saving it; picking a Weather in the menu clears it
     let weatherOverride: CloudCover | null = parseWeather(params.weather);
     const initialWeather = weatherOverride;
+    // FEAT-177: while the main menu is up it draws its shot's own conditions (AttractShots.ts), so the live view
+    // matches the shipped still whatever the player saved; never saved, and a condition picked in the menu ends it
+    let shotCond: ShotConditions | null = null, coverBeforeShot = 0;
+    /** the conditions drawn now */
+    const conditions = (): Conditions => shotCond ?? settings;
     /** the weather on screen right now (FEAT-093: saved with P-key shots) */
-    const currentWeather = (): CloudCover => weatherOverride ?? settings.clouds ?? 'scattered';
+    const currentWeather = (): CloudCover => shotCond?.clouds ?? weatherOverride ?? settings.clouds ?? 'scattered';
 
     // ---------------------------------------------------------------- settings application
     /** the weather drawn, and FEAT-105's new snow, 0..1, shared by the terrain rock and the boulder caps (FEAT-106): a
@@ -157,12 +163,17 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       snow.setCount(Math.round((sky.weather === 'storm' ? flakes : flakes / 6) * q.snow));
     };
     const applySettings = (s: Settings, what: string): void => {
-      applySun(s);
+      if (shotCond && (what === 'reset' || (CONDITION_FIELDS as readonly string[]).includes(what))) {
+        shotCond = null; // the player picked a condition in the menu: show theirs
+        if (what !== 'newSnow') sky.snowCover = coverBeforeShot;
+      }
+      const c = conditions();
+      applySun(c);
       if (what === 'clouds') weatherOverride = null;
       rider.pressMode = s.pressBalance ?? 'on'; // FEAT-140
-      const weather = weatherOverride ?? s.clouds ?? 'scattered';
+      const weather = currentWeather();
       sky.weather = weather;
-      if (what === 'newSnow' || what === 'init' || what === 'reset') sky.snowCover = NEW_SNOW[s.newSnow ?? 'none'] ?? 0; // FEAT-105: pick a look without waiting
+      if (what === 'newSnow' || what === 'init' || what === 'reset') sky.snowCover = NEW_SNOW[c.newSnow ?? 'none'] ?? 0; // FEAT-105: pick a look without waiting
       clouds.configure(weather, autoClouds(s.quality));
       const storm = weather === 'storm', overcast = isOvercast(weather);
       env.setBluebird(!storm && !overcast); // deep blue sky behind the clouds too; storm and overcast are grey
@@ -171,7 +182,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       env.setCirrus(weather === 'cirrus'); // FEAT-084
       // flat light: the snow surface reads poorly under a storm, a little less under overcast
       terrain.setFlatLight(storm ? 1 : overcast ? 0.85 : 0);
-      env.setValleyFog(!!s.valleyFog || params.valleyfog); // ?valleyfog forces it on for render checks
+      env.setValleyFog(!!c.valleyFog || params.valleyfog); // ?valleyfog forces it on for render checks
       // falling snow: the storm, or light flurries under overcast (a sixth of the flakes, no visibility cut)
       snow.points.visible = storm || weather === 'flurries';
       const flakes = s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500;
@@ -300,6 +311,15 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     ghosts.group.name = 'attract ghosts'; scene.add(ghosts.group);
     ghosts.setVisible(false);
     void ghosts.load(import.meta.env.BASE_URL, opts.attractFiles[pack.meta.slug]?.ghosts ?? []);
+    /** FEAT-177: the menu draws its shot's conditions (on), or hands the player's back (off) */
+    const holdShotConditions = (on: boolean): void => {
+      if (on === !!shotCond) return;
+      if (on) { shotCond = shot.conditions; coverBeforeShot = sky.snowCover; sky.snowCover = NEW_SNOW[shotCond.newSnow] ?? 0; }
+      else { shotCond = null; sky.snowCover = coverBeforeShot; }
+      applySettings(settings, 'conditions');
+    };
+    /** FEAT-177: the shot from its start (the moment the still shows): the clouds where the still has them */
+    const shotFromStart = (): void => { clouds.setTime(shot.conditions.cloudTime); };
     const startLabel = () => { const lm = landmarkStart(pack.meta.slug); return lm ? lm.label : pack.meta.start.run ? `Starts on ${pack.meta.start.run}` : 'Starts at the resort start'; };
     /** RIDE: the mode it starts (BUG-037's start when it is not a course) */
     const leaveAttract = (c: MenuChoice) => {
@@ -365,7 +385,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     const draw = (): void => sceneRender.render(cam.camera, cam.firstPerson);
     const frame = new RideFrame({
       ...world, params, settings, pack, renderer, canvas, audio, events, rider, liftRide, prefetch, cam, controls, touch, goggles, lens, runStats, runCard, speedLines, replay,
-      modes, map, labels, sun, auto, keyLabels, pressMeter, fps, sky, look, applyAuto, draw, showToast, saveShot,
+      modes, map, labels, sun, auto, keyLabels, pressMeter, fps, sky, look, applyAuto, draw, showToast, saveShot, conditions,
     });
     if (settings.keysNote) { frame.boardNote = 'New default key layout available: Settings > Controls > Reset keys'; settings.keysNote = false; saveSettings(settings); }
     const restartRing = new RestartRing();
@@ -379,7 +399,8 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       .add(new PausedState({ controls, touch, pause, audio, fps, pauseInfo, draw }, states))
       .add(new ReplayState({ controls, touch, rider, replay, replayBar, pack, cam, settings, modes, audio, frame, debugHud, applySun, replayBlockedReason, saveTake }, states))
       .add(new MapState({ controls, touch, map, settings, keyLabels, audio, frame, onClosed: () => modes.mapClosed() }, states));
-    if (menu) states.add(new AttractState({ menu, shot, ghosts, cam, pack, settings, controls, rider, runCard, map, look, frame, startLabel, menuCourses: () => modes.trials.list() }));
+    const attract = menu ? new AttractState({ menu, shot, ghosts, cam, pack, settings, controls, rider, runCard, map, look, frame, startLabel, menuCourses: () => modes.trials.list(), holdShotConditions, shotFromStart }) : null;
+    if (attract) states.add(attract);
 
     let alive = true;
     const loop = new GameLoop(headless, { everyFrame, tick: tickFrame, targetFps: () => settings.targetFps });
@@ -416,26 +437,50 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     /** BUG-063: the loading screen, hidden once the first real frames have run behind it */
     let hideLoading: LoadingScreen | null = null, loadFrames = 0;
     const HIDE_AFTER_FRAMES = 3;
-    /** FEAT-128: frames until the menu's still crossfades into the live view (0: not waiting) */
-    let menuReadyIn = 0;
+    // FEAT-128 / FEAT-177: the menu's still crossfades into the live view once the view has settled behind it: the
+    // ghosts loaded, the terrain, trees (and their impostors) and rocks in the shot built, and HIDE_AFTER_FRAMES
+    // quiet frames in a row; or MENU_WAIT_MS after the warm-up, whatever is left, so nothing can hold the menu
+    let menuWait: { t0: number; quiet: number } | null = null, ghostsIn = false;
+    void ghosts.loaded.then(() => { ghostsIn = true; });
+    const MENU_WAIT_MS = 8000;
+    /** something in the backdrop shot is still downloading or building */
+    const shotBusy = (): boolean => !ghostsIn || terrain.pending > 0 || veg.pending > 0 || world.rocks.pending > 0
+      || [pack.fine, pack.mid, pack.far, pack.mask, pack.ao, pack.dir].some((t) => (t?.inFlight ?? 0) > 0);
     /** every display frame, drawn or skipped by the 30 fps cap */
     function everyFrame(): void {
       if (hideLoading && ++loadFrames >= HIDE_AFTER_FRAMES) { hideLoading.hide(); hideLoading = null; }
-      if (menuReadyIn > 0 && --menuReadyIn === 0) menu?.setReady();
     }
     /** one drawn frame: the devices, then the active state (docs/developer-guide.md has the update order) */
     function tickFrame(dt: number, stepped: boolean): void {
+      // the frame the menu goes live on starts the shot over (the pose, the clouds, the ghosts out of frame), as the still has it
+      let live = false;
+      if (menuWait && menu) {
+        menuWait.quiet = shotBusy() ? 0 : menuWait.quiet + 1;
+        if (menuWait.quiet >= HIDE_AFTER_FRAMES || performance.now() - menuWait.t0 > MENU_WAIT_MS) {
+          live = true;
+          performance.measure('menu settle', { start: menuWait.t0 }); // shoot_attract.mjs --compare reports it
+          menuWait = null;
+        }
+      }
+      if (live && attract && states.is('attract')) attract.restart();
       frame.readInput(dt);
       states.update(dt, stepped);
       states.render();
+      if (!live || !menu) return;
+      // FEAT-177: this frame is what the still should have been: keep it for the next visit (ghosts out of frame, the shot's own conditions)
+      if (states.is('attract') && shotCond && !ghosts.anyInView(cam.camera)) saveMenuStill(canvas, pack, shot, settings);
+      if (params.menuframe) Object.assign(window, { __menuFrame: canvas.toDataURL('image/png'), __menuFrameGhosts: ghosts.anyInView(cam.camera) });
+      menu.setReady();
     }
 
-    const warmUp = (ls: { set(f: number, label: string): void }) => warmUpWorld(ls, world, pack, rider, renderer, scene, cam.camera);
+    // FEAT-177: the warm-up streams the trees and rocks where the camera looks when it is off the rider (the menu shot)
+    const warmFocus = () => cam.mode === 'eye' || cam.mode === 'free' ? { x: cam.camera.position.x, y: -cam.camera.position.z } : rider;
+    const warmUp = (ls: { set(f: number, label: string): void }) => warmUpWorld(ls, world, pack, warmFocus, renderer, scene, cam.camera);
     states.add(new LoadingState({
       pack, rider, lifts, cam, spawn: () => ({ x: sx, y: sy, h: sh }), first: opts.attract ? 'attract' : 'riding', alive: () => alive,
       // ?cam=eye: the menu (shown on Quit) is ready too
-      warmUp: loading ? async () => { await warmUp(loading); hideLoading = loading; if (menu) menuReadyIn = HIDE_AFTER_FRAMES; }
-        : opts.attract && menu ? async () => { await warmUp({ set: (f, l) => menu.setProgress(f, l) }); menuReadyIn = HIDE_AFTER_FRAMES; }
+      warmUp: loading ? async () => { await warmUp(loading); hideLoading = loading; if (menu) menuWait = { t0: performance.now(), quiet: 0 }; }
+        : opts.attract && menu ? async () => { await warmUp({ set: (f, l) => menu.setProgress(f, l) }); menuWait = { t0: performance.now(), quiet: 0 }; }
         : null,
       ready: () => {
         status.textContent = '';
@@ -443,7 +488,11 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
           /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
           setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
           /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */
-          applySettings: (what: string) => applySettings(settings, what) }, { attract: () => states.is('attract'), state: () => states.current, fps: () => fps.fps });
+          applySettings: (what: string) => applySettings(settings, what),
+          /** shoot_attract.mjs: draw the menu shot's conditions, from its start (as the live menu does) */
+          shotConditions: () => { holdShotConditions(true); shotFromStart(); },
+          /** shoot_attract.mjs: the shot's pose at t seconds of its drift (the still is t = 0, where the menu goes live) */
+          shotPose: (t: number) => shotPose(shot, t) }, { attract: () => states.is('attract'), state: () => states.current, fps: () => fps.fps });
         loop.start(canvas);
       },
     }, states));

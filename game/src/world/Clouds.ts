@@ -281,6 +281,9 @@ export class Clouds {
     });
   }
 
+  /** FEAT-177: where the clouds are (seconds of wind): the main menu starts its shot at a fixed one, so the still matches */
+  setTime(t: number): void { this.time = t; }
+
   /** Settings: cover amount and quality (raymarch steps). */
   configure(cover: CloudCover, quality: 'high' | 'medium' | 'low'): void {
     const steps = quality === 'high' ? 64 : quality === 'medium' ? 44 : 28;

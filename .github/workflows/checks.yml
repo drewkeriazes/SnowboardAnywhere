@@ -12,7 +12,7 @@
 #                     The before / after stills comparison only when asked for: the
 #                     PR's `stills` label, or a manual run with `stills` ticked
 #   repo-rules        no em dashes in added Markdown, plain commit messages,         always
-#                     docs-travel warning
+#                     docs-travel warning, stale main menu still warning (FEAT-177)
 #   public-guards     no Spotify code, no .env files, images <= 1 MB in the right    always
 #                     folders, gitleaks on the PR's commits
 #
@@ -405,6 +405,10 @@ jobs:
         run: |
           base=${{ github.event_name == 'push' && github.event.before || format('origin/{0}', github.base_ref || 'main') }}
           python tools/ci/repo_rules.py --base "$base" --head HEAD
+      - name: Main menu still (FEAT-177, a warning only)
+        run: |
+          base=${{ github.event_name == 'push' && github.event.before || format('origin/{0}', github.base_ref || 'main') }}
+          node game/tools/attract_look.mjs --check --base "$base"
 
   public-guards:
     runs-on: ubuntu-latest

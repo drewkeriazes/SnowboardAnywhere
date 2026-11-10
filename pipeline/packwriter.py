@@ -2,7 +2,7 @@
 
 All inputs are numpy arrays in local metres. Height grids are row 0 = NORTH (max y), like an image.
 """
-import json, os, struct
+import json, os, secrets, struct, time
 import numpy as np
 from PIL import Image
 
@@ -97,7 +97,15 @@ def index_packs(packs_dir: str) -> None:
     with open(os.path.join(packs_dir, "index.json"), "w") as f:
         json.dump({"packs": slugs}, f, indent=1)
 
-def write_meta(out_dir: str, meta: dict):
+def stamp_build(meta: dict) -> dict:
+    """FEAT-177: a fresh `build` id on every meta.json a pipeline stage writes, so the game can tell a
+    main menu still rendered from another build of the pack (UTC time plus a random suffix)."""
+    meta["build"] = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + secrets.token_hex(3)
+    return meta
+
+def write_meta(out_dir: str, meta: dict, stamp: bool = True):
+    if stamp:
+        stamp_build(meta)
     index_cells(out_dir, meta)
     with open(os.path.join(out_dir, "meta.json"), "w") as f:
         json.dump(meta, f, indent=1)
@@ -109,7 +117,7 @@ if __name__ == "__main__":
     for pack_dir in sys.argv[1:]:
         with open(os.path.join(pack_dir, "meta.json")) as f:
             m = json.load(f)
-        write_meta(pack_dir, m)
+        write_meta(pack_dir, m, stamp=False)  # only the cell lists: the pack's content is unchanged
         inst = m.get("instances") or {}
         print(f"{pack_dir}: {len(inst.get('treeCells', []))} tree cells, {len(inst.get('rockCells', []))} rock cells; packs/index.json updated")
 

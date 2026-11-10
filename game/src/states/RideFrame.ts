@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { MOGUL_CREEP_M_PER_DAY } from '../terrain/Moguls';
 import { LENSES, resolveLens, type GoggleLens, type LensId } from '../world/Lens';
 import { setDeformHold } from '../world/Deform';
-import type { Settings } from '../ui/Settings';
+import type { Conditions, Settings } from '../ui/Settings';
 import { contextPrompt } from '../ui/ContextPrompt';
 import { keyHints } from '../ui/KeyHints';
 import { hudLine } from '../ui/HudLine';
@@ -88,6 +88,8 @@ export interface RideParts extends World {
   /** FEAT-164: Free ride, Time trial, Outrun */
   modes: Modes; map: ResortMap; labels: Labels; sun: SunClock;
   auto: AutoQuality; keyLabels: KeyLabels; pressMeter: PressMeter; fps: FpsMeter; sky: SkyState;
+  /** FEAT-177: the conditions drawn (the main menu shot's while it holds them, else the settings) */
+  conditions(): Conditions;
   /** mouse movement to hand to the cameras this frame (px); the right stick and the gyro add to it */
   look: { dx: number; dy: number };
   /** re-apply what the adaptive quality level scales */
@@ -301,6 +303,7 @@ export class RideFrame {
   private streaming(dt: number): void {
     const { cam, terrain, rider, liftRide, prefetch, pack, veg, rocks, sky, snow, settings, sun, params, zr, resortTop, roads, riderChair, lifts, bridges, liftLines, landmarks, map } = this.p;
     const onLift = this.onLift, detached = this.detached;
+    const cond = this.p.conditions();
     const cp = cam.camera.position;
     terrain.update(cp.x, -cp.z, cp.y);
     const fx = this.fx = detached ? cp.x : rider.x, fy = this.fy = detached ? -cp.z : rider.y;
@@ -316,19 +319,19 @@ export class RideFrame {
     // FEAT-077: groomers get skied out through the day (fresh corduroy first thing, tracked out by
     // mid-afternoon); new snow covers the tracks again
     {
-      const hour = typeof settings.timeOfDay === 'number' ? settings.timeOfDay : settings.timeOfDay === 'now' ? ((new Date().getUTCHours() + new Date().getUTCMinutes() / 60 + sun.utcOff) % 24 + 24) % 24 : 13;
+      const hour = typeof cond.timeOfDay === 'number' ? cond.timeOfDay : cond.timeOfDay === 'now' ? ((new Date().getUTCHours() + new Date().getUTCMinutes() / 60 + sun.utcOff) % 24 + 24) % 24 : 13;
       const day = Math.max(0, Math.min(1, (hour - 8.5) / 6.5));
-      const base = SKIED_BASE[settings.snowDay ?? 'mid'];
-      terrain.setSkied(base * (0.15 + 0.85 * day * day * (3 - 2 * day)) * (1 - snowCover), settings.snowDay === 'spring' ? 1 : 0);
+      const base = SKIED_BASE[cond.snowDay ?? 'mid'];
+      terrain.setSkied(base * (0.15 + 0.85 * day * day * (3 - 2 * day)) * (1 - snowCover), cond.snowDay === 'spring' ? 1 : 0);
       // FEAT-053: the same day drives the snow under the board (powder keeps in the shade and after
       // a storm, open off-piste gets tracked out, the afternoon sun makes slush, spring mornings ice)
       const sw = rider.snowWorld;
-      sw.hour = hour; sw.storm = sky.weather === 'storm' ? 1 : sky.weather === 'flurries' ? 0.3 : 0; sw.newSnow = snowCover; sw.day = settings.snowDay ?? 'mid';
+      sw.hour = hour; sw.storm = sky.weather === 'storm' ? 1 : sky.weather === 'flurries' ? 0.3 : 0; sw.newSnow = snowCover; sw.day = cond.snowDay ?? 'mid';
       // "high up" is judged against the resort's own top (the highest lift top), not the pack's far terrain
       sw.zLow = zr[0]; sw.zHigh = resortTop;
       // FEAT-059: mogul fields creep uphill about 8 cm a day from mid-November; new snow softens them
-      const live = sun.live(settings);
-      const d = live ? new Date() : new Date(Date.UTC(new Date().getFullYear(), settings.month - 1, 15));
+      const live = sun.live(cond);
+      const d = live ? new Date() : new Date(Date.UTC(new Date().getFullYear(), cond.month - 1, 15));
       const seasonStart = Date.UTC(d.getUTCMonth() >= 10 ? d.getUTCFullYear() : d.getUTCFullYear() - 1, 10, 15);
       const seasonDays = Math.max(0, Math.min(150, (d.getTime() - seasonStart) / 86400000));
       pack.setMoguls(params.nomoguls ? 0 : 1 - 0.6 * snowCover, MOGUL_CREEP_M_PER_DAY * seasonDays);
@@ -344,7 +347,7 @@ export class RideFrame {
     liftLines.maintain(rider.x, rider.y);
     const passed = landmarks.maintain(rider.x, rider.y);
     if (passed) this.p.events.emit({ type: 'landmark', name: passed.name });
-    sun.update(dt, settings);
+    sun.update(dt, this.p.conditions());
     lifts.updateMarkers(this.elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
     map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
   }

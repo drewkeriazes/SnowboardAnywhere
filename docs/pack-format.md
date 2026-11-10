@@ -165,6 +165,7 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
 ```
 {
   "version": 1, "slug": "vail", "name": "Vail",
+  "build": "20261110T171500Z-3fa2c1",                      // FEAT-177: new on every write by any stage (packwriter.stamp_build)
   "crs": "EPSG:26913", "origin": [384300, 4384250], "lonlat": [-106.35, 39.60],
   "bounds": { "minX", "minY", "maxX", "maxY" },           // resort area, local metres
   "zRange": [2300, 3700],

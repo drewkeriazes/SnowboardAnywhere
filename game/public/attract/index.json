@@ -9,6 +9,12 @@
       "take-3.json",
       "take-4.json",
       "take-5.json"
-    ]
+    ],
+    "looks": {
+      "back-bowls": {
+        "code": "ad7f9685e2e194cc",
+        "pack": ""
+      }
+    }
   }
 }

@@ -81,8 +81,10 @@ title naming the place and the resort's numbers. RIDE starts the mode picked on 
 ride, Time trial (pick a course: you start just above its start gate) or Outrun (its options), and "or drop in from
 the map" picks a spot first. The resort card switches Snowboard / Skis; Change resort lists the built resorts.
 Settings, Controls and Credits sit in the top corner. The menu shows at once over a still of the view while the
-resort loads behind it (a slim bar in the corner); RIDE pressed early waits for the load. Quit to main menu comes
-back here without reloading. Sound starts with your first click or key press (browsers don't count a controller).
+resort loads behind it (a slim bar in the corner), then fades into the live view once it has settled; RIDE pressed
+early waits for the load. The menu shows its view in that view's own weather and time of day (on Vail, a bluebird
+February morning, like the photo the gateway was built from), whatever you picked: yours apply when you ride, or
+straight away if you change one in the menu's Settings. Quit to main menu comes back here without reloading. Sound starts with your first click or key press (browsers don't count a controller).
 
 Esc pauses: the left column names where you are and shows this run's time, distance, vertical and top speed, then
 Resume, Restart, Map, Mode, Replay and Settings, and quick toggles for the camera, weather, time of day and music
