@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 
 /**
- * FEAT-155: trees that block the view downhill turn see-through. Each frame `TreeFade.update` sets a
- * "view lane" from the chase camera through the rider to a look-ahead point 10 to 30 m along the travel
- * direction (further at speed), one width all the way back to the camera so a tree that faded ahead stays
- * faded as you come up on it and pass; a second, slow look-ahead point keeps the old line faded for a
- * moment after a turn. The tree shaders measure each tree's distance to that lane in the
- * vertex shader and discard a share of the tree's fragments in a stable screen-space Bayer pattern
+ * FEAT-155: trees that block the view downhill turn see-through. Each frame `TreeFade.update` sets the
+ * run ahead: from the rider to a look-ahead point 10 to 30 m out (further at speed) along where the
+ * camera looks, eased so linked turns do not sweep it side to side, plus a slower point that keeps the
+ * old line faded for a moment after a turn. A tree fades when it stands in the view wedge from the
+ * camera to the part of the run it would hide: narrow at the lens (so the big trees at the edge of
+ * the picture, beside the camera, stay solid) and R_LANE wide on the run (so a tree that faded ahead
+ * stays faded as you come up on it and pass). The tree shaders measure this in the vertex shader and
+ * discard a share of the tree's fragments in a stable screen-space Bayer pattern
  * (dithered transparency: no sorting, depth write on, the shadow pass draws the tree whole). Trees
  * right in front of the lens fade too; a tree within about 1.5 m of where the board will be in the next
  * half second never fades. Uniforms only: no per-tree CPU work.
@@ -16,19 +18,18 @@ import * as THREE from 'three';
 const MAX_DISCARD = 0.75;
 /** the lowest part of the tree (trunk and lower boughs) fades this much less than the crown */
 const TRUNK_KEEP = 0.3;
-/** the lane radius (m, past the tree's crown), the same from the camera to the look-ahead point, so a tree
- *  that faded ahead does not fill back in while you come up on it and pass it */
-const R_LANE = 3.5;
-/** the fade eases out over this many metres past the lane radius, so a tree fades in as the lane sweeps onto it */
-const R_SOFT = 1;
+/** the view wedge's radius (m, past the tree's crown) at the lens and on the run */
+const R_NEAR = 0.75, R_LANE = 3;
+/** the fade eases out over this many metres past the radius, so a tree fades in as the wedge sweeps onto it */
+const R_SOFT = 1.25;
 /** trees whose crown is within this many metres of the camera fade (anything right in front of the lens) */
-const R_LENS = 2.5;
+const R_LENS = 1;
 /** look-ahead distance: LOOK_MIN m, plus LOOK_PER_MS m per m/s of speed, up to LOOK_MAX */
 const LOOK_MIN = 10, LOOK_MAX = 30, LOOK_PER_MS = 1;
 /** the trees you are about to hit: within KEEP_R m of the board's path over the next KEEP_T s stay solid */
 const KEEP_T = 0.5, KEEP_R = 1.5;
-/** time constant (s) of the lane's look-ahead point, and of the slow one that keeps the old line faded after a turn */
-const TAU = 0.25, TAU_SLOW = 1;
+/** time constant (s) of the look-ahead point, and of the slow one that keeps the old line faded after a turn */
+const TAU = 0.4, TAU_SLOW = 1.5;
 /** the fade eases fully in or out over this many seconds when the setting or the camera changes */
 const SWITCH_S = 0.3;
 
@@ -56,11 +57,15 @@ export const TREE_FADE_VERT = /* glsl */ `
     float r = mix(ra, rb, t);
     return 1.0 - smoothstep(r, r + ${R_SOFT.toFixed(2)}, length(vec2(dh, dv)));
   }
+  // the view wedge from the camera to the point of the run (rider .. end) this tree would hide
+  float treeFadeWedge(vec3 end, vec3 base, float h, float crown) {
+    vec2 re = end.xz - uFadeRider.xz;
+    float t = clamp(dot(base.xz - uFadeRider.xz, re) / max(dot(re, re), 1e-4), 0.0, 1.0);
+    return treeFadeLeg(uFadeCam, mix(uFadeRider, end, t), ${R_NEAR.toFixed(2)}, ${R_LANE.toFixed(2)}, base, h, crown);
+  }
   float treeFade(vec3 base, float h, float crown, float localY) {
     if (uFadeK <= 0.0) return 0.0;
-    float f = max(treeFadeLeg(uFadeCam, uFadeRider, ${R_LANE.toFixed(2)}, ${R_LANE.toFixed(2)}, base, h, crown),
-              max(treeFadeLeg(uFadeRider, uFadeAhead, ${R_LANE.toFixed(2)}, ${R_LANE.toFixed(2)}, base, h, crown),
-                  treeFadeLeg(uFadeRider, uFadeAheadSlow, ${R_LANE.toFixed(2)}, ${R_LANE.toFixed(2)}, base, h, crown)));
+    float f = max(treeFadeWedge(uFadeAhead, base, h, crown), treeFadeWedge(uFadeAheadSlow, base, h, crown));
     // right in front of the lens
     float cy = clamp(uFadeCam.y, base.y, base.y + h);
     float dl = length(vec2(max(0.0, length(uFadeCam.xz - base.xz) - crown), uFadeCam.y - cy));
@@ -69,7 +74,7 @@ export const TREE_FADE_VERT = /* glsl */ `
     vec2 pn = uFadeNext.xz - uFadeRider.xz;
     float tn = clamp(dot(base.xz - uFadeRider.xz, pn) / max(dot(pn, pn), 1e-4), 0.0, 1.0);
     float dk = length(base.xz - (uFadeRider.xz + pn * tn));
-    f *= smoothstep(${KEEP_R.toFixed(2)}, ${(KEEP_R + 1).toFixed(2)}, dk);
+    f *= smoothstep(${(KEEP_R - 0.5).toFixed(2)}, ${(KEEP_R + 1.5).toFixed(2)}, dk);
     // trunks fade a little less than crowns, so you still sense the obstacle
     f *= mix(${(1 - TRUNK_KEEP).toFixed(2)}, 1.0, smoothstep(0.15, 0.4, localY));
     return f * uFadeK;
@@ -131,15 +136,11 @@ export class TreeFade {
     u.uFadeCam.value.copy(camera.position);
     u.uFadeRider.value.set(r.x, r.z + 1, -r.y);
     u.uFadeNext.value.set(r.x + r.vx * KEEP_T, r.z + 1, -(r.y + r.vy * KEEP_T));
-    // along the travel direction, or where the camera looks when slow
+    // along where the camera looks (the chase camera already follows the travel direction, smoothed)
     const sp = Math.hypot(r.vx, r.vy);
-    let dx: number, dy: number;
-    if (sp > 2) { dx = r.vx / sp; dy = r.vy / sp; }
-    else {
-      camera.getWorldDirection(this.tmp);
-      const l = Math.hypot(this.tmp.x, this.tmp.z) || 1;
-      dx = this.tmp.x / l; dy = -this.tmp.z / l;
-    }
+    camera.getWorldDirection(this.tmp);
+    const l = Math.hypot(this.tmp.x, this.tmp.z) || 1;
+    const dx = this.tmp.x / l, dy = -this.tmp.z / l;
     const d = Math.min(LOOK_MAX, LOOK_MIN + LOOK_PER_MS * sp);
     const ax = r.x + dx * d, ay = r.y + dy * d;
     const gz = groundHeight(ax, ay);
