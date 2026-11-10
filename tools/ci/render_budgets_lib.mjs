@@ -76,10 +76,25 @@ export function defaultCache() {
   return path.resolve(process.env.RB_CACHE ?? path.join(os.homedir(), '.cache', 'snowboardanywhere-ci'));
 }
 
-/** the open PR for a branch name or number, or null (no PR, or gh not signed in) */
+/**
+ * The PR for a number, a branch name, or (no argument) the current branch, or null (no PR, or gh not signed
+ * in). REST, not `gh pr view`: GraphQL isn't reachable from cloud sessions.
+ */
 export function findPr(repo, which) {
-  const json = tryOut('gh', ['pr', 'view', ...(which ? [String(which)] : []), '--json',
-    'number,headRefOid,headRefName,baseRefName,labels,state,url,isCrossRepository'], { cwd: repo });
+  const full = tryOut('gh', ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'], { cwd: repo })
+    ?? tryOut('gh', ['api', 'repos/{owner}/{repo}', '--jq', '.full_name'], { cwd: repo });
+  if (!full) return null;
+  const shape = '{number, headRefOid: .head.sha, headRefName: .head.ref, baseRefName: .base.ref, labels: [.labels[] | {name}], '
+    + 'state: (if .merged_at then "MERGED" else (.state | ascii_upcase) end), url: .html_url, '
+    + `isCrossRepository: (.head.repo.full_name != "${full}")}`;
+  let json;
+  if (which && /^\d+$/.test(String(which))) {
+    json = tryOut('gh', ['api', `repos/${full}/pulls/${which}`, '--jq', shape], { cwd: repo });
+  } else {
+    const branch = which ?? tryOut('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repo });
+    const owner = full.split('/')[0];
+    json = tryOut('gh', ['api', `repos/${full}/pulls?state=open&head=${owner}:${encodeURIComponent(branch)}`, '--jq', `first(.[] | ${shape}) // empty`], { cwd: repo });
+  }
   return json ? JSON.parse(json) : null;
 }
 
