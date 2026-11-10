@@ -132,8 +132,8 @@ async function compareLive(pack, shot, still) {
   // no ghost on screen at the crossfade (they are not in the still); each then rides in from out of frame, or fades
   // in where its take starts in frame (AttractGhosts: from / to, fadeIn / fadeOut)
   const atFade = await page.evaluate(() => window.__menuFrameGhosts);
-  const ghosts = await page.evaluate(() => window.__sim.ghosts.ghosts.map((g) => ({ from: +g.from.toFixed(1), to: +g.to.toFixed(1), dur: +g.dur.toFixed(1), fadeIn: g.fadeIn, fadeOut: g.fadeOut })));
-  console.log(`${atFade ? 'FAIL' : 'ok  '} ${atFade ? 'a ghost is' : 'no ghost'} in frame at the crossfade; ${ghosts.length} takes: ${ghosts.map((g, i) => `#${i + 1} ${g.from}..${g.to} s of ${g.dur} ${g.fadeIn ? 'fades in (starts in frame)' : 'rides in'}, ${g.fadeOut ? 'fades out (ends in frame)' : 'rides out'}`).join('; ')}`);
+  const ghosts = await page.evaluate(() => window.__sim.ghosts.ghosts.map((g) => ({ from: +g.from.toFixed(1), to: +g.to.toFixed(1), dur: +g.dur.toFixed(1), offset: +g.offset.toFixed(1), far: g.far, fadeIn: g.fadeIn, fadeOut: g.fadeOut })));
+  console.log(`${atFade ? 'FAIL' : 'ok  '} ${atFade ? 'a ghost is' : 'no ghost'} in frame at the crossfade; ${ghosts.length} takes: ${ghosts.map((g, i) => `#${i + 1}${g.far ? ' (backdrop)' : ''} at ${g.offset} s in the loop, ${g.from}..${g.to} s of ${g.dur} ${g.fadeIn ? 'fades in (starts in frame)' : 'rides in'}, ${g.fadeOut ? 'fades out (ends in frame)' : 'rides out'}`).join('; ')}`);
   const ok = r.mean <= threshold && !errors.length && !!shown && !atFade;
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${pack}/${shot.id} still vs live at the crossfade (${secs} s in, ${settle !== null ? `${(settle / 1000).toFixed(1)} s settling after the warm-up, ` : ''}live frame ${r.live}${shown ? '' : ', the menu showed no still'}): mean ${r.mean.toFixed(2)} / 255 (threshold ${threshold}), ${(r.off * 100).toFixed(1)}% of pixels off by > 24${errors.length ? `; errors: ${errors.join(' | ')}` : ''}`);
   console.log(`     shots: ${path.relative(REPO, out).split(path.sep).join('/')}/${pack}-${shot.id}-{still,live,diff}.*`);

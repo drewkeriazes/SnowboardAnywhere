@@ -11,6 +11,9 @@ import { RiderView } from './RiderView';
  * the samples step a full `RiderView` the way the replay viewer poses the rider (no physics). The takes
  * are stacked into one group: each is lined up on the moment it rides `anchor.r` metres from the camera,
  * and they pass that point `STAGGER` seconds apart, so they come down the line together and loop together.
+ * A backdrop take (never within `FAR_M` of the camera: a line across the bowl) is not in that queue: every
+ * backdrop take starts with the loop, together, so the far slope has riders on it from the moment the menu
+ * goes live (FEAT-179).
  */
 export interface AttractTake {
   version: 1;
@@ -26,6 +29,8 @@ export interface AttractTake {
 
 /** seconds between the ghosts' drops, and the pause before the group goes again */
 const STAGGER = 1.6, GAP = 2.5;
+/** a take that never comes closer than this to the backdrop camera (m) is a backdrop take */
+const FAR_M = 300;
 
 /**
  * FEAT-177: a ghost shows only from the last moment it is out of frame before it rides into the backdrop shot
@@ -36,6 +41,8 @@ const STAGGER = 1.6, GAP = 2.5;
  */
 interface Ghost {
   replay: Replay; rider: Rider; view: RiderView; offset: number; dur: number; anchorT: number;
+  /** a backdrop take: never within FAR_M of the camera (starts with the loop, a few px tall) */
+  far: boolean;
   from: number; to: number; fadeIn: boolean; fadeOut: boolean; mats: THREE.Material[]; casters: THREE.Object3D[]; alpha: number;
 }
 /** take seconds between the in-frame tests, the ghost's size for them (m, a sphere round the rider), the fade (s) */
@@ -88,16 +95,22 @@ export class AttractGhosts {
     // the take's own moment at the anchor: the first sample that far from the camera (else its start)
     const a = this.anchor;
     const at = a ? replay.samples.find((s) => Math.hypot(s.x - a.x, s.y - a.y) >= a.r) : undefined;
-    this.ghosts.push({ replay, rider, view, offset: 0, dur: replay.end, anchorT: at ? at.t : 0, from: 0, to: replay.end, fadeIn: false, fadeOut: false, mats, casters, alpha: 1 });
+    const far = !!a && replay.samples.every((s) => Math.hypot(s.x - a.x, s.y - a.y) > FAR_M);
+    this.ghosts.push({ replay, rider, view, offset: 0, dur: replay.end, anchorT: at ? at.t : 0, far, from: 0, to: replay.end, fadeIn: false, fadeOut: false, mats, casters, alpha: 1 });
     this.stack();
     if (this.view) this.fitWindows();
   }
 
-  /** Line the takes up on their anchor moments, STAGGER apart in the order they were added, the earliest starting at 0. */
+  /**
+   * Line the takes up on their anchor moments, STAGGER apart in the order they were added, the earliest starting
+   * at 0; backdrop takes all start at 0.
+   */
   private stack(): void {
-    const raw = this.ghosts.map((g, i) => i * STAGGER - g.anchorT);
+    const near = this.ghosts.filter((g) => !g.far);
+    const raw = near.map((g, i) => i * STAGGER - g.anchorT);
     const min = Math.min(...raw);
-    this.ghosts.forEach((g, i) => { g.offset = raw[i] - min; });
+    near.forEach((g, i) => { g.offset = raw[i] - min; });
+    for (const g of this.ghosts) if (g.far) g.offset = 0;
     this.t = 0;
   }
 
@@ -134,7 +147,8 @@ export class AttractGhosts {
     const c = this.cycle;
     for (let dt = 0; dt < c; dt += VIEW_STEP) {
       const t = (t0 + dt) % c;
-      if (this.ghosts.every((g) => { const lt = t - g.offset; return lt < g.from || lt > g.to; })) return t;
+      // backdrop takes don't count: a few px far off, they fade in where the still has empty snow
+      if (this.ghosts.every((g) => { const lt = t - g.offset; return g.far || lt < g.from || lt > g.to; })) return t;
     }
     return t0;
   }
@@ -147,10 +161,10 @@ export class AttractGhosts {
     this.t = this.clearTime(0);
     this.update(0);
   }
-  /** FEAT-177: is any ghost on screen now (for the camera given)? */
+  /** FEAT-177: is any ghost on screen now (for the camera given)? Backdrop takes, a few px far off, don't count. */
   anyInView(cam: THREE.Camera): boolean {
     this.setFrustum(cam);
-    return this.ghosts.some((g) => g.view.group.visible && this.seen(g, this.t - g.offset));
+    return this.ghosts.some((g) => !g.far && g.view.group.visible && this.seen(g, this.t - g.offset));
   }
   /** one loop: the last ghost's take after its stagger, then the gap */
   private get cycle(): number { return Math.max(0, ...this.ghosts.map((g) => g.offset + g.dur)) + GAP; }
