@@ -31,7 +31,7 @@ import { Buildings } from './world/Buildings';
 import { Roads } from './world/Roads';
 import { FILL_RATE, Tracks, setTrackFillRate } from './world/Tracks';
 import { Bootprints } from './world/Bootprints';
-import { Deform } from './world/Deform';
+import { Deform, setDeformHold } from './world/Deform';
 import { Outrun } from './sim/Outrun';
 import { Monsters } from './world/Monster';
 import { Puffs } from './world/Puffs';
@@ -938,6 +938,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       terrain.setSun(env.sunDir); // BUG-062: the mogul colouring's sun term
       const cp = cam.camera.position;
       // FEAT-044: stamp the tracks and prints near the rider into the deformation texture (the soft sag around them)
+      { const h = riderView.powderHold; setDeformHold(h.x, h.z, h.fx, h.fz, riderView.group.visible && !eat.active ? h.k : 0); } // FEAT-152: the snow wall ahead of a board buried in powder
       deform.update(renderer, rider.x, rider.z, -rider.y, rider.vx, -rider.vy);
       terrain.update(cp.x, -cp.z, cp.y);
       const fx = detached ? cp.x : rider.x, fy = detached ? -cp.z : rider.y;
