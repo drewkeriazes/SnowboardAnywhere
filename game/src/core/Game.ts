@@ -11,6 +11,7 @@ import { applyUiScale, loadSettings } from '../ui/Settings';
 import { startPadNav } from '../ui/PadNav';
 import { createSession } from '../session/Session';
 import type { Params } from './params';
+import { Events } from './Events';
 
 /**
  * FEAT-160: boot. Picks and loads the pack, applies the URL overrides to the saved settings, creates the
@@ -71,7 +72,8 @@ export class Game {
     else if (menu && !skipMenu) { status.textContent = ''; menu.show(); await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))); }
     else { status.textContent = ''; loading = new LoadingScreen(pack.meta.name); await loading.painted(); }
     const scene = new THREE.Scene();
-    const session = createSession({ params, canvas, renderer, scene, pack, settings, audio }, { menu, attract: !!menu && !skipMenu, loading, attractFiles });
+    const events = new Events();
+    const session = createSession({ params, canvas, renderer, scene, pack, settings, audio, events }, { menu, attract: !!menu && !skipMenu, loading, attractFiles });
     await session.quit;
   }
 }

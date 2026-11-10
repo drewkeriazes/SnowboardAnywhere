@@ -106,7 +106,7 @@ export function buildWorld(ctx: GameContext) {
   for (const m of Object.values(monsters.materials)) env.registerMaterial(m);
   for (const m of eat.materials) env.registerMaterial(m);
   for (const m of landmarks.materials) env.registerMaterial(m);
-  if (!params.noimpostors) veg.enableImpostors(renderer, true);
+  veg.enableImpostors(renderer, !params.noimpostors); // FEAT-156: bakes the LOD2 / impostor atlases either way
   return {
     zr, env, clouds, snow, terrain, collider, veg, treeFade, rocks, lifts, liftLines, resortTop, runs, buildings, roads, landmarks, bridges,
     tracks, bootprints, riderChair, puffs, particleLight, bigprints, deform, monsters, eat, courses, trialWorld, riderView,
