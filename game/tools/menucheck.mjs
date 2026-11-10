@@ -116,9 +116,11 @@ check('Ultra is High plus cascaded shadows', ultra.quality === 'high' && ultra.c
 await page.evaluate(() => document.querySelector('#settings [data-row="gfx"] .seg button[data-v="high"]')?.click());
 // Feel preset
 await openCat('gameplay');
+check('the defaults read Feel Realistic', await page.evaluate(() => !!document.querySelector('#settings [data-row="feel"] .seg button.on[data-v="realistic"]')));
+await page.evaluate(() => document.querySelector('#settings [data-row="feel"] .seg button[data-v="arcade"]')?.click());
+{ const a = await saved(); check('Feel Arcade sets press balance Easy and the fall line Off', a.pressBalance === 'easy' && a.fallLine === 'off', `${a.pressBalance} ${a.fallLine}`); }
 await page.evaluate(() => document.querySelector('#settings [data-row="feel"] .seg button[data-v="realistic"]')?.click());
-check('Feel Realistic sets press balance Hard', (await saved()).pressBalance === 'hard');
-await page.evaluate(() => document.querySelector('#settings [data-row="feel"] .seg button[data-v="balanced"]')?.click());
+{ const a = await saved(); check('Feel Realistic sets press balance Normal and the fall line Realistic', a.pressBalance === 'on' && a.fallLine === 'real', `${a.pressBalance} ${a.fallLine}`); }
 // per-category reset: one press arms, a second resets
 await openCat('camera');
 await focusRow('fov');

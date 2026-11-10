@@ -55,7 +55,7 @@ import { PauseMenu, type PauseInfo } from './ui/PauseMenu';
 import { Labels } from './ui/Labels';
 import { TouchControls } from './ui/TouchControls';
 import { sunPosition, guessUtcOffset } from './world/Sun';
-import { applyUiScale, loadSettings, keyName, keysOf, saveSettings, type Settings } from './ui/Settings';
+import { applyUiScale, loadSettings, keyName, keysOf, saveSettings, FALL_LINE, type Settings } from './ui/Settings';
 import { STAMINA, switchName, type PressEnd } from './sim/Rider';
 import { PressMeter } from './ui/PressMeter';
 import { availableResorts } from './resorts';
@@ -418,6 +418,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       refreshCourseFlags();
       rider.discipline = s.discipline;
       rider.goofy = s.stance === 'goofy'; // FEAT-139 (the rider view follows it)
+      rider.fallLine = FALL_LINE[s.fallLine] ?? 1; // FEAT-134
       labels.visible = s.showLabels && !storm; // peaks are hidden in the storm
       map.metric = s.units === 'metric';
       if (what === 'camera' || what === 'reset') cam.mode = s.camera;
@@ -1206,6 +1207,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         // BUG-053 ?debug: the edge model's numbers for tuning (edge angle, the lateral acceleration it balances, turn radius and rate, the brake's cut and swing)
         (debugHud ? `<br><span class="dim">edge ${(rider.edge * 180 / Math.PI).toFixed(0)}&deg; &middot; aLat ${rider.carveAcc.toFixed(1)} m/s&sup2; (${rider.lateralG.toFixed(2)} g) &middot; R ${Number.isFinite(rider.turnRadius) ? rider.turnRadius.toFixed(0) + ' m' : '&infin;'} &middot; ${(rider.turnRate * 180 / Math.PI).toFixed(0)}&deg;/s` +
           (rider.hardCarve > 0 ? ` &middot; hard ${rider.hardCarve.toFixed(2)} short ${rider.carveShort.toFixed(2)} g wash ${rider.washout.toFixed(2)}` : '') + // FEAT-148
+          // FEAT-134: the heading's angle off the fall line, the slope, and the edge catch's chance per second
+          ` &middot; fall ${(Math.abs(Math.atan2(Math.sin(Math.atan2(rider.normal[0], rider.normal[1]) - rider.heading), Math.cos(Math.atan2(rider.normal[0], rider.normal[1]) - rider.heading))) * 180 / Math.PI).toFixed(0)}&deg; of ${rider.slopeDeg.toFixed(0)}&deg; &middot; catch ${rider.catchRisk.toFixed(1)}/s` +
           (rider.brakeAmt > 0 ? ` &middot; brake &Psi; ${(rider.brakePsi * 180 / Math.PI).toFixed(0)}&deg; &gamma; ${(Math.abs(rider.slip) * 180 / Math.PI).toFixed(0)}&deg; ${rider.brakeAcc.toFixed(1)} m/s&sup2; mod ${rider.brakeMod.toFixed(2)}` : '') +
           // FEAT-053: the snow weights and what they set
           `<br>snow groomed ${rider.snow.groomed.toFixed(2)} powder ${rider.snow.powder.toFixed(2)} chop ${rider.snow.chop.toFixed(2)} ice ${rider.snow.ice.toFixed(2)} slush ${rider.snow.slush.toFixed(2)} rock ${rider.snow.rock.toFixed(2)} &middot; depth ${(rider.snow.depth * 100).toFixed(0)} cm &middot; grip x${rider.snow.grip.toFixed(2)} &middot; turn x${rider.snow.turn.toFixed(2)} &middot; drag ${rider.snow.drag0.toFixed(2)} + ${rider.snow.drag1.toFixed(4)}v &middot; chop ${rider.chop.toFixed(2)} &middot; sink ${rider.noseSink.toFixed(2)}</span>` : '');
