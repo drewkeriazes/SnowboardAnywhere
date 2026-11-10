@@ -147,8 +147,9 @@ Regular (left foot forward) or Goofy (right foot forward).
 
 The snow changes how the board rides (FEAT-053). Groomers are fast and grippy. Off the groomers,
 north-facing bowls, high ground, the trees and anything under a storm hold powder: the board slows
-and floats, turns come round wider, and the nose sinks and digs in when you are slow. In 6 in or more
-of it the board and boots sit down in the snow, deepest when slow, and come up as you pick up speed.
+and floats, turns come round wider, and the nose sinks and digs in when you are slow. In powder the
+board sits down in the snow, tail low and nose up, the deeper the snow and the slower you go the
+deeper, and the nose floats up out of it as you pick up speed.
 A tail press (Z) lifts the nose out and keeps your speed, and is easier to hold; a nose press (Q)
 buries the nose, slows you and pulls you over it. Open off-piste
 gets tracked out into chop as the day goes on and rattles the board. High exposed ridges are

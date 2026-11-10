@@ -1,16 +1,20 @@
-// Board set down into deep powder (FEAT-152): on a powder day (6 in+ of loose snow) holds the rider at
-// a set of speeds and checks how far the board is drawn down into the snow (about 0.7 of the depth when
-// slow, less as it planes, a few cm at high speed), the nose-up pitch, the snow cover and the sag held
-// ahead of the board; then the same on the groomers with no new snow (nothing changes there), and on
-// foot (the boots sit down by the whole boot sink), and a held tail and nose press (the held sag moves
-// to the end that is down). Saves chase, low side and close front shots at each speed, press shots, a
-// groomer shot to compare, and an on-foot shot.
+// Board set down into loose snow (FEAT-152): on a powder day (40 cm of it at the synth spawn) holds the
+// rider at a set of speeds and checks the board sits tail low and nose up in it: the tail about 0.8 of
+// the depth down when slow, coming up as it planes (a few cm at high speed), the nose floating near the
+// surface while riding and dug in when slow; the snow cover and the sag held ahead of the board; a held
+// tail and nose press (the held sag moves to the end that is down); on foot (the boots sit down by the
+// whole boot sink); then a day with no new snow (shallow powder sets down less), and in node that the
+// groomer, ice and rock depths set nothing down. Saves chase, low side and close front shots at each
+// speed, press shots, a shallow-powder pair and an on-foot shot.
 // node tools/powdercheck.mjs [pack] [outDir] [--headed | --gpu]   (run after `npx vite build`; exit 1 on a failed check)
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { DIST, PACKS } from './paths.mjs';
+import os from 'node:os';
+import { pathToFileURL } from 'node:url';
+import { build } from 'esbuild';
+import { DIST, GAME, PACKS } from './paths.mjs';
 
 const args = process.argv.slice(2);
 const positional = args.filter((a) => !a.startsWith('--'));
@@ -53,7 +57,7 @@ const hold = (n, speed) => page.evaluate(([n, speed]) => {
     window.__step(1, 1 / 60);
   }
   const b = s.riderView.buryState, h = s.riderView.powderHold;
-  return { speed: +r.speed.toFixed(1), onGround: r.onGround, kind: r.snow.kind, depth: +r.snow.depth.toFixed(3), noseSink: +r.noseSink.toFixed(2), sink: +b.sink.toFixed(3), pitchDeg: +(b.pitch * 180 / Math.PI).toFixed(1), cover: +b.cover.toFixed(2), hold: +h.k.toFixed(2), bootSink: +r.sink.toFixed(3), onFoot: r.onFoot };
+  return { speed: +r.speed.toFixed(1), onGround: r.onGround, kind: r.snow.kind, depth: +r.snow.depth.toFixed(3), noseSink: +r.noseSink.toFixed(2), sink: +b.sink.toFixed(3), tail: +(b.sink + 0.72 * Math.sin(b.pitch)).toFixed(3), nose: +(b.sink - 0.72 * Math.sin(b.pitch)).toFixed(3), pitchDeg: +(b.pitch * 180 / Math.PI).toFixed(1), cover: +b.cover.toFixed(2), hold: +h.k.toFixed(2), bootSink: +r.sink.toFixed(3), onFoot: r.onFoot, crashed: +r.crashed.toFixed(2) };
 }, [n, speed]);
 /** camera `back` m behind the rider along its heading (negative = ahead), `side` m right, `up` m above, looking at the board */
 async function shot(label, back, side, up, ahead = 0, lookY = 0) {
@@ -75,7 +79,7 @@ async function shot(label, back, side, up, ahead = 0, lookY = 0) {
   fs.writeFileSync(path.join(outDir, `${label}.png`), Buffer.from(url.split(',')[1], 'base64'));
 }
 
-// settle at the spawn, then a powder day: the snow under the board is 6 in or more
+// settle at the spawn, then a powder day: deep loose snow under the board
 await hold(30, 0); await page.waitForTimeout(1500); await hold(30, 0);
 await day(true);
 await hold(20, 0);
@@ -89,13 +93,16 @@ for (const v of speeds) {
   await shot(`powder_${String(v).replace('.', '_')}_close`, -0.6, 1.1, 0.45, 0, 0);
 }
 const slow = P[1.5], mid = P[5], plane = P[12], fast = P[22];
-check('the snow is 6 in or deeper on the powder day', slow.depth >= 0.17, `${(slow.depth * 100).toFixed(0)} cm, ${slow.kind}`);
-check('slow in powder the board sits about 0.7 of the depth down', slow.sink >= 0.55 * slow.depth && slow.sink <= 0.72 * slow.depth, `${(slow.sink * 100).toFixed(1)} cm of ${(slow.depth * 100).toFixed(0)}`);
-check('the board planes up with speed', mid.sink < slow.sink + 0.005 && plane.sink < mid.sink && fast.sink < plane.sink, [slow, mid, plane, fast].map((s) => (s.sink * 100).toFixed(1)).join(' > ') + ' cm');
-check('about half the slow sink by PLANE_SPEED', plane.sink >= 0.25 * plane.depth && plane.sink <= 0.45 * plane.depth, `${(plane.sink * 100).toFixed(1)} cm of ${(plane.depth * 100).toFixed(0)}`);
-check('a few cm at high speed', fast.sink > 0.01 && fast.sink <= 0.045, `${(fast.sink * 100).toFixed(1)} cm`);
-check('nose up, tail low while riding', mid.pitchDeg >= 4 && mid.pitchDeg <= 10 && plane.pitchDeg >= 3, `${mid.pitchDeg} deg at 5 m/s, ${plane.pitchDeg} at 12`);
-check('the tail never goes deeper than the loose snow', [slow, mid, plane, fast].every((s) => s.sink + 0.72 * Math.sin(Math.max(0, s.pitchDeg) * Math.PI / 180) <= 0.91 * s.depth), '');
+check('the snow is deep on the powder day', slow.depth >= 0.3, `${(slow.depth * 100).toFixed(0)} cm, ${slow.kind}`);
+const cm = (v) => (v * 100).toFixed(1);
+check('slow in powder the tail sits about 0.8 of the depth down', slow.tail >= 0.7 * slow.depth && slow.tail <= 0.91 * slow.depth, `${cm(slow.tail)} cm of ${cm(slow.depth)}`);
+check('the tail comes up with speed', mid.tail < slow.tail + 0.005 && plane.tail < mid.tail && fast.tail < plane.tail, [slow, mid, plane, fast].map((s) => cm(s.tail)).join(' > ') + ' cm');
+check('about half the slow tail depth by PLANE_SPEED', plane.tail >= 0.35 * plane.depth && plane.tail <= 0.55 * plane.depth, `${cm(plane.tail)} cm of ${cm(plane.depth)}`);
+check('a few cm at high speed', fast.tail > 0.01 && fast.tail <= 0.045, `${cm(fast.tail)} cm`);
+check('riding, the nose floats near the surface while the tail sinks', [mid, plane].every((s) => s.nose <= 0.3 * s.tail && s.nose < 0.1), [mid, plane].map((s) => `${s.speed} m/s: nose ${cm(s.nose)} tail ${cm(s.tail)} cm`).join(', '));
+check('nose up, tail low while riding', mid.pitchDeg >= 5 && mid.pitchDeg <= 12 && plane.pitchDeg >= 4, `${mid.pitchDeg} deg at 5 m/s, ${plane.pitchDeg} at 12`);
+check('slow, the nose dig takes the nose down', slow.nose > 0.5 * slow.tail, `nose ${cm(slow.nose)} tail ${cm(slow.tail)} cm at ${slow.speed} m/s (dig ${slow.noseSink})`);
+check('neither end goes deeper than 0.9 of the loose snow', [slow, mid, plane, fast].every((s) => Math.max(s.tail, s.nose) <= 0.91 * s.depth), '');
 check('snow covers the buried gear and the sag is held ahead of it', slow.cover === 1 && slow.hold === 1, `cover ${slow.cover}, hold ${slow.hold}`);
 // presses (balance Off, so they hold): the sag held ahead of the board moves to the end that is down
 await page.evaluate(() => { const s = window.__sim; s.settings.pressBalance = 'off'; s.rider.pressMode = 'off'; });
@@ -132,18 +139,18 @@ await hold(30, 0.01);
 await page.evaluate(() => { const r = window.__sim.rider; r.vx = r.vy = 0; r.toggleBoard(); });
 let foot = null;
 for (let i = 0; i < 12; i++) { foot = await hold(20, null); if (foot.onFoot) break; }
-foot = await hold(40, null);
+foot = await hold(120, null); // (let the settle step finish)
 const soles = await page.evaluate(() => {
   const s = window.__sim, g = s.riderView.gaitState;
-  return g ? g.feet.map((f) => +(s.pack.groundHeight(f.x, f.y) - f.z).toFixed(3)) : null;
+  return g ? g.feet.map((f) => [+(s.pack.groundHeight(f.x, f.y) - f.z).toFixed(3), f.planted, +g.speed.toFixed(2)]) : null;
 });
 console.log('on foot', JSON.stringify(foot), 'soles below the surface (m)', JSON.stringify(soles));
 await shot('powder_onfoot_side', 0.2, 2.2, 0.4, 0, 0.2);
-check('on foot in powder the boots sit down by the boot sink, under snow', !!soles && soles.every((d) => Math.abs(d - foot.bootSink) < 0.01) && foot.cover > 0.9, `soles ${soles?.join(', ')} m vs boot sink ${foot.bootSink}, cover ${foot.cover}`);
+check('on foot in powder the boots sit down by the boot sink, under snow', !!soles && soles.every(([d]) => Math.abs(d - foot.bootSink) < 0.01) && foot.cover > 0.9, `soles ${soles?.map(([d]) => d).join(', ')} m vs boot sink ${foot.bootSink}, cover ${foot.cover}`);
 await page.evaluate(() => { const r = window.__sim.rider; r.toggleBoard(); });
 for (let i = 0; i < 12; i++) { const st = await hold(20, null); if (!st.onFoot) break; }
 
-// the groomers with no new snow: nothing is set down
+// a groomer day: no new snow, the powder at the spawn is shallow
 await day(false);
 await hold(30, 0);
 const G = {};
@@ -153,8 +160,14 @@ for (const v of [1.5, 12]) {
 }
 await shot('groomer_1_5_side', 0.2, 2.2, 0.35, 0, 0.1);
 await shot('groomer_1_5_close', -0.6, 1.1, 0.45, 0, 0);
-check('under 6 in the board is drawn on the snow as before', [G[1.5], G[12]].every((s) => s.depth < 0.15 ? s.sink === 0 && s.pitchDeg === 0 && s.cover === 0 && s.hold === 0 : true), [G[1.5], G[12]].map((s) => `${(s.depth * 100).toFixed(1)} cm ${s.kind}: sink ${s.sink}`).join(', '));
-check('the groomer is under 6 in', G[1.5].depth < 0.15, `${(G[1.5].depth * 100).toFixed(1)} cm`);
+const sh = G[1.5];
+check('in shallow powder (no new snow) the board sets down less', sh.depth < 0.15 && sh.tail > 0.3 * sh.depth && sh.tail < slow.tail && G[12].tail < sh.tail, `${cm(sh.depth)} cm ${sh.kind}: tail ${cm(sh.tail)} cm slow, ${cm(G[12].tail)} at 12 m/s (vs ${cm(slow.tail)} in ${cm(slow.depth)} cm)`);
+// the groomers, ice and rock (2.5, 0.4 and 0.8 cm loose: SnowConditions K) are drawn exactly as before
+const scOut = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'powdercheck-')), 'snowcover.mjs');
+await build({ entryPoints: [path.join(GAME, 'src', 'world', 'SnowCover.ts')], bundle: true, format: 'esm', platform: 'node', outfile: scOut, logLevel: 'error' });
+const { buryShape } = await import(pathToFileURL(scOut).href);
+const firm = [0.025, 0.004, 0.008].flatMap((d) => [0, 1.5, 5, 12, 22].map((v) => buryShape(d, v, 1, 0.72, {})));
+check('on a groomer, ice and rock nothing is set down', firm.every((b) => b.sink === 0 && b.pitch === 0 && b.tail === 0 && b.nose === 0), '');
 check('no console errors', errors.length === 0, errors.slice(0, 3).map((e) => e.slice(0, 200)).join(' | '));
 await browser.close();
 server.close();

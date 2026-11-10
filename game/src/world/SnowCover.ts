@@ -1,21 +1,67 @@
 import * as THREE from 'three';
 
+import { PLANE_SPEED } from '../sim/Rider';
+
 /**
- * FEAT-152: the rider set down into deep powder. When the loose snow (`rider.snow.depth`) is BURY_DEPTH
- * (6 in) or deeper, RiderView draws the board, the bindings and the boots lowered into it, and every
- * rider material gets a snow-cover term from here: a fragment below the untouched snow surface (a plane
- * through the snow under the rider, along the ground normal) turns to snow, with a soft, noisy edge a
- * few cm either side of it, so the gear fades into the powder instead of being sliced by the terrain.
- * The terrain itself hides what is deeper. Off (k = 0) the materials draw exactly as before.
+ * FEAT-152: the rider set down into loose snow. From BURY_FROM of loose snow (`rider.snow.depth`), all
+ * in by BURY_FULL, RiderView draws the board tail-low and nose-up in it (`buryShape`): the tail sinks
+ * with the depth, less as the board planes, and the nose floats near the surface, until slow in deep
+ * snow the nose dig (`noseSink`) takes it down too. Every rider material gets a snow-cover term from
+ * here: a fragment below the untouched snow surface (a plane through the snow under the rider, along
+ * the ground normal) turns to snow, with a soft, noisy edge a few cm either side of it, so the gear fades
+ * into the snow instead of being sliced by the terrain. The terrain itself hides what is deeper. Off
+ * (k = 0) the materials draw exactly as before: on the groomers (2.5 cm loose), ice and rock.
  */
 
-/** the loose snow depth (m) from which the board and boots set down into it (6 in), and over how much more it comes all the way in */
-export const BURY_DEPTH = 0.15, BURY_RAMP = 0.02;
+/** the loose snow depth (m) from which the board sets down into it (2 in: over a groomer's 2.5 cm and
+ *  under slush and chop), and the depth it is all in by (4 in: any powder, 12 cm or more) */
+export const BURY_FROM = 0.05, BURY_FULL = 0.1;
 
-/** 0 under BURY_DEPTH of loose snow, 1 from BURY_DEPTH + BURY_RAMP */
+/** 0 under BURY_FROM of loose snow, 1 from BURY_FULL */
 export function buryGate(depth: number): number {
-  const t = Math.max(0, Math.min(1, (depth - BURY_DEPTH) / BURY_RAMP));
+  const t = Math.max(0, Math.min(1, (depth - BURY_FROM) / (BURY_FULL - BURY_FROM)));
   return t * t * (3 - 2 * t);
+}
+
+/** the tail's depth as a share of the loose depth when slow and by PLANE_SPEED (planing from TAIL_PLANE_FROM
+ *  m/s), no more than TAIL_FAST m by TAIL_FAST_SPEED m/s, and never past TAIL_MAX of the depth */
+const TAIL_SLOW = 0.8, TAIL_PLANED = 0.45, TAIL_PLANE_FROM = 3, TAIL_FAST = 0.04, TAIL_FAST_SPEED = 22, TAIL_MAX = 0.9;
+/** the nose's depth as a share of the loose depth when slow (none once planing), the nose-down pitch
+ *  (rad) a full nose dig takes it to past the tail, and the most the board pitches nose-up (rad) */
+const NOSE_SLOW = 0.1, NOSE_DIG = 3 * Math.PI / 180, PITCH_MAX = 12 * Math.PI / 180;
+
+export interface BuryShape {
+  /** the board's middle below the snow surface (m) */
+  sink: number;
+  /** nose-up pitch (rad; negative nose down) */
+  pitch: number;
+  /** the tail and the nose below the surface (m; the nose can be above it, negative) */
+  tail: number; nose: number;
+}
+
+const ss = (a: number, b: number, x: number): number => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+/**
+ * Where the board sits in `depth` m of loose snow at `speed` m/s with the nose dig `dig` (0..1,
+ * `rider.noseSink`), the board `half` m from its middle to each end. Tail low, nose up: the tail sinks
+ * (TAIL_SLOW of the depth slow, TAIL_PLANED by PLANE_SPEED, a few cm at speed) and the nose floats
+ * (NOSE_SLOW of the depth slow, at the surface planing); slow, the nose dig takes the nose down to the
+ * tail and past it.
+ */
+export function buryShape(depth: number, speed: number, dig: number, half: number, out: BuryShape): BuryShape {
+  const g = buryGate(depth);
+  if (g <= 0) { out.sink = out.pitch = out.tail = out.nose = 0; return out; }
+  const planing = ss(TAIL_PLANE_FROM, PLANE_SPEED, speed);
+  let tail = depth * (TAIL_SLOW + (TAIL_PLANED - TAIL_SLOW) * planing);
+  tail += (Math.min(tail, TAIL_FAST) - tail) * ss(PLANE_SPEED, TAIL_FAST_SPEED, speed);
+  tail = Math.min(tail, TAIL_MAX * depth);
+  let nose = depth * NOSE_SLOW * (1 - planing);
+  nose += (Math.min(tail + 2 * half * Math.sin(NOSE_DIG), TAIL_MAX * depth) - nose) * Math.max(0, Math.min(1, dig));
+  nose = Math.max(nose, tail - 2 * half * Math.sin(PITCH_MAX)); // no steeper than PITCH_MAX
+  out.tail = g * tail; out.nose = g * nose;
+  out.sink = (out.tail + out.nose) / 2;
+  out.pitch = Math.asin((out.tail - out.nose) / (2 * half));
+  return out;
 }
 
 /** the snow-cover albedo: the terrain's typical snow (Tracks' SNOW_RGB, BUG-021) */

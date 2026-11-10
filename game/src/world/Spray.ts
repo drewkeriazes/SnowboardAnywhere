@@ -219,13 +219,14 @@ export class Spray {
   }
 
   /**
-   * FEAT-152: with the board set down in deep powder (SnowCover's buryGate), a bow wave off the nose at
+   * FEAT-152: with the board set down in powder (SnowCover's buryGate, less in shallow powder), a bow wave off the nose at
    * speed, thrown up and back over the front foot (slower than the board, so the rider runs into it),
    * and when slow, snow spilling over the tail; a press moves them to the end that is down (a tail press
    * throws a rooster tail off the tail, a nose press spills over the nose). `g` the snow surface under the board (three.js).
    */
   private deepPowder(r: Rider, dt: number, g: THREE.Vector3, right: THREE.Vector3, sp: number, dirX: number, dirZ: number, budget: number): void {
-    const deep = buryGate(r.snow.depth);
+    // powder only (not slush or chop), and smaller in shallow powder than in deep
+    const deep = buryGate(r.snow.depth) * clamp01((r.snow.powder - 0.3) / 0.4) * Math.min(1, r.snow.depth / 0.25);
     if (deep <= 0 || budget <= 0) { this.deepAcc = 0; return; }
     // a press follows the end that is down: + lean the nose (the travel end), - the tail
     const lean = r.lean ?? 0, fwd = Math.max(0, lean), back = Math.max(0, -lean);
