@@ -100,3 +100,40 @@ Results on screenshot 2: 12 leads, every waypoint reached, no crashes, 20 to 56 
 - Takes recorded on a dev server from the main checkout land in that checkout, and once files are moved out the
   recorder reuses their numbers (take-6 several times, and one take saved twice): number from the highest existing
   take, and save into the worktree the server runs from.
+
+## Learnings (FEAT-181, `game/tools/ghost_lines.mjs`)
+
+The tool replaces these scripts (`docs/developer-guide.md` > Ghost riders from lines drawn on the menu). One line per
+change the build or a resort needed: what broke, what changed, the config key in `game/tools/ghost_lines.config.json`.
+
+- **No landmark (Breckenridge has none).** The snip is fitted to frames of the shot rendered across the drift (11
+  phases, 2600 px wide at the shot's fov): FFT cross-correlation of edge images over scale at low resolution, then a
+  local search for scale, offset and phase at 256, 512 and 1024 px. On Drew's snips it matched the landmark fit within
+  2 px (vail-1: k 0.4, centre x 974, canvas 912 px from y 52; vail-2: k 1, centre 960, 909 px from y 11) in about
+  20 s, though both snips are from a build before the snow-flocked trees. `fit.*`.
+- **Drawing on the tool's own frame** (`draw-<shot>.png`, no UI, drift at its start) needs no fit, and its clean copy
+  is the exact "not in the render" reference, so nothing but the strokes is found.
+- **The canvas** is the render's footprint in the snip (its full height): a colour test per row fails because the
+  menu darkens the backdrop behind its text and cards.
+- **UI in a snip**: the RIDE button (filled: a 7 x 7 block of the colour inside), the selected card (a rectangle
+  outline, or just its straight bottom edge), the sky (filled) are dropped by shape, not by place.
+- **Hue alone mixed a dark purple and a light pink** (vail-2's right purple joined pink): a pixel joins the hue peak
+  nearest in hue + 0.3 x value. `extract.valueWeight`, `extract.joinCost`. Clustering in RGB instead split every JPEG
+  stroke into several colours (edges blend with the snow); not used.
+- **Hue peaks were relative to all coloured pixels**, which a blue sky in the snip dominates; small lines (green, teal)
+  were missed. Now an absolute floor (30 px) and 0.2% of the total.
+- **JPEG**: light pink drops to saturation 0.42 and pure black breaks up. `extract.jpeg` (saturation 0.33, black under
+  12) applies to .jpg input only. On an old-build snip the dark pines are not dark in today's render, so they read as
+  black lines (or a scribble, dropped when its walk is over 4 x its box diagonal).
+- **A stroke broken where it crosses another line** (vail-2's right yellow): two of one colour whose ends are within
+  30 px join. `extract.joinPx`.
+- **Near lines (under about 80 m) were ignored**: an 18 m "reached" radius swallowed a 25 m line, and the 7 m carving
+  swing and 16 m/s brake are far-line numbers. Reach is 0.6 x the waypoint spacing there (3 to 18 m), the swing fades
+  out inside 200 m (none inside 30 m) and the speed is held to 0.15 x the distance from the camera (6 to 16 m/s).
+  `waypoints.reachFrac`, `waypoints.minM` (now 4), `bot.swingNearM`, `bot.swingFullM`, `bot.brakeFrac`, `bot.brakeMin`.
+  Far lines ride as before (vail-2 trial: 11 leads, every waypoint, no crashes, 15 to 57 s, pairs 4.9 to 11.4 m).
+- **The start backed up along the first leg**, which on a wiggly line points sideways: now along the line's direction
+  over its first 40 m (or quarter).
+- **Takes of different lines pass through each other** too: `check` lists pairs closer than 2.5 m while both are in
+  frame. On Vail's current set: 7 pairs (takes 1, 3, 4, 5, 14 against generated takes, and two between generated lines).
+- Drew: riders too far out to see are fine; the report says so but doesn't count it.
