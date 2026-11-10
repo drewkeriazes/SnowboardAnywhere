@@ -13,6 +13,10 @@ import { cellRect, barkRect, type UvRect } from './textures';
  *       the trunk so the crown shades as one volume.
  * LOD1: trunk + stacked star-edged cones or blobs (opaque, the dense foliage cell), the same bent
  *       normals; aspen keeps a few twig cards, which have nothing solid to stand in for them.
+ *
+ * FEAT-157: every vertex also carries `snowHold`, how much of the snow load it holds (0..1): most at
+ * the base of a branch and on a cone's upper side, less toward the tips (wind and sun take it), none
+ * under the cones or on the trunk. The tree shader (snow.ts) turns it into snow on the upper faces.
  */
 
 function rng(seed: number): () => number {
@@ -28,13 +32,17 @@ class Builder {
   readonly nor: number[] = [];
   readonly uv: number[] = [];
   readonly col: number[] = [];
+  readonly hold: number[] = [];
   readonly idx: number[] = [];
+  /** FEAT-157: the snow hold the next vertices get (times what `card` adds along the branch) */
+  holdK = 1;
   /** the crown's reference for the bent normals: radius and the height of its centre */
   normR = 0.15;
   normY = 0.5;
-  vert(x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number, c: THREE.Color, ao: number): number {
+  vert(x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number, c: THREE.Color, ao: number, hold = 1): number {
     const l = Math.hypot(nx, ny, nz) || 1;
     this.pos.push(x, y, z); this.nor.push(nx / l, ny / l, nz / l); this.uv.push(u, v); this.col.push(c.r * ao, c.g * ao, c.b * ao);
+    this.hold.push(this.holdK * hold);
     return this.pos.length / 3 - 1;
   }
   /** the soft crown normal: outward from the trunk, tilted up, the same for both LODs */
@@ -61,6 +69,7 @@ class Builder {
     g.setAttribute('normal', new THREE.BufferAttribute(n, 3));
     g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(this.uv), 2));
     g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(this.col), 3));
+    g.setAttribute('snowHold', new THREE.BufferAttribute(new Float32Array(this.hold), 1));
     g.setIndex(this.idx);
     g.computeBoundingSphere();
     g.computeBoundingBox();
@@ -69,6 +78,11 @@ class Builder {
 }
 
 interface Pt { x: number; y: number; z: number; r: number }
+
+/** FEAT-157: snow hold on bark (a thin line on the upper side of limbs at most) */
+const TUBE_HOLD = 0.2;
+/** the share of the hold a branch card keeps at its tip (it is full at the base) */
+const TIP_HOLD = 0.4;
 
 /** a tapered tube along a polyline; each segment maps the bark swatch once (it tiles up the trunk) */
 function tube(b: Builder, path: Pt[], sides: number, uv: UvRect, c: THREE.Color, ao: (y: number) => number, _segs = 1, close = false): void {
@@ -88,7 +102,7 @@ function tube(b: Builder, path: Pt[], sides: number, uv: UvRect, c: THREE.Color,
       for (let i = 0; i <= sides; i++) {
         const a = (i / sides) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
         const nx = px * ca + qx * sa, ny = py * ca + qy * sa, nz = pz * ca + qz * sa;
-        b.vert(p.x + nx * p.r, p.y + ny * p.r, p.z + nz * p.r, nx, ny, nz, lerp(uv.u0, uv.u1, i / sides), ring ? uv.v1 : uv.v0, c, ao(p.y));
+        b.vert(p.x + nx * p.r, p.y + ny * p.r, p.z + nz * p.r, nx, ny, nz, lerp(uv.u0, uv.u1, i / sides), ring ? uv.v1 : uv.v0, c, ao(p.y), TUBE_HOLD);
       }
     }
     for (let i = 0; i < sides; i++) {
@@ -98,7 +112,7 @@ function tube(b: Builder, path: Pt[], sides: number, uv: UvRect, c: THREE.Color,
   }
   if (close) { // a point cap at the end (a broken or pointed top)
     const e = path[path.length - 1];
-    const tip = b.vert(e.x, e.y + e.r * 1.5, e.z, 0, 1, 0, (uv.u0 + uv.u1) / 2, uv.v1, c, ao(e.y));
+    const tip = b.vert(e.x, e.y + e.r * 1.5, e.z, 0, 1, 0, (uv.u0 + uv.u1) / 2, uv.v1, c, ao(e.y), TUBE_HOLD);
     const ring0 = b.pos.length / 3 - 1 - (sides + 1);
     for (let i = 0; i < sides; i++) b.tri(ring0 + i, ring0 + i + 1, tip);
   }
@@ -132,7 +146,7 @@ function card(b: Builder, o: THREE.Vector3, dir: THREE.Vector3, len: number, wid
       const p = pts[s].clone().addScaledVector(side, sgn * w);
       const [nx, ny, nz] = b.bent(p.x, p.y, p.z);
       const u = lerp(uv.u0, uv.u1, t), v = flipV ? lerp(uv.v1, uv.v0, k) : lerp(uv.v0, uv.v1, k);
-      b.vert(p.x, p.y, p.z, nx, ny, nz, u, v, c, ao(p.x, p.y, p.z, t));
+      b.vert(p.x, p.y, p.z, nx, ny, nz, u, v, c, ao(p.x, p.y, p.z, t), 1 - (1 - TIP_HOLD) * t * t);
     }
   }
   for (let s = 0; s < segs; s++) {
@@ -152,10 +166,10 @@ function starCone(b: Builder, y0: number, top: number, r: number, points: number
     const a = rot + (i / n) * Math.PI * 2, rr = i % 2 ? r * 0.7 : r, yy = y0 - (i % 2 ? 0 : droop * r);
     const x = cx + Math.cos(a) * rr, z = cz + Math.sin(a) * rr;
     const [nx, ny, nz] = b.bent(x, yy, z);
-    b.vert(x, yy, z, nx, ny, nz, lerp(uv.u0, uv.u1, i / n), uv.v0, c, aoLo);
+    b.vert(x, yy, z, nx, ny, nz, lerp(uv.u0, uv.u1, i / n), uv.v0, c, aoLo, i % 2 ? 0.85 : TIP_HOLD + 0.1);
   }
   const hub = b.pos.length / 3;
-  b.vert(cx, y0 + (top - y0) * under, cz, 0, -1, 0, (uv.u0 + uv.u1) / 2, (uv.v0 + uv.v1) / 2, c, aoLo * 0.6);
+  b.vert(cx, y0 + (top - y0) * under, cz, 0, -1, 0, (uv.u0 + uv.u1) / 2, (uv.v0 + uv.v1) / 2, c, aoLo * 0.6, 0);
   for (let i = 0; i < n; i++) {
     const a = ring + i, bb = ring + ((i + 1) % n);
     b.tri(apex, bb, a); b.tri(hub, a, bb);
@@ -173,10 +187,10 @@ function blob(b: Builder, cx: number, cy: number, cz: number, r: number, hUp: nu
     const a = rot + (i / n) * Math.PI * 2, rr = i % 2 ? r * 0.75 : r;
     const x = cx + Math.cos(a) * rr, z = cz + Math.sin(a) * rr, y = cy - (i % 2 ? 0 : 0.15 * hDown);
     const [nx, ny, nz] = b.bent(x, y, z);
-    b.vert(x, y, z, nx, ny, nz, lerp(uv.u0, uv.u1, i / n), (uv.v0 + uv.v1) / 2, c, 0.85);
+    b.vert(x, y, z, nx, ny, nz, lerp(uv.u0, uv.u1, i / n), (uv.v0 + uv.v1) / 2, c, 0.85, 0.7);
   }
   const bot = b.pos.length / 3;
-  b.vert(cx, cy - hDown, cz, 0, -1, 0, (uv.u0 + uv.u1) / 2, uv.v0, c, 0.55);
+  b.vert(cx, cy - hDown, cz, 0, -1, 0, (uv.u0 + uv.u1) / 2, uv.v0, c, 0.55, 0);
   for (let i = 0; i < n; i++) {
     const a = ring + i, bb = ring + ((i + 1) % n);
     b.tri(top, bb, a); b.tri(bot, a, bb);
@@ -349,7 +363,9 @@ function lod0(plan: Plan, cellMean: number[], barkMean: number[]): Builder {
       const yy = yb + k * fillH * 0.62;
       const rr = R * profile(form, clamp01((yy + fillH * 0.5 - sp.crownBase) / (plan.crownTop - sp.crownBase))) * 0.9;
       tmpO.set(0, yy, 0); tmpD.set(0, 1, 0);
+      b.holdK = 0.35; // upright, inside the crown
       card(b, tmpO, tmpD, fillH * 1.1, rr * 1.6, az, 0, fillCell, tn.needle, () => 0.55, true);
+      b.holdK = 1;
     }
     // the leader (one or two), or a dead stub for a broken top
     const leaderCell = cellRect(sp.cells[0]);
@@ -359,7 +375,9 @@ function lod0(plan: Plan, cellMean: number[], barkMean: number[]): Builder {
         const lx = s * R * 0.12, lean = s * 0.25;
         for (let k = 0; k < 2; k++) {
           tmpO.set(lx, plan.crownTop - 0.07, 0); tmpD.set(Math.sin(lean), 1, 0);
+          b.holdK = 0.5; // the leader stands up out of it
           card(b, tmpO, tmpD, 0.1, R * 0.5, k * Math.PI / 2 + 0.3, 0, leaderCell, tn.needle, () => 1, true);
+          b.holdK = 1;
         }
       }
     } else if (plan.top === 'broken') {

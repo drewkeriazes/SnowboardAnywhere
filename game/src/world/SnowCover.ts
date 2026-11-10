@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { PLANE_SPEED } from '../sim/Rider';
+import { SNOW_ALBEDO } from './snowLook';
 
 /**
  * FEAT-152: the rider set down into loose snow. From BURY_FROM of loose snow (`rider.snow.depth`), all
@@ -64,8 +65,8 @@ export function buryShape(depth: number, speed: number, dig: number, half: numbe
   return out;
 }
 
-/** the snow-cover albedo: the terrain's typical snow (Tracks' SNOW_RGB, BUG-021) */
-const SNOW = [0.83, 0.86, 0.94];
+/** the snow-cover albedo: the terrain's typical snow (BUG-021) */
+const SNOW = SNOW_ALBEDO;
 /** the cover's edge: snow from EDGE_LO m below the surface, none from EDGE_HI above it, the noise moving it by up to +-EDGE_NOISE / 2 */
 const EDGE_LO = -0.02, EDGE_HI = 0.04, EDGE_NOISE = 0.06;
 
