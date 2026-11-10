@@ -1,5 +1,6 @@
 // Streaming and determinism check (FEAT-051): a straight tuck run from the spawn, ridden twice.
 // node tools/ridecheck.mjs [pack] [seconds] [--headed]   (run `npx vite build` first)
+// Each run starts with R held until the restart fires (BUG-071) and fails if the rider is not at the spawn.
 // Reports: top speed, physics steps that fell back to a coarser height set, terrain/mask tiles and
 // tree cells that arrived late (within LATE_M of the rider), and whether run 2 matches run 1 exactly.
 // Frames are stepped at a fixed 1/60 s in real-time batches so tile fetches race the rider as in play.
@@ -54,14 +55,47 @@ await page.evaluate((LATE_M) => {
   hook(s.pack.fine, 'fine'); hook(s.pack.mask, 'mask');
 }, LATE_M);
 
+async function fail(msg) {
+  console.log(`FAIL: ${msg}`);
+  await browser.close();
+  server.close();
+  process.exit(1);
+}
+
+// BUG-071: restart is a hold (RESTART_HOLD, 0.6 s, FEAT-124), so a tap does nothing. Step one frame
+// with R up first (the game only re-arms the hold once it has seen R released), then hold R and step
+// one frame at a time until the rider resets (its step count drops), and let go in that same frame,
+// so every restart ends on the same frame relative to the reset. Fails loudly if it never resets or
+// does not land on the spawn, so a change to restart can't quietly turn the replay check into a
+// comparison of two different rides again.
+async function restart(label) {
+  await page.evaluate(() => window.__step(1, 1 / 60));
+  await page.keyboard.down('KeyR');
+  const r = await page.evaluate(() => {
+    const w = window, s = w.__sim;
+    let prev = s.rider.steps;
+    for (let i = 1; i <= 120; i++) {
+      w.__step(1, 1 / 60);
+      if (s.rider.steps < prev) return { frames: i, x: s.rider.x, y: s.rider.y, spawn: s.map.spawnPos.slice() };
+      prev = s.rider.steps;
+    }
+    return { frames: -1, x: s.rider.x, y: s.rider.y, spawn: s.map.spawnPos.slice() };
+  });
+  await page.keyboard.up('KeyR');
+  if (r.frames < 0) await fail(`${label}: holding R for 2 s never restarted the run (rider at ${r.x.toFixed(1)}, ${r.y.toFixed(1)})`);
+  const off = Math.hypot(r.x - r.spawn[0], r.y - r.spawn[1]);
+  if (off > 0.5) await fail(`${label}: the restart put the rider ${off.toFixed(1)} m from the spawn (${r.x.toFixed(1)}, ${r.y.toFixed(1)} vs ${r.spawn[0].toFixed(1)}, ${r.spawn[1].toFixed(1)})`);
+  return r;
+}
+
 async function ride(label) {
   await page.evaluate(() => { const w = window; w.__late = []; w.__treeLate = 0; w.__t = -1; });
-  await page.keyboard.press('KeyR');
-  await page.evaluate(() => window.__step(1, 1 / 60));
+  await restart(label);
   // the restart frame resets to the spawn; let the area around it load as the game's start wait does
   await page.waitForTimeout(1500);
   // restart again now the spawn tiles are in, so both runs start on the same loaded data
-  await page.keyboard.press('KeyR');
+  const start = await restart(label);
+  console.log(`${label}: restarted at ${start.x.toFixed(1)}, ${start.y.toFixed(1)} after a ${(start.frames / 60).toFixed(2)} s hold`);
   await page.keyboard.down('ArrowUp');
   const track = [];
   const batches = Math.round(seconds * 4);
