@@ -58,6 +58,7 @@ CROWN_SIGMA = 10.0
 CROWN_LO, CROWN_HI = 0.05, 0.14
 STAND_MIN_R = 20.0
 # natural crown radius / height per species id, as game/src/world/trees/species.ts SPECIES[].radius
+# (tests/test_cover.py parses species.ts and fails if they drift apart)
 CROWN_RATIO = np.array([0.13, 0.17, 1.1, 0.1, 0.09, 0.17, 0.35, 0.05])
 HEIGHT_SIGMA = 3.0     # cells: canopy height is averaged over the forested cells around (it only lifts coarse chunks)
 WC_TREE, WC_BUILT, WC_BARE = 10, 50, 60
@@ -139,17 +140,25 @@ def tree_heights(pack_dir, meta, cell, w, h):
     return np.repeat(np.repeat(mean, k, 0), k, 1)[:h, :w]
 
 
+def crown_radii(species, height, crown):
+    """the crown radius (m) the client draws per record, as game/src/world/trees/species.ts: speciesFor (an id
+    outside the table draws as species 0) then crownRadius (the natural radius of the species times the
+    height, pulled 0.85..1.25x toward the crown in the record)"""
+    s = np.rint(species).astype(int)
+    sp = np.where((s >= 0) & (s < len(CROWN_RATIO)), s, 0)
+    nat = CROWN_RATIO[sp] * height
+    k = np.where((nat > 0) & (crown > 0), crown / np.maximum(nat, 1e-6), 1.0)
+    return nat * np.clip(k, 0.85, 1.25)
+
+
 def crown_area(pack_dir, meta, w, h):
     """BUG-069: the share of each PACK_RES cell over the pack bounds (row 0 = north) under the crowns the
-    client draws, unsmoothed (a cell can pass 1). Crown radii as game/src/world/trees/species.ts crownRadius:
-    the natural radius of the species times the height, pulled 0.85..1.25x toward the crown in the record."""
+    client draws, unsmoothed. Overlapping crowns are summed, so a cell can pass 1 and a clump reads a little
+    denser than the ground it shades; fine for weighting the cover, which saturates at CROWN_FULL anyway."""
     b = meta["bounds"]
     area = np.zeros((h, w), np.float64)
     for t in tree_records(pack_dir, meta):
-        sp = np.clip(np.rint(t[:, 5]).astype(int), 0, len(CROWN_RATIO) - 1)
-        nat = CROWN_RATIO[sp] * t[:, 3]
-        k = np.where((nat > 0) & (t[:, 4] > 0), t[:, 4] / np.maximum(nat, 1e-6), 1.0)
-        cr = nat * np.clip(k, 0.85, 1.25)
+        cr = crown_radii(t[:, 5], t[:, 3], t[:, 4])
         c = ((t[:, 0] - b["minX"]) / PACK_RES).astype(int); r = ((b["maxY"] - t[:, 1]) / PACK_RES).astype(int)
         ok = (c >= 0) & (c < w) & (r >= 0) & (r < h)
         np.add.at(area, (r[ok], c[ok]), np.pi * cr[ok] ** 2)
