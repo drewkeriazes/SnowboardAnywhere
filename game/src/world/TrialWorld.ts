@@ -3,6 +3,7 @@ import type { Pack } from '../pack/Pack';
 import { EDGE_FULL, type Rider } from '../sim/Rider';
 import { pointAt, type Course } from '../sim/Courses';
 import { OFF_COURSE, type GhostSample } from '../sim/TimeTrial';
+import { newSnowState } from '../sim/SnowConditions';
 import { RiderView } from './RiderView';
 
 /**
@@ -24,9 +25,10 @@ export class TrialWorld {
   private readonly gates = new Map<string, THREE.Group>();
   private readonly poleMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.5, metalness: 0.4 });
   /** the ghost as the rider view reads it. BUG-059: with the BUG-056 lead reads (no lead: the steer is
-   *  not recorded, as in a replay) and the fields the air and press poses read */
+   *  not recorded, as in a replay) and the fields the air and press poses read. BUG-068: with a groomed
+   *  snow state: the spray and the powder bury read `snow`, so the ghost sprays and sits as on a groomer */
   private readonly fake: Record<string, unknown> = { normal: [0, 0, 1], onGround: true, crashed: 0, hardCarve: 0, crashSide: 0, carveShort: 0, edgeAngle: 0, edge: 0, brakePsi: 0, jumpCharge: 0, landingShock: 0, lateralG: 0, skid: 0, brakeAmt: 0, brakeSide: 0, brakeAcc: 0, scrape: 0, slip: 0, speed: 0, vx: 0, vy: 0, airTime: 0,
-    lean: 0, flip: 0, flipRate: 0, squat: 0, turnRate: 0, switch: false, goofy: false,
+    lean: 0, flip: 0, flipRate: 0, squat: 0, turnRate: 0, switch: false, goofy: false, snow: newSnowState(), noseSink: 0,
     predictEdge(this: { edge: number }) { return this.edge; }, predictIncline: () => 0, predictLean: () => 0 };
   enabled = false;
   // boundary walls for the active course
