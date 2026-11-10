@@ -61,7 +61,6 @@ import { MapState } from '../states/MapState';
 /** FEAT-105: the New snow setting as a snow cover amount */
 const NEW_SNOW: Record<string, number> = { none: 0, dusting: 0.25, '6in': 0.6, powder: 1 };
 
-
 /** How a session starts: in the main menu (attract) or riding, with the loading screen when there is no menu over it. */
 export interface SessionOpts { menu: MainMenu | null; attract: boolean; loading: LoadingScreen | null; attractFiles: AttractManifest }
 
@@ -331,6 +330,8 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       if (!trialsOn()) trial.cancel('Free ride');
       refreshCourseFlags();
     };
+    /** back to the spawn point (the pause menu's Restart, the restart hold): Outrun and the trial end, the run's stats close */
+    const restartRun = () => { if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); runStats.end(); rider.reset(sx, sy, sh); cam.snapTo(rider); };
     // the pause menu closes itself before it calls this; each action starts from riding
     pause.onAction = (a, arg) => {
       states.go('riding');
@@ -343,7 +344,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
         setTrialMode(c.id);
         goToCourse(c);
       }
-      else if (a === 'restart') { if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); runStats.end(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
+      else if (a === 'restart') restartRun();
       else if (a === 'map') map.open();
       else if (a === 'outrunStart') { setTrialMode(''); startOutrun(); }
       else if (a === 'outrunStop') stopOutrun();
@@ -454,8 +455,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     states
       .add(new RidingState({
         controls, touch, cam, settings, rider, liftRide, outrun, trial, runs: world.runs, audio, map, frame, chase: () => chase, trialsOn, goToCourse, replayBlockedReason,
-        rewindWanted: () => rewind.wanted(),
-        restartRun: () => { if (outrun.active) stopOutrun(); liftRide.cancel(); trial.cancel('Restarted'); runStats.end(); rider.reset(sx, sy, sh); cam.snapTo(rider); },
+        rewindWanted: () => rewind.wanted(), restartRun,
       }, states))
       .add(rewind)
       .add(new PausedState({ controls, touch, pause, audio, fps, pauseInfo, draw }, states))
