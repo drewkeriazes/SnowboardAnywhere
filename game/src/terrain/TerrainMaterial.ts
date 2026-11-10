@@ -133,7 +133,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
      *  the share of the sun a sunlit canopy returns (shaded needles and crown sides), and how much of a
      *  forested pixel is timber rather than snow between the crowns. Tuned from 500 to 900 m up on Vail. */
     uForestDrawn: { value: 0.7 },
-    uCanopySun: { value: 0.3 },
+    uCanopySun: { value: 0.22 },
     uTimberMix: { value: 0.97 },
     /** FEAT-154: the rectangle (pack minX, minY, maxX, maxY) holding tree instances; none by default */
     uTreeRect: { value: EMPTY_RECT.clone() },
@@ -218,6 +218,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         vec2 covUV(vec2 p, vec4 r) { return vec2((p.x - r.x) / (r.z - r.x), (r.w - p.y) / (r.w - r.y)); }
         // BUG-069: G of a level is its forest under closed stands of drawn trees only, shown while single
         // trees read (to STAND_NEAR m); R, the forest as a mass, takes over by STAND_FAR
+        // a conifer's side silhouette over its plan area: in a slanted view tall trees close the gaps sooner
+        #define TREE_ASPECT 2.5
         #define STAND_NEAR 1200.0
         #define STAND_FAR 2800.0
         // forest share (x) blended finest over coarsest, and how much of it is data (y). All three are
@@ -414,7 +416,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float forestK = mix(smoothstep(FOREST_LO, FOREST_HI, vForest), smoothstep(0.1, 0.9, cov.x), covK);
         // FEAT-154: how much of this ground a viewer sees as canopy (a gap fraction). With a share s of the
         // ground under crowns, a sight line at cosine mu to the ground misses the crowns with probability
-        // (1 - s)^(1/mu): grazing views (from the snow) see a closed mass, views from above see the openings.
+        // (1 - s)^((1 + TREE_ASPECT sin) / mu): grazing views (from the snow) see a closed mass, views from above see the openings.
         // Inside the trees' reach the drawn trees already cover rho = uForestDrawn of the canopy, so the
         // ground adds only what they miss, 1 - ((1 - s) / (1 - rho s))^(1/mu); before this the ground went
         // grey under trees that were already drawn, so sparse stands in the bowls read as grey blobs from
@@ -426,7 +428,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float viewMu = clamp(dot(ngW, normalize(cameraPosition - wp)), 0.12, 1.0);
         float rho = uForestDrawn * treeHere * (1.0 - smoothstep(uLiftNear - 800.0, uLiftNear, dist));
         float sK = min(forestK, 0.999);
-        float seen = 1.0 - pow((1.0 - sK) / (1.0 - rho * sK), 1.0 / viewMu);
+        float seen = 1.0 - pow((1.0 - sK) / (1.0 - rho * sK), (1.0 + TREE_ASPECT * sqrt(1.0 - viewMu * viewMu)) / viewMu);
         float fd = mix(1.0, smoothstep(FOREST_NEAR, FOREST_FULL, dist), treeHere) * seen;
         fd *= 1.0 - uDebugFar.x;
         // FEAT-075: conifer canopy in sun is dark (shaded needles and crowns), dark green-black in the photos.
@@ -436,7 +438,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float crownK = 1.0 - smoothstep(1.0, 5.0, pixM);
         float crown = vnoise(wp * 0.17) * 0.65 + vnoise(wp * 0.47 + 2.3) * 0.35;
         float stand = vnoise(wp * 0.007 + 5.1);
-        vec3 timber = mix(vec3(0.03, 0.045, 0.035), vec3(0.08, 0.1, 0.075), mix(0.4, crown, crownK) * 0.75 + stand * 0.25);
+        vec3 timber = mix(vec3(0.016, 0.034, 0.036), vec3(0.04, 0.07, 0.066), mix(0.4, crown, crownK) * 0.75 + stand * 0.25);
         timber = mix(timber, snow * 0.8, smoothstep(0.62, 0.9, crown) * crownK * 0.6); // snowy gaps between crowns
         base = mix(base, timber, fd * uTimberMix);
         gSnowW = wSnow * (1.0 - fd);
