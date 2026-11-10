@@ -19,7 +19,7 @@
 # rendering for a runner; run them on Drew's PC and say so in the PR):
 #   need a real pack: lenscheck, outruncheck, snowcheck, treefadecheck, shoot_spots, aerial, views, treeperf
 #   too slow on SwiftShader (over 5 min each): see BROWSER_LOCAL below
-#   known failing on main, left out until fixed: mogulcheck (BUG-072, see MOGUL_BUG below)
+#   known failing on main, left out until fixed: mogulcheck (BUG-072, MOGUL_BUG below)
 #   no pass / fail exit code (they print numbers or save shots for a person to read): leancheck, rider, shoot,
 #   carveshot, brakeshot
 #
@@ -202,6 +202,8 @@ jobs:
           path: packs/synth
           key: ${{ needs.synth-pack.outputs.key }}
           fail-on-cache-miss: true
+      # the pack list a pipeline build writes; without it the game probes every resort and logs 404s
+      - run: echo '{"packs":["synth"]}' > ../packs/index.json
       - id: pw
         run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
@@ -243,14 +245,16 @@ jobs:
           path: packs/synth
           key: ${{ needs.synth-pack.outputs.key }}
           fail-on-cache-miss: true
+      - run: echo '{"packs":["synth"]}' > ../packs/index.json
       - run: npx playwright install --with-deps chromium
       - run: npx vite build
       - name: Survey
         run: |
-          for c in powdercheck padcheck menucheck leadcheck trailcheck statecheck treeshot; do
+          # powdercheck: over 420 s on the first survey, stays local
+          for c in padcheck menucheck leadcheck trailcheck statecheck treeshot; do
             arg=synth; [ "$c" = treeshot ] && arg=/tmp/trees
-            s=$SECONDS
-            timeout 420 node tools/$c.mjs $arg --cpu > "/tmp/$c.log" 2>&1; code=$?
+            s=$SECONDS; code=0
+            timeout 420 node tools/$c.mjs $arg --cpu > "/tmp/$c.log" 2>&1 || code=$?
             echo "SURVEY $c exit=$code secs=$((SECONDS - s))"
             tail -n 5 "/tmp/$c.log"
           done
@@ -320,6 +324,10 @@ jobs:
           path: packs/synth
           key: ${{ needs.synth-pack.outputs.key }}
           fail-on-cache-miss: true
+      - name: Pack lists
+        run: |
+          echo '{"packs":["synth"]}' > packs/index.json
+          echo '{"packs":["synth"]}' > "$MAIN_PACKS/index.json"
 
       - id: pw
         working-directory: game

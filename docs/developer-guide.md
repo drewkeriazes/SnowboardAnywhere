@@ -168,7 +168,7 @@ Typecheck before committing: `cd game && npx tsc --noEmit`.
 |---|---|---|
 | `typecheck-build` | `npx tsc --noEmit`, `npx vite build` | `game/` changed |
 | `physics-checks` | the Node-only check tools (`PHYSICS_CHECKS`: brakecheck, carvecheck, fakiecheck, fallcheck, hardcarvecheck, presscheck) | `game/` changed |
-| `browser-checks` | the headless check tools that pass on the synthetic pack under SwiftShader in minutes (`BROWSER_CHECKS`: switchcheck, glancecheck, hardposecheck) | `game/` or `pipeline/` changed |
+| `browser-checks` | the headless check tools that pass on the synthetic pack under SwiftShader in minutes (`BROWSER_CHECKS`: switchcheck, glancecheck, hardposecheck), with a `packs/index.json` listing only `synth` | `game/` or `pipeline/` changed |
 | `pipeline-tests` | `python -m pytest tests` in `pipeline/` | `pipeline/` changed |
 | `stills`, `stills-comment` | `main` and the PR built side by side, `cishot.mjs` on both (plus `shoot_attract.mjs` when the menu or its shots changed); `tools/ci/stills_report.py` posts one PR comment (updated on each push) with a pixel difference per still, the shader compile result, the scene budget counts against `main` and the gzipped JS size. Fails on a shader message, a page error, or a count more than 10% over `main` (with small floors, see `FLOORS` in the script). The comment's thumbnails live on the `ci-stills` branch (one force-pushed commit, a folder per PR; not a code branch) | PRs, `game/` or `pipeline/` changed |
 | `repo-rules` | `tools/ci/repo_rules.py`: fails on an em dash in a Markdown line the PR adds or a `Co-Authored-By` / session-link trailer in its commits; warns when it adds a URL parameter, changes a key binding or adds a `game/tools` script without touching `README.md` or this guide | PRs |
@@ -178,7 +178,7 @@ The synthetic pack is built once by the `synth-pack` job and cached on a hash of
 
 Stills differ a little from run to run where the chase camera settles (a percent or two on `01_spawn_chase`); the other views are exact. A large difference is only worth a look when the PR says it changes nothing visible.
 
-**Stays local** (needs a real pack or a real GPU, or is too slow on software rendering): the real-pack checks (`lenscheck`, `outruncheck`, `snowcheck`, `treefadecheck`, `shoot_spots`, `aerial`, `views`, `treeperf`), stills on Vail or Breckenridge, `perf-check` frame times, `--headed` runs, pack builds from raw data, and the browser checks listed as local in the workflow header. `mogulcheck` is out of CI until BUG-072 is fixed. Run what the change needs on Drew's PC with `--gpu` and say so in the PR.
+**Stays local** (needs a real pack or a real GPU, or is too slow on software rendering): the real-pack checks (`lenscheck`, `outruncheck`, `snowcheck`, `treefadecheck`, `shoot_spots`, `aerial`, `views`, `treeperf`), stills on Vail or Breckenridge, `perf-check` frame times, `--headed` runs, pack builds from raw data, and the browser checks listed as local in the workflow header. `mogulcheck` fails on `main` and is out of CI until BUG-072 is fixed. Run what the change needs on Drew's PC with `--gpu` and say so in the PR.
 
 **The review reads it.** `pr-review.yml` waits (up to 40 minutes) for the Checks run on the PR's head commit and writes `checks-summary.md` (each job's result, the end of each failed job's log, the stills comment); the reviewer (`.claude/agents/pr-reviewer.md`, "CI checks") treats a failed check as blocking.
 
