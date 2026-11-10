@@ -21,6 +21,8 @@ export class CoverLevel {
   private cres = 0;
   /** forest at full resolution, mipmapped: R from far off, G from near */
   texture: THREE.DataTexture | null = null;
+  /** FEAT-168: the texture's B holds where the drawn trees stand */
+  hasTrees = false;
 
   constructor(meta: CoverLevelMeta) {
     this.meta = meta;
@@ -48,9 +50,16 @@ export class CoverLevel {
         b2.close();
       } catch (e) { console.warn(`cover ${this.meta.stands} not loaded`, e); }
     }
-    const r = new Uint8Array(w * h * 2);
-    for (let i = 0; i < w * h; i++) { r[i * 2] = px[i * 4]; r[i * 2 + 1] = near ? near[i * 4] : px[i * 4]; }
-    const tex = new THREE.DataTexture(r, w, h, THREE.RGFormat, THREE.UnsignedByteType);
+    // FEAT-168: with `crowns`, B = where the drawn trees stand (their shadows on the snow), in an RGBA texture
+    const trees = near && this.meta.crowns ? near : null;
+    const n = trees ? 4 : 2;
+    const r = new Uint8Array(w * h * n);
+    for (let i = 0; i < w * h; i++) {
+      r[i * n] = px[i * 4]; r[i * n + 1] = near ? near[i * 4] : px[i * 4];
+      if (trees) { r[i * n + 2] = trees[i * 4 + 1]; r[i * n + 3] = 255; }
+    }
+    this.hasTrees = !!trees;
+    const tex = new THREE.DataTexture(r, w, h, trees ? THREE.RGBAFormat : THREE.RGFormat, THREE.UnsignedByteType);
     tex.minFilter = THREE.LinearMipmapLinearFilter;
     tex.magFilter = THREE.LinearFilter;
     tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;

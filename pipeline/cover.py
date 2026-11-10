@@ -57,6 +57,8 @@ CROWN_FULL = 0.2
 CROWN_SIGMA = 10.0
 CROWN_LO, CROWN_HI = 0.05, 0.14
 STAND_MIN_R = 20.0
+# FEAT-168: the tree height (m) the shader's shadow length stands for (TerrainMaterial TREE_SHADOW_H)
+SHADOW_H = 12.0
 # natural crown radius / height per species id, as game/src/world/trees/species.ts SPECIES[].radius
 CROWN_RATIO = np.array([0.13, 0.17, 1.1, 0.1, 0.09, 0.17, 0.35, 0.05])
 HEIGHT_SIGMA = 3.0     # cells: canopy height is averaged over the forested cells around (it only lifts coarse chunks)
@@ -142,9 +144,11 @@ def tree_heights(pack_dir, meta, cell, w, h):
 def crown_area(pack_dir, meta, w, h):
     """BUG-069: the share of each PACK_RES cell over the pack bounds (row 0 = north) under the crowns the
     client draws, unsmoothed (a cell can pass 1). Crown radii as game/src/world/trees/species.ts crownRadius:
-    the natural radius of the species times the height, pulled 0.85..1.25x toward the crown in the record."""
+    the natural radius of the species times the height, pulled 0.85..1.25x toward the crown in the record.
+    Also returns the same raster with each tree weighted by its height over SHADOW_H (FEAT-168: what throws a
+    shadow of the length the shader assumes; krummholz mats throw next to none)."""
     b = meta["bounds"]
-    area = np.zeros((h, w), np.float64)
+    area = np.zeros((h, w), np.float64); shade = np.zeros((h, w), np.float64)
     for t in tree_records(pack_dir, meta):
         sp = np.clip(np.rint(t[:, 5]).astype(int), 0, len(CROWN_RATIO) - 1)
         nat = CROWN_RATIO[sp] * t[:, 3]
@@ -152,8 +156,10 @@ def crown_area(pack_dir, meta, w, h):
         cr = nat * np.clip(k, 0.85, 1.25)
         c = ((t[:, 0] - b["minX"]) / PACK_RES).astype(int); r = ((b["maxY"] - t[:, 1]) / PACK_RES).astype(int)
         ok = (c >= 0) & (c < w) & (r >= 0) & (r < h)
-        np.add.at(area, (r[ok], c[ok]), np.pi * cr[ok] ** 2)
-    return (area / PACK_RES ** 2).astype(np.float32)
+        a = np.pi * cr[ok] ** 2
+        np.add.at(area, (r[ok], c[ok]), a)
+        np.add.at(shade, (r[ok], c[ok]), a * np.clip(t[ok, 3] / SHADOW_H, 0, 1.5))
+    return (area / PACK_RES ** 2).astype(np.float32), (shade / PACK_RES ** 2).astype(np.float32)
 
 
 def closed_stand(crowns):
@@ -196,7 +202,7 @@ def pack_level(pack_dir, meta, runs, log=print):
     log(f"  pack cover {w} x {h} at {PACK_RES:g} m: forest {forest.mean()*100:.1f}%, "
         f"runs clear {(forest * burn).sum() / max(forest.sum(), 1) * 100:.1f}% of it")
     forest *= 1 - burn
-    crowns = crown_area(pack_dir, meta, w, h)
+    crowns, shade = crown_area(pack_dir, meta, w, h)
     stands = None
     if crowns.any():   # a pack without tree instances keeps its canopy (the ground then carries the forest)
         from scipy import ndimage
@@ -209,7 +215,9 @@ def pack_level(pack_dir, meta, runs, log=print):
     lv = write_level(pack_dir, "pack", to_rgba(forest, height, rock, np.zeros_like(forest)), PACK_RES, b["minX"], b["minY"])
     if stands is not None:
         lv["stands"] = "cover/pack-stands.png"
-        Image.fromarray((np.clip(stands, 0, 1) * 255 + 0.5).astype(np.uint8), "L").save(os.path.join(pack_dir, lv["stands"]), optimize=True)
+        lv["crowns"] = True   # FEAT-168: G of the stands image is where the drawn trees stand, for their shadows
+        img = np.stack([stands, shade, np.zeros_like(stands)], axis=-1)
+        Image.fromarray((np.clip(img, 0, 1) * 255 + 0.5).astype(np.uint8), "RGB").save(os.path.join(pack_dir, lv["stands"]), optimize=True)
     return lv
 
 

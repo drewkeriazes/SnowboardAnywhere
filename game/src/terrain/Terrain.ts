@@ -119,6 +119,12 @@ export class Terrain {
       u.uCovRect.value[i].set(...loaded[i].rect);
     }
     u.uCovBlend.value = cover.meta.blend;
+    // FEAT-168: the level that knows where the drawn trees stand, for their shadows past the shadow map
+    const trees = loaded.find((l) => l.hasTrees);
+    if (trees) {
+      u.uTreeMap.value = trees.texture!;
+      (u.uTreeMapRect as unknown as { value: THREE.Vector4 }).value.set(...trees.rect);
+    }
     for (const c of this.chunks.values()) if (c.mesh && c.res > 8) this.dirty.add(c.key);
   }
 
