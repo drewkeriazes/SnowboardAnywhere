@@ -50,6 +50,7 @@ import { PAD } from '../sim/Pad';
 import { padFx } from '../sim/PadFeedback';
 import { stickGlyph } from '../ui/PadGlyphs';
 import { Modes } from '../modes/Modes';
+import type { RideFrame } from '../modes/RideMode';
 import { OutrunUI } from '../ui/OutrunUI';
 
 /** FEAT-105: the New snow setting as a snow cover amount */
@@ -59,6 +60,9 @@ const SKIED_BASE: Record<string, number> = { fresh: 0.15, mid: 0.9, spring: 0.7 
 
 
 /** How a session starts: in the main menu (attract) or riding, with the loading screen when there is no menu over it. */
+/** one reusable frame object for modes.update (mutable twin of RideFrame, so the riding loop allocates nothing) */
+const rideFrame: { -readonly [K in keyof RideFrame]: RideFrame[K] } = { dt: 0, tuck: false, onLift: false, frozen: false, elapsed: 0 };
+
 export interface SessionOpts { menu: MainMenu | null; attract: boolean; loading: LoadingScreen | null; attractFiles: AttractManifest }
 
 /** One resort loaded and playable: its scene, the rider, the menus over it. */
@@ -632,7 +636,8 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       bootprints.update(dt); bigprints.update(dt); puffs.update(dt);
       rider.restoreSimPose();
       // ---- FEAT-164: the modes (Outrun's chase and eat, the trial gates) and their HUDs
-      modes.update({ dt, tuck: input.tuck, onLift, frozen, elapsed });
+      rideFrame.dt = dt; rideFrame.tuck = input.tuck; rideFrame.onLift = onLift; rideFrame.frozen = frozen; rideFrame.elapsed = elapsed;
+      modes.update(rideFrame);
       audio.update(rider, input.tuck, onLift, dt, liftRide.passedTower);
       rider.lastHit = '';
       rider.applyRenderPose();
