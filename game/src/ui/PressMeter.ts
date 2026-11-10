@@ -38,7 +38,8 @@ export class PressMeter {
 
   constructor() {
     this.root = document.createElement('div');
-    this.root.style.cssText = `position:fixed;left:0;top:0;width:${W * SCALE}px;height:${H * SCALE}px;pointer-events:none;z-index:6;opacity:0;transition:opacity .2s;will-change:transform;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))`;
+    this.root.className = 'press-meter'; // hud.css
+    this.root.style.width = `${W * SCALE}px`; this.root.style.height = `${H * SCALE}px`;
     const svg = el('svg', { width: W * SCALE, height: H * SCALE, viewBox: `0 0 ${W} ${H}` });
     svg.appendChild(el('path', { d: arc(-1, 1, R), stroke: 'rgba(0,0,0,.6)', 'stroke-width': 14, fill: 'none', 'stroke-linecap': 'round' }));
     for (const [a, b, c] of ZONES) svg.appendChild(el('path', { d: arc(a, b, R), stroke: c, 'stroke-width': 9, fill: 'none' }));
@@ -90,6 +91,9 @@ export class PressMeter {
     if (pressing || this.shown) this.root.style.transform = `translate(${(x - (CX + 0.8 * R) * SCALE).toFixed(0)}px, ${(y - H * SCALE).toFixed(0)}px)`;
     if (pressing !== this.shown) { this.shown = pressing; this.root.style.opacity = pressing ? '1' : '0'; }
   }
+
+  /** shown, or still fading out (the session keeps placing it over the head until then) */
+  get visible(): boolean { return this.shown; }
 
   dispose(): void { this.root.remove(); }
 }

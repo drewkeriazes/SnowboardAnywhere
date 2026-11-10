@@ -42,6 +42,7 @@ import { warmUp as warmUpWorld } from './warmUp';
 import { saveShot as saveShotFile, saveTake as saveTakeFile } from './devSaves';
 import { buildWorld } from './World';
 import { mountLeadTunePanel } from '../ui/LeadTunePanel';
+import { RestartRing } from '../ui/RestartRing';
 import { installSimDebug } from '../core/debugHooks';
 import type { GameContext } from '../core/GameContext';
 import { padFx } from '../sim/PadFeedback';
@@ -367,10 +368,11 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       modes, map, labels, sun, auto, keyLabels, pressMeter, fps, sky, look, applyAuto, draw, showToast, saveShot,
     });
     if (settings.keysNote) { frame.boardNote = 'New default key layout available: Settings > Controls > Reset keys'; settings.keysNote = false; saveSettings(settings); }
+    const restartRing = new RestartRing();
     const rewind = new RewindState({ controls, touch, rider, liftRide, modes, replay, pack, frame, rewindTo }, states);
     states
       .add(new RidingState({
-        controls, touch, cam, settings, rider, liftRide, modes, runs: world.runs, audio, map, frame, replayBlockedReason,
+        controls, touch, cam, settings, rider, liftRide, modes, runs: world.runs, audio, map, frame, ring: restartRing, replayBlockedReason,
         rewindWanted: () => rewind.wanted(), restartRun,
       }, states))
       .add(rewind)
@@ -396,7 +398,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       trialWorld.dispose();
       modes.dispose();
       padFx.stop();
-      runCard.dispose(); speedLines.dispose(); pressMeter.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
+      runCard.dispose(); speedLines.dispose(); pressMeter.dispose(); restartRing.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
       disconnectSources(); events.clear(); // FEAT-163
       frame.clear();
       goggles.destroy();

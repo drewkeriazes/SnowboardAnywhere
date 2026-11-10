@@ -1,6 +1,7 @@
 import type { Controls } from '../sim/Controls';
 import type { Rider } from '../sim/Rider';
 import type { LiftRide } from '../sim/LiftRide';
+import type { LiftRuntime } from '../world/Lifts';
 import type { Modes } from '../modes/Modes';
 import type { Replay, ReplaySample } from '../sim/Replay';
 import type { Pack } from '../pack/Pack';
@@ -9,7 +10,7 @@ import type { FramePlan, RideFrame } from './RideFrame';
 import { backPressed, type GameState, type GameStates } from './GameState';
 
 export interface RewindParts {
-  controls: Controls; touch: TouchControls | null; rider: Rider; liftRide: LiftRide; modes: Modes; replay: Replay; pack: Pack; frame: RideFrame;
+  controls: Controls; touch: TouchControls | null; rider: Rider; liftRide: LiftRide<LiftRuntime>; modes: Modes; replay: Replay; pack: Pack; frame: RideFrame;
   /** back on the snow at a recorded moment; the recording carries on from there */
   rewindTo(s: ReplaySample): void;
 }

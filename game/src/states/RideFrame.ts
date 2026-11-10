@@ -11,6 +11,7 @@ import type { Events } from '../core/Events';
 import type { Input, Rider } from '../sim/Rider';
 import type { Controls } from '../sim/Controls';
 import type { LiftRide } from '../sim/LiftRide';
+import type { LiftRuntime } from '../world/Lifts';
 import type { Prefetch } from '../sim/Prefetch';
 import type { RunStats } from '../sim/RunStats';
 import type { Replay } from '../sim/Replay';
@@ -82,7 +83,7 @@ export interface SkyState { weather: CloudCover; snowCover: number }
 /** Everything the frame reads or drives, handed in by the session. */
 export interface RideParts extends World {
   params: Params; settings: Settings; pack: Pack; renderer: THREE.WebGLRenderer; canvas: HTMLCanvasElement; audio: GameAudio; events: Events;
-  rider: Rider; liftRide: LiftRide; prefetch: Prefetch; cam: ChaseCamera; controls: Controls; touch: TouchControls | null;
+  rider: Rider; liftRide: LiftRide<LiftRuntime>; prefetch: Prefetch; cam: ChaseCamera; controls: Controls; touch: TouchControls | null;
   goggles: GoggleView; lens: GoggleLens; runStats: RunStats; runCard: RunCard; speedLines: SpeedLines; replay: Replay;
   /** FEAT-164: Free ride, Time trial, Outrun */
   modes: Modes; map: ResortMap; labels: Labels; sun: SunClock;
@@ -268,7 +269,7 @@ export class RideFrame {
       const on = rider.pressing && !plan.replay && !detached && !eat.active;
       let px = -999, py = -999;
       if (on && cam.firstPerson) { px = window.innerWidth * 0.5; py = window.innerHeight * 0.78; }
-      else if (on || pressMeter.root.style.opacity !== '0') {
+      else if (on || pressMeter.visible) {
         riderView.eye(this.pressHead); this.pressHead.y += 0.4; this.pressHead.project(cam.camera);
         if (this.pressHead.z < 1) { px = (this.pressHead.x + 1) / 2 * window.innerWidth; py = (1 - this.pressHead.y) / 2 * window.innerHeight; }
       }

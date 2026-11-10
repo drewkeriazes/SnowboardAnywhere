@@ -1,6 +1,7 @@
 import type { PauseMode } from '../ui/PauseMenu';
 import type { Rider } from '../sim/Rider';
 import type { LiftRide } from '../sim/LiftRide';
+import type { LiftRuntime } from '../world/Lifts';
 import type { ChaseCamera } from '../world/ChaseCamera';
 import type { ResortMap } from '../ui/ResortMap';
 import type { KeyLabels } from '../ui/KeyLabels';
@@ -34,7 +35,7 @@ export interface ModeFrame {
 /** The session's riding pieces the modes use. */
 export interface RideDeps {
   readonly rider: Rider;
-  readonly liftRide: LiftRide;
+  readonly liftRide: LiftRide<LiftRuntime>;
   readonly cam: ChaseCamera;
   readonly map: ResortMap;
   readonly keyLabels: KeyLabels;
