@@ -182,6 +182,15 @@ body.paused #hud, body.paused #help, body.paused #prompt { visibility: hidden; }
 #pause .qrow .ctl { flex: 0 0 calc(220px * var(--ui-scale)); display: flex; align-items: center; gap: var(--sp-2); }
 #pause .qrow .pv { flex: 1; text-align: center; font: 600 var(--fs-md) var(--font-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #pause .qrow.nav-focus { box-shadow: inset 0 0 0 2px var(--accent); background-color: var(--accent-wash); background-image: none; }
+/* FEAT-169: Weather heads a group; its snow rows sit indented under it when open */
+#pause .qhead .lbl { min-width: 0; }
+#pause .qhead .chev { display: inline-block; width: 1em; margin-left: var(--sp-1); text-align: center; color: var(--dim); line-height: 1; transition: transform var(--t-focus); }
+#pause .qgroup.open .qhead .chev { transform: rotate(90deg); color: var(--text); }
+#pause .qhead .sum { display: block; font-size: var(--fs-xs); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#pause .qhead .sum:empty { display: none; }
+#pause .qsub { margin-left: calc(var(--sp-3) + .5em); padding-left: var(--sp-2); border-left: 1px solid var(--line); }
+#pause .qsub .qrow .lbl { font-size: var(--fs-sm); color: var(--dim); }
+#pause .qsub .qrow.nav-focus .lbl { color: var(--text); }
 #pause button.arr { width: calc(32px * var(--ui-scale)); min-height: calc(32px * var(--ui-scale)); height: calc(32px * var(--ui-scale)); flex: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: transparent; text-align: center; font: 400 var(--fs-xl) / 1 var(--font-body); }
 #pause .foot { margin-top: auto; padding-top: var(--sp-4); display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
 #pause .foot .hintbar { margin: 0; }

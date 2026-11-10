@@ -24,7 +24,11 @@ export interface PauseInfo {
 
 /** the quick toggles: rows from the settings table, changed with left / right in place */
 const QUICK = ['camera', 'clouds', 'timeOfDay', 'playlist'];
-const QUICK_LABEL: Record<string, string> = { camera: 'Camera', clouds: 'Weather', timeOfDay: 'Time of day', playlist: 'Music' };
+/** FEAT-169: the rows nested under Weather (Settings > Conditions), shown when the group is open */
+const WEATHER_SUB = ['snowDay', 'newSnow', 'valleyFog'];
+const QUICK_LABEL: Record<string, string> = { camera: 'Camera', clouds: 'Weather', timeOfDay: 'Time of day', playlist: 'Music', snowDay: 'Snow', newSnow: 'New snow', valleyFog: 'Valley fog' };
+/** the Weather group's open state, kept for the session (the page), not saved */
+let weatherOpen = false;
 const OUTRUN_ROWS = ['outrun.difficulty', 'outrun.escape', 'outrun.gentle'];
 const MODES: { id: PauseMode['kind']; label: string }[] = [{ id: 'free', label: 'Free ride' }, { id: 'trial', label: 'Time trial' }, { id: 'outrun', label: 'Outrun' }];
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -33,7 +37,8 @@ const clock = (t: number) => { const m = Math.floor(t / 60), s = t - m * 60; ret
 /**
  * FEAT-128 pause menu (layout B): one column on the left over the live game, the right half left clear.
  * The place you are and this run's stats on top; Resume, Restart, Map, Mode, Replay, Settings; quick
- * toggles for the camera, weather, time of day and music under them (left / right change them at once);
+ * toggles for the camera, weather, time of day and music under them (left / right change them at once;
+ * Weather opens to the snow, new snow and valley fog rows under it, FEAT-169);
  * Quit to main menu in the hint bar, pressed twice. Mode opens its own screen: Free ride, a time trial
  * course, or Outrun with its options. B / Esc resumes.
  */
@@ -54,7 +59,10 @@ export class PauseMenu {
   constructor(private readonly settings: Settings, private readonly onChange: (s: Settings, what: string) => void, private readonly extras: { fps?: () => number; credits?: () => Credit[] } = {}) {
     this.el = document.createElement('div');
     this.el.id = 'pause';
-    const pick = (id: string, label: string) => `<div class="qrow" data-q="${id}" data-nav tabindex="-1"><span class="lbl">${label}</span><span class="ctl"><button class="arr" data-d="-1" data-nav="skip" tabindex="-1" aria-label="Previous">&#8249;</button><span class="pv"></span><button class="arr" data-d="1" data-nav="skip" tabindex="-1" aria-label="Next">&#8250;</button></span></div>`;
+    const pick = (id: string, label: string, lbl = label) => `<div class="qrow" data-q="${id}" data-nav tabindex="-1"><span class="lbl">${lbl}</span><span class="ctl"><button class="arr" data-d="-1" data-nav="skip" tabindex="-1" aria-label="Previous ${label}">&#8249;</button><span class="pv"></span><button class="arr" data-d="1" data-nav="skip" tabindex="-1" aria-label="Next ${label}">&#8250;</button></span></div>`;
+    // Weather heads a group: its label opens the snow rows under it, the arrows still change the sky
+    const quick = (q: string) => q !== 'clouds' ? pick(q, QUICK_LABEL[q])
+      : `<div class="qgroup">${pick(q, QUICK_LABEL[q], `<span class="qname">${QUICK_LABEL[q]}<span class="chev" aria-hidden="true">&#8250;</span></span><span class="sum"></span>`).replace('class="qrow"', 'class="qrow qhead" aria-expanded="false"')}<div class="qsub" hidden>${WEATHER_SUB.map((r) => pick(r, QUICK_LABEL[r])).join('')}</div></div>`;
     this.el.innerHTML = `
       <div class="col">
         <header class="head">
@@ -71,7 +79,7 @@ export class PauseMenu {
             <button data-a="replay">Replay<span class="v" data-v="replay"></span></button>
             <button data-a="settings">Settings</button>
           </nav>
-          <div class="quick"><div class="sh">Quick</div>${QUICK.map((q) => pick(q, QUICK_LABEL[q])).join('')}</div>
+          <div class="quick"><div class="sh">Quick</div>${QUICK.map(quick).join('')}</div>
           <div class="ds-connect" style="display:none"><button data-ds-connect>Turn on DualSense rumble and lightbar</button><div class="hint ds-status">Click it with the mouse and pick the controller (once: it reconnects by itself after that).</div></div>
         </div>
         <div class="modep" hidden>
@@ -93,22 +101,33 @@ export class PauseMenu {
     this.el.querySelectorAll<HTMLButtonElement>('.list button[data-a], .foot button[data-a]').forEach((b) => b.addEventListener('click', () => this.press(b.dataset.a!)));
     this.el.querySelectorAll<HTMLElement>('.qrow').forEach((q) => q.addEventListener('click', (e) => {
       const arr = (e.target as HTMLElement).closest<HTMLButtonElement>('button.arr');
-      this.cycle(q, arr ? Number(arr.dataset.d) : 1, !arr);
+      if (!arr && q.matches('.qhead')) this.setWeather(!weatherOpen, false);
+      else this.cycle(q, arr ? Number(arr.dataset.d) : 1, !arr);
     }));
     this.modeEl.querySelectorAll<HTMLButtonElement>('.tabs button').forEach((b) => b.addEventListener('click', () => this.showMode(b.dataset.m as PauseMode['kind'], false)));
     this.modeEl.querySelectorAll<HTMLButtonElement>('button[data-go]').forEach((b) => b.addEventListener('click', () => this.go(b.dataset.go as PauseAction)));
 
     const rowIntent = (s: () => Screen) => (i: string): boolean => {
       const f = s().focused;
-      if ((i === 'left' || i === 'right') && f?.matches('.qrow')) { this.cycle(f, i === 'left' ? -1 : 1, false); return true; }
-      if (i === 'select' && f?.matches('.qrow')) { this.cycle(f, 1, true); return true; }
+      if (!f?.matches('.qrow')) return false;
+      if (i === 'left' || i === 'right') {
+        const d = i === 'left' ? -1 : 1;
+        if (this.cycle(f, d, false)) return true;
+        // past the end of the row: right on Weather opens its rows, left on a nested one closes them
+        if (d > 0 && f.matches('.qhead') && !weatherOpen) this.setWeather(true, false);
+        else if (d < 0 && f.closest('.qsub')) this.setWeather(false, true);
+        return true;
+      }
+      if (i === 'select') { if (f.matches('.qhead')) this.setWeather(!weatherOpen, false); else this.cycle(f, 1, true); return true; }
       return false;
     };
     this.screen = new Screen(this.el.querySelector('.col')!, {
       primary: () => this.el.querySelector<HTMLElement>('button[data-a="resume"]'),
-      onBack: () => this.go('resume'),
+      // B / Esc inside the open Weather group closes it onto Weather; anywhere else it resumes
+      onBack: () => { if (this.inWeather()) this.setWeather(false, true); else this.go('resume'); },
       onIntent: (i, down) => down && rowIntent(() => this.screen)(i),
       onInputKind: () => this.hints(),
+      onFocus: () => this.hints(),
     });
     this.modeScreen = new Screen(this.modeEl, {
       // the tab's action first (Start the chase, the course you are on), then its first item
@@ -123,6 +142,7 @@ export class PauseMenu {
       },
       onInputKind: () => this.hints(),
     });
+    this.setWeather(weatherOpen, false);
   }
 
   // ---------------------------------------------------------------- the menu
@@ -147,33 +167,59 @@ export class PauseMenu {
     this.onAction?.(a, arg);
   }
 
-  /** a quick toggle or Outrun option: one step left or right (A / click wraps round) */
-  private cycle(q: HTMLElement, d: number, wrap: boolean): void {
+  /** a quick toggle or Outrun option: one step left or right (A / click wraps round); false when it was already at the end */
+  private cycle(q: HTMLElement, d: number, wrap: boolean): boolean {
     const r = rowById(q.dataset.q!);
-    if (!r || !('get' in r)) return;
+    if (!r || !('get' in r)) return false;
     if (r.kind === 'toggle') r.set(this.settings, !r.get(this.settings));
     else if ('opts' in r) {
       const opts = optsOf(r, this.settings);
       const i = opts.findIndex(([o]) => String(o) === String(r.get(this.settings)));
       const j = wrap ? (i + d + opts.length) % opts.length : Math.max(0, Math.min(opts.length - 1, i + d));
-      if (j === i) return;
+      if (j === i) return false;
       r.set(this.settings, opts[j][0]);
-    } else return;
+    } else return false;
     saveSettings(this.settings);
     this.onChange(this.settings, r.what ?? r.id);
     this.fillRows();
+    return true;
+  }
+  /** a row's value as Settings shows it ('' for a row without one) */
+  private shown(id: string): string {
+    const r = rowById(id) as Row & { get: (s: Settings) => string | number | boolean };
+    const v = r.get(this.settings);
+    if (r.kind === 'toggle') return v ? 'On' : 'Off';
+    if (!('opts' in r)) return '';
+    const opts = optsOf(r, this.settings);
+    const i = opts.findIndex(([o]) => String(o) === String(v));
+    return i >= 0 ? opts[i][1] : String(v);
   }
   private fillRows(): void {
     this.el.querySelectorAll<HTMLElement>('.qrow').forEach((q) => {
-      const r = rowById(q.dataset.q!) as Row & { get: (s: Settings) => string | number | boolean };
-      const v = r.get(this.settings);
-      const pv = q.querySelector<HTMLElement>('.pv')!;
-      if (r.kind === 'toggle') { pv.textContent = v ? 'On' : 'Off'; return; }
-      if (!('opts' in r)) return;
-      const opts = optsOf(r, this.settings);
-      const i = opts.findIndex(([o]) => String(o) === String(v));
-      pv.textContent = i >= 0 ? opts[i][1] : String(v);
+      const t = this.shown(q.dataset.q!);
+      if (t) q.querySelector<HTMLElement>('.pv')!.textContent = t;
     });
+    // closed, Weather names the snow under it: "Fresh · 6 in · Valley fog" (no new snow and no fog say nothing)
+    const s = this.settings;
+    const sum = [this.shown('snowDay'), s.newSnow && s.newSnow !== 'none' ? this.shown('newSnow') : '', s.valleyFog ? QUICK_LABEL.valleyFog : ''].filter(Boolean).join(' · ');
+    this.el.querySelector<HTMLElement>('.qhead .sum')!.textContent = weatherOpen ? '' : sum;
+  }
+
+  // ---------------------------------------------------------------- the Weather group (FEAT-169)
+  private setWeather(open: boolean, focusHead: boolean): void {
+    weatherOpen = open;
+    const head = this.el.querySelector<HTMLElement>('.qhead')!;
+    head.setAttribute('aria-expanded', String(open));
+    head.parentElement!.classList.toggle('open', open);
+    this.el.querySelector<HTMLElement>('.qsub')!.hidden = !open;
+    if (focusHead) this.screen.focus(head);
+    this.fillRows();
+    if (this.open) this.hints();
+  }
+  /** the focus is on the open Weather group (its head or a row under it) */
+  private inWeather(): boolean {
+    const f = this.screen.focused;
+    return weatherOpen && !!f?.closest('.qgroup');
   }
 
   // ---------------------------------------------------------------- Mode
@@ -236,7 +282,7 @@ export class PauseMenu {
 
   private hints(): void {
     const h: Hint[] = [['select', 'Select'], ['move', 'Move'], ['adjust', 'Change']];
-    if (!this.modeEl.hidden) h.push(['cat', 'Mode'], ['back', 'Back']); else h.push(['back', 'Resume']);
+    if (!this.modeEl.hidden) h.push(['cat', 'Mode'], ['back', 'Back']); else h.push(['back', this.inWeather() ? 'Close' : 'Resume']);
     renderHints(this.hintEl, h, lastInputKind());
   }
 
