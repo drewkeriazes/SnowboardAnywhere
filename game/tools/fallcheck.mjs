@@ -177,6 +177,15 @@ check('off: a flat board traverses on rails as before', off30.toFall > 85 && Mat
     }
     return { crashed: r.crashed > 0, t, side: r.crashSide, toFall: Math.abs(wrap(r.heading)) / D, speed: r.speed };
   };
+  // the same on a keyboard: the traverse held by short taps on the uphill edge (0.1 s on, 0.25 s off) for 1.5 s, then the downhill edge
+  const tapped = (() => {
+    const r = start(25, 10, EAST, 1), inp = input();
+    let t = 0;
+    while (t < 3.5 && r.crashed <= 0) { inp.steer = t < 1.5 ? ((t % 0.35) < 0.1 ? 1 : 0) : -1; r.update(DT, inp); t += DT; }
+    return { crashed: r.crashed > 0, t, toFall: Math.abs(wrap(r.heading)) / D };
+  })();
+  console.log(`keyboard traverse on 25 deg at 10 m/s (uphill taps for 1.5 s), then the downhill edge: ${tapped.crashed ? `slams ${(tapped.t - 1.5).toFixed(2)} s after` : `no crash, ${tapped.toFall.toFixed(0)} deg from the fall line`}`);
+  check('a keyboard traverse (taps on the uphill edge) then the downhill edge is a slam too', tapped.crashed && tapped.t - 1.5 < 0.4, tapped.crashed ? `${(tapped.t - 1.5).toFixed(2)} s` : 'no crash');
   const forced = force(30, 10, 1, false), forcedFast = force(25, 14, 1, false), patient = force(30, 10, 1, true), forcedAssist = force(30, 10, 0.5, false), gentle = force(10, 10, 1, false);
   console.log(`downhill edge out of a 10 m/s traverse: forced on 30 deg ${forced.crashed ? `slams ${(forced.t - 1).toFixed(2)} s after the steer (side ${forced.side})` : 'no crash'}, 25 deg at 14 m/s ${forcedFast.crashed ? 'slams' : 'no crash'}; flat until the nose comes round, then the edge: ${patient.crashed ? 'slams' : `rides away, ${patient.toFall.toFixed(0)} deg from the fall line, ${patient.speed.toFixed(1)} m/s`}; assisted ${forcedAssist.crashed ? 'slams' : 'no crash'}; 10 deg ${gentle.crashed ? 'slams' : 'no crash'}`);
   check('realistic: forcing the downhill edge out of a traverse on a steep slope is a slam, down the hill', forced.crashed && forcedFast.crashed && forced.side === -1 && forced.t - 1 < 0.4, forced.crashed ? `${(forced.t - 1).toFixed(2)} s, side ${forced.side}; 25 deg ${forcedFast.crashed}` : 'no crash');
