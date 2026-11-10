@@ -99,7 +99,7 @@ export class Vegetation {
     this.kit = new TreeKit();
     this.mat = this.kit.mat;
     // packs from before DATA-020 have 0 conifer, 1 aspen, 2 krummholz only
-    this.legacy = (pack.meta.instances as { treeSpecies?: number } | undefined)?.treeSpecies === undefined;
+    this.legacy = pack.meta.treeSpecies === undefined;
   }
 
   /** Bake the LOD2 / impostor atlases (needs the renderer). `on` false: no billboards, LOD2 runs to the far edge. */

@@ -103,13 +103,34 @@ treeline. Add it to a built pack without a rebuild: `python pipeline/cover.py <s
 ## Instances
 
 `trees/<tx>_<ty>.bin`: little-endian Float32 records of 6:
-`x, y, z, height, crownRadius, species` with species 0 = conifer (spruce/fir/lodgepole),
-1 = aspen (leafless, white trunk), 2 = krummholz (stunted conifer near treeline).
+`x, y, z, height, crownRadius, species`. Packs with `meta.treeSpecies` 2 (DATA-020) use ids 0 to 7;
+older packs have no `treeSpecies` and only ids 0 to 2, where 0 is any conifer.
+
+| id | species | assigned (`pipeline/species.py`) | crown radius |
+|---|---|---|---|
+| 0 | Engelmann spruce | spruce-fir LANDFIRE classes and the conifer share of other classes; about 60 % of spruce-fir above 3,200 m | 0.13 h |
+| 1 | aspen | aspen classes (85 %, aspen-mixed 50 %), or a NAIP bright-green crown (50 %), below 3,300 m | 0.20 h |
+| 2 | krummholz | lidar height 1 to 4 m above 3,450 m or in an alpine class | 0.50 h |
+| 3 | subalpine fir | the rest of spruce-fir: 50 % below 3,200 m, 40 % above, more on north and east aspects and near streams | 0.10 h |
+| 4 | lodgepole pine | lodgepole (and ponderosa) classes, 85 %; without LANDFIRE, the lower slopes below 3,250 m | 0.09 h |
+| 5 | Douglas-fir | Douglas-fir and montane mixed conifer classes below about 3,200 m | 0.17 h |
+| 6 | limber pine | limber-bristlecone and pinyon-juniper classes; half the short (< 10 m) trees on exposed crests above 3,200 m | 0.35 h |
+| 7 | snag | standing dead: CHM peak over 6 m with NAIP NDVI under 0.15 inside forest, at most 3 % of trees | 0.05 h |
+
+The spruce / fir, group and crest draws are hashes of the tree position, so a rebuild gives each tree the same species.
+
+`shrubs/<tx>_<ty>.bin` (DATA-020, optional): Float32 records of 6: `x, y, z, height, radius, kind` with
+kind 0 = willow (clumps of 3 to 8 stems, 1 to 3 m, within 25 m of an OSM stream on a valley bottom or in a riparian class),
+1 = juniper (0.3 to 1 m mats in spruce-fir gaps and on open south crests), 2 = sagebrush (0.5 to 1.2 m, sagebrush classes),
+3 = young conifer (1 to 4 m spruce or fir at forest edges and in canopy gaps, about 15 per hectare of edge),
+4 = Gambel oak (1 to 3 m, Gambel oak shrubland classes). Density follows NAIP NDVI where there is no canopy, at most 200 per hectare.
+The build writes `debug/species.png` into the pack: the most common species per 10 m (left; colours in
+`species.SPECIES_RGB`) next to the LANDFIRE tree group (right), for a visual check.
 
 `rocks/<tx>_<ty>.bin`: Float32 records of 6: `x, y, z, size, yaw, type` with type 0 = outcrop,
 1 = boulder, 2 = talus clump.
 
-Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/minY`. `treeCells` and `rockCells` list the cells that have a file (`"cx_cy"`); the client only requests those. Packs built before BUG-036 lack the lists and the client requests every cell in range; add them without a rebuild with `python pipeline/packwriter.py packs/<slug>`.
+Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/minY`. `treeCells`, `rockCells` and `shrubCells` list the cells that have a file (`"cx_cy"`); the client only requests those. Packs built before BUG-036 lack the lists and the client requests every cell in range; add them without a rebuild with `python pipeline/packwriter.py packs/<slug>`.
 
 `packs/index.json` (`{"packs": ["synth", "vail"]}`) lists every pack folder with a `meta.json`. `write_meta` rewrites it after each build; the menu reads it instead of probing each resort's `meta.json`.
 
@@ -146,7 +167,9 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
   "cover": { "heightMax": 40, "blend": 500,                 // optional, FEAT-153
              "levels": [{ "name": "pack", "res": 4, "minX", "minY", "w", "h", "file": "cover/pack.png" },
                         { "name": "mid", "res": 16, ... }, { "name": "far", "res": 100, ... }] },
-  "instances": { "cellSize": 1000, "minX", "minY", "cellsX", "cellsY", "treeCount", "rockCount", "treeCells", "rockCells" },
+  "instances": { "cellSize": 1000, "minX", "minY", "cellsX", "cellsY", "treeCount", "rockCount", "treeCells", "rockCells",
+                 "shrubCount", "shrubCells" },              // shrub fields optional, DATA-020
+  "treeSpecies": 2,                                        // optional, DATA-020: tree ids 0..7; absent = 0..2
   "start": { "x", "y", "heading" },                       // default drop-in
   "sun": { "azimuth": 160, "elevation": 32 },             // degrees, default lighting
   "attribution": ["..."]

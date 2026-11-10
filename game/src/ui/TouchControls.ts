@@ -15,8 +15,9 @@ export class TouchControls {
   private readonly stick: HTMLDivElement;
   readonly pressed = new Set<string>();
 
-  static wanted(): boolean {
-    return new URLSearchParams(location.search).has('touch') || (window.matchMedia?.('(pointer: coarse)').matches ?? false) || navigator.maxTouchPoints > 1;
+  /** `force`: ?touch */
+  static wanted(force: boolean): boolean {
+    return force || (window.matchMedia?.('(pointer: coarse)').matches ?? false) || navigator.maxTouchPoints > 1;
   }
 
   constructor(controls: Controls) {
