@@ -85,10 +85,13 @@ Results on screenshot 2: 12 leads, every waypoint reached, no crashes, 20 to 56 
   in frame fades out. `backdrop: true` only marks the generated takes.
 - Recorded takes of the same line pass through each other when they start together (takes 11 and 12 come within
   0.3 m, 1 and 5 within 0.7 m). Generated riders of one line must keep their gap (check every sample, 2.5 m at least).
-- Cost: with 52 takes and 44 on screen the menu drew 1,339 calls against 535 with none; each rider is 19 meshes.
-  The far level of detail (past 250 m only the 4 largest meshes) brought 49 riders on screen from 1,413 to 1,069
-  calls, and a frozen-frame diff showed no rider pixel change (only tree sway). Auto quality sometimes dropped the
-  menu to 1632 x 918 with 52 takes while Drew's own tab ran on the same GPU; measure it alone.
+- Cost: each rider is 19 meshes, so draw calls, not triangles, are what riders cost (about 8 us of CPU per call).
+  With 52 takes and about 46 on screen they first added about 6 ms a frame on Drew's GPU (1,128 calls against 493
+  with none). `AttractGhosts.update` now skips riders behind the terrain, poses far riders less often and draws them
+  with named mesh LODs (`MID_KEEP` past 80 m, `FAR_KEEP` past 250 m: board or skis, torso, sleeves, pants), which
+  brought it to about 4.8 ms and 956 calls; Drew judged that good enough. Picking LOD meshes by size was wrong (a
+  far skier kept only skis and poles): keep them by name, and name any new rider part. FEAT-182 (#424) batches the
+  far riders into one draw. A generator should treat riders as a budget, not free.
 - Visibility: far riders are about 2 px tall and Drew sees them clearly (they move on white snow). Judge on a
   rendered frame, never from the pixel size.
 - To compare two renders of one moment: a headless page, load the takes (`__sim.ghosts.load('./', files)`), put the
