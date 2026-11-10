@@ -1,0 +1,25 @@
+[
+  {
+    "id": "breckenridge",
+    "x": -961.8,
+    "y": -656.3,
+    "h": 252.5,
+    "pitch": 0.7,
+    "fov": 75,
+    "eye": 26.2,
+    "place": "Imperial Bowl",
+    "region": "Breckenridge",
+    "dolly": 4,
+    "pan": 1.5,
+    "period": 26,
+    "conditions": {
+      "clouds": "scattered",
+      "timeOfDay": "pack",
+      "month": 2,
+      "newSnow": "none",
+      "snowDay": "mid",
+      "valleyFog": false,
+      "cloudTime": 0
+    }
+  }
+]

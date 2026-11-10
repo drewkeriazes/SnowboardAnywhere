@@ -103,5 +103,17 @@
         "line2-r-yellow-mate.json"
       ]
     }
+  },
+  "breckenridge": {
+    "stills": [
+      "breckenridge"
+    ],
+    "ghosts": [],
+    "looks": {
+      "breckenridge": {
+        "code": "bd85e017eebf16cd",
+        "pack": "20261110T191519Z-1adfa7"
+      }
+    }
   }
 }
