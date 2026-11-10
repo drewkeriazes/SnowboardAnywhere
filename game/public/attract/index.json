@@ -1,5 +1,6 @@
 {
   "vail": {
+    "shots": true,
     "stills": [
       "back-bowls"
     ],
@@ -59,7 +60,7 @@
     ],
     "looks": {
       "back-bowls": {
-        "code": "9252996d539a9370",
+        "code": "ff8ff6a855c32446",
         "pack": ""
       }
     },
@@ -105,6 +106,7 @@
     }
   },
   "breckenridge": {
+    "shots": true,
     "stills": [
       "top-of-imperial-bowl"
     ],
@@ -144,7 +146,7 @@
     ],
     "looks": {
       "top-of-imperial-bowl": {
-        "code": "64ce150f2efb0243",
+        "code": "757d2b6d5afed74e",
         "pack": "20261110T191519Z-1adfa7"
       }
     },

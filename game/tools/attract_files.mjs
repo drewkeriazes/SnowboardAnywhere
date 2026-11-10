@@ -96,6 +96,10 @@ export function saveShot(dir, pack, posted) {
   const same = old && pose(cleanShot(old)) === pose(shot);
   const removed = old && !same ? removeShotFiles(dir, pack, old.id) : [];
   fs.writeFileSync(path.join(dir, pack, 'shots.json'), JSON.stringify([shot], null, 2) + '\n');
+  // the manifest says the resort has shots, so the game asks for shots.json (and no resort without one 404s)
+  const man = readIndex(dir);
+  (man[pack] ??= {}).shots = true;
+  writeIndex(dir, man);
   return { file: `game/public/attract/${pack}/shots.json`, shot, removed };
 }
 

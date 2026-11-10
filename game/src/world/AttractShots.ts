@@ -38,8 +38,12 @@ export const DEFAULT_CONDITIONS: ShotConditions = { clouds: 'few', timeOfDay: 'p
 /** the Settings fields a shot's conditions override (a pick of any of them in the menu's Settings ends the override) */
 export const CONDITION_FIELDS = ['clouds', 'timeOfDay', 'month', 'newSnow', 'snowDay', 'valleyFog'] as const;
 
-/** FEAT-181: a resort's shots (`attract/<slug>/shots.json`; [] when it has none, so nothing else is asked for). */
-export async function loadAttractShots(base: string, slug: string): Promise<AttractShot[]> {
+/**
+ * FEAT-181: a resort's shots (`attract/<slug>/shots.json`), asked for only when the manifest says it has some
+ * (`shots: true`), so a resort without one requests nothing and nothing 404s; [] then.
+ */
+export async function loadAttractShots(base: string, slug: string, man: AttractManifest): Promise<AttractShot[]> {
+  if (!man[slug]?.shots) return [];
   try {
     const r = await fetch(`${base}attract/${slug}/shots.json`, { cache: 'no-cache' });
     if (!r.ok) return [];
@@ -53,11 +57,11 @@ export async function loadAttractShots(base: string, slug: string): Promise<Attr
  * (FEAT-177) each still's look key from `tools/shoot_attract.mjs`: `code`, a hash of the source files that
  * change the picture and of the resort's `shots.json` (`tools/attract_look.mjs`, checked in CI), and `pack`, the
  * pack's `meta.build` it was rendered from (checked here: a still from another build of the pack is never shown).
- * FEAT-181: `shotGhosts` lists, per shot, the takes `tools/ghost_lines.mjs` made for it (also in `ghosts`): a new
+ * FEAT-181: `shots` says the resort has `shots.json`; `shotGhosts` lists, per shot, the takes `tools/ghost_lines.mjs` made for it (also in `ghosts`): a new
  * shot replaces the old one and its generated takes with it; recorded `take-*` files are never in it.
  */
 export interface StillLook { code: string; pack: string }
-export type AttractManifest = Record<string, { stills?: string[]; ghosts?: string[]; looks?: Record<string, StillLook>; shotGhosts?: Record<string, string[]> }>;
+export type AttractManifest = Record<string, { shots?: boolean; stills?: string[]; ghosts?: string[]; looks?: Record<string, StillLook>; shotGhosts?: Record<string, string[]> }>;
 
 /** The shipped still for a shot, or '' when there is none or it was rendered from another build of the pack. */
 export function shippedStill(base: string, man: AttractManifest, pack: Pack, shotId: string): string {

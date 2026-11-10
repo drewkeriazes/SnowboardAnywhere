@@ -39,7 +39,12 @@ change under `game/src`: `npx vite build` (the tool serves `game/dist`). Each st
    closer than 2.5 m on screen (crossing paths once is fine; riding on top of each other is not), the draw calls they
    add. Revert the re-rendered still if only tree sway changed (`git checkout <shot>.jpg`).
 9. **Commit** `game/public/attract/<pack>/` (shots.json, the still, take-*.json, the generated takes) and
-   `game/public/attract/index.json`. Note anything learned in the prototype README's Learnings.
+   `game/public/attract/index.json` (it marks the resort `shots: true`, so the game asks for `shots.json`). Note
+   anything learned in the prototype README's Learnings.
+10. **Push through the local render budgets** once the PR exists: `node tools/ci/local_render_budgets.mjs --push`
+   from the repo root (about 2 minutes on Drew's GPU). It pushes and lets CI skip its slower `render-budgets` job;
+   a plain `git push` makes CI run it. If `game/src/world/AttractShots.ts` or another look file changed, re-render
+   the stills first (`node tools/shoot_attract.mjs <packs> --gpu --compare`) or CI warns they are stale.
 
 `node tools/ghost_lines.mjs <pack>` alone is a wizard that runs the next step the resort needs;
 `node tools/ghost_lines.mjs <pack> status` says where it is.
@@ -83,6 +88,8 @@ change under `game/src`: `npx vite build` (the tool serves `game/dist`). Each st
 - Snips from an older build: the render changed (white snow-flocked trees), so dark pines in an old snip read as black.
 - Writing edit scripts through bash heredocs mangles backslashes and `\n`: write them with the Write tool.
 - Paint doesn't save until Ctrl+S: check the file's time before reading; a screenshot of the window works meanwhile.
+- A resort without `shots: true` in `index.json` never asks for `shots.json`: asking anyway 404s, and the browser
+  checks fail on any console error (that broke CI on #435 once).
 
 ## Files
 

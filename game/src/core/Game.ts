@@ -60,10 +60,12 @@ export class Game {
     // backdrop shot while the session loads behind it, then the still crossfades into the live view. Quit to
     // main menu goes back to it without tearing the session down. An eye link (?cam=eye) opens straight at its view.
     const skipMenu = params.cam === 'eye';
-    // FEAT-181: the shots are data (attract/<slug>/shots.json), headless too (tools/shoot_attract.mjs renders the shot)
-    const shots = await loadAttractShots(import.meta.env.BASE_URL, pack.meta.slug);
+    // FEAT-181: the shots are data (attract/<slug>/shots.json, when the manifest lists them), headless too
+    // (tools/shoot_attract.mjs renders the shot); headless loads no ghosts or stills (attractFiles stays empty)
+    const manifest = await loadAttractManifest(import.meta.env.BASE_URL);
+    const shots = await loadAttractShots(import.meta.env.BASE_URL, pack.meta.slug, manifest);
     const shot = attractShot(pack, landmarkStart(pack.meta.slug) ?? pack.meta.start, shots);
-    const attractFiles = headless ? {} : await loadAttractManifest(import.meta.env.BASE_URL);
+    const attractFiles = headless ? {} : manifest;
     // FEAT-177: the still is the frame this browser kept at its last crossfade (same build, pack and quality), else
     // the shipped one when it was rendered from this build of the pack, else none (the menu over the loading bar)
     const still = headless || skipMenu ? '' : (await cachedMenuStill(pack, shot, settings)) || shippedStill(import.meta.env.BASE_URL, attractFiles, pack, shot.id);

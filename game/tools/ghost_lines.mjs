@@ -544,6 +544,10 @@ async function stepCandidates(files) {
   await serve();
   const shotsFile = path.join(DIST, 'attract', pack, 'shots.json');
   fs.mkdirSync(path.dirname(shotsFile), { recursive: true });
+  // the build's manifest must say this resort has shots, or the game won't ask for the candidate's
+  const distMan = readIndex(path.join(DIST, 'attract'));
+  (distMan[pack] ??= {}).shots = true;
+  writeIndex(path.join(DIST, 'attract'), distMan);
   console.log(`\ncandidates: rendering ${all.length} shots of ${pack} as the menu shows them (where its drift starts, in each one's conditions)`);
   for (const c of all) {
     // the build's copy of shots.json holds just this one while its page loads (public/ is untouched)
