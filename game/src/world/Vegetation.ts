@@ -19,17 +19,19 @@ let NEAR_RADIUS = 1500;
 let FAR_RADIUS = 4500;
 /** LOD0 / LOD1 reach as a share of 80 / 400 m */
 let LOD_K = 1;
+/** FEAT-167: bumped whenever the radii change, so update() redoes the LOD bands only then */
+let bandsVersion = 0;
 /** FEAT-153: how far the tree impostors reach (m), where the terrain's canopy lift takes over */
 export function vegetationFarRadius(): number { return FAR_RADIUS; }
 /** Headless / weak GPU: far fewer instances. */
-export function setVegetationBudget(near: number, far: number): void { NEAR_RADIUS = near; FAR_RADIUS = far; LOD_K = Math.max(0.5, Math.min(1, near / 1500)); }
+export function setVegetationBudget(near: number, far: number): void { NEAR_RADIUS = near; FAR_RADIUS = far; LOD_K = Math.max(0.5, Math.min(1, near / 1500)); bandsVersion++; }
 /** Scale the near/far radii by a 0.25..1 density (1 = full 1500 / 4500 m); the LOD0 / LOD1 reach scales more gently. */
-export function setVegetationDensity(d: number): void { const k = Math.max(0.25, Math.min(1, d)); NEAR_RADIUS = 1500 * k; FAR_RADIUS = 4500 * k; LOD_K = 0.6 + 0.4 * k; }
+export function setVegetationDensity(d: number): void { const k = Math.max(0.25, Math.min(1, d)); NEAR_RADIUS = 1500 * k; FAR_RADIUS = 4500 * k; LOD_K = 0.6 + 0.4 * k; bandsVersion++; }
 
-/** the LOD band edges for the current setting (m from the camera) */
-function edges(): [number, number, number, number] {
+/** the LOD band edges for the current setting (m from the camera), into `out` */
+function edges(out: number[]): void {
   const b2 = NEAR_RADIUS, b1 = Math.min(400 * LOD_K, b2 * 0.8), b0 = Math.min(80 * LOD_K, b1 * 0.5);
-  return [b0, b1, b2, FAR_RADIUS];
+  out[0] = b0; out[1] = b1; out[2] = b2; out[3] = FAR_RADIUS;
 }
 
 /** sub-tiles per cell side for the near-set gather */
@@ -91,7 +93,11 @@ export class Vegetation {
   private impostorsOn = true;
   private readonly cam = new THREE.Vector3(NaN, 0, 0);
   private readonly legacy: boolean;
-  private bandKey = '';
+  /** the band edges in use and the bandsVersion they were taken at (-1: redo on the next update) */
+  private readonly band = [80, 400, 1500, 4500];
+  private bandSeen = -1;
+  /** the cells in range this update (reused, so update() allocates no set per frame) */
+  private readonly keep = new Set<string>();
 
   constructor(pack: Pack, collider: Collider | null) {
     this.pack = pack;
@@ -106,7 +112,7 @@ export class Vegetation {
   enableImpostors(renderer: THREE.WebGLRenderer, on = true): void {
     this.kit.bake(renderer);
     this.impostorsOn = on;
-    this.bandKey = '';
+    this.bandSeen = -1;
   }
   /** Light the far LODs like the meshes: the sun (direction toward it) and the hemisphere light. */
   setLight(sunDir: THREE.Vector3, sunColor: THREE.Color, sunIntensity: number, hemiSky: THREE.Color, hemiGround: THREE.Color, hemiIntensity: number): void {
@@ -126,18 +132,20 @@ export class Vegetation {
     this.kit.setView(this.cam, performance.now() / 1000);
     const cpx = this.cam.x, cpy = -this.cam.z;
     // LOD bands for the current setting
-    const [b0, b1, b2, b3] = edges();
-    const bandKey = `${b0}|${b1}|${b2}|${b3}|${this.impostorsOn}`;
-    if (bandKey !== this.bandKey) {
-      this.bandKey = bandKey;
-      this.kit.setBands(b0, b1, b2, b3, this.impostorsOn);
+    const band = this.band;
+    if (this.bandSeen !== bandsVersion) {
+      this.bandSeen = bandsVersion;
+      edges(band);
+      this.kit.setBands(band[0], band[1], band[2], band[3], this.impostorsOn);
       for (const n of this.near) n.dirty = true;
     }
+    const b0 = band[0], b1 = band[1], b2 = band[2];
     const cs = inst.cellSize;
     const r = FAR_RADIUS;
     const cx0 = Math.max(0, Math.floor((Math.min(x, ax) - r - inst.minX) / cs)), cx1 = Math.min(inst.cellsX - 1, Math.floor((Math.max(x, ax) + r - inst.minX) / cs));
     const cy0 = Math.max(0, Math.floor((Math.min(y, ay) - r - inst.minY) / cs)), cy1 = Math.min(inst.cellsY - 1, Math.floor((Math.max(y, ay) + r - inst.minY) / cs));
-    const keep = new Set<string>();
+    const keep = this.keep;
+    keep.clear();
     let count = 0, pending = 0, built = 0;
     const t0 = performance.now();
     const f1 = fadeWidth(b1) / 2, f2 = fadeWidth(b2) / 2;
