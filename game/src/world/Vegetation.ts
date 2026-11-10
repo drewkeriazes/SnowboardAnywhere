@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
 import { ImpostorAtlas, impostorMaterial, impostorGeometry } from './Impostors';
+import { addTreeFade, treeFadeUniforms } from './TreeFade';
 
 /**
  * Streams tree instances per 1 km cell around the rider and draws them with GPU instancing.
@@ -148,6 +149,7 @@ export class Vegetation {
   constructor(pack: Pack, collider: Collider | null) {
     this.pack = pack;
     this.collider = collider;
+    for (const m of Object.values(this.mat)) addTreeFade(m); // FEAT-155: see-through when in the way downhill
   }
 
   /** Bake the atlases (one render per species). Far cells then use 2-triangle billboards. */
@@ -159,7 +161,9 @@ export class Vegetation {
         [this.geo.aspen.near, this.mat.aspen, 0.5],
         [this.geo.krummholz.near, this.mat.krummholz, 0.9],
       ];
+      const fadeK = treeFadeUniforms.uFadeK.value; treeFadeUniforms.uFadeK.value = 0; // bake the trees solid
       this.impostor = specs.map(([g, m, aspect]) => { const atlas = new ImpostorAtlas(renderer, g, m, aspect); return { atlas, mat: impostorMaterial(atlas.texture) }; });
+      treeFadeUniforms.uFadeK.value = fadeK;
     }
     // rebuild far cells with the new mode
     for (const cell of this.cells.values()) if (cell.data && cell.near === false) this.buildMeshes(cell, false);

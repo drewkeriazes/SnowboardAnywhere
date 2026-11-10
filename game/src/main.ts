@@ -12,6 +12,7 @@ import { Clouds, isOvercast, parseWeather, type CloudCover } from './world/Cloud
 import { Snow } from './world/Snow';
 import { Controls } from './sim/Controls';
 import { Vegetation, setVegetationBudget, setVegetationDensity } from './world/Vegetation';
+import { TreeFade, treeFadeUniforms } from './world/TreeFade';
 import { Rocks } from './world/Rocks';
 import { LiftLines } from './world/LiftLines';
 import { Lifts } from './world/Lifts';
@@ -144,6 +145,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     add('terrain', terrain.group);
     const collider = new Collider();
     const veg = new Vegetation(pack, collider);
+    const treeFade = new TreeFade();
     add('trees', veg.group);
     const rocks = new Rocks(pack, collider);
     add('rocks', rocks.group);
@@ -935,6 +937,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       riderView.spray.setLight(pl); riderView.spray.setViewHeight(renderer.domElement.height); riderView.spray.wind.set(snow.wind.x * 0.3, snow.wind.y * 0.3);
       (puffs.points.material as THREE.PointsMaterial).color.copy(pl);
       veg.setSun(env.sun.color, env.sun.intensity);
+      // FEAT-155: trees in the way of the view downhill go see-through (third-person cameras only)
+      treeFade.update(cam.camera, rider, (x, y) => pack.groundHeight(x, y), dt, settings.seeThroughTrees !== false && !detached && !cam.firstPerson && !eat.active);
       terrain.setSun(env.sunDir); // BUG-062: the mogul colouring's sun term
       const cp = cam.camera.position;
       // FEAT-044: stamp the tracks and prints near the rider into the deformation texture (the soft sag around them)
@@ -1059,7 +1063,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
           (rider.brakeAmt > 0 ? ` &middot; brake &Psi; ${(rider.brakePsi * 180 / Math.PI).toFixed(0)}&deg; &gamma; ${(Math.abs(rider.slip) * 180 / Math.PI).toFixed(0)}&deg; ${rider.brakeAcc.toFixed(1)} m/s&sup2; mod ${rider.brakeMod.toFixed(2)}` : '') +
           // FEAT-053: the snow weights and what they set
           `<br>snow groomed ${rider.snow.groomed.toFixed(2)} powder ${rider.snow.powder.toFixed(2)} chop ${rider.snow.chop.toFixed(2)} ice ${rider.snow.ice.toFixed(2)} slush ${rider.snow.slush.toFixed(2)} rock ${rider.snow.rock.toFixed(2)} &middot; depth ${(rider.snow.depth * 100).toFixed(0)} cm &middot; grip x${rider.snow.grip.toFixed(2)} &middot; turn x${rider.snow.turn.toFixed(2)} &middot; drag ${rider.snow.drag0.toFixed(2)} + ${rider.snow.drag1.toFixed(4)}v &middot; chop ${rider.chop.toFixed(2)} &middot; sink ${rider.noseSink.toFixed(2)}</span>` : '');
-      (window as any).__sim = { rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, eyeAt, outrun, monsters, startOutrun, stopOutrun,
+      (window as any).__sim = { rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, fps, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, eyeAt, outrun, monsters, startOutrun, stopOutrun, treeFadeUniforms,
         /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
         setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
         /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */
