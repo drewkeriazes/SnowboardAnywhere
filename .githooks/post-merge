@@ -1,0 +1,6 @@
+#!/bin/sh
+# FEAT-183: core.hooksPath points at .githooks, which hides .git/hooks. Run a local post-merge there if there
+# is one, as git would without this folder. Add a stub like this for any other hook kept in .git/hooks.
+local_hook="$(git rev-parse --git-common-dir)/hooks/post-merge"
+[ -x "$local_hook" ] && exec "$local_hook" "$@"
+exit 0
