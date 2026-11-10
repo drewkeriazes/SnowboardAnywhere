@@ -147,6 +147,10 @@ const GIN_FIGHT = 0.5;
  *  a slam (realistic only). A skidded carve transition slips 10 to 15 deg and never trips it. */
 const GRIP_FLAT_REAL = 0.12, FALL_YAW = 4, FALL_YAW_SPEED = 20, FALL_EDGE = 12 * D2R, STAND_EDGE = 10 * D2R;
 const CATCH_SPEED = 3, CATCH_SLIDE = 2, CATCH_EDGE = 15 * D2R, CATCH_TIME = 0.05;
+/** the weathervane swings the leading end: full nose (or tail) once moving FALL_LEAD_V m/s along the board,
+ *  with FALL_LEAD_BIAS m/s toward the nose through a stop; climbing, it fades out from across the hill and
+ *  is gone at cos(angle from the fall line) = -FALL_CLIMB (about 135 deg), so a climb falls back into switch */
+const FALL_LEAD_V = 1.5, FALL_LEAD_BIAS = 1.0, FALL_CLIMB = 0.7;
 /** the board's slip past its line (rad) before the carve lets go: from SLIP_HOLD on, the arc stops
  *  driving the heading, gone by SLIP_HOLD + SLIP_WASH (a skid that settles, not a spin) */
 const SLIP_HOLD = 4 * D2R, SLIP_WASH = 30 * D2R;
@@ -861,7 +865,14 @@ export class Rider {
     if (this.fallLine > 0 && fall > 0.03 && spd > 0.3) {
       const toFall = wrap(Math.atan2(n[0], n[1]) - this.heading);
       const flat = Math.max(0, 1 - psi / FALL_EDGE);
-      fallRate = FALL_YAW * fall * Math.sin(toFall) * flat * flat / (1 + spd / FALL_YAW_SPEED) * (1 - this.brakeAmt) * this.fallLine;
+      // the leading end swings down: the nose riding forward, the tail sliding back before the switch
+      // turn-round, blended through a stop with a little bias to the nose (weight on the front foot)
+      const lead = Math.max(-1, Math.min(1, (this.vx * hx + this.vy * hy + FALL_LEAD_BIAS) / FALL_LEAD_V));
+      // pointed up the hill the leading end does not come round: the board slows, stops and slides
+      // back tail first into switch; full across the hill, gone by about 135 deg from the fall line
+      const down = Math.cos(toFall) * Math.sign(lead);
+      const climb = down >= 0 ? 1 : Math.max(0, 1 + down / FALL_CLIMB);
+      fallRate = FALL_YAW * fall * Math.sin(toFall) * lead * climb * flat * flat / (1 + spd / FALL_YAW_SPEED) * (1 - this.brakeAmt) * this.fallLine;
     }
     // slow or flat: a pivot (a skidded turn) straight from the steer, gone by F.pivotFade; from about
     // there on a small steer yaw (STEER_YAW) keeps the board coming round through an edge change.

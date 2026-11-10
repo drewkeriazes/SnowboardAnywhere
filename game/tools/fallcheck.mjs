@@ -80,6 +80,28 @@ check('off: a flat board traverses on rails as before', off30.toFall > 85 && Mat
   check('more uphill edge carves up the hill', more.maxToFall > 120 && more.speed < hold.speed, `up to ${more.maxToFall.toFixed(0)} deg, ${more.speed.toFixed(1)} m/s`);
 }
 {
+  // climbing (FEAT-134 tuning): nearly straight up the hill the board slows, stops and slides back
+  // tail first into switch; the nose must not swing round downhill on the way. A climb across the
+  // hill still comes round nose first (the end of a J-turn).
+  const climb = (dirDeg, v, deg = 20, T = 5) => {
+    const r = start(deg, v, dirDeg * D, 1), inp = input();
+    let minNose = 180, tSwitch = NaN, t = 0;
+    while (t < T) {
+      r.update(DT, inp); t += DT;
+      if (!r.switch) minNose = Math.min(minNose, Math.abs(wrap(r.heading)) / D);
+      else if (Number.isNaN(tSwitch)) tSwitch = t;
+    }
+    return { minNose, tSwitch, sw: r.switch, toFall: Math.abs(wrap(r.heading)) / D, speed: r.speed };
+  };
+  const up = climb(165, 6), steep = climb(150, 6), across = climb(110, 8);
+  for (const [k, s] of [['165 deg at 6 m/s', up], ['150 deg at 6 m/s', steep], ['110 deg at 8 m/s', across]]) {
+    console.log(`  climb ${k} on 20 deg: nose came within ${s.minNose.toFixed(0)} deg of downhill before switch, ${s.sw ? `switch at ${s.tSwitch.toFixed(2)} s` : 'no switch'}, ends ${s.toFall.toFixed(0)} deg from the fall line at ${s.speed.toFixed(1)} m/s`);
+  }
+  check('nearly straight up: slides back into switch, the nose stays up the hill', up.sw && up.minNose > 135 && up.toFall < 30, `nose ${up.minNose.toFixed(0)} deg, switch ${up.sw}, ends ${up.toFall.toFixed(0)} deg`);
+  check('a steep climb also falls back into switch', steep.sw && steep.minNose > 110 && steep.toFall < 30, `nose ${steep.minNose.toFixed(0)} deg, switch ${steep.sw}, ends ${steep.toFall.toFixed(0)} deg`);
+  check('a climb across the hill comes round nose first', !across.sw && across.toFall < 45, `switch ${across.sw}, ends ${across.toFall.toFixed(0)} deg`);
+}
+{
   // standing across the hill on 25 deg
   const stand = (fallLine, steer, T = 3) => {
     const r = start(25, 0, EAST, fallLine), inp = input();
