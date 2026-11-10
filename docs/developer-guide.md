@@ -37,9 +37,9 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
 
 - `game/` the client (Three.js 0.172, TypeScript, Vite). `cd game && npm install && npm run dev`.
   - `src/main.ts` the entry point: parses the URL and starts `core/Game`
-  - `src/core/` engine-level code with no snowboarding in it (FEAT-160): `params.ts` every URL parameter parsed once into a typed `Params`; `Game.ts` boot (pick and load the pack, apply the URL overrides to the settings, the renderer, the main menu or loading screen, then the session); `GameLoop.ts` requestAnimationFrame, the 30 fps cap and the headless `window.__step` / `__shot`; `GameContext.ts` the services a session shares (params, canvas, renderer, scene, pack, settings, audio); `debugHooks.ts` builds `window.__sim` once (keep its field names, the test tools read them); `StateMachine.ts` (FEAT-162) the `State` interface (`enter` / `update` / `render` / `exit`) and the machine that runs the active one; `FpsMeter.ts` the half-second frame rate
+  - `src/core/` engine-level code with no snowboarding in it (FEAT-160): `params.ts` every URL parameter parsed once into a typed `Params`; `Game.ts` boot (pick and load the pack, apply the URL overrides to the settings, the renderer, the main menu or loading screen, then the session); `GameLoop.ts` requestAnimationFrame, the 30 fps cap and the headless `window.__step` / `__shot`; `GameContext.ts` the services a session shares (params, canvas, renderer, scene, pack, settings, audio, events); `Events.ts` the event bus (FEAT-163, see Events below); `debugHooks.ts` builds `window.__sim` once (keep its field names, the test tools read them; `__sim.events` is the bus); `StateMachine.ts` (FEAT-162) the `State` interface (`enter` / `update` / `render` / `exit`) and the machine that runs the active one; `FpsMeter.ts` the half-second frame rate
   - `src/states/` the session's states (FEAT-162, see "States" below): `GameState.ts` their names and the shared Back press; `LoadingState`, `AttractState` (the main menu), `RidingState`, `RewindState`, `PausedState`, `ReplayState`, `MapState`; `RideFrame.ts` one frame of the world under any state that shows it, in the update order below, told by the state's `FramePlan` who moves the rider
-  - `src/session/` one resort loaded and playable: `Session.ts` (`createSession`) wires the systems and the states, and its frame reads the devices then runs the active state; `World.ts` builds everything the session draws, in a fixed order; `warmUp.ts` streams the start area behind the loading screen (BUG-063); `devSaves.ts` the dev-server saves (P-key compare shots, menu ghost takes)
+  - `src/session/` one resort loaded and playable: `Session.ts` (`createSession`) wires the systems and the states, and its frame reads the devices then runs the active state; `eventSources.ts` points the systems' own hooks at the bus; `World.ts` builds everything the session draws, in a fixed order; `warmUp.ts` streams the start area behind the loading screen (BUG-063); `devSaves.ts` the dev-server saves (P-key compare shots, menu ghost takes)
   - `src/pack/` pack loader, tiled height / mask sampling, bridge decks
   - `src/terrain/` quadtree LOD terrain and snow material
   - `src/sim/` rider physics, controls (controller source `Pad.ts`, DualSense WebHID `DualSense.ts`, rumble and lights `PadFeedback.ts`), collisions, lift riding, time trials, replay recording, Outrun, run stats (`RunStats.ts`)
@@ -47,7 +47,7 @@ pipeline script, URL parameters and the milestone history. Process docs: [HANDOF
   - `src/ui/` menu frame (FEAT-128: `theme.css` style tokens on `:root`, sizes times `--ui-scale`, the Barlow fonts bundled in `public/fonts/`; `MenuNav.ts` the focus manager, a stack of open `Screen`s where only the top one takes keyboard (capture phase, so a handled key never reaches `Controls`), the controller through FEAT-137's `PadNav.ts`, which hands its presses to `padIntent` while a screen is open, and hover input; `MenuKeys.ts` the fixed menu keys, not rebindable; `HintBar.ts` hint rows from that table or the controller's glyphs), main menu, pause menu, settings (`SettingsRows.ts` every row as data: category, section, label, description, control, how it reads and writes `Settings`, the presets and `presetLine`; `SettingsOverlay.ts` draws them, owns left / right, select, search, peek, reset and the key and controller-button slots, one instance opened with `openSettings(settings, { overGame, onChange, cat?, fps?, credits? })`; `Settings.ts` the saved model), resort map, horizon labels, goggles, speed lines, Outrun HUD, touch controls, controller glyphs and menu navigation (`PadGlyphs.ts`, `PadNav.ts`; on the main and pause menus PadNav hands its presses to MenuNav so there is one focus), run card (`RunCard.ts`), press balance meter (`PressMeter.ts`), shared speed / height / distance formatters (`Units.ts`)
   - `src/audio/` synthesised sound and the music player / jukebox
   - `public/music/` soundtrack, `playlist.json`, credits
-  - HUD pieces split out of the session (FEAT-160): `ui/HudLine.ts` the top-left line, `ui/ContextPrompt.ts` the lift and strap prompt, `ui/KeyHints.ts` the corner key hints, `ui/KeyLabels.ts` how an action's key or button reads, `ui/TrialHud.ts` the time trial panel and finish arrow, `ui/ReplayBar.ts` the replay viewer's bar, `ui/Toast.ts`, `ui/LeadTunePanel.ts` (?debug); `world/SceneRender.ts` the main render plus the first-person body pass and the lens; `world/SunClock.ts` the sun from the Time of day setting
+  - HUD pieces split out of the session (FEAT-160): `ui/HudLine.ts` the top-left line, `ui/ContextPrompt.ts` the lift and strap prompt, `ui/KeyHints.ts` the corner key hints, `ui/KeyLabels.ts` how an action's key or button reads, `ui/TrialHud.ts` the time trial panel and finish arrow, `ui/ReplayBar.ts` the replay viewer's bar, `ui/Toast.ts`, `ui/HudEvents.ts` the toasts, trial panel and run card from the bus, `ui/LeadTunePanel.ts` (?debug); `world/SceneRender.ts` the main render plus the first-person body pass and the lens; `world/SunClock.ts` the sun from the Time of day setting
 - `pipeline/` data pipeline (Python, plus PowerShell fetch scripts for Windows)
 - `raw/` downloaded source data (gitignored); the Vail download currently lives at `C:\Users\Drew\Documents\snowboard-sim\raw\vail`
 - `packs/` generated resort packs (gitignored); the dev server serves them at `/packs/`
@@ -78,7 +78,7 @@ A state that changes the state inside its update hands the rest of that frame to
 2. Adaptive quality takes the frame time (FEAT-062); the touch buttons shown or hidden; the eye camera's photo look (no rider, spray, markers or piste lines).
 3. Simulation on the sim pose, as far as the state's drive allows (`RUNS` in `RideFrame.ts`): lift ride, then the rider (its own 1/120 s fixed steps), replay recording, run stats, rumble.
 4. View sync on the render pose (interpolated between the last two physics steps): rider view, tracks, prints, puffs. Then the sim pose comes back.
-5. Outrun: its sim, its events to sound, rumble, camera kick and toasts, the eat sequence, the monsters, the Outrun HUD.
+5. Outrun: its sim, its events emitted on the bus (sound, rumble, camera kick, toast and the eat start subscribe), the countdown beeps, the eat sequence, the monsters, the Outrun HUD.
 6. Time trials: the sim, gates, ghost, route walls, the trial HUD.
 7. Audio (reads the sim pose and the lift).
 8. Cameras on the render pose: free, eye, first person, replay trackside, else the chase camera; the eat sequence overrides it; lens, goggles, speed lines. The press meter projects through the final camera.
@@ -87,6 +87,24 @@ A state that changes the state inside its update hands the rest of that frame to
 11. Prompt and key hints, the sky's follow, tile eviction, the map (the full map while it is open, else the minimap), horizon labels.
 12. Render, then the P-key shot (the drawing buffer is only readable in the same task), `controls.endFrame`, and the replay overlay restored.
 13. Frame rate and the HUD line.
+
+### Events
+
+Cross-system news goes through `core/Events.ts` (FEAT-163): `events.on(type, fn)` (returns its `off`), `events.off`, `events.emit({ type, ... })`, with every event in the one `GameEvent` union. `emit` calls the listeners at once, in the order they subscribed, so a listener runs inside the frame step that emitted (the list above still holds). The sim classes keep their own hooks (`rider.onTrick`, `trial.onEvent`, ...) because the node checks drive them without a bus; `session/eventSources.ts` points those hooks at `emit`, and the frame emits the Outrun events and landmarks it pulls.
+
+| event | emitted by | listeners |
+|---|---|---|
+| `trick`, `washout`, `pressEnd` | `Rider` | toast |
+| `footstep` | `Rider` (skate push), `RiderView` (foot plant) | audio |
+| `footPlant` | `RiderView` | boot prints |
+| `trial` (armed, start, split, finish, cancel) | `TimeTrial` | trial panel, then chime, then rumble |
+| `runEnd` | `RunStats` | run card |
+| `landmark` | the frame (`landmarks.maintain`) | toast |
+| `song` | `GameAudio` | toast |
+| `outrun` | the frame (`outrun.events`) | toast (second monster), audio, rumble and camera kick (footfalls), eat start (caught, after the audio) |
+| `eatSound`, `treeCrack` | `Eat`, `Monsters` | audio (the chase sounds) |
+
+A new event: add it to the union, emit it where the news is known, subscribe where it is used (`ui/HudEvents.ts`, `GameAudio.listen`, `PadFeedback.listen`, or the session for the world). Landings, crashes and lift boarding are not events yet: audio, rumble, the camera and the spray each read the rider's state in their own update, on different rules, so one event would change when they fire.
 
 ## Test tools (`game/tools/`)
 

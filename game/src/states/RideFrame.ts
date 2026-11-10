@@ -7,6 +7,7 @@ import { contextPrompt } from '../ui/ContextPrompt';
 import { keyHints } from '../ui/KeyHints';
 import { hudLine } from '../ui/HudLine';
 import { padFx } from '../sim/PadFeedback';
+import type { Events } from '../core/Events';
 import type { Input, Rider } from '../sim/Rider';
 import type { Controls } from '../sim/Controls';
 import type { LiftRide } from '../sim/LiftRide';
@@ -83,7 +84,7 @@ export interface SkyState { weather: CloudCover; snowCover: number }
 
 /** Everything the frame reads or drives, handed in by the session. */
 export interface RideParts extends World {
-  params: Params; settings: Settings; pack: Pack; renderer: THREE.WebGLRenderer; canvas: HTMLCanvasElement; audio: GameAudio;
+  params: Params; settings: Settings; pack: Pack; renderer: THREE.WebGLRenderer; canvas: HTMLCanvasElement; audio: GameAudio; events: Events;
   rider: Rider; liftRide: LiftRide; prefetch: Prefetch; cam: ChaseCamera; controls: Controls; touch: TouchControls | null;
   goggles: GoggleView; lens: GoggleLens; runStats: RunStats; runCard: RunCard; speedLines: SpeedLines; replay: Replay;
   outrun: Outrun; outrunUI: OutrunUI; trial: TimeTrial; trialHud: TrialHud; map: ResortMap; labels: Labels; sun: SunClock;
@@ -243,27 +244,13 @@ export class RideFrame {
     rider.restoreSimPose();
   }
 
-  /** 7. Outrun: sim, events to sound and effects, the eat sequence, the monsters, the HUD */
+  /** 7. Outrun: sim, its events on the bus (sound, rumble, camera kick, toast, the eat start), the eat sequence, the monsters, the HUD */
   private outrunFrame(dt: number): void {
-    const { outrun, monsters, eat, outrunUI, map, cam, audio, settings, rider, riderView, liftRide, keyLabels } = this.p;
+    const { outrun, monsters, eat, outrunUI, map, settings, rider, liftRide, keyLabels } = this.p;
     const chase = this.p.chase(), eatPosing = this.eatPosing;
     if (outrun.active) {
       outrun.update(dt, rider, this.onLift ? liftRide : null);
-      for (const e of outrun.events) {
-        if (e.kind === 'wake') chase?.roar('wake');
-        else if (e.kind === 'spawn') { if (e.m && e.m.id > 1) chase?.roar('spawn'); }
-        else if (e.kind === 'roar') chase?.roar('spawn');
-        else if (e.kind === 'sight') chase?.roar('sight');
-        else if (e.kind === 'closecall') { chase?.roar('angry'); chase?.closeCall(); }
-        else if (e.kind === 'footfall' && e.m) { chase?.footfall(e.m.dist); padFx.footfall(e.m.dist); if (e.m.dist < 30) cam.kick = Math.max(cam.kick, 0.7 * (1 - e.m.dist / 30)); }
-        else if (e.kind === 'second') this.p.showToast('Another one.', 2500);
-        else if (e.kind === 'escaped') { chase?.roar('giveup'); chase?.stop(); audio.resumeMusic(); chase?.fanfare(); }
-        else if (e.kind === 'caught' && e.m) {
-          const view = monsters.view(e.m.id);
-          audio.scratchStop(); chase?.stop();
-          if (view) eat.start(e.m, view, rider, riderView, settings.outfit, settings.discipline, outrun.cfg.gentle);
-        }
-      }
+      for (const event of outrun.events) this.p.events.emit({ type: 'outrun', event });
       if (outrun.phase === 'countdown') { const n = Math.ceil(3 - outrun.t); if (n !== this.countLast) { this.countLast = n; chase?.countBeep(false); } }
       else if (outrun.phase === 'headstart' && this.countLast !== 0) { this.countLast = 0; chase?.countBeep(true); }
       eatPosing.clear();
@@ -403,7 +390,7 @@ export class RideFrame {
     bridges.maintain(dt, rider.x, rider.y);
     liftLines.maintain(rider.x, rider.y);
     const passed = landmarks.maintain(rider.x, rider.y);
-    if (passed) this.p.showToast(passed.name, 3000);
+    if (passed) this.p.events.emit({ type: 'landmark', name: passed.name });
     sun.update(dt, settings);
     lifts.updateMarkers(this.elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
     map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
