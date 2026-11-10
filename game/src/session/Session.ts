@@ -509,7 +509,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
         : null,
       ready: () => {
         status.textContent = '';
-        installSimDebug({ events, ghosts, menu, shot, rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, eyeAt, outrun, monsters, startOutrun, stopOutrun, treeFadeUniforms,
+        installSimDebug({ events, ghosts, menu, shot, rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, scene, eyeAt, outrun, monsters, startOutrun, stopOutrun, treeFadeUniforms,
           /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
           setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
           /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */

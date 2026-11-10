@@ -1,0 +1,468 @@
+# Checks in CI (FEAT-172): the checks sessions used to run by hand before pushing, on GitHub's runners.
+# Every job shows as its own check on the PR. Developer guide > Checks in CI says what runs where.
+#
+#   typecheck-build   tsc --noEmit and vite build                                  game/ changed
+#   physics-checks    the Node-only check tools (Rider physics on exact planes,     game/ changed
+#                     no pack, no browser)
+#   browser-checks    headless check tools on the synthetic pack, SwiftShader       game/ or pipeline/ changed
+#   pipeline-tests    pytest pipeline/tests                                         pipeline/ changed
+#   stills            main and the PR on the synthetic pack: stills with a pixel    PRs, game/ or pipeline/ changed
+#                     difference per view, shader compile, scene budget counts
+#                     (fails on a count more than 10% over main), bundle size;
+#                     stills-comment posts it on the PR
+#   repo-rules        no em dashes in added Markdown, plain commit messages,         always
+#                     docs-travel warning
+#   public-guards     no Spotify code, no .env files, images <= 1 MB in the right    always
+#                     folders, gitleaks on the PR's commits
+#
+# Check tools that stay local (they need Vail / Breckenridge or a real GPU, or are too slow on software
+# rendering for a runner; run them on Drew's PC and say so in the PR):
+#   need a real pack: lenscheck, outruncheck, snowcheck, treefadecheck, shoot_spots, aerial, views, treeperf
+#   too slow on SwiftShader (over 5 min each): see BROWSER_LOCAL below
+#   known failing on main, left out until fixed: mogulcheck (BUG-072, see MOGUL_BUG below)
+#   no pass / fail exit code (they print numbers or save shots for a person to read): leancheck, rider, shoot,
+#   carveshot, brakeshot
+#
+# Rerun: the PR's Checks tab > Re-run jobs, or Actions > Checks > Run workflow (give the PR number to get the
+# stills comment). pr-feedback.yml dispatches this workflow after it pushes, since its GITHUB_TOKEN push does
+# not start a pull_request run.
+
+name: Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number (optional; runs the stills against its base and comments there)
+        required: false
+        type: string
+
+concurrency:
+  group: checks-${{ github.event.pull_request.number || inputs.pr || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+  BASE_REF: ${{ github.base_ref || 'main' }}
+  # Node-only check tools: exit 1 on a failed check, need neither a pack nor a browser
+  PHYSICS_CHECKS: brakecheck carvecheck fakiecheck fallcheck hardcarvecheck presscheck
+  # MOGUL_BUG: mogulcheck's "late tile: no air over 1 s" fails on main (1.07 s), BUG-072 (#400). Add it back here once fixed.
+  # Browser check tools that pass on the synthetic pack under SwiftShader within a few minutes
+  BROWSER_CHECKS: switchcheck glancecheck hardposecheck
+  # BROWSER_LOCAL (too slow on software rendering for a runner): SURVEY_PENDING
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      game: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.f.outputs.game }}
+      pipeline: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.f.outputs.pipeline }}
+      attract: ${{ steps.f.outputs.attract }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: f
+        with:
+          filters: |
+            ci: &ci
+              - '.github/workflows/checks.yml'
+              - 'tools/ci/**'
+            game:
+              - *ci
+              - 'game/**'
+            pipeline:
+              - *ci
+              - 'pipeline/**'
+            attract:
+              - 'game/src/ui/**'
+              - 'game/src/world/AttractShots.ts'
+              - 'game/tools/shoot_attract.mjs'
+
+  typecheck-build:
+    needs: changes
+    if: needs.changes.outputs.game == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: game
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: game/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Build
+        run: npx vite build
+
+  physics-checks:
+    needs: changes
+    if: needs.changes.outputs.game == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: game
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: game/package-lock.json
+      - run: npm ci
+      - name: Physics checks
+        run: |
+          failed=""
+          for c in $PHYSICS_CHECKS; do
+            echo "::group::$c"
+            node tools/$c.mjs || failed="$failed $c"
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
+
+  pipeline-tests:
+    needs: changes
+    if: needs.changes.outputs.pipeline == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+      - run: pip install -r pipeline/requirements.txt pytest
+      - name: pytest
+        working-directory: pipeline
+        run: python -m pytest tests -v
+
+  # The synthetic pack (pipeline/synth_pack.py, about 2 min to build), cached on a hash of the pipeline's
+  # Python so it is rebuilt only when the pipeline changes. Jobs that need it restore it with the same key.
+  synth-pack:
+    needs: changes
+    if: needs.changes.outputs.game == 'true' || needs.changes.outputs.pipeline == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      key: ${{ steps.key.outputs.key }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: key
+        run: echo "key=$(bash tools/ci/synth_key.sh pipeline)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: packs/synth
+          key: ${{ steps.key.outputs.key }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          pip install -r pipeline/requirements.txt
+          python pipeline/synth_pack.py packs/synth
+
+  browser-checks:
+    needs: [changes, synth-pack]
+    if: needs.changes.outputs.game == 'true' || needs.changes.outputs.pipeline == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: game
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: game/package-lock.json
+      - run: npm ci
+      - uses: actions/cache/restore@v4
+        with:
+          path: packs/synth
+          key: ${{ needs.synth-pack.outputs.key }}
+          fail-on-cache-miss: true
+      - id: pw
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.pw.outputs.version }}
+      - run: npx playwright install --with-deps chromium
+      - run: npx vite build
+      - name: Browser checks (SwiftShader, lowgfx)
+        run: |
+          failed=""
+          for c in $BROWSER_CHECKS; do
+            echo "::group::$c"
+            node tools/$c.mjs synth --cpu || failed="$failed $c"
+            echo "::endgroup::"
+          done
+          if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
+
+  # TEMPORARY (FEAT-172 PR only, removed before merge): time the other browser checks on a runner to
+  # decide which join BROWSER_CHECKS.
+  browser-survey:
+    needs: [changes, synth-pack]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: game
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: game/package-lock.json
+      - run: npm ci
+      - uses: actions/cache/restore@v4
+        with:
+          path: packs/synth
+          key: ${{ needs.synth-pack.outputs.key }}
+          fail-on-cache-miss: true
+      - run: npx playwright install --with-deps chromium
+      - run: npx vite build
+      - name: Survey
+        run: |
+          for c in powdercheck padcheck menucheck leadcheck trailcheck statecheck treeshot; do
+            arg=synth; [ "$c" = treeshot ] && arg=/tmp/trees
+            s=$SECONDS
+            timeout 420 node tools/$c.mjs $arg --cpu > "/tmp/$c.log" 2>&1; code=$?
+            echo "SURVEY $c exit=$code secs=$((SECONDS - s))"
+            tail -n 5 "/tmp/$c.log"
+          done
+
+  stills:
+    needs: [changes, synth-pack]
+    if: >-
+      (github.event_name == 'pull_request' || inputs.pr != '') &&
+      (needs.changes.outputs.game == 'true' || needs.changes.outputs.pipeline == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      OUT: ${{ github.workspace }}/ci-stills
+      MAIN: ${{ github.workspace }}/../main-src
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: game/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+      - run: npm ci
+        working-directory: game
+      - run: pip install numpy pillow
+
+      # main's source, built with the PR's node_modules unless the lockfile differs
+      - name: Check out and build main
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          git worktree add "$MAIN" FETCH_HEAD
+          if cmp -s game/package-lock.json "$MAIN/game/package-lock.json"; then
+            ln -s "$GITHUB_WORKSPACE/game/node_modules" "$MAIN/game/node_modules"
+          else
+            (cd "$MAIN/game" && npm ci)
+          fi
+          (cd "$MAIN/game" && npx vite build)
+          echo "main_key=$(bash tools/ci/synth_key.sh "$MAIN/pipeline")" >> "$GITHUB_ENV"
+
+      # main's synthetic pack: the same as the PR's unless the PR changed the pipeline
+      - uses: actions/cache/restore@v4
+        id: main-synth
+        if: env.main_key != needs.synth-pack.outputs.key
+        with:
+          path: packs/synth
+          key: ${{ env.main_key }}
+      - name: Main's synthetic pack
+        run: |
+          mkdir -p "$RUNNER_TEMP/main-packs"
+          if [ "$main_key" = "${{ needs.synth-pack.outputs.key }}" ]; then
+            echo "MAIN_PACKS=$GITHUB_WORKSPACE/packs" >> "$GITHUB_ENV"
+          else
+            if [ "${{ steps.main-synth.outputs.cache-hit }}" = "true" ]; then
+              mv packs/synth "$RUNNER_TEMP/main-packs/synth"
+            else
+              pip install -r "$MAIN/pipeline/requirements.txt"
+              python "$MAIN/pipeline/synth_pack.py" "$RUNNER_TEMP/main-packs/synth"
+            fi
+            echo "MAIN_PACKS=$RUNNER_TEMP/main-packs" >> "$GITHUB_ENV"
+          fi
+      - uses: actions/cache/restore@v4
+        with:
+          path: packs/synth
+          key: ${{ needs.synth-pack.outputs.key }}
+          fail-on-cache-miss: true
+
+      - id: pw
+        working-directory: game
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ steps.pw.outputs.version }}
+      - run: npx playwright install --with-deps chromium
+        working-directory: game
+      - run: npx vite build
+        working-directory: game
+
+      - name: Stills on main (before)
+        working-directory: game
+        continue-on-error: true
+        run: SHOT_DIST="$MAIN/game/dist" SHOT_PACKS="$MAIN_PACKS" node tools/cishot.mjs synth "$OUT/before" --cpu
+      - name: Stills on the PR (after)
+        id: after
+        working-directory: game
+        continue-on-error: true
+        run: node tools/cishot.mjs synth "$OUT/after" --cpu
+      - name: Menu backdrop still (menu changes only)
+        if: needs.changes.outputs.attract == 'true'
+        working-directory: game
+        continue-on-error: true
+        run: |
+          SHOT_DIST="$MAIN/game/dist" SHOT_PACKS="$MAIN_PACKS" node tools/shoot_attract.mjs synth --cpu \
+            && cp public/attract/synth/*.jpg "$OUT/before/00_menu_backdrop.jpg"
+          node tools/shoot_attract.mjs synth --cpu && cp public/attract/synth/*.jpg "$OUT/after/00_menu_backdrop.jpg"
+
+      - name: Report
+        id: report
+        continue-on-error: true
+        run: |
+          python tools/ci/stills_report.py "$OUT/before" "$OUT/after" "$OUT/report" \
+            --img-base "https://raw.githubusercontent.com/${{ github.repository }}/ci-stills/pr-$PR_NUMBER/${{ github.run_id }}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --before-dist "$MAIN/game/dist" --after-dist game/dist
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-stills
+          path: ci-stills
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Result
+        run: |
+          [ "${{ steps.after.outcome }}" = "success" ] || { echo "::error::cishot on the PR failed (shader message, page error or crash): see 'Stills on the PR'"; exit 1; }
+          [ "${{ steps.report.outcome }}" = "success" ] || { echo "::error::scene budget over main, or no stats: see 'Report'"; exit 1; }
+
+  # Posts (or updates) one comment on the PR with the report, and publishes its thumbnails on the
+  # ci-stills branch (one commit, force-pushed, a folder per PR) so the comment can show them.
+  # Separate from `stills` so the job with write access runs none of the PR's code.
+  stills-comment:
+    needs: stills
+    if: >-
+      always() && (github.event_name == 'pull_request' || inputs.pr != '') &&
+      (needs.stills.result == 'success' || needs.stills.result == 'failure') &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: ci-stills-branch
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ci-stills
+          path: art
+      - name: Publish thumbnails
+        if: hashFiles('art/report/img/*.jpg') != ''
+        run: |
+          src="$PWD/art/report/img"
+          mkdir "$RUNNER_TEMP/s" && cd "$RUNNER_TEMP/s" && git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          if git fetch -q --depth=1 origin ci-stills 2>/dev/null; then git checkout -q FETCH_HEAD; fi
+          git checkout -q --orphan next
+          git rm -rq --ignore-unmatch "pr-$PR_NUMBER"
+          rm -rf "pr-$PR_NUMBER"
+          mkdir -p "pr-$PR_NUMBER/${{ github.run_id }}"
+          cp "$src"/*.jpg "pr-$PR_NUMBER/${{ github.run_id }}/"
+          printf 'CI stills for PR comments (FEAT-172). Written by .github/workflows/checks.yml; not a code branch.\n' > README.md
+          git add -A
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -qm "Stills for PR #$PR_NUMBER (run ${{ github.run_id }})"
+          git push -qf origin next:ci-stills
+      - name: Comment
+        run: |
+          body=art/report/report.md
+          if [ ! -f "$body" ]; then
+            printf '<!-- ci-stills -->\n## Stills and scene budgets (synthetic pack)\n\nThe stills job failed before it wrote a report: [run log](%s).\n' \
+              "${{ github.server_url }}/$REPO/actions/runs/${{ github.run_id }}" > report.md
+            body=report.md
+          fi
+          id=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- ci-stills -->"))) | .id' | head -n1)
+          if [ -n "$id" ]; then gh api -X PATCH "repos/$REPO/issues/comments/$id" -F "body=@$body" > /dev/null
+          else gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$body"; fi
+
+  repo-rules:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Repo rules
+        run: |
+          base=${{ github.event_name == 'push' && github.event.before || format('origin/{0}', github.base_ref || 'main') }}
+          python tools/ci/repo_rules.py --base "$base" --head HEAD
+
+  public-guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Spotify, .env files, images
+        run: |
+          base=${{ github.event_name == 'push' && github.event.before || format('origin/{0}', github.base_ref || 'main') }}
+          git cat-file -e "$base^{commit}" 2>/dev/null || base=$(git rev-list --max-parents=0 HEAD | tail -n1)
+          echo "BASE=$base" >> "$GITHUB_ENV"
+          python tools/ci/public_guards.py --base "$base" --head HEAD
+      - name: gitleaks
+        if: always()
+        env:
+          GITLEAKS: '8.30.1'
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS}/gitleaks_${GITLEAKS}_linux_x64.tar.gz"
+          curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS}/gitleaks_${GITLEAKS}_checksums.txt"
+          grep "linux_x64.tar.gz" "gitleaks_${GITLEAKS}_checksums.txt" | sha256sum -c -
+          tar -xzf "gitleaks_${GITLEAKS}_linux_x64.tar.gz" gitleaks
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/gitleaks" git --no-banner --redact -v --log-opts="$BASE..HEAD" .
