@@ -83,7 +83,10 @@ start); A = 255 minus built-up (inverted so a decoder that premultiplies alpha k
 level is 4 m over the pack bounds: the 2 m mask's canopy, contrast-lifted as the shader lifts the
 under-detected lidar canopy (0.08 to 0.45) and then box-averaged, with the pack's OSM runs burned in as
 cleared strips (areas filled, lines at 0.6 of their corridor width; gladed runs keep their trees), the
-mask's rock, and the mean tree height per 16 m from the tree instances.
+mask's rock, and the mean tree height per 16 m from the tree instances. The forest is then weighted by the
+share of the ground under the crowns of the pack's tree instances (averaged over 16 m; full weight from 0.2
+up, BUG-069), so a sparse stand the lidar canopy reads as closed stays snow with its few trees instead of a
+dark patch. A pack without tree instances keeps the canopy as is.
 
 The `mid` (16 m over the mid height grid, 40 km) and `far` (100 m over the far ring's data, 200 km) levels
 come from the land cover (DATA-019): ESA WorldCover 2021 classes and the ETH 2020 canopy height, read on a
