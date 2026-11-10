@@ -1,6 +1,8 @@
 import { PLAYLISTS, SHUFFLE_ALL } from '../audio/Audio';
 import { LENSES, LENS_ORDER } from '../world/Lens';
-import { OUTFIT_LENS, OUTFIT_PRESETS, applyQuality, type Outfit, type Settings } from './Settings';
+import { DualSenseHID } from '../sim/DualSense';
+import { MENU_KEYS } from './MenuKeys';
+import { OUTFIT_LENS, OUTFIT_PRESETS, applyQuality, keyName, keysOf, type Outfit, type Settings } from './Settings';
 
 /**
  * FEAT-128: every row of the settings screen as data: its category and section, label, description,
@@ -90,12 +92,12 @@ export const SECTIONS: Section[] = [
     pick('pressBalance', 'Press balance', [['easy', 'Easy'], ['on', 'Normal'], ['hard', 'Hard'], ['off', 'Off']], 'Holding a nose or tail press is a balancing act: steer to keep the balance point centred. Easy drifts slowly, Hard fast, Off holds the press as long as the key.'),
   ] },
   { cat: 'gameplay', title: 'Rider', rows: [
-    seg('discipline', 'Ride', [['board', 'Snowboard'], ['ski', 'Skis']], 'Snowboard or skis. B on the main menu (X on a controller) switches too.'),
+    seg('discipline', 'Ride', [['board', 'Snowboard'], ['ski', 'Skis']], () => `Snowboard or skis. ${keyName(MENU_KEYS.discipline[0])} on the main menu switches too.`),
     seg('stance', 'Stance', [['regular', 'Regular'], ['goofy', 'Goofy']], 'Your normal stance on the board: regular rides left foot forward, goofy right foot forward.'),
     toggle('invertSteer', 'Invert steer', 'Swaps left and right steering.'),
   ] },
   { cat: 'gameplay', title: 'Modes', rows: [
-    toggle('timeTrials', 'Time trials', 'Start and finish gates on real runs, a timer, and a ghost of your best run. Off by default; T takes you to the nearest course.'),
+    toggle('timeTrials', 'Time trials', (s) => `Start and finish gates on real runs, a timer, and a ghost of your best run. Off by default${keysOf(s, 'trial') ? `; ${keysOf(s, 'trial')} takes you to the nearest course` : ''}.`),
     { kind: 'pick', id: 'outrun.difficulty', label: 'Outrun difficulty', opts: [['chill', 'Chill'], ['normal', 'Normal'], ['skifree', 'SkiFree']], ...outrun('difficulty'),
       desc: 'A snow monster chases you down the mountain. Chill gives a 10 s head start, Normal 7 s, SkiFree 5 s and only the boost saves you.' },
     { kind: 'seg', id: 'outrun.escape', label: 'Outrun escape', opts: [['base', 'Reach the base'], ['endless', 'Endless']], ...outrun('escape'),
@@ -121,15 +123,16 @@ export const SECTIONS: Section[] = [
     { kind: 'action', id: 'pad-reset', label: 'Reset buttons', button: 'Reset controller buttons', action: 'pad-reset', desc: 'Puts every controller button back to the default layout.' },
   ] },
   { cat: 'controls', title: 'DualSense extras', rows: [
-    { kind: 'action', id: 'hid', label: 'DualSense extras', button: 'Connect', action: 'hid', desc: 'Lightbar, adaptive triggers, gyro look and touchpad swipes, over WebHID (Chrome or Edge, USB or Bluetooth). Click with the mouse and pick the controller: the browser only opens its picker on a click.' },
-    toggle('padTriggers', 'Adaptive triggers', 'The triggers push back as you tuck and brake.'),
-    toggle('padLightbar', 'Lightbar', 'The lightbar shows speed and Outrun danger.'),
-    toggle('padGyro', 'Gyro look', 'Tilt the controller to look around.'),
-    slider('gyroSens', 'Gyro speed', 0.25, 3, 0.05, times, 'How fast tilting turns the camera.'),
+    { kind: 'info', id: 'hid-none', label: 'DualSense extras', hidden: () => DualSenseHID.supported, desc: 'The DualSense extras (lightbar, adaptive triggers, gyro look) need Chrome or Edge on https or localhost (WebHID).' },
+    { kind: 'action', id: 'hid', label: 'DualSense extras', button: 'Connect', action: 'hid', hidden: () => !DualSenseHID.supported, desc: 'Lightbar, adaptive triggers, gyro look and touchpad swipes, over WebHID (Chrome or Edge, USB or Bluetooth). Click with the mouse and pick the controller: the browser only opens its picker on a click.' },
+    toggle('padTriggers', 'Adaptive triggers', 'The triggers push back as you tuck and brake.', { hidden: () => !DualSenseHID.supported }),
+    toggle('padLightbar', 'Lightbar', 'The lightbar shows speed and Outrun danger.', { hidden: () => !DualSenseHID.supported }),
+    toggle('padGyro', 'Gyro look', 'Tilt the controller to look around.', { hidden: () => !DualSenseHID.supported }),
+    slider('gyroSens', 'Gyro speed', 0.25, 3, 0.05, times, 'How fast tilting turns the camera.', { hidden: () => !DualSenseHID.supported }),
   ] },
 
   { cat: 'camera', title: 'View', rows: [
-    pick('camera', 'Default camera', [['chase', 'Chase'], ['close', 'Close'], ['far', 'Far (angled)'], ['cine', 'Cinematic'], ['fp', 'First person'], ['helmet', 'Helmet cam']], 'The camera you start with. C cycles them while riding.'),
+    pick('camera', 'Default camera', [['chase', 'Chase'], ['close', 'Close'], ['far', 'Far (angled)'], ['cine', 'Cinematic'], ['fp', 'First person'], ['helmet', 'Helmet cam']], (s) => `The camera you start with.${keysOf(s, 'camera') ? ` ${keysOf(s, 'camera')} cycles them while riding.` : ''}`),
     slider('fov', 'Field of view', 50, 100, 1, (v) => `${v}°`, 'How wide the chase camera sees. Wider shows more of the slope and feels faster.'),
     toggle('speedFov', 'Widen view with speed', 'The view widens as you go faster.'),
   ] },
@@ -196,7 +199,7 @@ export const SECTIONS: Section[] = [
   ] },
   { cat: 'audio', title: 'Music', rows: [
     pick('musicSource', 'Music source', [['files', 'Playlist'], ['builtin', 'Built-in jukebox'], ['off', 'Off']], 'Playlist plays the shipped tracks (the built-in jukebox where a playlist has none). The jukebox makes procedural music in each playlist\'s style.'),
-    pick('playlist', 'Station', [...PLAYLISTS.map((p) => [p.name, p.name] as Opt), [SHUFFLE_ALL, 'Shuffle all']], 'The station. N skips to the next track while riding.'),
+    pick('playlist', 'Station', [...PLAYLISTS.map((p) => [p.name, p.name] as Opt), [SHUFFLE_ALL, 'Shuffle all']], (s) => `The station.${keysOf(s, 'track') ? ` ${keysOf(s, 'track')} skips to the next track while riding.` : ''}`),
   ] },
 
   { cat: 'rider', title: 'Outfit', rows: [

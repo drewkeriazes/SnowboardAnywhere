@@ -5,7 +5,7 @@ real trees, and the actual lifts, runs and buildings from OpenStreetMap. Ride Va
 take the chairs back up, race your own ghost, or outrun the snow monster.
 
 Built with Three.js, TypeScript and Vite. Resorts so far: Vail and Breckenridge (pick one on the main menu).
-Modes: free ride, time trials (turn on in Settings > Gameplay) and Outrun (Esc > Outrun).
+Modes: free ride, time trials and Outrun, picked in Esc > Mode (time trial gates can also stay on all the time: Settings > Gameplay).
 
 ## Play
 
@@ -75,6 +75,11 @@ Menus work with the keyboard, a gamepad, the mouse or touch: arrows or the D-pad
 (Esc or Circle / B resumes from pause), B on the keyboard or Square / X on the pad switches Snowboard / Skis on the main menu.
 The hint bar at the bottom of each menu shows the keys or buttons for whichever you used last.
 The main menu's Controls button opens your current bindings.
+
+Esc pauses: the left column names where you are and shows this run's time, distance, vertical and top speed, then
+Resume, Restart, Map, Mode, Replay and Settings, and quick toggles for the camera, weather, time of day and music
+(left / right change them at once). Mode picks Free ride, a time trial course (you start just above its gate, the
+gates stay on for the session) or Outrun with its options. Quit to main menu sits in the hint bar and takes two presses.
 
 Settings opens full screen: categories on the left (Gameplay, Controls, Camera, Graphics, Conditions, Map and world, Audio,
 Rider, Accessibility, Credits), the settings in the middle, and what the focused one does on the right.

@@ -127,7 +127,7 @@ class SettingsOverlay {
   }
 
   private row(r: Row): string {
-    const search = esc(`${r.label} ${typeof r.desc === 'string' ? r.desc : ''}`.toLowerCase());
+    const search = esc(`${r.label} ${descOf(r, this.s)}`.toLowerCase());
     const head = `data-row="${r.id}" data-kind="${r.kind}" data-search="${search}"`;
     const desc = `<span class="sdesc"></span>`;
     switch (r.kind) {
@@ -296,11 +296,15 @@ class SettingsOverlay {
   private reset(what: CatId | 'all'): void {
     const d = defaultSettings();
     if (what === 'all') {
-      Object.assign(this.s, d);
-      this.commit(['reset']);
+      // the nested objects keep their identity (the pause menu and the game hold them); a ?weather= override clears as with Reset conditions
+      const { outfit, outrun } = this.s;
+      Object.assign(this.s, d, { outfit: Object.assign(outfit, d.outfit), outrun: Object.assign(outrun, d.outrun) });
+      this.commit(['reset', 'clouds']);
     } else {
       const whats: string[] = [];
+      const lens = this.s.goggleLens; // the outfit preset carries a lens, but the lens is Camera's setting
       for (const r of rowsOf(what)) if ('set' in r) { r.set(this.s, r.get(d)); whats.push(whatOf(r)); }
+      if (what === 'rider') this.s.goggleLens = lens;
       if (what === 'controls') { this.s.keys = d.keys; this.s.padKeys = d.padKeys; this.s.keysNote = false; whats.push('keys', 'padKeys'); }
       this.commit(whats);
     }
@@ -343,8 +347,8 @@ class SettingsOverlay {
     if (this.o && this.shown) this.screen.refresh(); // not while opening: openScreen has to see where focus came from first
   }
 
-  private listenKey(b: HTMLButtonElement): void {
-    this.cancelListen?.(); // a slot that was still listening stops (else both would take the next key)
+  private listenKey(clicked: HTMLButtonElement): void {
+    const b = this.restartSlot(clicked, `button.key[data-action="${clicked.dataset.action}"][data-slot="${clicked.dataset.slot}"]`);
     b.textContent = '...'; b.classList.add('listening');
     setNavSuspended(true); // the menus ignore keys and pad while a slot waits for one
     const act = b.dataset.action!, i = Number(b.dataset.slot), s = this.s;
@@ -357,6 +361,7 @@ class SettingsOverlay {
     const done = () => { stop(); this.drawKeys(); this.refocusSlot(`button.key[data-action="${act}"][data-slot="${i}"]`); };
     const onKey = (e: KeyboardEvent) => {
       e.preventDefault(); e.stopPropagation();
+      if (e.repeat) return; // the Enter that opened the slot, still held
       if (e.code === 'Delete') set(null); else if (e.code !== 'Escape') set(e.code);
       done();
     };
@@ -367,8 +372,8 @@ class SettingsOverlay {
     window.addEventListener('keydown', onKey, true);
   }
 
-  private listenPad(btn: HTMLButtonElement): void {
-    this.cancelListen?.();
+  private listenPad(clicked: HTMLButtonElement): void {
+    const btn = this.restartSlot(clicked, `button.key[data-paction="${clicked.dataset.paction}"][data-slot="${clicked.dataset.slot}"]`);
     btn.textContent = '...'; btn.classList.add('listening');
     const act = btn.dataset.paction!, i = Number(btn.dataset.slot), s = this.s;
     const set = (b: number | null) => {
@@ -396,6 +401,15 @@ class SettingsOverlay {
     window.addEventListener('keydown', onKey, true);
     raf = requestAnimationFrame(poll);
   }
+  /** A slot that was still listening stops (else both would take the next key); that redraws the slots, so the
+   *  clicked one is found again by its action and slot, and keeps the focus. */
+  private restartSlot(clicked: HTMLButtonElement, sel: string): HTMLButtonElement {
+    if (!this.cancelListen) return clicked;
+    this.cancelListen();
+    const b = this.el.querySelector<HTMLButtonElement>(sel) ?? clicked;
+    this.screen.focus(b, false);
+    return b;
+  }
   /** after a slot redraws, focus stays on the same slot */
   private refocusSlot(sel: string): void { const b = this.el.querySelector<HTMLElement>(sel); if (b) this.screen.focus(b, false); }
 
@@ -413,6 +427,7 @@ class SettingsOverlay {
   // ---------------------------------------------------------------- categories, search, detail, peek
   private openCat(c: CatId, focusFirst: boolean): void {
     this.cat = c;
+    if (c === 'credits') this.drawCredits(); // the music list loads after the menu
     if (this.searchEl.value) { this.searchEl.value = ''; this.applySearch(); }
     this.el.querySelectorAll<HTMLElement>('.cats button[data-cat]').forEach((b) => b.classList.toggle('on', b.dataset.cat === c));
     this.el.querySelectorAll<HTMLElement>('.page').forEach((p) => p.classList.toggle('shown', p.dataset.cat === c));
@@ -511,7 +526,7 @@ class SettingsOverlay {
     renderHints(this.hintEl, h, lastInputKind());
     const k = lastInputKind() === 'pad';
     const kind = activePad()?.kind ?? lastPadKind ?? 'ps';
-    this.el.querySelector<HTMLElement>('.cathint')!.innerHTML = k ? `<kbd class="pad">${padGlyph(kind, PAD.LB)}</kbd><kbd class="pad">${padGlyph(kind, PAD.RB)}</kbd>` : `<kbd>${keyName(MENU_KEYS.prevCat[0])}</kbd><kbd>${keyName(MENU_KEYS.nextCat[0])}</kbd>`;
+    this.el.querySelector<HTMLElement>('.cathint')!.innerHTML = k ? `<kbd class="pad">${padGlyph(kind, MENU_PAD.prevCat!)}</kbd><kbd class="pad">${padGlyph(kind, MENU_PAD.nextCat!)}</kbd>` : `<kbd>${keyName(MENU_KEYS.prevCat[0])}</kbd><kbd>${keyName(MENU_KEYS.nextCat[0])}</kbd>`;
   }
 }
 

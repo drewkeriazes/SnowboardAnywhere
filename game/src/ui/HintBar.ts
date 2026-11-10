@@ -18,7 +18,7 @@ function padChip(i: Hint[0]): string {
   const k = activePad()?.kind ?? lastPadKind ?? 'ps'; // as Settings > Controls
   if (i === 'move') return padGlyph(k, PAD.UP) + padGlyph(k, PAD.DOWN);
   if (i === 'adjust') return padGlyph(k, PAD.LEFT) + padGlyph(k, PAD.RIGHT);
-  if (i === 'cat') return `${padGlyph(k, PAD.LB)} ${padGlyph(k, PAD.RB)}`;
+  if (i === 'cat') return `${padGlyph(k, MENU_PAD.prevCat!)} ${padGlyph(k, MENU_PAD.nextCat!)}`;
   const b = MENU_PAD[i];
   return b === undefined ? '' : padGlyph(k, b);
 }
