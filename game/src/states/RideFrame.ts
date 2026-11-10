@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MOGUL_CREEP_M_PER_DAY } from '../terrain/Moguls';
 import { LENSES, resolveLens, type GoggleLens, type LensId } from '../world/Lens';
 import { setDeformHold } from '../world/Deform';
+import { treeSnowState } from '../world/trees';
 import type { Settings } from '../ui/Settings';
 import { contextPrompt } from '../ui/ContextPrompt';
 import { keyHints } from '../ui/KeyHints';
@@ -76,6 +77,9 @@ export interface FramePlan {
   interact: boolean;
   replay: ReplayShot | null;
 }
+
+/** FEAT-157: how much sun gets through each cloud cover (the trees' sun-side melt) */
+const CLEAR: Record<CloudCover, number> = { off: 1, cirrus: 1, few: 0.9, scattered: 0.7, broken: 0.4, overcast: 0.1, flurries: 0.05, storm: 0 };
 
 /** the weather on screen and the new snow it has laid (FEAT-105), set by the settings and grown by the storm here */
 export interface SkyState { weather: CloudCover; snowCover: number }
@@ -333,6 +337,9 @@ export class RideFrame {
       const seasonDays = Math.max(0, Math.min(150, (d.getTime() - seasonStart) / 86400000));
       pack.setMoguls(params.nomoguls ? 0 : 1 - 0.6 * snowCover, MOGUL_CREEP_M_PER_DAY * seasonDays);
       terrain.setMoguls(pack.mogulScale, pack.mogulCreep);
+      // FEAT-157: snow on the trees: heavy after a storm and mid-winter, melting back on the sun side
+      // late on a clear day, snow ghosts high up in deep winter
+      veg.kit.setSnow(treeSnowState(snowCover, settings.snowDay ?? 'mid', d.getUTCMonth() + 1, hour, CLEAR[sky.weather] ?? 0.5));
     }
     rocks.setSnow(Math.min(1, snowCover * 3), snow.wind.x, snow.wind.y); // boulder tops fill three times faster than the slopes
     roads.update(fx, fy);

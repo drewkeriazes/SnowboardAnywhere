@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { MOGUL_GLSL } from './Moguls';
 import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from './rockShader';
 import { DEFORM_GLSL, deformUniforms } from '../world/Deform';
+import { SNOW_SHADE_TINT } from '../world/snowLook';
 
 /**
  * Snow / rock / scree / groomed material. Per-vertex class weights arrive in the color attribute
@@ -110,7 +111,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     uSnowShade: { value: new THREE.Color(0.72, 0.80, 0.96) },
     uGroomed: { value: new THREE.Color(0.97, 0.98, 1.0) },
     /** sky fill on shaded snow: cool blue, not grey */
-    uShadeTint: { value: new THREE.Color(0.80, 0.93, 1.22) },
+    uShadeTint: { value: new THREE.Color(...SNOW_SHADE_TINT) },
     /** subsurface colour of the wrapped sunlight */
     uSSS: { value: new THREE.Color(0.30, 0.48, 0.80) },
     uWrap: { value: 0.45 },

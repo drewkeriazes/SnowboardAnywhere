@@ -3,6 +3,7 @@ import type { Pack } from '../pack/Pack';
 import type { Rider } from '../sim/Rider';
 import { rockCover } from '../terrain/rockCover';
 import { DEFORM_GLSL, deformUniforms, laneStampMaterial, markStampDirty } from './Deform';
+import { SNOW_ALBEDO } from './snowLook';
 
 /**
  * Tracks in the snow as real 3D grooves. Every STEP metres on the snow a cross-section is laid
@@ -74,7 +75,7 @@ const BLOCK = 250;
 const BLOCKS = Math.ceil(MAX / BLOCK);
 const UP = [0, 1, 0];
 /** BUG-021: the terrain's typical snow albedo: mix(uSnowShade, uSnow, 0.72) times its 0.95 grain tone */
-const SNOW_RGB = [0.83, 0.86, 0.94];
+const SNOW_RGB = SNOW_ALBEDO;
 /** floats stored per section */
 const SEC = 16; // ... + terrain normal (three.js x, y, z) at the centre (BUG-021), soft (FEAT-044), berm (FEAT-134)
 /** the berm and lip spread wider when scraping, so the ridge is a mound rather than a spike */

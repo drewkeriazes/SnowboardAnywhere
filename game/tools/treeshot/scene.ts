@@ -1,8 +1,9 @@
 // FEAT-156: the page side of tools/treeshot.mjs. Renders the tree kit on its own, on snow, under the
 // game's midday light (ACES, exposure 0.75, sun 3.7, sky-blue hemisphere), and exposes window.treeshot
-// for the node script: lineup(), lods(species), distance(), stats(). Each returns a PNG data URL.
+// for the node script: lineup(snow), lods(species), snowLods(species), distance(), stats(). Each returns a PNG data URL.
 import * as THREE from 'three';
 import { TreeKit, SPECIES, farAttrs, farGeometry, fadeWidth } from '../../src/world/trees';
+import { treeSnowUniforms } from '../../src/world/trees/snow';
 
 const W = 1600;
 const canvas = document.createElement('canvas');
@@ -48,6 +49,18 @@ const lineMat = gridBack.material as THREE.Material; lineMat.transparent = true;
 
 const trees = new THREE.Group();
 scene.add(trees);
+
+/** FEAT-157: a snow level: the load (0..1), or 'ghost' (a full load above the snow-ghost line) */
+type SnowLevel = number | 'ghost';
+const GHOST_Z = treeSnowUniforms.uGhostZ.value.clone();
+function snowLevel(l: SnowLevel): void {
+  const ghost = l === 'ghost';
+  kit.setSnow({ load: ghost ? 1 : l, melt: 0, ghost: ghost ? 1 : 0 });
+  // the lineup stands at 0 m, so a ghost moves the ghost line below it
+  if (ghost) treeSnowUniforms.uGhostZ.value.set(-200, -100); else treeSnowUniforms.uGhostZ.value.copy(GHOST_Z);
+}
+const levelName = (l: SnowLevel): string => (l === 'ghost' ? 'snow ghost' : `snow load ${l}`);
+snowLevel(0);
 
 /** a typical height (m) per species for the lineup */
 const HEIGHT = [18, 14, 2.2, 15, 20, 24, 9, 15];
@@ -110,7 +123,8 @@ function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number
 }
 
 /** 8 strips: the 4 variants of every species, front-lit then back-lit; ortho, so the grid reads in metres */
-function lineup(): string {
+function lineup(snow: SnowLevel = 0): string {
+  snowLevel(snow);
   const stripH = 330, slot = 14, x0 = -slot * 3.5;
   const out = document.createElement('canvas'); out.width = W; out.height = stripH * 8;
   const ctx = out.getContext('2d')!;
@@ -127,11 +141,12 @@ function lineup(): string {
       light(kind, new THREE.Vector3(0, 0, 0), 70);
       const img = render(cam, W, stripH);
       ctx.drawImage(img, 0, row * stripH);
-      label(ctx, `variant ${v} - ${kind} light`, 10, row * stripH + 22);
+      label(ctx, `variant ${v} - ${kind} light${snow === 0 ? '' : ` - ${levelName(snow)}`}`, 10, row * stripH + 22);
       if (row === 0) SPECIES.forEach((sp, s) => label(ctx, `${s} ${sp.name}`, ((x0 + s * slot + 58) / 116) * W - 50, 44));
       row++;
     }
   }
+  snowLevel(0);
   return out.toDataURL('image/png');
 }
 
@@ -158,6 +173,62 @@ function lods(s: number): string {
   });
   label(ctx, `${s} ${SPECIES[s].name}, ${h} m`, 8, tile * 2 - 10);
   forceLod(null);
+  return out.toDataURL('image/png');
+}
+
+/** FEAT-157: one tile's numbers: the tree's share of the frame, the share of it that reads as snow and its mean brightness */
+interface SnowStat { species: string; level: string; lod: string; cover: number; snow: number; luma: number }
+const snowStats: SnowStat[] = [];
+const MAGENTA = new THREE.Color(1, 0, 1);
+/** render the tree again alone on magenta (no ground, no tone-mapped background) and count its pixels */
+function measure(cam: THREE.Camera, size: number): { cover: number; snow: number; luma: number } {
+  const bg = scene.background;
+  scene.background = MAGENTA; snow.visible = false;
+  render(cam, size, size);
+  scene.background = bg; snow.visible = true;
+  const c = document.createElement('canvas'); c.width = size; c.height = size;
+  const g = c.getContext('2d')!; g.drawImage(canvas, 0, 0);
+  const d = g.getImageData(0, 0, size, size).data;
+  let n = 0, white = 0, sum = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i] > 245 && d[i + 1] < 10 && d[i + 2] > 245) continue;
+    const y = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+    n++; sum += y;
+    if (y > 120) white++; // lit or shaded snow; needles stay well under it
+  }
+  return { cover: n / (size * size), snow: n ? white / n : 0, luma: n ? sum / n : 0 };
+}
+
+/**
+ * FEAT-157: LOD0 | LOD1 | LOD2 | impostor of one species at the same framing (front light), one row per
+ * snow level: bare, 0.5, 1 and a snow ghost. The near tree and its impostor should match on every row.
+ */
+function snowLods(s: number): string {
+  const tile = 300, h = HEIGHT[s], levels: SnowLevel[] = [0, 0.5, 1, 'ghost'];
+  const out = document.createElement('canvas'); out.width = tile * 4; out.height = tile * levels.length;
+  const ctx = out.getContext('2d')!;
+  gridGround.visible = false; gridBack.visible = false;
+  rider.position.set(1e4, 0, 0);
+  const half = Math.max(h * 0.56, SPECIES[s].radius * h * 1.4);
+  const cam = new THREE.OrthographicCamera(-half, half, half, -half, 1, 2000);
+  const yc = Math.max(h * 0.48, half - h * 0.06);
+  cam.position.set(0, yc + 400 * Math.tan(8 * Math.PI / 180), 400); cam.lookAt(0, yc, 0);
+  const names = ['LOD0', 'LOD1', 'LOD2', 'impostor'];
+  const rows: SnowStat[] = [];
+  levels.forEach((l, r) => {
+    snowLevel(l);
+    for (let lod = 0; lod < 4; lod++) {
+      clearTrees(); forceLod(lod);
+      addTree(s, 0, 0, 0, h, lod as 0 | 1 | 2 | 3, 0.5);
+      light('front', new THREE.Vector3(0, 0, 0), Math.max(20, h));
+      ctx.drawImage(render(cam, tile, tile), lod * tile, r * tile);
+      label(ctx, `${names[lod]} - ${levelName(l)}`, lod * tile + 8, r * tile + 20);
+      rows.push({ species: SPECIES[s].name, level: levelName(l), lod: names[lod], ...measure(cam, tile) });
+    }
+  });
+  snowStats.push(...rows);
+  label(ctx, `${s} ${SPECIES[s].name}, ${h} m`, 8, tile * levels.length - 10);
+  snowLevel(0); forceLod(null);
   return out.toDataURL('image/png');
 }
 
@@ -223,12 +294,12 @@ function atlas(): string {
   return out.toDataURL('image/png');
 }
 
-/** the baked impostor atlases: albedo (top) and normals (bottom) */
+/** the baked impostor atlases: albedo (top), normals and the snow mask (bottom) */
 function impostorAtlas(): string {
   const f = kit.far!, w = f.albedo.width, h = f.albedo.height;
-  const out = document.createElement('canvas'); out.width = w; out.height = h * 2;
+  const out = document.createElement('canvas'); out.width = w; out.height = h * 3;
   const ctx = out.getContext('2d')!;
-  [f.albedo, f.normal].forEach((rt, k) => {
+  [f.albedo, f.normal, f.snow].forEach((rt, k) => {
     const px = new Uint8Array(w * h * 4);
     renderer.readRenderTargetPixels(rt, 0, 0, w, h, px);
     const id = ctx.createImageData(w, h);
@@ -245,4 +316,4 @@ function stats(): unknown {
   return { ...kit.stats(), kitMs: tKit, atlasTimes: (globalThis as unknown as { __atlasTimes?: number[] }).__atlasTimes };
 }
 
-(window as unknown as { treeshot: unknown }).treeshot = { lineup, lods, distance, atlas, impostorAtlas, stats, ready: true };
+(window as unknown as { treeshot: unknown }).treeshot = { lineup, lods, snowLods, snowStats: () => snowStats, distance, atlas, impostorAtlas, stats, ready: true };
