@@ -435,19 +435,25 @@ jobs:
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       LOCAL_SHA: ${{ needs.render-budgets.outputs.local_sha }}
     steps:
+      # a run for a commit the PR has moved past writes nothing: it would overwrite the newer commit's report
+      # (a local pass posted while this run was still going, for one)
       - name: Find the comment
         id: find
+        env:
+          RUN_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
+          now=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq .head.sha)
+          if [ "$now" != "$RUN_SHA" ]; then echo "the PR is at $now now, this run is for $RUN_SHA: not commenting"; echo "stale=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           id=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments?per_page=100" --paginate \
             --jq '.[] | select((.user.login == "github-actions[bot]" or .user.login == "${{ github.repository_owner }}") and (.body | startswith("<!-- ci-stills -->"))) | .id' | tail -n1)
           echo "id=$id" | tee -a "$GITHUB_OUTPUT"
-      - if: needs.render-budgets.outputs.skipped != 'true'
+      - if: needs.render-budgets.outputs.skipped != 'true' && steps.find.outputs.stale != 'true'
         uses: actions/download-artifact@v4
         with:
           name: ci-stills
           path: art
       - name: Comment
-        if: needs.render-budgets.outputs.skipped != 'true'
+        if: needs.render-budgets.outputs.skipped != 'true' && steps.find.outputs.stale != 'true'
         env:
           ID: ${{ steps.find.outputs.id }}
         run: |
@@ -461,7 +467,7 @@ jobs:
           else gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$body"; fi
       # the local run already wrote the report: add one line to it, once per commit
       - name: Note the local pass
-        if: needs.render-budgets.outputs.skipped == 'true'
+        if: needs.render-budgets.outputs.skipped == 'true' && steps.find.outputs.stale != 'true'
         env:
           ID: ${{ steps.find.outputs.id }}
         run: |
