@@ -34,6 +34,8 @@ class Builder {
   readonly col: number[] = [];
   readonly hold: number[] = [];
   readonly idx: number[] = [];
+  /** FEAT-158: triangles inside the shell that add nothing to the shadow (drawn after `idx`, left out of the shadow pass) */
+  readonly idxInner: number[] = [];
   /** FEAT-157: the snow hold the next vertices get (times what `card` adds along the branch) */
   holdK = 1;
   /** the crown's reference for the bent normals: radius and the height of its centre */
@@ -51,7 +53,8 @@ class Builder {
     return [x / r, 0.55 + 0.35 * (y - this.normY) / Math.max(0.2, 1 - this.normY), z / r];
   }
   tri(a: number, b: number, c: number): void { this.idx.push(a, b, c); }
-  get triangles(): number { return this.idx.length / 3; }
+  inner(a: number, b: number, c: number): void { this.idxInner.push(a, b, c); }
+  get triangles(): number { return (this.idx.length + this.idxInner.length) / 3; }
 
   build(radius: number): THREE.BufferGeometry {
     // normalise: crown radius 1 (x, z divided by the natural radius); normals by the inverse transpose
@@ -70,7 +73,8 @@ class Builder {
     g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(this.uv), 2));
     g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(this.col), 3));
     g.setAttribute('snowHold', new THREE.BufferAttribute(new Float32Array(this.hold), 1));
-    g.setIndex(this.idx);
+    g.setIndex(this.idx.concat(this.idxInner));
+    g.userData.castCount = this.idx.length; // FEAT-158: the shadow pass draws this many indices
     g.computeBoundingSphere();
     g.computeBoundingBox();
     return g;
@@ -172,7 +176,7 @@ function starCone(b: Builder, y0: number, top: number, r: number, points: number
   b.vert(cx, y0 + (top - y0) * under, cz, 0, -1, 0, (uv.u0 + uv.u1) / 2, (uv.v0 + uv.v1) / 2, c, aoLo * 0.6, 0);
   for (let i = 0; i < n; i++) {
     const a = ring + i, bb = ring + ((i + 1) % n);
-    b.tri(apex, bb, a); b.tri(hub, a, bb);
+    b.tri(apex, bb, a); b.inner(hub, a, bb); // the underside sits above the rim, inside the cone's shadow
   }
 }
 

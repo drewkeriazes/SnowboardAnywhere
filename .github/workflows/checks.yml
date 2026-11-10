@@ -494,10 +494,16 @@ jobs:
         run: |
           base=${{ github.event_name == 'push' && github.event.before || format('origin/{0}', github.base_ref || 'main') }}
           python tools/ci/repo_rules.py --base "$base" --head HEAD
+      # A warning only, so it never fails the job (BUG-076): main's checks.yml runs against the PR head, and a
+      # branch cut before #420 has no attract_look.mjs. A stale still only prints ::warning; any crash becomes one.
       - name: Main menu still (FEAT-177, a warning only)
         run: |
+          if [ ! -f game/tools/attract_look.mjs ]; then
+            echo "::notice::No game/tools/attract_look.mjs on this branch (cut before #420); merge main to run the main menu still check."
+            exit 0
+          fi
           base=${{ github.event_name == 'push' && github.event.before || format('origin/{0}', github.base_ref || 'main') }}
-          node game/tools/attract_look.mjs --check --base "$base"
+          node game/tools/attract_look.mjs --check --base "$base" || echo "::warning::attract_look.mjs --check exited $?; the main menu still check did not run."
 
   public-guards:
     runs-on: ubuntu-latest

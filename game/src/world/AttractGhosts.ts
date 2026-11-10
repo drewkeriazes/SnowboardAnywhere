@@ -210,14 +210,18 @@ export class AttractGhosts {
     const c = this.view?.position;
     this.ghosts.forEach((g, i) => {
       const lt = this.lt(g);
-      if (!(lt >= g.from && lt <= g.to)) { g.view.group.visible = g.view.sprayObject.visible = false; g.posed = false; return; }
+      if (!(lt >= g.from && lt <= g.to)) { g.view.group.visible = g.view.sprayObject.visible = false; g.posed = false; g.hidden = false; return; }
       const s = g.replay.at(lt)!;
       const d = c ? Math.hypot(s.x - c.x, s.z - c.y, -s.y - c.z) : 0, far = d > LOD_M;
       const every = d > LOD_M ? FAR_EVERY : d > NEAR_M ? 2 : 1;
-      const turn = every === 1 || (this.frame + i) % every === 0 || !g.posed;
-      if (c && turn) g.hidden = this.behindTerrain(c, s);
+      const beat = every === 1 || (this.frame + i) % every === 0;
+      // the terrain check on the ghost's beat, also for one not posed yet (just into its window), but not again
+      // every frame for one already behind the terrain: hidden ghosts are many, and their view rarely changes
+      if (c && (beat || (!g.posed && !g.hidden))) g.hidden = this.behindTerrain(c, s);
       g.view.group.visible = !g.hidden;
       if (g.hidden) { g.view.sprayObject.visible = false; g.posed = false; return; }
+      // posed on its beat, and at once when it has no pose (just into its window, or just out from behind the terrain)
+      const turn = beat || !g.posed;
       // a take that starts or ends in frame fades there (its shadow off while it does)
       const a = Math.min(g.fadeIn ? (lt - g.from) / FADE : 1, g.fadeOut ? (g.to - lt) / FADE : 1, 1);
       if (a !== g.alpha) { g.alpha = a; for (const m of g.mats) m.opacity = a; }

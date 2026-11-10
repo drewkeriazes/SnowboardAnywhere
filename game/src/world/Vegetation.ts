@@ -13,34 +13,63 @@ import { TreeShade } from './TreeShade';
  *   LOD2 crossed quads 400..1500 m  one mesh per cell (all species), from the baked impostor atlas
  *   impostors          1500..4500 m one mesh per cell, camera-facing quads from the same atlas
  * The two near sets are rebuilt on the CPU when the camera has moved part of their margin; the far
- * meshes hold a whole cell and the shader drops the trees outside their band. Distances scale with
- * the graphics setting (setVegetationDensity / setVegetationBudget).
+ * meshes hold the cell's trees in the 100 m sub-tiles that reach their band, and the shader drops the
+ * trees outside it. Distances scale with the graphics setting (setVegetationDensity / setVegetationBudget).
+ *
+ * FEAT-158: the near sets are culled per sub-tile against the view (`cull`, before each frame's draw):
+ * only the tiles in view, or whose trees' shadows can reach into it, sit at the front of the instance
+ * buffers, and of those the ones inside the sun's shadow camera come first, so the shadow pass draws
+ * only that prefix. A far mesh repacks its sub-tiles once the camera has moved enough for its band to reach a
+ * tile it left out, so the cells round the camera no longer draw every tree as a collapsed quad.
  */
 let NEAR_RADIUS = 1500;
 let FAR_RADIUS = 4500;
 /** LOD0 / LOD1 reach as a share of 80 / 400 m */
 let LOD_K = 1;
+/** FEAT-158: false on the Low preset: LOD1 cones from the camera out, no LOD0 cards */
+let LOD0_ON = true;
 /** FEAT-167: bumped whenever the radii change, so update() redoes the LOD bands only then */
 let bandsVersion = 0;
 /** FEAT-153: how far the tree impostors reach (m), where the terrain's canopy lift takes over */
 export function vegetationFarRadius(): number { return FAR_RADIUS; }
-/** Headless / weak GPU: far fewer instances. */
-export function setVegetationBudget(near: number, far: number): void { NEAR_RADIUS = near; FAR_RADIUS = far; LOD_K = Math.max(0.5, Math.min(1, near / 1500)); bandsVersion++; }
+/** Headless / weak GPU: far fewer instances; `lod0` false draws LOD1 from the camera out (the Low preset). */
+export function setVegetationBudget(near: number, far: number, lod0 = true): void { NEAR_RADIUS = near; FAR_RADIUS = far; LOD_K = Math.max(0.5, Math.min(1, near / 1500)); LOD0_ON = lod0; bandsVersion++; }
 /** Scale the near/far radii by a 0.25..1 density (1 = full 1500 / 4500 m); the LOD0 / LOD1 reach scales more gently. */
-export function setVegetationDensity(d: number): void { const k = Math.max(0.25, Math.min(1, d)); NEAR_RADIUS = 1500 * k; FAR_RADIUS = 4500 * k; LOD_K = 0.6 + 0.4 * k; bandsVersion++; }
+export function setVegetationDensity(d: number): void { const k = Math.max(0.25, Math.min(1, d)); NEAR_RADIUS = 1500 * k; FAR_RADIUS = 4500 * k; LOD_K = 0.6 + 0.4 * k; LOD0_ON = true; bandsVersion++; }
 
-/** the LOD band edges for the current setting (m from the camera), into `out` */
+/** the LOD band edges for the current setting (m from the camera), into `out`; out[0] is 0 without LOD0 */
 function edges(out: number[]): void {
-  const b2 = NEAR_RADIUS, b1 = Math.min(400 * LOD_K, b2 * 0.8), b0 = Math.min(80 * LOD_K, b1 * 0.5);
+  const b2 = NEAR_RADIUS, b1 = Math.min(400 * LOD_K, b2 * 0.8), b0 = LOD0_ON ? Math.min(80 * LOD_K, b1 * 0.5) : 0;
   out[0] = b0; out[1] = b1; out[2] = b2; out[3] = FAR_RADIUS;
 }
 
-/** sub-tiles per cell side for the near-set gather */
+/** sub-tiles per cell side for the near-set gather and the far packing */
 const TILES = 10;
+const TILE_N = TILES * TILES;
 /** the near sets are rebuilt once the camera has moved this far from where they were gathered (m) */
 const MARGIN0 = 25, MARGIN1 = 60;
 /** krummholz flags stream downwind: the prevailing westerlies blow toward +x (east) */
 const FLAG_YAW = 0;
+/** FEAT-158: the near sets' cull tiles (m), LOD0 and LOD1 */
+const NEAR_TILE = [25, 50];
+/** a near tile is packed with this much slack round the view (m), so turning repacks only now and then */
+const CULL_GROW = [15, 40];
+/** the longest shadow a near tree is kept for when its tile is out of view (m) */
+const SWEEP_MAX = 200;
+/** a far mesh checks its tiles after the camera moves this far (m), and packs this much past its band (m) */
+const FAR_CHECK = 15, FAR_GROW = 150;
+
+/** one far LOD mesh of a cell: its own instance buffers, holding the trees of the tiles in `mask` */
+interface FarMesh {
+  mesh: THREE.Mesh;
+  attrs: FarAttrs;
+  mask: Uint8Array;
+  count: number;
+  /** where the camera was (pack metres) and the band epoch at the last tile check */
+  x: number;
+  y: number;
+  epoch: number;
+}
 
 interface Cell {
   key: string;
@@ -58,26 +87,50 @@ interface Cell {
   tileStart: Uint32Array | null;
   zMin: number;
   zMax: number;
-  far: FarAttrs | null;
-  lod2: THREE.Mesh | null;
-  imp: THREE.Mesh | null;
+  lod2: FarMesh | null;
+  imp: FarMesh | null;
   loading: boolean;
   missing: boolean;
   /** FEAT-171: handed to the shade map */
   shaded: boolean;
 }
 
-/** one near LOD: an InstancedMesh per species x variant, filled from the trees within `radius` of where it was gathered */
+/**
+ * One near LOD: an InstancedMesh per species x variant, filled from the trees within `radius` of where
+ * it was gathered. The gathered instances are staged per species x variant (`stM`, `stC`, their tile in
+ * `stT`; kit combo k holds entries kStart[k] .. kStart[k + 1]); the meshes hold the staged instances of
+ * the tiles in `packed`.
+ */
 interface NearSet {
   lod: 0 | 1;
   meshes: (THREE.InstancedMesh | null)[];
+  /** per kit combo: (cell ref, tree index, tile) triples (scratch for the gather) */
   lists: number[][];
+  stM: Float32Array;
+  stC: Float32Array;
+  stT: Int32Array;
+  kStart: Int32Array;
+  /** per tile, 7 floats: minX, minY, maxX, maxY (pack metres), zMin, zMax (base to top), tallest tree */
+  tiles: Float32Array;
+  tileCount: number;
+  /** per tile: in the buffers; and in the shadow pass's prefix of them */
+  packed: Uint8Array;
+  cast: Uint8Array;
   x: number;
   y: number;
   radius: number;
   dirty: boolean;
+  /** instances gathered, instances in the buffers */
   count: number;
+  drawn: number;
 }
+
+const newNear = (lod: 0 | 1): NearSet => ({
+  lod, meshes: new Array(SPECIES_COUNT * VARIANTS).fill(null), lists: [],
+  stM: new Float32Array(0), stC: new Float32Array(0), stT: new Int32Array(0), kStart: new Int32Array(SPECIES_COUNT * VARIANTS + 1),
+  tiles: new Float32Array(0), tileCount: 0, packed: new Uint8Array(0), cast: new Uint8Array(0),
+  x: NaN, y: NaN, radius: 0, dirty: true, count: 0, drawn: 0,
+});
 
 export class Vegetation {
   readonly group = new THREE.Group();
@@ -87,18 +140,21 @@ export class Vegetation {
   private readonly pack: Pack;
   private readonly collider: Collider | null;
   private readonly cells = new Map<string, Cell>();
-  readonly stats = { cells: 0, instances: 0, lod0: 0, lod1: 0 };
+  /** instances: in loaded cells; lod0 / lod1: in the near buffers (after culling); far: in the far buffers; *Packs: buffer refills so far */
+  readonly stats = { cells: 0, instances: 0, lod0: 0, lod1: 0, far: 0, nearPacks: 0, farPacks: 0 };
   /** BUG-063: stop building cell meshes after this many ms per update (0 = no limit; headless keeps 0) */
   budgetMs = 0;
   /** BUG-063: cells in range still downloading or waiting for their meshes after the last update */
   pending = 0;
-  private readonly near: NearSet[] = [0, 1].map((lod) => ({ lod: lod as 0 | 1, meshes: new Array(SPECIES_COUNT * VARIANTS).fill(null), lists: [], x: NaN, y: NaN, radius: 0, dirty: true, count: 0 }));
+  private readonly near: NearSet[] = [newNear(0), newNear(1)];
   private impostorsOn = true;
   private readonly cam = new THREE.Vector3(NaN, 0, 0);
   private readonly legacy: boolean;
   /** the band edges in use and the bandsVersion they were taken at (-1: redo on the next update) */
   private readonly band = [80, 400, 1500, 4500];
   private bandSeen = -1;
+  /** bumped whenever the bands are redone, so the far meshes recheck their tiles */
+  private bandEpoch = 0;
   /** the cells in range this update (reused, so update() allocates no set per frame) */
   private readonly keep = new Set<string>();
   /** FEAT-171: the drawn trees' shadows past the shadow map, for the terrain shader (after `enableImpostors`) */
@@ -106,6 +162,15 @@ export class Vegetation {
   private renderer: THREE.WebGLRenderer | null = null;
   private readonly sunDir = new THREE.Vector3(0.4, 0.8, 0.4);
   private readonly height = (x: number, y: number): number => this.pack.demHeight(x, y);
+  /** FEAT-158: the view the near sets are culled against (none until the first `cull`: everything packed) */
+  private readonly frustum = new THREE.Frustum();
+  private viewOk = false;
+  /** the sun's shadow camera's frustum, or null: every packed tile casts (cascaded shadows, or no `cull` yet) */
+  private shadowFrustum: THREE.Frustum | null = null;
+  private readonly projView = new THREE.Matrix4();
+  private readonly box = new THREE.Box3();
+  /** gather scratch: a near-grid tile (gy * 65536 + gx) to the near set's tile index */
+  private readonly tileIds = new Map<number, number>();
 
   constructor(pack: Pack, collider: Collider | null) {
     this.pack = pack;
@@ -148,6 +213,7 @@ export class Vegetation {
     const band = this.band;
     if (this.bandSeen !== bandsVersion) {
       this.bandSeen = bandsVersion;
+      this.bandEpoch++;
       edges(band);
       this.kit.setBands(band[0], band[1], band[2], band[3], this.impostorsOn);
       for (const n of this.near) n.dirty = true;
@@ -159,9 +225,11 @@ export class Vegetation {
     const cy0 = Math.max(0, Math.floor((Math.min(y, ay) - r - inst.minY) / cs)), cy1 = Math.min(inst.cellsY - 1, Math.floor((Math.max(y, ay) + r - inst.minY) / cs));
     const keep = this.keep;
     keep.clear();
-    let count = 0, pending = 0, built = 0;
+    let count = 0, pending = 0, built = 0, farCount = 0;
     const t0 = performance.now();
     const f1 = fadeWidth(b1) / 2, f2 = fadeWidth(b2) / 2;
+    // the distances each far LOD draws at (the shader's bands)
+    const lo2 = b1 - f1, hi2 = this.impostorsOn ? b2 + f2 : Infinity, loImp = b2 - f2;
     const far = this.kit.far;
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
@@ -172,7 +240,7 @@ export class Vegetation {
         keep.add(key);
         let cell = this.cells.get(key);
         if (!cell) {
-          cell = { key, cx, cy, data: null, sp: null, va: null, cr: null, yaw: null, tint: null, order: null, tileStart: null, zMin: 0, zMax: 0, far: null, lod2: null, imp: null, loading: false, missing: false, shaded: false };
+          cell = { key, cx, cy, data: null, sp: null, va: null, cr: null, yaw: null, tint: null, order: null, tileStart: null, zMin: 0, zMax: 0, lod2: null, imp: null, loading: false, missing: false, shaded: false };
           this.cells.set(key, cell);
         }
         if (!cell.data && !cell.loading && !cell.missing) this.load(cell);
@@ -190,11 +258,12 @@ export class Vegetation {
         const wantImp = this.impostorsOn && dMax > b2 - f2;
         if ((wantLod2 && !cell.lod2) || (wantImp && !cell.imp)) {
           // BUG-063: at least one build per update, then only while inside the time budget
-          if (this.budgetMs <= 0 || built === 0 || performance.now() - t0 < this.budgetMs) { this.buildFar(cell, wantLod2, wantImp); built++; }
+          if (this.budgetMs <= 0 || built === 0 || performance.now() - t0 < this.budgetMs) { this.buildFar(cell, wantLod2, wantImp, lo2, hi2, loImp); built++; }
           else pending++;
         }
-        if (cell.lod2) cell.lod2.visible = wantLod2;
-        if (cell.imp) cell.imp.visible = wantImp;
+        // a far mesh repacks its tiles when its band has come to reach one it left out (cheap: no build budget)
+        if (cell.lod2) { if (wantLod2) this.checkFar(cell, cell.lod2, lo2, hi2); cell.lod2.mesh.visible = wantLod2 && cell.lod2.count > 0; if (cell.lod2.mesh.visible) farCount += cell.lod2.count; }
+        if (cell.imp) { if (wantImp) this.checkFar(cell, cell.imp, loImp, Infinity); cell.imp.mesh.visible = wantImp && cell.imp.count > 0; if (cell.imp.mesh.visible) farCount += cell.imp.count; }
       }
     }
     for (const [key, cell] of this.cells) {
@@ -210,6 +279,7 @@ export class Vegetation {
     }
     // the near sets: regather once the camera has moved part of their margin
     for (const n of this.near) {
+      if (n.lod === 0 && b0 <= 0) { if (n.count) this.clearNear(n); continue; } // no LOD0 on this setting
       const margin = n.lod === 0 ? MARGIN0 : MARGIN1;
       const reach = (n.lod === 0 ? b0 + fadeWidth(b0) / 2 : b1 + f1) + margin;
       if (n.dirty || Math.hypot(cpx - n.x, cpy - n.y) > margin || Math.abs(reach - n.radius) > 1) this.gather(n, cpx, cpy, reach);
@@ -218,8 +288,71 @@ export class Vegetation {
     this.pending = pending;
     this.stats.cells = this.cells.size;
     this.stats.instances = count;
-    this.stats.lod0 = this.near[0].count;
-    this.stats.lod1 = this.near[1].count;
+    this.stats.lod0 = this.near[0].drawn;
+    this.stats.lod1 = this.near[1].drawn;
+    this.stats.far = farCount;
+  }
+
+  /**
+   * FEAT-158: before each draw, with the camera it is drawn from and the single shadow-casting sun (null
+   * with cascaded shadows: every packed tile casts): repack a near set when a tile now in view (or
+   * throwing its shadow into it) is not in its buffers, or one inside the shadow camera is not in the
+   * shadow pass's prefix. Without a call nothing is culled.
+   */
+  cull(camera: THREE.Camera, sun: THREE.DirectionalLight | null = null): void {
+    camera.updateMatrixWorld();
+    this.projView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.projView);
+    this.viewOk = true;
+    const castMode = !!sun !== !!this.shadowFrustum;
+    if (sun) { sun.updateMatrixWorld(); sun.target.updateMatrixWorld(); sun.shadow.updateMatrices(sun); this.shadowFrustum = sun.shadow.getFrustum(); }
+    else this.shadowFrustum = null;
+    for (const n of this.near) {
+      if (n.tileCount === 0) continue;
+      if (castMode) { this.packNear(n); continue; }
+      for (let t = 0; t < n.tileCount; t++) {
+        if (n.packed[t] ? !n.cast[t] && this.castWanted(n, t, 0) : this.tileWanted(n, t, 0)) { this.packNear(n); break; }
+      }
+    }
+    this.stats.lod0 = this.near[0].drawn;
+    this.stats.lod1 = this.near[1].drawn;
+  }
+
+  /** whether a near tile's trees can show: inside the LOD's band and in view, or casting a shadow into it (`grow` m of slack) */
+  private tileWanted(n: NearSet, t: number, grow: number): boolean {
+    const tl = n.tiles, o = t * 7;
+    const minX = tl[o], minY = tl[o + 1], maxX = tl[o + 2], maxY = tl[o + 3], zMin = tl[o + 4], zMax = tl[o + 5], hMax = tl[o + 6];
+    const cpx = this.cam.x, cpy = -this.cam.z, cpz = this.cam.y;
+    // the band (the shader's, measured to the tree's base): LOD0 to b0, LOD1 from b0 to b1
+    const b0 = this.band[0], b1 = this.band[1];
+    const lo = n.lod === 0 || b0 <= 0 ? -Infinity : b0 - fadeWidth(b0) / 2;
+    const hi = n.lod === 0 ? b0 + fadeWidth(b0) / 2 : b1 + fadeWidth(b1) / 2;
+    const dMin = Math.hypot(Math.max(minX - cpx, 0, cpx - maxX), Math.max(minY - cpy, 0, cpy - maxY));
+    if (dMin > hi + grow) return false;
+    const dMax = Math.hypot(Math.max(Math.abs(cpx - minX), Math.abs(cpx - maxX)), Math.max(Math.abs(cpy - minY), Math.abs(cpy - maxY)), Math.max(Math.abs(cpz - zMin), Math.abs(cpz - zMax)));
+    if (dMax < lo - grow) return false;
+    if (!this.viewOk) return true;
+    // the tile's box in three.js world (x east, y up, z = -north), grown, and stretched away from the sun by its longest shadow
+    const b = this.box;
+    b.min.set(minX - grow, zMin - grow, -maxY - grow);
+    b.max.set(maxX + grow, zMax + grow, -minY + grow);
+    const s = this.sunDir, hz = Math.hypot(s.x, s.z);
+    if (this.renderer?.shadowMap.enabled !== false && hz > 1e-3) {
+      const len = Math.min(SWEEP_MAX, hMax * hz / Math.max(s.y, 0.05));
+      const ox = -s.x / hz * len, oz = -s.z / hz * len;
+      if (ox < 0) b.min.x += ox; else b.max.x += ox;
+      if (oz < 0) b.min.z += oz; else b.max.z += oz;
+    }
+    return this.frustum.intersectsBox(b);
+  }
+
+  /** whether a packed near tile is inside the sun's shadow camera (`grow` m of slack) */
+  private castWanted(n: NearSet, t: number, grow: number): boolean {
+    if (!this.shadowFrustum) return true;
+    const tl = n.tiles, o = t * 7, b = this.box;
+    b.min.set(tl[o] - grow, tl[o + 4] - grow, -tl[o + 3] - grow);
+    b.max.set(tl[o + 2] + grow, tl[o + 5] + grow, -tl[o + 1] + grow);
+    return this.shadowFrustum.intersectsBox(b);
   }
 
   private async load(cell: Cell): Promise<void> {
@@ -252,7 +385,7 @@ export class Vegetation {
     const d = cell.data!, n = d.length / 6;
     const inst = this.pack.meta.instances!;
     const sp = new Uint8Array(n), va = new Uint8Array(n), cr = new Float32Array(n), yaw = new Float32Array(n), tint = new Float32Array(n * 3);
-    const tileOf = new Uint16Array(n), counts = new Uint32Array(TILES * TILES + 1);
+    const tileOf = new Uint16Array(n), counts = new Uint32Array(TILE_N + 1);
     const ts = inst.cellSize / TILES, minX = inst.minX + cell.cx * inst.cellSize, minY = inst.minY + cell.cy * inst.cellSize;
     let zMin = Infinity, zMax = -Infinity;
     for (let i = 0; i < n; i++) {
@@ -268,54 +401,114 @@ export class Vegetation {
       tileOf[i] = ty * TILES + tx; counts[tileOf[i] + 1]++;
       zMin = Math.min(zMin, d[o + 2]); zMax = Math.max(zMax, d[o + 2] + h);
     }
-    for (let t = 0; t < TILES * TILES; t++) counts[t + 1] += counts[t];
-    const order = new Uint32Array(n), fill = counts.slice(0, TILES * TILES);
+    for (let t = 0; t < TILE_N; t++) counts[t + 1] += counts[t];
+    const order = new Uint32Array(n), fill = counts.slice(0, TILE_N);
     for (let i = 0; i < n; i++) order[fill[tileOf[i]]++] = i;
     cell.sp = sp; cell.va = va; cell.cr = cr; cell.yaw = yaw; cell.tint = tint; cell.order = order; cell.tileStart = counts;
     cell.zMin = n ? zMin : 0; cell.zMax = n ? zMax : 0;
   }
 
-  /** the far meshes of a cell (built once, then shown or hidden as the camera moves) */
-  private buildFar(cell: Cell, lod2: boolean, imp: boolean): void {
-    const far = this.kit.far!, d = cell.data!, n = d.length / 6;
-    if (!cell.far) {
-      const a = farAttrs(n);
-      for (let i = 0; i < n; i++) {
-        const o = i * 6;
-        a.iPos.setXYZ(i, d[o], d[o + 2] - 0.3, -d[o + 1]);
-        a.iScale.setXY(i, cell.cr![i], d[o + 3]);
-        a.iYaw.setX(i, cell.yaw![i]);
-        a.iColor.setXYZ(i, cell.tint![i * 3], cell.tint![i * 3 + 1], cell.tint![i * 3 + 2]);
-        a.iSpec.setX(i, cell.sp![i]);
-      }
-      cell.far = a;
-    }
-    const inst = this.pack.meta.instances!, cs = inst.cellSize;
-    const sphere = new THREE.Sphere(new THREE.Vector3(inst.minX + (cell.cx + 0.5) * cs, (cell.zMin + cell.zMax) / 2, -(inst.minY + (cell.cy + 0.5) * cs)), Math.hypot(cs * 0.71, (cell.zMax - cell.zMin) / 2 + 30));
-    const make = (template: THREE.InstancedBufferGeometry, mat: THREE.Material, name: string): THREE.Mesh => {
-      const g = farGeometry(template, cell.far!);
-      g.boundingSphere = sphere.clone();
+  /** the far meshes of a cell (built once with buffers for all its trees, then repacked and shown or hidden as the camera moves) */
+  private buildFar(cell: Cell, lod2: boolean, imp: boolean, lo2: number, hi2: number, loImp: number): void {
+    const far = this.kit.far!, n = cell.data!.length / 6;
+    const make = (template: THREE.InstancedBufferGeometry, mat: THREE.Material, name: string, lo: number, hi: number): FarMesh => {
+      const attrs = farAttrs(n);
+      const g = farGeometry(template, attrs);
+      g.boundingSphere = new THREE.Sphere();
       const m = new THREE.Mesh(g, mat);
       m.name = `trees ${cell.cx}_${cell.cy} ${name}`;
       m.castShadow = false; m.receiveShadow = false;
       this.group.add(m);
-      return m;
+      const f: FarMesh = { mesh: m, attrs, mask: new Uint8Array(TILE_N), count: 0, x: this.cam.x, y: -this.cam.z, epoch: this.bandEpoch };
+      this.packFar(cell, f, lo, hi);
+      return f;
     };
-    if (lod2 && !cell.lod2) cell.lod2 = make(this.kit.crossed, far.lod2, 'lod2');
-    if (imp && !cell.imp) cell.imp = make(this.kit.billboard, far.imp, 'impostor');
+    if (lod2 && !cell.lod2) cell.lod2 = make(this.kit.crossed, far.lod2, 'lod2', lo2, hi2);
+    if (imp && !cell.imp) cell.imp = make(this.kit.billboard, far.imp, 'impostor', loImp, Infinity);
+  }
+
+  /** the camera's 2D nearest and 3D farthest distance to a cell's tile t (pack metres) */
+  private tileRange(cell: Cell, t: number, out: number[]): void {
+    const inst = this.pack.meta.instances!, ts = inst.cellSize / TILES;
+    const minX = inst.minX + cell.cx * inst.cellSize + (t % TILES) * ts, minY = inst.minY + cell.cy * inst.cellSize + Math.floor(t / TILES) * ts;
+    const cpx = this.cam.x, cpy = -this.cam.z, cpz = this.cam.y;
+    out[0] = Math.hypot(Math.max(minX - cpx, 0, cpx - minX - ts), Math.max(minY - cpy, 0, cpy - minY - ts));
+    out[1] = Math.hypot(Math.max(Math.abs(cpx - minX), Math.abs(cpx - minX - ts)), Math.max(Math.abs(cpy - minY), Math.abs(cpy - minY - ts)), Math.max(Math.abs(cpz - cell.zMin), Math.abs(cpz - cell.zMax)));
+  }
+  private readonly range = [0, 0];
+
+  /** after the camera has moved FAR_CHECK m (or the bands changed): repack if the band now reaches a tile left out */
+  private checkFar(cell: Cell, f: FarMesh, lo: number, hi: number): void {
+    const cpx = this.cam.x, cpy = -this.cam.z;
+    if (f.epoch === this.bandEpoch && Math.hypot(cpx - f.x, cpy - f.y) < FAR_CHECK) return;
+    f.x = cpx; f.y = cpy;
+    const forced = f.epoch !== this.bandEpoch;
+    f.epoch = this.bandEpoch;
+    const ts = cell.tileStart!, rg = this.range;
+    for (let t = 0; t < TILE_N; t++) {
+      if (f.mask[t] || ts[t + 1] === ts[t]) continue;
+      this.tileRange(cell, t, rg);
+      if (rg[0] <= hi && rg[1] >= lo) { this.packFar(cell, f, lo, hi); return; }
+    }
+    if (forced) this.packFar(cell, f, lo, hi); // new bands: drop the tiles they no longer reach
+  }
+
+  /** fill a far mesh's buffers with the trees of the tiles within FAR_GROW m of its band, and fit its bounding sphere */
+  private packFar(cell: Cell, f: FarMesh, lo: number, hi: number): void {
+    this.stats.farPacks++;
+    const d = cell.data!, a = f.attrs, ts = cell.tileStart!, order = cell.order!, rg = this.range;
+    const inst = this.pack.meta.instances!, tw = inst.cellSize / TILES;
+    const pos = a.iPos.array as Float32Array, sc = a.iScale.array as Float32Array, yw = a.iYaw.array as Float32Array, col = a.iColor.array as Float32Array, spc = a.iSpec.array as Float32Array;
+    let q = 0, tx0 = TILES, tx1 = -1, ty0 = TILES, ty1 = -1;
+    for (let t = 0; t < TILE_N; t++) {
+      f.mask[t] = 0;
+      if (ts[t + 1] === ts[t]) continue;
+      this.tileRange(cell, t, rg);
+      if (rg[0] > hi + FAR_GROW || rg[1] < lo - FAR_GROW) continue;
+      f.mask[t] = 1;
+      const tx = t % TILES, ty = Math.floor(t / TILES);
+      tx0 = Math.min(tx0, tx); tx1 = Math.max(tx1, tx); ty0 = Math.min(ty0, ty); ty1 = Math.max(ty1, ty);
+      for (let j = ts[t]; j < ts[t + 1]; j++, q++) {
+        const i = order[j], o = i * 6;
+        pos[q * 3] = d[o]; pos[q * 3 + 1] = d[o + 2] - 0.3; pos[q * 3 + 2] = -d[o + 1];
+        sc[q * 2] = cell.cr![i]; sc[q * 2 + 1] = d[o + 3];
+        yw[q] = cell.yaw![i];
+        col[q * 3] = cell.tint![i * 3]; col[q * 3 + 1] = cell.tint![i * 3 + 1]; col[q * 3 + 2] = cell.tint![i * 3 + 2];
+        spc[q] = cell.sp![i];
+      }
+    }
+    f.count = q;
+    const g = f.mesh.geometry as THREE.InstancedBufferGeometry;
+    g.instanceCount = q;
+    for (const [attr, k] of [[a.iPos, 3], [a.iScale, 2], [a.iYaw, 1], [a.iColor, 3], [a.iSpec, 1]] as const) {
+      attr.clearUpdateRanges(); if (q) attr.addUpdateRange(0, q * k); attr.needsUpdate = true;
+    }
+    if (q) {
+      const minX = inst.minX + cell.cx * inst.cellSize + tx0 * tw, minY = inst.minY + cell.cy * inst.cellSize + ty0 * tw;
+      const sx = (tx1 - tx0 + 1) * tw, sy = (ty1 - ty0 + 1) * tw;
+      g.boundingSphere!.center.set(minX + sx / 2, (cell.zMin + cell.zMax) / 2, -(minY + sy / 2));
+      g.boundingSphere!.radius = Math.hypot(sx / 2, sy / 2, (cell.zMax - cell.zMin) / 2 + 30);
+    }
   }
 
   private dropCell(cell: Cell): void {
-    for (const m of [cell.lod2, cell.imp]) if (m) { this.group.remove(m); m.geometry.dispose(); }
-    cell.lod2 = cell.imp = null; cell.far = null;
+    for (const f of [cell.lod2, cell.imp]) if (f) { this.group.remove(f.mesh); f.mesh.geometry.dispose(); }
+    cell.lod2 = cell.imp = null;
   }
 
-  /** refill a near set from the trees within `radius` of (x, y) (pack metres) */
+  private clearNear(n: NearSet): void {
+    for (const m of n.meshes) if (m) m.visible = false;
+    n.tileCount = 0; n.count = 0; n.drawn = 0; n.x = n.y = NaN; n.radius = 0;
+  }
+
+  /** refill a near set from the trees within `radius` of (x, y) (pack metres): stage them per kit combo, then pack the wanted tiles */
   private gather(n: NearSet, x: number, y: number, radius: number): void {
     const inst = this.pack.meta.instances!, cs = inst.cellSize, ts = cs / TILES, r2 = radius * radius;
-    const lists = n.lists;
+    const lists = n.lists, ids = this.tileIds, gs = NEAR_TILE[n.lod];
+    ids.clear();
     for (let k = 0; k < SPECIES_COUNT * VARIANTS; k++) (lists[k] ??= []).length = 0;
     const cellRefs: Cell[] = [];
+    let tiles = n.tiles, tc = 0;
     for (const cell of this.cells.values()) {
       if (!cell.order) continue;
       const minX = inst.minX + cell.cx * cs, minY = inst.minY + cell.cy * cs;
@@ -325,48 +518,112 @@ export class Vegetation {
       const ty0 = Math.max(0, Math.floor((y - radius - minY) / ts)), ty1 = Math.min(TILES - 1, Math.floor((y + radius - minY) / ts));
       for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
         const t = ty * TILES + tx;
+        let lastKey = -1, id = -1;
         for (let j = cell.tileStart![t]; j < cell.tileStart![t + 1]; j++) {
           const i = cell.order![j], o = i * 6, ex = d[o] - x, ey = d[o + 1] - y;
           if (ex * ex + ey * ey > r2) continue;
-          lists[cell.sp![i] * VARIANTS + cell.va![i]].push(ci, i);
+          // the tree's cull tile on the near grid
+          const gx = Math.floor((d[o] - inst.minX) / gs), gy = Math.floor((d[o + 1] - inst.minY) / gs), key = gy * 65536 + gx;
+          if (key !== lastKey) {
+            lastKey = key;
+            id = ids.get(key) ?? -1;
+            if (id < 0) {
+              id = tc++; ids.set(key, id);
+              if (tiles.length < tc * 7) { const nt = new Float32Array(Math.max(tc * 7 * 2, 64 * 7)); nt.set(tiles); tiles = nt; }
+              const b = id * 7;
+              tiles[b] = inst.minX + gx * gs; tiles[b + 1] = inst.minY + gy * gs; tiles[b + 2] = inst.minX + (gx + 1) * gs; tiles[b + 3] = inst.minY + (gy + 1) * gs;
+              tiles[b + 4] = Infinity; tiles[b + 5] = -Infinity; tiles[b + 6] = 0;
+            }
+          }
+          const b = id * 7, z = d[o + 2], h = d[o + 3];
+          if (z < tiles[b + 4]) tiles[b + 4] = z;
+          if (z + h > tiles[b + 5]) tiles[b + 5] = z + h;
+          if (h > tiles[b + 6]) tiles[b + 6] = h;
+          lists[cell.sp![i] * VARIANTS + cell.va![i]].push(ci, i, id);
         }
       }
     }
+    n.tiles = tiles; n.tileCount = tc;
+    if (n.packed.length < tc) { n.packed = new Uint8Array(Math.max(tc * 2, 64)); n.cast = new Uint8Array(n.packed.length); }
+    // stage every gathered instance (matrix and colour) grouped by kit combo
     let total = 0;
+    for (let k = 0; k < SPECIES_COUNT * VARIANTS; k++) total += lists[k].length / 3;
+    if (n.stT.length < total) { const cap = Math.ceil(total * 1.5) + 64; n.stM = new Float32Array(cap * 16); n.stC = new Float32Array(cap * 3); n.stT = new Int32Array(cap); }
+    const m = n.stM, c = n.stC, st = n.stT;
+    let e = 0;
     for (let k = 0; k < SPECIES_COUNT * VARIANTS; k++) {
-      const list = lists[k], cnt = list.length / 2;
+      n.kStart[k] = e;
+      const list = lists[k];
+      for (let q = 0; q < list.length; q += 3, e++) {
+        const cell = cellRefs[list[q]], i = list[q + 1], o = i * 6, d = cell.data!;
+        const s = cell.cr![i], h = d[o + 3], a = cell.yaw![i], ca = Math.cos(a), sa = Math.sin(a), b = e * 16;
+        // rotation about y by the yaw, scale (crown, height, crown), at the base (three.js: x east, y up, z = -north)
+        m[b] = ca * s; m[b + 1] = 0; m[b + 2] = -sa * s; m[b + 3] = 0;
+        m[b + 4] = 0; m[b + 5] = h; m[b + 6] = 0; m[b + 7] = 0;
+        m[b + 8] = sa * s; m[b + 9] = 0; m[b + 10] = ca * s; m[b + 11] = 0;
+        m[b + 12] = d[o]; m[b + 13] = d[o + 2] - 0.3; m[b + 14] = -d[o + 1]; m[b + 15] = 1;
+        c[e * 3] = cell.tint![i * 3]; c[e * 3 + 1] = cell.tint![i * 3 + 1]; c[e * 3 + 2] = cell.tint![i * 3 + 2];
+        st[e] = list[q + 2];
+      }
+    }
+    n.kStart[SPECIES_COUNT * VARIANTS] = e;
+    n.x = x; n.y = y; n.radius = radius; n.dirty = false; n.count = total;
+    this.packNear(n);
+  }
+
+  /**
+   * copy the staged instances of the wanted tiles (with CULL_GROW m of slack) to the front of each mesh's
+   * buffers, those in the shadow camera first: the shadow pass draws `userData.cast` of them
+   */
+  private packNear(n: NearSet): void {
+    this.stats.nearPacks++;
+    const packed = n.packed, cast = n.cast;
+    for (let t = 0; t < n.tileCount; t++) { packed[t] = this.tileWanted(n, t, CULL_GROW[n.lod]) ? 1 : 0; cast[t] = packed[t] && this.castWanted(n, t, CULL_GROW[n.lod]) ? 1 : 0; }
+    const sm = n.stM, sc = n.stC, st = n.stT;
+    let drawn = 0;
+    for (let k = 0; k < SPECIES_COUNT * VARIANTS; k++) {
+      const e0 = n.kStart[k], e1 = n.kStart[k + 1];
       let mesh = n.meshes[k];
-      if (cnt === 0) { if (mesh) mesh.visible = false; continue; }
-      if (!mesh || mesh.instanceMatrix.count < cnt) {
+      if (e1 === e0) { if (mesh) mesh.visible = false; continue; }
+      if (!mesh || mesh.instanceMatrix.count < e1 - e0) {
         if (mesh) { this.group.remove(mesh); mesh.dispose(); }
-        const s = Math.floor(k / VARIANTS), v = k % VARIANTS, cap = Math.ceil(cnt * 1.5) + 16;
+        const s = Math.floor(k / VARIANTS), v = k % VARIANTS, cap = Math.ceil((e1 - e0) * 1.5) + 16;
         mesh = new THREE.InstancedMesh(n.lod === 0 ? this.kit.geo.lod0[s][v] : this.kit.geo.lod1[s][v], n.lod === 0 ? this.kit.mat.lod0 : this.kit.mat.lod1, cap);
         mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
         mesh.name = `trees lod${n.lod} ${s}.${v}`;
         mesh.castShadow = true;
         mesh.receiveShadow = false;
         mesh.customDepthMaterial = n.lod === 0 ? this.kit.depth.lod0 : this.kit.depth.lod1;
-        mesh.frustumCulled = false; // the set surrounds the camera
+        mesh.frustumCulled = false; // the set surrounds the camera; packNear culls it per tile
+        // the shadow pass draws only the prefix inside the shadow camera, and of each tree only the triangles that cast (generate.ts)
+        const im = mesh, cc = im.geometry.userData.castCount as number | undefined;
+        im.onBeforeShadow = () => { im.userData.full = im.count; im.count = im.userData.cast; if (cc !== undefined) im.geometry.drawRange.count = cc; };
+        im.onAfterShadow = () => { im.count = im.userData.full; im.geometry.drawRange.count = Infinity; };
         n.meshes[k] = mesh;
         this.group.add(mesh);
       }
       const m = mesh.instanceMatrix.array as Float32Array, c = mesh.instanceColor!.array as Float32Array;
-      for (let q = 0; q < cnt; q++) {
-        const cell = cellRefs[list[q * 2]], i = list[q * 2 + 1], o = i * 6, d = cell.data!;
-        const s = cell.cr![i], h = d[o + 3], a = cell.yaw![i], ca = Math.cos(a), sa = Math.sin(a), b = q * 16;
-        // rotation about y by the yaw, scale (crown, height, crown), at the base (three.js: x east, y up, z = -north)
-        m[b] = ca * s; m[b + 1] = 0; m[b + 2] = -sa * s; m[b + 3] = 0;
-        m[b + 4] = 0; m[b + 5] = h; m[b + 6] = 0; m[b + 7] = 0;
-        m[b + 8] = sa * s; m[b + 9] = 0; m[b + 10] = ca * s; m[b + 11] = 0;
-        m[b + 12] = d[o]; m[b + 13] = d[o + 2] - 0.3; m[b + 14] = -d[o + 1]; m[b + 15] = 1;
-        c[q * 3] = cell.tint![i * 3]; c[q * 3 + 1] = cell.tint![i * 3 + 1]; c[q * 3 + 2] = cell.tint![i * 3 + 2];
+      let q = 0, nc = 0;
+      for (let pass = 1; pass >= 0; pass--) {
+        for (let e = e0; e < e1; e++) {
+          const tt = st[e];
+          if (!packed[tt] || cast[tt] !== pass) continue;
+          for (let w = 0, a = e * 16, b = q * 16; w < 16; w++) m[b + w] = sm[a + w];
+          c[q * 3] = sc[e * 3]; c[q * 3 + 1] = sc[e * 3 + 1]; c[q * 3 + 2] = sc[e * 3 + 2];
+          q++;
+        }
+        if (pass === 1) nc = q;
       }
-      mesh.count = cnt;
-      mesh.visible = true;
-      mesh.instanceMatrix.clearUpdateRanges(); mesh.instanceMatrix.addUpdateRange(0, cnt * 16); mesh.instanceMatrix.needsUpdate = true;
-      mesh.instanceColor!.clearUpdateRanges(); mesh.instanceColor!.addUpdateRange(0, cnt * 3); mesh.instanceColor!.needsUpdate = true;
-      total += cnt;
+      mesh.count = q;
+      mesh.userData.cast = nc;
+      mesh.castShadow = nc > 0;
+      mesh.visible = q > 0;
+      if (q) {
+        mesh.instanceMatrix.clearUpdateRanges(); mesh.instanceMatrix.addUpdateRange(0, q * 16); mesh.instanceMatrix.needsUpdate = true;
+        mesh.instanceColor!.clearUpdateRanges(); mesh.instanceColor!.addUpdateRange(0, q * 3); mesh.instanceColor!.needsUpdate = true;
+      }
+      drawn += q;
     }
-    n.x = x; n.y = y; n.radius = radius; n.dirty = false; n.count = total;
+    n.drawn = drawn;
   }
 }

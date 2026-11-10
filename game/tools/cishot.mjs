@@ -4,7 +4,7 @@
 //     GLSL error or warning the console gets (a broken onBeforeCompile patch, the kind behind BUG-009);
 //  2. for each fixed view, waits until no tile, terrain chunk or tree cell is pending, resets the rider
 //     to the spawn and saves a still, with that frame's renderer.info (draw calls, triangles, geometries,
-//     textures, programs); the JS heap after a gc() at the end.
+//     textures, programs) and the objects drawn (`drawn`, for tools/cishot_diff.mjs); the JS heap after a gc() at the end.
 // Writes <outDir>/<view>.png and <outDir>/stats.json. tools/ci/render_report.py compares two of these
 // (main and the PR) and posts the before / after comment. Exit code 1 on a shader message or page error.
 // node tools/cishot.mjs [pack] [outDir] [--gpu | --cpu | --headed]   (run after `npx vite build`; SHOT_DIST serves another build)
@@ -76,8 +76,12 @@ async function settle(ms = SETTLE_MS) {
         const free = s.cam.mode === 'free', fx = free ? cp.x : s.rider.x, fy = free ? -cp.z : s.rider.y;
         v.update(fx, fy, fx, fy, cp);
         [t.budgetMs, t.maxBuilds, v.budgetMs] = keep;
+        // BUG-075: the frame loop rebuilds lifts on better terrain once per 0.5 s of sim time, so whether a
+        // still had the rebuilt lift depended on how many frames ran; rebuild every lift the tiles allow now.
+        // Builds before BUG-075 return nothing and stop at 2 a call (fine: the synthetic pack has one lift).
+        const lifts = s.lifts?.maintain(1, s.rider.x, s.rider.y, Infinity) || 0;
         const tiles = [p.fine, p.mid, p.far, p.mask, p.ao, p.dir, p.moguls].reduce((n, x) => n + (x?.inFlight ?? 0), 0);
-        return tiles + (t.pending ?? 0) + (v.pending ?? 0);
+        return tiles + (t.pending ?? 0) + (v.pending ?? 0) + lifts;
       });
       quiet = left === 0 ? quiet + 1 : 0;
       await page.waitForTimeout(100);
@@ -142,8 +146,18 @@ for (const v of views) {
   const st = await page.evaluate(() => {
     const ri = window.__sim.renderer.info;
     ri.autoReset = false; ri.reset(); // count the whole frame (cloud and shadow passes too), not just its last render call
+    // BUG-075: what the frame drew, "name < parent < ... [vertices or instances]" to its draw count, so two runs'
+    // stats.json can be diffed object by object (tools/cishot_diff.mjs) when their counts disagree
+    const r = window.__sim.renderer, rbd = r.renderBufferDirect, drawn = {};
+    r.renderBufferDirect = function (cam, sc, geo, mat, obj, grp) {
+      const path = []; for (let o = obj; o && path.length < 4; o = o.parent) path.push(o.name || o.type);
+      const k = path.join(' < ') + ` [${obj.isInstancedMesh ? obj.count : geo.index ? geo.index.count : geo.attributes.position?.count}]`;
+      drawn[k] = (drawn[k] ?? 0) + 1;
+      return rbd.apply(this, arguments);
+    };
     const url = window.__shot();
-    const out = { url, calls: ri.render.calls, triangles: ri.render.triangles, points: ri.render.points, lines: ri.render.lines, geometries: ri.memory.geometries, textures: ri.memory.textures, programs: ri.programs?.length ?? 0 };
+    r.renderBufferDirect = rbd;
+    const out = { url, calls: ri.render.calls, triangles: ri.render.triangles, points: ri.render.points, lines: ri.render.lines, geometries: ri.memory.geometries, textures: ri.memory.textures, programs: ri.programs?.length ?? 0, drawn };
     ri.autoReset = true;
     return out;
   });
@@ -151,7 +165,8 @@ for (const v of views) {
   delete st.url;
   const secs = Math.round((Date.now() - tv) / 1000);
   stats.push({ name: v.name, settled, secs, ...st });
-  console.log(v.name, settled ? '' : '(still streaming)', `${secs} s`, JSON.stringify(st));
+  const { drawn, ...brief } = st;
+  console.log(v.name, settled ? '' : '(still streaming)', `${secs} s`, JSON.stringify(brief));
 }
 const heapMB = await page.evaluate(() => { window.gc?.(); return +((performance.memory?.usedJSHeapSize ?? 0) / 1048576).toFixed(1); });
 const gpu = await page.evaluate(() => { const gl = document.createElement('canvas').getContext('webgl2'); const e = gl?.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : 'unknown'; });
