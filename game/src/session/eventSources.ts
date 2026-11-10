@@ -15,7 +15,7 @@ export interface EventSources {
 /**
  * FEAT-163: point each system's own hook at the bus. The sim classes keep their `on...` hooks (the node
  * checks drive Rider and TimeTrial without a bus and set them directly); this is the one place that knows
- * both sides. The Outrun events and landmarks are pulled in the frame (states/RideFrame.ts). Returns the undo for
+ * both sides. The landmarks are pulled in the frame (states/RideFrame.ts), the Outrun events in modes/OutrunMode.ts. Returns the undo for
  * the hooks on objects that outlive the session (the audio).
  */
 export function connectEventSources(events: Events, s: EventSources): () => void {

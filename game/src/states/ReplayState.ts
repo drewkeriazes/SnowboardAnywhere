@@ -4,7 +4,7 @@ import type { Settings } from '../ui/Settings';
 import type { Controls } from '../sim/Controls';
 import type { Rider } from '../sim/Rider';
 import type { Replay } from '../sim/Replay';
-import type { TimeTrial } from '../sim/TimeTrial';
+import type { Modes } from '../modes/Modes';
 import type { Pack } from '../pack/Pack';
 import type { ChaseCamera } from '../world/ChaseCamera';
 import type { ReplayBar } from '../ui/ReplayBar';
@@ -17,7 +17,7 @@ const REPLAY_SPEEDS = [0.25, 0.5, 1, 2];
 
 export interface ReplayParts {
   controls: Controls; touch: TouchControls | null; rider: Rider; replay: Replay; replayBar: ReplayBar; pack: Pack; cam: ChaseCamera;
-  settings: Settings; trial: TimeTrial; audio: GameAudio; frame: RideFrame; debugHud: boolean;
+  settings: Settings; modes: Modes; audio: GameAudio; frame: RideFrame; debugHud: boolean;
   /** the sun for a settings object (the replay viewer's own hour) */
   applySun(s: Settings): void;
   replayBlockedReason(): string | null;
@@ -49,10 +49,10 @@ export class ReplayState implements GameState {
   constructor(private readonly p: ReplayParts, private readonly states: GameStates) {}
 
   enter(): void {
-    const { replay, settings, trial } = this.p;
+    const { replay, settings, modes } = this.p;
     this.t = Math.max(replay.start, replay.end - 30); this.play = true; this.speed = 1; this.camMode = 'follow'; this.trackSet = false; this.photoFov = 0;
     this.hour = typeof settings.timeOfDay === 'number' ? settings.timeOfDay : 12;
-    trial.cancel('Replay');
+    modes.interrupt('Replay');
   }
 
   exit(): void {
