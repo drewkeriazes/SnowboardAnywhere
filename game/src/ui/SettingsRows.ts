@@ -218,6 +218,8 @@ export const SECTIONS: Section[] = [
   ] },
 ];
 
+/** one row by its id (the pause menu's quick toggles and Outrun options reuse them) */
+export const rowById = (id: string): Row | undefined => SECTIONS.flatMap((s) => s.rows).find((r) => r.id === id);
 /** the rows of one category */
 export const rowsOf = (c: CatId): Row[] => SECTIONS.filter((s) => s.cat === c).flatMap((s) => s.rows);
 export const optsOf = (r: Row & { opts: Opt[] | ((s: Settings) => Opt[]) }, s: Settings): Opt[] => (typeof r.opts === 'function' ? r.opts(s) : r.opts);

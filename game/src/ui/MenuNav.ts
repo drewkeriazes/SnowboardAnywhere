@@ -42,6 +42,7 @@ export class Screen {
     // (the panel follows the keyboard or controller focus) must not steal the focus
     root.addEventListener('pointermove', (e) => {
       if (Math.abs(e.movementX) + Math.abs(e.movementY) < 1) return;
+      if (top() !== this) return; // a screen under another (pause under its Mode screen) leaves the hover to the top one
       const el = (e.target as HTMLElement).closest<HTMLElement>(FOCUSABLE);
       if (el && root.contains(el) && visible(el) && el !== this.cur) this.focus(el, false);
     });

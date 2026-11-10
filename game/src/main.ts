@@ -48,7 +48,7 @@ import { Prefetch } from './sim/Prefetch';
 import { GameAudio } from './audio/Audio';
 import { showMainMenu } from './ui/MainMenu';
 import { LoadingScreen } from './ui/Loading';
-import { PauseMenu } from './ui/PauseMenu';
+import { PauseMenu, type PauseInfo } from './ui/PauseMenu';
 import { Labels } from './ui/Labels';
 import { TouchControls } from './ui/TouchControls';
 import { sunPosition, guessUtcOffset } from './world/Sun';
@@ -192,8 +192,11 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const eatLook = new THREE.Vector3();
     let countLast = -1;
     const chairPos = new THREE.Vector3();
-    // time trials (off unless enabled in Settings > Game)
+    // time trials (off unless enabled in Settings > Gameplay, or a course picked in Mode for this session)
     const courses = buildCourses(pack);
+    /** FEAT-128: the course picked in pause > Mode (the gates are on for the session), '' in Free ride */
+    let trialMode = '';
+    const trialsOn = () => settings.timeTrials || !!trialMode;
     const trial = new TimeTrial(pack.meta.slug, courses);
     const trialWorld = new TrialWorld(pack, courses);
     add('time trials', trialWorld.group);
@@ -213,7 +216,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       else if (e.kind === 'finish') { splitMsg = e.isBest ? `<span class="ahead">New best ${fmt(e.time)}</span>` : `Finished ${fmt(e.time)} <span class="dim">(best ${fmt(e.best!.time)})</span>`; splitTimer = 6; audio.chime(); padFx.trialEvent('finish', e.isBest); }
       else if (e.kind === 'cancel') { splitMsg = `<span class="behind">${e.reason}</span>`; splitTimer = 3; }
     };
-    const refreshCourseFlags = () => { map.courseStarts = settings.timeTrials ? courses.map((c) => ({ x: c.start[0], y: c.start[1], name: c.name, best: trial.loadBest(c)?.time ?? null })) : []; };
+    const refreshCourseFlags = () => { map.courseStarts = trialsOn() ? courses.map((c) => ({ x: c.start[0], y: c.start[1], name: c.name, best: trial.loadBest(c)?.time ?? null })) : []; };
     const labels = new Labels(pack);
     const riderView = new RiderView();
     add('rider', riderView.group);
@@ -397,8 +400,8 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       riderView.setOutfit(s.outfit);
       riderView.setDiscipline(s.discipline);
       tracks.setDiscipline(s.discipline);
-      trialWorld.setEnabled(s.timeTrials);
-      if (!s.timeTrials) trial.cancel('Time trials off');
+      trialWorld.setEnabled(trialsOn());
+      if (!trialsOn()) trial.cancel('Time trials off');
       refreshCourseFlags();
       rider.discipline = s.discipline;
       rider.goofy = s.stance === 'goofy'; // FEAT-139 (the rider view follows it)
@@ -448,7 +451,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     const setPaused = (p: boolean) => {
       paused = p;
       controls.guardLeave = !p; // FEAT-111: no leave prompt from the pause menu
-      if (p) pause.show(); else { pause.hide(); controls.padMute(); }
+      if (p) pause.show(pauseInfo()); else { pause.hide(); controls.padMute(); }
       audio.setDuck(p ? 0.3 : 1);
     };
     // ---------------------------------------------------------------- Outrun
@@ -458,7 +461,6 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       eat.end(); monsters.clear(); outrunUI.hideCard();
       riderView.group.visible = true;
       outrun.start(settings.outrun, rider);
-      pause.setOutrunRunning(true);
       map.onPick = null; map.baseMarker = outrun.base;
       chase = audio.chase();
       countLast = -1;
@@ -466,7 +468,6 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     };
     const stopOutrun = () => {
       outrun.stop(); eat.end(); monsters.clear(); outrunUI.hideCard();
-      pause.setOutrunRunning(false);
       map.onPick = pickHandler; map.baseMarker = null; map.monsters = [];
       chase?.stop(); audio.resumeMusic();
       rider.boost = false; riderView.group.visible = true;
@@ -484,11 +485,46 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     };
     monsters.onCrack = () => chase?.crack();
 
-    pause.onAction = (a) => {
+    /** a few metres above a course's start gate on its line, facing down it */
+    const goToCourse = (c: (typeof courses)[number]) => {
+      const x = c.start[0] - c.dir[0] * 6, y = c.start[1] - c.dir[1] * 6;
+      liftRide.cancel(); trial.cancel('Moved');
+      pack.fine?.request(x - 600, y - 600, x + 600, y + 600); pack.mask?.request(x - 600, y - 600, x + 600, y + 600);
+      rider.reset(x, y, Math.atan2(c.dir[0], c.dir[1])); cam.snapTo(rider);
+    };
+    /** FEAT-128: what the pause menu shows (read when it opens) */
+    const pauseInfo = (): PauseInfo => ({
+      resort: pack.meta.name,
+      place: runStats.placeAt(rider.x, rider.y),
+      run: runStats.active ? { time: runStats.time, distance: runStats.distance, vertical: runStats.vertical, topSpeed: runStats.topSpeed } : null,
+      day: { runs: runStats.day.runs, vertical: runStats.day.vertical },
+      metric: settings.units === 'metric',
+      mode: outrun.active ? { kind: 'outrun' } : trialMode ? { kind: 'trial', course: trialMode } : { kind: 'free' },
+      replayBlocked: outrun.active ? 'not during Outrun' : liftRide.riding ? 'not on a lift' : rider.unstrapped ? 'strap in first' : replay.samples.length <= 20 ? 'ride a little first' : null,
+      courses: courses.map((c) => ({ id: c.id, name: c.name, length: c.length, best: trial.loadBest(c)?.time ?? null })),
+    });
+    /** Mode: back to Free ride, or a time trial course (gates on for the session, the rider at its start) */
+    const setTrialMode = (id: string) => {
+      trialMode = id;
+      trialWorld.setEnabled(trialsOn());
+      if (!trialsOn()) trial.cancel('Free ride');
+      refreshCourseFlags();
+    };
+    pause.onAction = (a, arg) => {
       if (a === 'resume') setPaused(false);
+      else if (a === 'replay') { setPaused(false); openReplay(); }
+      else if (a === 'freeride') { setPaused(false); if (outrun.active) stopOutrun(); setTrialMode(''); }
+      else if (a === 'trial') {
+        const c = courses.find((x) => x.id === arg);
+        setPaused(false);
+        if (!c) return;
+        if (outrun.active) stopOutrun();
+        setTrialMode(c.id);
+        goToCourse(c);
+      }
       else if (a === 'restart') { setPaused(false); if (outrun.active) stopOutrun(); liftRide.cancel(); runStats.end(); rider.reset(sx, sy, sh); cam.snapTo(rider); }
       else if (a === 'map') { setPaused(false); map.open(); }
-      else if (a === 'outrunStart') { setPaused(false); startOutrun(); }
+      else if (a === 'outrunStart') { setPaused(false); setTrialMode(''); startOutrun(); }
       else if (a === 'outrunStop') { setPaused(false); stopOutrun(); }
       else if (a === 'quit') { setPaused(false); dispose(); resolveQuit(); }
     };
@@ -689,15 +725,9 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       controls.action('restart'); // the press itself does nothing
       restartRing.style.display = restartHold > 0.05 && !restartDone ? 'block' : 'none';
       if (restartHold > 0.05) restartRing.style.background = `conic-gradient(#ffd166 ${Math.min(1, restartHold / RESTART_HOLD) * 360}deg, rgba(255,255,255,.18) 0)`;
-      if (!replayOpen && controls.action('trial') && settings.timeTrials && !outrun.active) {
+      if (!replayOpen && controls.action('trial') && trialsOn() && !outrun.active) {
         const c = trial.nearestStart(rider.x, rider.y);
-        if (c) {
-          // a few metres above the start gate on the course line, facing down it
-          const x = c.start[0] - c.dir[0] * 6, y = c.start[1] - c.dir[1] * 6;
-          liftRide.cancel(); trial.cancel('Moved');
-          pack.fine?.request(x - 600, y - 600, x + 600, y + 600); pack.mask?.request(x - 600, y - 600, x + 600, y + 600);
-          rider.reset(x, y, Math.atan2(c.dir[0], c.dir[1])); cam.snapTo(rider);
-        }
+        if (c) goToCourse(c);
       }
       // ---- FEAT-043: replay viewer (the sim is frozen and the recording plays on the rider). While it is open,
       // restart / trial / map / piste / fly / board are ignored so the viewer acts like a modal (P is the photo key here)
@@ -841,7 +871,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
         }
       }
       outrunUI.update(outrun, settings.units === 'metric', padKey('boost') || keysOf(settings, 'boost'));
-      if (settings.timeTrials) {
+      if (trialsOn()) {
         if (onLift) trial.cancel('On a lift'); else if (rider.unstrapped) trial.cancel('Unstrapped'); else if (!frozen) trial.update(rider, dt, input.tuck);
         trialWorld.updateGates(rider.x, rider.y);
         trialWorld.updateGhost(trial.ghostAt(trial.time), dt);

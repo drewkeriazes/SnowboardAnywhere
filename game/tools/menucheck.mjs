@@ -187,7 +187,6 @@ await page.waitForTimeout(1500);
 await key('Escape');
 const pauseOpen = await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display !== 'none');
 check('Esc opens pause on Resume', pauseOpen && (await active()) === 'resume', `open ${pauseOpen}, focused ${await active()}`);
-if (shots) await page.screenshot({ path: path.join(outDir, 'pause.png') });
 await key('Escape');
 await page.waitForTimeout(300);
 check('Esc resumes once', await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display === 'none'));
@@ -200,6 +199,52 @@ const heldFocus = await active();
 await page.evaluate(() => { window.__pad.axes[1] = 0; });
 await page.waitForTimeout(150);
 check('held stick keeps focus on Resume', heldFocus === 'resume', `focused ${heldFocus}`);
+// ---- the pause menu (layout B): the place and this run's stats, quick toggles, Mode, Quit pressed twice
+const head = await page.evaluate(() => ({ place: document.querySelector('#pause .place').textContent, stats: document.querySelector('#pause .stats').textContent, eyebrow: document.querySelector('#pause .eyebrow').textContent }));
+check('pause names the place and shows stats', head.place.length > 0 && head.stats.length > 0 && /Paused/.test(head.eyebrow), JSON.stringify(head));
+const qfocus = (id) => page.evaluate((id) => { const el = document.querySelector(`#pause .qrow[data-q="${id}"]`); el?.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, movementX: 2, movementY: 2 })); el?.focus(); }, id);
+const cam0 = await page.evaluate(() => window.__sim.cam.mode);
+await qfocus('camera'); await key('ArrowRight');
+const camQ = await page.evaluate(() => ({ mode: window.__sim.cam.mode, saved: window.__sim.settings.camera, shown: document.querySelector('#pause .qrow[data-q="camera"] .pv').textContent }));
+check('quick toggle changes the camera at once', camQ.mode !== cam0 && camQ.mode === camQ.saved && camQ.shown.length > 0, `${cam0} -> ${JSON.stringify(camQ)}`);
+await key('ArrowLeft');
+await qfocus('clouds'); await key('ArrowRight');
+check('quick toggle changes the weather', (await saved()).clouds === 'broken', (await saved()).clouds);
+await key('ArrowLeft');
+// Mode: its own screen, Q / E across Free ride / Time trial / Outrun, Esc back onto Mode
+await page.evaluate(() => document.querySelector('#pause button[data-a="mode"]')?.focus());
+await key('Enter');
+const modeOpen = await page.evaluate(() => !document.querySelector('#pause .modep').hidden && document.querySelector('#pause .main').hidden);
+await key('KeyE');
+const tab = await page.evaluate(() => document.querySelector('#pause .modep .tabs button.on')?.dataset.m);
+check('Mode opens its screen, E switches mode', modeOpen && tab === 'trial', `open ${modeOpen}, tab ${tab}`);
+await key('Escape');
+check('Esc closes Mode onto its button, pause stays', (await active()) === 'mode' && await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display !== 'none'), `focused ${await active()}`);
+// pick a time trial course: the gates come on for the session and the rider starts above the gate
+const course = await page.evaluate(() => document.querySelector('#pause .courses button[data-course]')?.dataset.course ?? null);
+if (course) {
+  await page.evaluate(() => { document.querySelector('#pause button[data-a="mode"]').click(); document.querySelector('#pause .modep .tabs button[data-m="trial"]').click(); document.querySelector('#pause .courses button[data-course]').click(); });
+  await page.waitForTimeout(300);
+  const tt = await page.evaluate(() => ({ paused: getComputedStyle(document.querySelector('#pause')).display !== 'none', on: window.__sim.trialWorld.enabled, setting: window.__sim.settings.timeTrials }));
+  check('a course from Mode turns the gates on for the session', !tt.paused && tt.on && tt.setting === false, JSON.stringify(tt));
+  await key('Escape');
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('#pause')).display !== 'none', null, { timeout: 10000 }).catch(() => {});
+  const label = await page.evaluate(() => document.querySelector('#pause [data-v="mode"]').textContent);
+  check('Mode shows the course', label.length > 0 && label !== 'Free ride', label);
+  await page.evaluate(() => { document.querySelector('#pause button[data-a="mode"]').click(); document.querySelector('#pause .modep .tabs button[data-m="free"]').click(); document.querySelector('#pause [data-go="freeride"]').click(); });
+  await page.waitForTimeout(200);
+  check('Free ride turns them off again', await page.evaluate(() => !window.__sim.trialWorld.enabled));
+  await key('Escape');
+} else check('the pack has a time trial course', false);
+// Quit sits in the hint bar and needs a second press
+await page.evaluate(() => document.querySelector('#pause .foot .quit').click());
+check('one Quit press only arms it', await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display !== 'none' && document.querySelector('#pause .foot .quit').classList.contains('armed')));
+if (shots) {
+  await page.screenshot({ path: path.join(outDir, 'pause.png') });
+  await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(200);
+  await page.screenshot({ path: path.join(outDir, 'pause-390x844.png') });
+  await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(200);
+}
 // pause > Settings: over the live game, with the fps readout; changes apply at once
 await page.evaluate(() => document.querySelector('#pause button[data-a="settings"]')?.click());
 await page.waitForTimeout(700);
@@ -261,6 +306,11 @@ let air = false;
 for (let i = 0; i < 10; i++) { await page.waitForTimeout(60); if (await page.evaluate(() => !window.__sim.rider.onGround)) air = true; }
 check('pad A on Resume does not jump', closed && charge === 0 && !air, `closed ${closed}, charge ${charge}, airborne ${air}`);
 
+await key('Escape');
+await page.waitForTimeout(200);
+await page.evaluate(() => { document.querySelector('#pause .foot .quit').click(); document.querySelector('#pause .foot .quit').click(); });
+await page.waitForSelector('#menu .panel', { timeout: 30000 }).catch(() => {});
+check('Quit pressed twice goes to the main menu', await page.evaluate(() => !!document.querySelector('#menu .panel')));
 check('no console errors', errors.length === 0, errors.slice(0, 3).join(' / '));
 await browser.close();
 server.close();

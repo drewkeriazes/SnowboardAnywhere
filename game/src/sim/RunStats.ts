@@ -57,11 +57,20 @@ export class RunStats {
     this.day = loadDay();
   }
 
-  /** The named run line nearest (x, y) within RUN_NEAR, or ''. */
-  runAt(x: number, y: number): string {
-    let best = RUN_NEAR * RUN_NEAR, name = '';
+  /** FEAT-128, the pause menu's title: the run you are on, else "Near <run>" within `far` m, else ''. */
+  placeAt(x: number, y: number, far = 400): string {
+    const on = this.runAt(x, y);
+    if (on) return on;
+    const near = this.runAt(x, y, far);
+    return near ? `Near ${near}` : '';
+  }
+
+  /** The named run line nearest (x, y) within `within` m (RUN_NEAR), or ''. */
+  runAt(x: number, y: number, within = RUN_NEAR): string {
+    let best = within * within, name = '';
+    const pad = within - RUN_NEAR; // the boxes are padded by RUN_NEAR
     for (const r of this.runs) {
-      if (x < r.x0 || x > r.x1 || y < r.y0 || y > r.y1) continue;
+      if (x < r.x0 - pad || x > r.x1 + pad || y < r.y0 - pad || y > r.y1 + pad) continue;
       const p = r.pts;
       for (let i = 1; i < p.length; i++) {
         const ax = p[i - 1][0], ay = p[i - 1][1], dx = p[i][0] - ax, dy = p[i][1] - ay;
