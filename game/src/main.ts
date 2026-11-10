@@ -270,7 +270,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
     for (const m of eat.materials) env.registerMaterial(m);
     for (const m of landmarks.materials) env.registerMaterial(m);
     let csmSize = 0;
-    if (!params.has('noimpostors')) veg.enableImpostors(renderer, true);
+    veg.enableImpostors(renderer, !params.has('noimpostors')); // FEAT-156: bakes the LOD2 / impostor atlases either way
     const goggles = new GoggleView();
     const lens = new GoggleLens(); // FEAT-130: the tinted lens pass in first person
     let lensWorn: LensId | null = null;
@@ -1087,7 +1087,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       const pl = particleLight.update(dt, env, (x, y) => pack.terrainHeight(x, y), rider.x, rider.y, rider.z);
       riderView.spray.setLight(pl); riderView.spray.setViewHeight(renderer.domElement.height); riderView.spray.wind.set(snow.wind.x * 0.3, snow.wind.y * 0.3);
       (puffs.points.material as THREE.PointsMaterial).color.copy(pl);
-      veg.setSun(env.sun.color, env.sun.intensity);
+      veg.setLight(env.sunDir, env.sun.color, env.sun.intensity, env.hemi.color, env.hemi.groundColor, env.hemi.intensity);
       // FEAT-155: trees in the way of the view downhill go see-through (third-person cameras only)
       treeFade.update(cam.camera, rider, (x, y) => pack.groundHeight(x, y), dt, settings.seeThroughTrees !== false && !detached && !cam.firstPerson && !eat.active);
       terrain.setSun(env.sunDir); // BUG-062: the mogul colouring's sun term
@@ -1100,7 +1100,7 @@ function runSession(pack: Pack, renderer: THREE.WebGLRenderer, canvas: HTMLCanva
       // terrain, mask and instance tiles stream ahead along the direction of travel
       const liftTop = onLift && liftRide.lift ? liftRide.lift.top : null;
       prefetch.update(pack, fx, fy, dt, liftTop);
-      veg.update(fx, fy, prefetch.ax, prefetch.ay);
+      veg.update(fx, fy, prefetch.ax, prefetch.ay, cp);
       rocks.update(fx, fy, prefetch.ax, prefetch.ay);
       if (weatherNow === 'storm') snowCover = Math.min(1, snowCover + dt / 600);
       else if (weatherNow === 'flurries') snowCover = Math.min(1, snowCover + dt / 3000);
