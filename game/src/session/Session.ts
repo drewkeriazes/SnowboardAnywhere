@@ -11,7 +11,6 @@ import { GoggleLens, LENSES, resolveLens, type LensId } from '../world/Lens';
 import { AutoQuality } from '../ui/AutoQuality';
 import { RunStats } from '../sim/RunStats';
 import { RunCard } from '../ui/RunCard';
-import { fmtDistance } from '../ui/Units';
 import { Replay, type ReplaySample } from '../sim/Replay';
 import { SpeedLines } from '../ui/SpeedLines';
 import { ChaseCamera } from '../world/ChaseCamera';
@@ -31,8 +30,9 @@ import { PauseMenu, type PauseInfo } from '../ui/PauseMenu';
 import { Labels } from '../ui/Labels';
 import { TouchControls } from '../ui/TouchControls';
 import { keysOf, saveSettings, FALL_LINE, type Settings } from '../ui/Settings';
-import { switchName, type PressEnd } from '../sim/Rider';
 import { PressMeter } from '../ui/PressMeter';
+import { listenHud } from '../ui/HudEvents';
+import { connectEventSources } from './eventSources';
 import { hasCustomStart, resetStart, spawnFromUrl, spawnKey } from '../spawn';
 import { GameLoop } from '../core/GameLoop';
 import { TrialHud } from '../ui/TrialHud';
@@ -70,7 +70,7 @@ export interface Session {
 }
 
 export function createSession(ctx: GameContext, opts: SessionOpts): Session {
-  const { params, canvas, renderer, scene, pack, settings, audio } = ctx;
+  const { params, canvas, renderer, scene, pack, settings, audio, events } = ctx;
   const { headless, hosted, debugHud } = params;
   const { menu, loading } = opts;
   const quit = new Promise<void>((resolveQuit) => {
@@ -92,21 +92,12 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     const trialsOn = () => settings.timeTrials || !!trialMode;
     const trial = new TimeTrial(pack.meta.slug, courses);
     const trialHud = new TrialHud(settings);
-    trial.onEvent = (e) => {
-      trialHud.onEvent(e, trial.candidates.length);
-      if (e.kind === 'start') { audio.chime(); padFx.trialEvent('start'); }
-      else if (e.kind === 'split') padFx.trialEvent('split');
-      else if (e.kind === 'finish') { audio.chime(); padFx.trialEvent('finish', e.isBest); }
-    };
     const refreshCourseFlags = () => { map.courseStarts = trialsOn() ? courses.map((c) => ({ x: c.start[0], y: c.start[1], name: c.name, best: trial.loadBest(c)?.time ?? null })) : []; };
     const labels = new Labels(pack);
     if (debugHud) mountLeadTunePanel(riderView);
 
     const rider = new Rider(pack, collider);
-    // on foot (FEAT-067): every foot plant of the skeleton leaves a print and a footstep
     riderView.setPack(pack, collider); // FEAT-046: the crash ragdoll hits trunks, rocks and walls
-    rider.onSkateStroke = () => audio.footstep(rider.surface, rider.speed, 0, rider.snow); // FEAT-085: a crunch per push
-    riderView.onPlant = (p) => { bootprints.add(p, rider.sink); audio.footstep(rider.surface, p.speed, rider.sink, rider.snow); };
     let boardMsg = '', boardMsgT = 0;
     let boardMsgNote = '', boardNoteT = 25; // FEAT-124: one-time note for players with their own keys
     const liftRide = new LiftRide(pack, lifts, collider);
@@ -122,8 +113,26 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     let lensWorn: LensId | null = null;
     // FEAT-055: run stats, the after-run card and today's totals
     const runStats = new RunStats(pack), runCard = new RunCard();
-    runStats.onRunEnd = (s) => { if (!headless) runCard.show(s, settings.units === 'metric'); };
     const speedLines = new SpeedLines(document.body); // FEAT-045
+    // the short message at the top (now playing, tricks, saves)
+    const showToast = new Toast().show;
+
+    // ---------------------------------------------------------------- FEAT-163: the news, on the bus
+    // The systems' hooks emit; the HUD, the audio and the rumble subscribe themselves, in that order (a trial
+    // event reaches the panel, then the chime, then the pad, as before); the world's reactions are below.
+    const disconnectSources = connectEventSources(events, { rider, riderView, trial, runStats, audio, eat, monsters });
+    listenHud(events, { toast: showToast, trialHud, runCard, settings, slug: pack.meta.slug, headless });
+    audio.listen(events);
+    padFx.listen(events);
+    events.on('footPlant', (e) => bootprints.add(e.plant, e.sink));
+    events.on('outrun', ({ event: e }) => {
+      // a monster's foot near the rider kicks the camera; caught, the eat sequence starts (after the audio's record scratch)
+      if (e.kind === 'footfall' && e.m) { if (e.m.dist < 30) cam.kick = Math.max(cam.kick, 0.7 * (1 - e.m.dist / 30)); }
+      else if (e.kind === 'caught' && e.m) {
+        const view = monsters.view(e.m.id);
+        if (view) eat.start(e.m, view, rider, riderView, settings.outfit, settings.discipline, outrun.cfg.gentle);
+      }
+    });
     // ---- FEAT-043: the session recording, the replay viewer (K) and the practice rewind (hold Backspace)
     const replay = new Replay();
     // FEAT-137: with a controller in use, its button glyphs (an action with no button keeps its key)
@@ -325,12 +334,6 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       startOutrun();
     };
     outrunUI.onExit = () => stopOutrun();
-    eat.onSound = (k) => {
-      if (!chase) return;
-      if (k === 'roar') chase.roar('angry'); else if (k === 'pop') chase.pop(); else if (k === 'gulp') chase.gulp();
-      else if (k === 'burp') chase.burp(); else if (k === 'spit') chase.spit(); else if (k === 'sting') chase.sting();
-    };
-    monsters.onCrack = () => chase?.crack();
 
     /** a few metres above a course's start gate on its line, facing down it */
     const goToCourse = (c: (typeof courses)[number]) => {
@@ -466,27 +469,11 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     pack.mid?.request(sx - 20000, sy - 20000, sx + 20000, sy + 20000);
     pack.far?.request(-1e9, -1e9, 1e9, 1e9);
     pack.mask?.request(sx - 600, sy - 600, sx + 600, sy + 600);
-    // now-playing toast
-    const showToast = new Toast().show;
-    rider.onTrick = (name) => showToast(name, 1800); // FEAT-110: flips; FEAT-139: spins and switch tricks
-    rider.onWashout = (side) => showToast(side > 0 ? 'Washed out onto the hip' : 'Washed out onto the butt', 1800); // FEAT-148: a hard carve the edge could not hold
-    // FEAT-140: the press balance meter above the head, and a toast with the time and distance when a press ends (best per resort)
+    // FEAT-140: the press balance meter above the head (the toast when a press ends is in ui/HudEvents.ts)
     const pressMeter = new PressMeter();
     const pressHead = new THREE.Vector3();
-    const pressBestKey = `pressBest:${pack.meta.slug}`;
-    const PRESS_HOW: Record<PressEnd, string> = { clean: '', flat: ' · dropped flat', slam: ' · slammed', stall: ' · stalled' };
-    rider.onPress = (how, dir, t, dist, sw, from) => {
-      let best = 0; try { best = Number(localStorage.getItem(pressBestKey)) || 0; } catch { /* private mode */ }
-      const isBest = t > best;
-      if (isBest) try { localStorage.setItem(pressBestKey, t.toFixed(2)); } catch { /* private mode */ }
-      const press = switchName(dir > 0 ? 'Nose press' : 'Tail press', sw);
-      const name = from ? `${from} to ${press[0].toLowerCase()}${press.slice(1)}` : press; // landed into it from a trick
-      const tail = isBest ? (best > 0 ? ' · new best!' : '') : ` · best ${best.toFixed(1)} s`;
-      showToast(`${name} ${t.toFixed(1)} s, ${fmtDistance(dist, settings.units === 'metric')}${PRESS_HOW[how]}${tail}`, 2600);
-    };
     if (params.cam === 'eye' && !headless) showToast('Eye camera: click, then mouse to look · WASD move · Q/E height · [ ] zoom · P save shot · ` free fly', 10000);
-    audio.onTrack = (name) => showToast(`\u266B ${name}`);
-    // the menu may already have started a song before onTrack was set (BUG-033): announce it now
+    // the menu may already have started a song before the session listened (BUG-033): announce it now
     if (audio.nowPlaying && !headless && params.cam !== 'eye') showToast(`\u266B ${audio.nowPlaying}`);
     const prompt = document.getElementById('prompt')!;
     let promptShown = '';
@@ -529,7 +516,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       padFx.stop();
       outrunUI.destroy(); runCard.dispose(); speedLines.dispose(); pressMeter.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
       trialHud.hide();
-      audio.onTrack = null;
+      disconnectSources(); events.clear(); // FEAT-163
       showPrompt('');
       hud.innerHTML = '';
       goggles.destroy();
@@ -717,24 +704,10 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       if (!frozen) tracks.update(rider, dt, onLift && liftRide.airborneRide);
       bootprints.update(dt); bigprints.update(dt); puffs.update(dt);
       rider.restoreSimPose();
-      // ---- Outrun: sim, events to sound and effects, the eat sequence, the monsters
+      // ---- Outrun: sim, its events on the bus (sound, rumble, camera kick, toast, the eat start), the eat sequence, the monsters
       if (outrun.active) {
         outrun.update(dt, rider, onLift ? liftRide : null);
-        for (const e of outrun.events) {
-          if (e.kind === 'wake') chase?.roar('wake');
-          else if (e.kind === 'spawn') { if (e.m && e.m.id > 1) chase?.roar('spawn'); }
-          else if (e.kind === 'roar') chase?.roar('spawn');
-          else if (e.kind === 'sight') chase?.roar('sight');
-          else if (e.kind === 'closecall') { chase?.roar('angry'); chase?.closeCall(); }
-          else if (e.kind === 'footfall' && e.m) { chase?.footfall(e.m.dist); padFx.footfall(e.m.dist); if (e.m.dist < 30) cam.kick = Math.max(cam.kick, 0.7 * (1 - e.m.dist / 30)); }
-          else if (e.kind === 'second') showToast('Another one.', 2500);
-          else if (e.kind === 'escaped') { chase?.roar('giveup'); chase?.stop(); audio.resumeMusic(); chase?.fanfare(); }
-          else if (e.kind === 'caught' && e.m) {
-            const view = monsters.view(e.m.id);
-            audio.scratchStop(); chase?.stop();
-            if (view) eat.start(e.m, view, rider, riderView, settings.outfit, settings.discipline, outrun.cfg.gentle);
-          }
-        }
+        for (const event of outrun.events) events.emit({ type: 'outrun', event });
         if (outrun.phase === 'countdown') { const n = Math.ceil(3 - outrun.t); if (n !== countLast) { countLast = n; chase?.countBeep(false); } }
         else if (outrun.phase === 'headstart' && countLast !== 0) { countLast = 0; chase?.countBeep(true); }
         eatPosing.clear();
@@ -862,7 +835,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       bridges.maintain(dt, rider.x, rider.y);
       liftLines.maintain(rider.x, rider.y);
       const passed = landmarks.maintain(rider.x, rider.y);
-      if (passed) showToast(passed.name, 3000);
+      if (passed) events.emit({ type: 'landmark', name: passed.name });
       sun.update(dt, settings);
       lifts.updateMarkers(elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
       map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
@@ -913,7 +886,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       else if (opts.attract && menu && alive) { await warmUp({ set: (f, l) => menu.setProgress(f, l) }); menuReadyIn = HIDE_AFTER_FRAMES; }
       if (!alive) return;
       status.textContent = '';
-      installSimDebug({ ghosts, menu, shot, rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, eyeAt, outrun, monsters, startOutrun, stopOutrun, treeFadeUniforms,
+      installSimDebug({ events, ghosts, menu, shot, rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, eyeAt, outrun, monsters, startOutrun, stopOutrun, treeFadeUniforms,
         /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
         setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
         /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */
