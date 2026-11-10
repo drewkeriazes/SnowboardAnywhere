@@ -148,18 +148,18 @@ console.log('---- main menu');
   check('Cross on it asks for a mouse click (the picker needs one)', note.includes('mouse click'), note);
   await tap(page, 13);
   await tap(page, 0); // Cross on Settings
-  const open = await page.evaluate(() => !document.querySelector('#menu .settings').classList.contains('hidden'));
+  const open = await page.evaluate(() => getComputedStyle(document.querySelector('#settings')).display !== 'none');
   check('Cross opens Settings', open);
-  // the focus moves into the panel (its open tab); D-pad down stays inside it, then R1 switches the tab
+  // FEAT-128: the focus starts on the first setting; D-pad down stays inside the screen, then R1 switches the category
   await tap(page, 13);
-  const inPanel = await page.evaluate(() => !!document.querySelector('#menu .nav-focus')?.closest('.settings'));
-  check('D-pad down enters the panel', inPanel);
+  const inPanel = await page.evaluate(() => !!document.querySelector('#settings .nav-focus')?.closest('.page'));
+  check('D-pad down walks the settings rows', inPanel);
   await tap(page, 5);
-  const tabOn = await page.evaluate(() => document.querySelector('#menu .settings .tabs button.on')?.textContent ?? '');
-  check('R1 switches the tab', tabOn === 'Graphics', tabOn);
+  const tabOn = await page.evaluate(() => document.querySelector('#settings .cats button.on')?.textContent ?? '');
+  check('R1 switches the category', tabOn === 'Controls', tabOn);
   await tap(page, 1); // Circle
-  const closed = await page.evaluate(() => ({ hidden: document.querySelector('#menu .settings').classList.contains('hidden'), focus: document.querySelector('#menu .nav-focus')?.textContent ?? '' }));
-  check('Circle closes the panel onto its button', closed.hidden && closed.focus === 'Settings', JSON.stringify(closed));
+  const closed = await page.evaluate(() => ({ hidden: getComputedStyle(document.querySelector('#settings')).display === 'none', focus: document.querySelector('#menu .nav-focus')?.textContent ?? '' }));
+  check('Circle closes settings onto its button', closed.hidden && closed.focus === 'Settings', JSON.stringify(closed));
   check('no console errors (menu)', errors.length === 0, errors.slice(0, 3).join(' | '));
   await page.close();
 }

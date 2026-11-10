@@ -1,4 +1,5 @@
-import { renderPanel, saveSettings, type Settings, type SettingsPanel } from './Settings';
+import { saveSettings, type Settings } from './Settings';
+import { closeSettings, openSettings, type Credit } from './SettingsOverlay';
 import { closeScreen, lastInputKind, openScreen, Screen } from './MenuNav';
 import { renderHints, type Hint } from './HintBar';
 
@@ -9,9 +10,8 @@ export class PauseMenu {
   readonly el: HTMLDivElement;
   open = false;
   onAction: ((a: PauseAction) => void) | null = null;
-  private readonly panel: HTMLElement;
 
-  constructor(settings: Settings, onChange: (s: Settings, what: string) => void) {
+  constructor(private readonly settings: Settings, private readonly onChange: (s: Settings, what: string) => void, private readonly extras: { fps?: () => number; credits?: () => Credit[] } = {}) {
     this.el = document.createElement('div');
     this.el.id = 'pause';
     this.el.innerHTML = `
@@ -31,67 +31,67 @@ export class PauseMenu {
         </div>
         <div class="ds-connect" style="display:none"><button data-ds-connect>Turn on DualSense rumble and lightbar</button><div class="hint ds-status">Click it with the mouse and pick the controller (once: it reconnects by itself after that).</div></div>
         <button data-a="settings">Settings</button>
-        <div class="settings hidden"></div>
         <button data-a="quit" class="ghost">Quit to main menu</button>
         <div class="hintbar"></div>
       </div>`;
     this.el.style.display = 'none';
     document.body.appendChild(this.el);
-    this.panel = this.el.querySelector('.settings:not(.outrun)') as HTMLElement;
     this.outrunPanel = this.el.querySelector('.settings.outrun') as HTMLElement;
-    this.sp = renderPanel(this.panel, settings, onChange);
-    const o = settings.outrun;
+    // read and written on the live settings (Settings > Gameplay edits the same options, and Reset all replaces them)
+    this.fillOutrun();
     this.outrunPanel.querySelectorAll<HTMLSelectElement | HTMLInputElement>('[data-r]').forEach((el) => {
-      const k = el.dataset.r as keyof typeof o;
-      if (el instanceof HTMLInputElement) el.checked = !!o[k]; else el.value = String(o[k]);
+      const k = el.dataset.r as keyof Settings['outrun'];
       el.addEventListener('input', () => {
+        const o = settings.outrun;
         if (el instanceof HTMLInputElement) o.gentle = el.checked;
         else if (k === 'difficulty') o.difficulty = el.value as typeof o.difficulty;
         else o.escape = el.value as typeof o.escape;
         saveSettings(settings);
       });
     });
-    // the menu's own buttons (Outrun's included), not the settings panel's, which act inside the panel
-    this.el.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => { if (!b.closest('.settings:not(.outrun)')) b.addEventListener('click', () => {
-      if (b.dataset.a === 'settings') { this.panel.classList.toggle('hidden'); this.outrunPanel.classList.add('hidden'); this.afterToggle(b, this.panel); return; }
-      if (b.dataset.a === 'outrun') { this.outrunPanel.classList.toggle('hidden'); this.panel.classList.add('hidden'); this.afterToggle(b, this.outrunPanel); return; }
+    this.el.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => b.addEventListener('click', () => {
+      if (b.dataset.a === 'settings') { this.openSettings(); return; }
+      if (b.dataset.a === 'outrun') { this.fillOutrun(); this.outrunPanel.classList.toggle('hidden'); this.afterToggle(b, this.outrunPanel); return; }
       this.hide();
       this.onAction?.(b.dataset.a as PauseAction);
-    }); });
+    }));
     this.hintEl = this.el.querySelector('.hintbar') as HTMLElement;
     this.screen = new Screen(this.el, {
       primary: () => this.el.querySelector<HTMLElement>('button[data-a="resume"]'),
       onBack: () => {
-        const open = this.openSection();
-        if (open) { open.classList.add('hidden'); this.afterToggle(this.el.querySelector<HTMLElement>(open === this.panel ? 'button[data-a="settings"]' : 'button[data-a="outrun"]')!, open); return; }
+        if (this.outrunOpen()) { this.outrunPanel.classList.add('hidden'); this.afterToggle(this.el.querySelector<HTMLElement>('button[data-a="outrun"]')!, this.outrunPanel); return; }
         this.hide();
         this.onAction?.('resume');
-      },
-      onIntent: (i, down) => {
-        if (down && (i === 'prevCat' || i === 'nextCat') && this.openSection() === this.panel) { this.sp.cycleTab(i === 'nextCat' ? 1 : -1); return true; }
-        return false;
       },
       onInputKind: () => this.showHints(),
     });
   }
 
   private readonly outrunPanel: HTMLElement;
-  private readonly sp: SettingsPanel;
   /** FEAT-128: keyboard and gamepad navigation (B / Esc closes an open section, then resumes) */
   private readonly screen: Screen;
   private readonly hintEl: HTMLElement;
-  private openSection(): HTMLElement | null { return !this.panel.classList.contains('hidden') ? this.panel : !this.outrunPanel.classList.contains('hidden') ? this.outrunPanel : null; }
+  private outrunOpen(): boolean { return !this.outrunPanel.classList.contains('hidden'); }
   private showHints(): void {
-    const h: Hint[] = [['select', 'Select'], ['move', 'Move']];
-    if (this.openSection() === this.panel) h.push(['cat', 'Tabs']);
-    h.push(['back', this.openSection() ? 'Close' : 'Resume']);
+    const h: Hint[] = [['select', 'Select'], ['move', 'Move'], ['back', this.outrunOpen() ? 'Close' : 'Resume']];
     renderHints(this.hintEl, h, lastInputKind());
   }
   /** after a section opens or closes: focus into it, or back on its button */
   private afterToggle(btn: HTMLElement, section: HTMLElement): void {
     if (section.classList.contains('hidden')) this.screen.focus(btn);
-    else this.screen.focus(section.querySelector<HTMLElement>(section === this.panel ? '.tabs button.on' : 'select, button'));
+    else this.screen.focus(section.querySelector<HTMLElement>('select, button'));
     this.showHints();
+  }
+  /** FEAT-128: the settings screen over the live game (dimmed, Peek to see it, the fps readout) */
+  private openSettings(): void {
+    openSettings(this.settings, { overGame: true, onChange: this.onChange, fps: this.extras.fps, credits: this.extras.credits });
+  }
+  private fillOutrun(): void {
+    const o = this.settings.outrun;
+    this.outrunPanel.querySelectorAll<HTMLSelectElement | HTMLInputElement>('[data-r]').forEach((el) => {
+      const k = el.dataset.r as keyof typeof o;
+      if (el instanceof HTMLInputElement) el.checked = !!o[k]; else el.value = String(o[k]);
+    });
   }
   /** Swap the Outrun panel's button between Start and Stop. */
   setOutrunRunning(on: boolean): void {
@@ -100,7 +100,7 @@ export class PauseMenu {
   }
 
   show(): void { this.open = true; this.el.style.display = 'flex'; if (document.pointerLockElement) document.exitPointerLock(); openScreen(this.screen); this.showHints(); }
-  hide(): void { this.open = false; this.el.style.display = 'none'; this.sp.cancel(); this.panel.classList.add('hidden'); this.outrunPanel.classList.add('hidden'); closeScreen(this.screen); }
+  hide(): void { this.open = false; this.el.style.display = 'none'; closeSettings(); this.outrunPanel.classList.add('hidden'); closeScreen(this.screen); }
   toggle(): void { this.open ? this.hide() : this.show(); }
   destroy(): void { closeScreen(this.screen); this.el.remove(); }
 }

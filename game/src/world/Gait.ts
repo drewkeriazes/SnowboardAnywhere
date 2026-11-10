@@ -18,6 +18,8 @@ export interface GaitInput {
   sliding?: boolean;
   /** boot sink (m) */
   sink: number;
+  /** FEAT-152: the share of the sink the sole sits down by (0.6 by default; all of it in deep powder) */
+  soleShare?: number;
   /** smear for prints laid this frame (m, pack x/y): downhill when slipping or climbing steep snow */
   smearX: number; smearY: number;
 }
@@ -68,13 +70,13 @@ export class Gait {
     return this.rest;
   }
 
-  private soleZ(x: number, y: number, sink: number): number { return this.ground(x, y) - sink * 0.6; }
+  private soleZ(x: number, y: number, g: GaitInput): number { return this.ground(x, y) - g.sink * (g.soleShare ?? 0.6); }
 
   /** Both feet planted beside the body (start, teleport, the end of a transition). */
   reset(g: GaitInput): void {
     for (let i = 0; i < 2; i++) {
       const f = this.feet[i], r = this.restPose(i, g);
-      f.x = r.x; f.y = r.y; f.z = this.soleZ(r.x, r.y, g.sink); f.yaw = r.yaw; f.pitch = 0;
+      f.x = r.x; f.y = r.y; f.z = this.soleZ(r.x, r.y, g); f.yaw = r.yaw; f.pitch = 0;
       f.planted = true; f.t = 0; f.s = 0; f.adjust = false;
     }
     this.airborne = false; this.wasMoving = false; this.speed = 0;
@@ -109,7 +111,7 @@ export class Gait {
       this.airborne = false;
       for (let i = 0; i < 2; i++) {
         const f = this.feet[i], r = this.restPose(i, g);
-        f.x = r.x; f.y = r.y; f.z = this.soleZ(r.x, r.y, g.sink); f.yaw = r.yaw;
+        f.x = r.x; f.y = r.y; f.z = this.soleZ(r.x, r.y, g); f.yaw = r.yaw;
         this.plant(i, g);
       }
       return;
@@ -117,7 +119,7 @@ export class Gait {
     if (g.sliding) {
       for (let i = 0; i < 2; i++) {
         const f = this.feet[i], r = this.restPose(i, g);
-        f.x = r.x; f.y = r.y; f.z = this.soleZ(r.x, r.y, g.sink); f.yaw = r.yaw; f.pitch = 0;
+        f.x = r.x; f.y = r.y; f.z = this.soleZ(r.x, r.y, g); f.yaw = r.yaw; f.pitch = 0;
         f.planted = true; f.t = 0; f.s = 0; f.adjust = false;
       }
       this.wasMoving = false;
@@ -173,10 +175,10 @@ export class Gait {
         tx += dx; ty += dy;
       }
       const tyaw = r.yaw;
-      const tz = this.soleZ(tx, ty, g.sink);
+      const tz = this.soleZ(tx, ty, g);
       const e = f.s * f.s * (3 - 2 * f.s);
       f.x = f.sx + (tx - f.sx) * e; f.y = f.sy + (ty - f.sy) * e;
-      const base = Math.max(f.sz + (tz - f.sz) * f.s, this.soleZ(f.x, f.y, g.sink));
+      const base = Math.max(f.sz + (tz - f.sz) * f.s, this.soleZ(f.x, f.y, g));
       const lift = (f.adjust ? 0.05 : Math.min(0.22, 0.06 + 0.035 * v)) + g.sink * 0.8; // step up out of deep snow
       f.z = base + lift * Math.sin(Math.PI * f.s);
       f.yaw = f.syaw + wrap(tyaw - f.syaw) * e;

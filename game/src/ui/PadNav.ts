@@ -14,7 +14,7 @@ import { hasScreen, notePadInUse, padIntent } from './MenuNav';
  * and the controller; the Outrun card still uses the focus here. It also keeps `body.pad-on` (and `pad-ps` / `pad-xbox`) in
  * step with the controller in use, and with `?debug=pad` shows what every connected controller reports.
  */
-const ROOTS = ['#outrun-card', '#pause', '#menu'];
+const ROOTS = ['#settings', '#outrun-card', '#pause', '#menu'];
 const FOCUSABLE = 'button, select, input:not([type=color]), a[href]';
 const REPEAT_DELAY = 0.35, REPEAT_RATE = 0.11;
 
@@ -190,6 +190,7 @@ function frame(t: number, last: number): void {
       if (edge(PAD.RB)) padIntent('nextCat');
       if (edge(PAD.X)) padIntent('reset');
       if (edge(PAD.Y)) padIntent('peek');
+      else if (!b(PAD.Y) && prev[PAD.Y]) padIntent('peek', false); // Peek is held: the release ends it
     } else if (!focused || !root.contains(focused) || !visible(focused)) { if (step || edge(PAD.A)) { move(root, 0, 0); step = ''; } }
     else if (step) {
       if ((step === 'left' || step === 'right') && adjust(focused, step === 'left' ? -1 : 1)) { /* changed the value */ }
