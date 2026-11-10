@@ -1,0 +1,14 @@
+{
+  "vail": {
+    "stills": [
+      "back-bowls"
+    ],
+    "ghosts": [
+      "take-1.json",
+      "take-2.json",
+      "take-3.json",
+      "take-4.json",
+      "take-5.json"
+    ]
+  }
+}

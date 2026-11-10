@@ -1,8 +1,12 @@
 import type { GameAudio } from '../audio/Audio';
-import { playlistSelect, saveSettings, type Settings } from './Settings';
-import { closeSettings, openSettings } from './SettingsOverlay';
+import type { AttractShot } from '../world/AttractShots';
+import { saveSettings, type Settings } from './Settings';
+import { closeSettings, openSettings, settingsOpen, type Credit } from './SettingsOverlay';
 import { closeScreen, lastInputKind, openScreen, Screen } from './MenuNav';
 import { renderHints, type Hint } from './HintBar';
+import { optsOf, rowById, type Row } from './SettingsRows';
+import { fmtDistance, fmtHeight } from './Units';
+import type { PauseCourse, PauseMode } from './PauseMenu';
 
 /**
  * FEAT-138: on a build from `npm run host`, the address another computer on the home network opens, so it is
@@ -12,90 +16,305 @@ function hostedLine(): string {
   const pc = import.meta.env.VITE_HOST_NAME as string | undefined;
   if (!pc) return '';
   const pads = window.isSecureContext ? '' : `<br>Controller not seen? Run <code>npm run host -- --https</code> on ${pc}`;
-  return `<div class="keys hosted">Hosted from ${pc} &middot; ${location.host}${pads}</div>`;
+  return `<div class="hosted">Hosted from ${pc} &middot; ${location.host}${pads}</div>`;
 }
 
-export interface MenuChoice { action: 'ride' | 'map' }
-/** What the menu says about where Free ride starts (BUG-037). */
-export interface MenuStart { resortLabel: string; custom: boolean; onReset: () => void }
+export interface MenuChoice { action: 'ride' | 'map'; mode: PauseMode }
+export interface MainMenuOpts {
+  slug: string;
+  resortName: string;
+  shot: AttractShot;
+  /** counted from the pack (world/AttractShots.ts resortNumbers) */
+  numbers: { runs: number; lifts: number; top: number | null; vertical: number | null };
+  /** the still rendered from the shot's pose, shown until the live view is ready ('' when there is none) */
+  still: string;
+  resorts: { slug: string; name: string }[];
+  audio: GameAudio;
+  settings: Settings;
+  credits: () => Credit[];
+}
+
+const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+const clock = (t: number) => { const m = Math.floor(t / 60), s = t - m * 60; return m > 0 ? `${m}:${s.toFixed(1).padStart(4, '0')}` : `${s.toFixed(1)} s`; };
+const OUTRUN_ROWS = ['outrun.difficulty', 'outrun.escape', 'outrun.gentle'];
+const MODE_LABEL: Record<PauseMode['kind'], string> = { free: 'Free ride', trial: 'Time trial', outrun: 'Outrun' };
 
 /**
- * Start screen: resort name, Free ride (continue from the last spawn), Drop in from the map,
- * and the shared settings panel. The first click also unlocks audio. Resolves once per show.
+ * FEAT-128 main menu (layout B), a state inside the session: full screen over the live backdrop shot
+ * (`world/AttractShots.ts`) with ghosts riding a line, the place as the title, one big RIDE, a card row
+ * (the resort, then Free ride, Time trial, Outrun, then Change resort) and Settings, Controls and Credits in
+ * the corner. It shows at once over the shot's still while the session loads behind it; RIDE pressed early
+ * waits for the load. The session (`main.ts`) sets `onChoice`, `onSettingsChange` and `onResetStart`.
  */
-export function showMainMenu(resortName: string, audio: GameAudio, settings: Settings, onChange: (s: Settings, what: string) => void, resorts: { slug: string; name: string }[] = [], current = '', start?: MenuStart): Promise<MenuChoice> {
-  return new Promise((resolve) => {
-    const wrap = document.createElement('div');
-    wrap.id = 'menu';
-    wrap.innerHTML = `
-      <div class="panel">
-        <div class="eyebrow">SnowboardAnywhere</div>
-        <h1>${resortName}</h1>
-        ${resorts.length > 1 ? `<div class="row resort"><label>Resort</label><select data-r="1">${resorts.map((r) => `<option value="${r.slug}" ${r.slug === current ? 'selected' : ''}>${r.name}</option>`).join('')}</select></div>` : ''}
-        <div class="row seg"><button data-d="board" class="${settings.discipline === 'board' ? 'on' : ''}">Snowboard</button><button data-d="ski" class="${settings.discipline === 'ski' ? 'on' : ''}">Skis</button></div>
-        <div class="row resort music">${'<label>Music</label>' + playlistSelect()}</div>
-        <button data-a="ride" class="primary">Free ride</button>
-        ${start ? `<div class="start"><span class="where"></span><button class="ghost" data-reset="1">Reset to resort start</button></div>` : ''}
-        <button data-a="map">Drop in from the map</button>
-        <div class="ds-connect" style="display:none"><button data-ds-connect>Turn on DualSense rumble and lightbar</button><div class="hint ds-status">Click it with the mouse and pick the controller (once: it reconnects by itself after that).</div></div>
-        <button data-a="settings">Settings</button>
-        <button data-a="controls" class="ghost">Controls</button>
-        <div class="hintbar"></div>
-        ${hostedLine()}
-      </div>`;
-    document.body.appendChild(wrap);
-    // switching resort reloads with ?pack= (the pack loads before the menu)
-    wrap.querySelector<HTMLSelectElement>('select[data-r]')?.addEventListener('change', (e) => {
-      const u = new URL(location.href);
-      u.searchParams.set('pack', (e.target as HTMLSelectElement).value);
-      for (const k of ['x', 'y', 'h']) u.searchParams.delete(k);
-      location.href = u.toString();
-    });
-    if (start) {
-      const where = wrap.querySelector('.start .where') as HTMLElement;
-      const reset = wrap.querySelector<HTMLButtonElement>('button[data-reset]')!;
-      const show = (custom: boolean) => { where.textContent = custom ? 'Starts at your map drop-in' : start.resortLabel; reset.style.display = custom ? '' : 'none'; };
-      show(start.custom);
-      reset.addEventListener('click', () => { start.onReset(); show(false); });
-    }
-    // playlist picker on the menu itself (Settings > Audio > Station is the same setting)
-    const pick = wrap.querySelector('.music select') as HTMLSelectElement;
-    pick.value = settings.playlist;
-    pick.addEventListener('input', () => { settings.playlist = pick.value; saveSettings(settings); audio.setPlaylist(settings.playlist); onChange(settings, 'playlist'); });
-    // FEAT-128: the settings screen over the menu; the menu applies the audio itself (no session yet)
-    const openSet = (cat?: 'controls') => openSettings(settings, {
-      overGame: false, cat, credits: () => audio.credits,
-      onChange: (s, what) => { audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music); audio.setSource(s.musicSource); audio.setPlaylist(s.playlist); pick.value = s.playlist; syncDiscipline(); onChange(s, what); },
-    });
-    const syncDiscipline = () => wrap.querySelectorAll<HTMLButtonElement>('button[data-d]').forEach((x) => x.classList.toggle('on', x.dataset.d === settings.discipline));
-    // keyboard and gamepad navigation, hints from the key tables
-    const hintEl = wrap.querySelector('.hintbar') as HTMLElement;
-    const showHints = () => renderHints(hintEl, [['select', 'Select'], ['move', 'Move'], ['discipline', 'Snowboard / Skis']] as Hint[], lastInputKind());
-    const screen = new Screen(wrap, {
-      primary: () => wrap.querySelector<HTMLButtonElement>('button[data-a="ride"]'),
+export class MainMenu {
+  readonly el: HTMLDivElement;
+  onChoice: ((c: MenuChoice) => void) | null = null;
+  /** applies a settings change (the session's applySettings once it exists; the audio before) */
+  onSettingsChange: (s: Settings, what: string) => void;
+  onResetStart: (() => void) | null = null;
+  private mode: PauseMode = { kind: 'free' };
+  private courses: PauseCourse[] = [];
+  private metric = false;
+  private ready = false;
+  /** RIDE or the map pressed while loading (the mode is read when it goes) */
+  private waiting: MenuChoice['action'] | null = null;
+  private shown = false;
+  private readonly screen: Screen;
+  private readonly sub: Screen;
+  private readonly hintEl: HTMLElement;
+  private readonly pop: HTMLElement;
+  private popKind: 'trial' | 'outrun' | 'resort' | null = null;
+
+  constructor(private readonly o: MainMenuOpts) {
+    const s = o.settings;
+    this.onSettingsChange = (st) => { o.audio.setVolumes(st.mute ? 0 : st.sfx, st.mute ? 0 : st.music); o.audio.setSource(st.musicSource); o.audio.setPlaylist(st.playlist); };
+    this.metric = s.units === 'metric';
+    const n = o.numbers, m = this.metric;
+    const elev = o.shot.elev ? `Elev. ${fmtHeight(o.shot.elev.m, m)} ${o.shot.elev.where}` : '';
+    const facts = [elev, n.runs ? `${n.runs} runs` : '', n.lifts ? `${n.lifts} lifts` : '', n.vertical ? `${fmtHeight(n.vertical, m)} vertical` : ''].filter(Boolean).join(' · ');
+    this.el = document.createElement('div');
+    this.el.id = 'menu';
+    this.el.innerHTML = `
+      ${o.still ? `<img class="still" alt="" src="${esc(o.still)}">` : ''}
+      <div class="shade"></div>
+      <header class="title">
+        ${o.shot.region ? `<div class="region">${esc(o.shot.region)}</div>` : ''}
+        <h1>${esc(o.shot.place)}</h1>
+        ${facts ? `<div class="facts">${esc(facts)}</div>` : ''}
+      </header>
+      <section class="go">
+        <div class="ride-row"><button data-a="ride" class="primary ride">Ride</button><button data-a="map" class="link">or drop in from the map</button></div>
+        <div class="start"><span class="where"></span><button class="link" data-reset hidden>reset to resort start</button></div>
+        <div class="ds-connect" style="display:none"><button data-ds-connect class="link">Turn on DualSense rumble and lightbar</button><div class="hint ds-status">Click it with the mouse and pick the controller (once: it reconnects by itself after that).</div></div>
+      </section>
+      <nav class="corner"><button data-a="settings" class="link">Settings</button><button data-a="controls" class="link">Controls</button><button data-a="credits" class="link">Credits</button></nav>
+      <div class="cards">
+        <div class="card resort" data-card="resort">
+          <div class="cname">${esc(o.resortName)}</div>
+          <div class="cmeta">${[n.top ? `top ${fmtHeight(n.top, m)}` : '', n.vertical ? `${fmtHeight(n.vertical, m)} vertical` : '', n.runs ? `${n.runs} runs` : '', n.lifts ? `${n.lifts} lifts` : ''].filter(Boolean).join(' · ')}</div>
+          <div class="seg"><button data-d="board">Snowboard</button><button data-d="ski">Skis</button></div>
+        </div>
+        <div class="gap"></div>
+        <button class="card mode" data-mode="free"><span class="cname">Free ride</span><span class="cmeta">Ride anywhere on the mountain.</span></button>
+        <button class="card mode" data-mode="trial"><span class="cname">Time trial</span><span class="cmeta" data-trial-meta>Race a real run against your best.</span></button>
+        <button class="card mode" data-mode="outrun"><span class="cname">Outrun</span><span class="cmeta" data-outrun-meta></span></button>
+        <button class="card change" data-a="resort"><span class="cname">Change resort</span><span class="cmeta">${o.resorts.length} built</span></button>
+      </div>
+      <div class="pop" hidden></div>
+      <footer class="foot"><div class="hintbar"></div><div class="sound">Click or press any key for sound</div>${hostedLine()}</footer>
+      <div class="loadbar"><div class="fill"></div><span class="label">Loading</span></div>`;
+    this.el.style.display = 'none'; // show() puts it up
+    document.body.appendChild(this.el);
+    this.hintEl = this.el.querySelector('.hintbar')!;
+    this.pop = this.el.querySelector('.pop')!;
+    const still = this.el.querySelector<HTMLImageElement>('.still');
+    still?.addEventListener('error', () => still.remove()); // no still: the dark gradient
+
+    // sound: browsers allow audio after a click, tap or key press (a controller button doesn't count)
+    const unlock = () => {
+      if (o.audio.started) return;
+      o.audio.start(); o.audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music);
+      this.el.querySelector<HTMLElement>('.sound')!.hidden = true;
+    };
+    this.el.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', () => { if (this.shown) unlock(); }, true);
+    if (o.audio.started) this.el.querySelector<HTMLElement>('.sound')!.hidden = true;
+
+    this.el.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => b.addEventListener('click', () => this.press(b.dataset.a!)));
+    this.el.querySelectorAll<HTMLButtonElement>('button[data-mode]').forEach((b) => b.addEventListener('click', () => this.pickMode(b.dataset.mode as PauseMode['kind'])));
+    this.el.querySelectorAll<HTMLButtonElement>('button[data-d]').forEach((b) => b.addEventListener('click', () => this.setDiscipline(b.dataset.d as 'board' | 'ski')));
+    this.el.querySelector('button[data-reset]')!.addEventListener('click', () => this.onResetStart?.());
+
+    this.screen = new Screen(this.el, {
+      primary: () => this.el.querySelector<HTMLElement>('button.ride'),
       onIntent: (i, down) => {
-        if (down && i === 'discipline') { wrap.querySelector<HTMLButtonElement>(`button[data-d="${settings.discipline === 'board' ? 'ski' : 'board'}"]`)?.click(); return true; }
+        if (down && i === 'discipline') { this.setDiscipline(s.discipline === 'board' ? 'ski' : 'board'); return true; }
         return false;
       },
-      onInputKind: showHints,
+      onInputKind: () => this.hints(),
     });
-    openScreen(screen);
-    showHints();
-    wrap.querySelectorAll<HTMLButtonElement>('button[data-d]').forEach((b) => b.addEventListener('click', () => {
-      settings.discipline = b.dataset.d as 'board' | 'ski';
-      syncDiscipline();
-      onChange(settings, 'discipline');
-      saveSettings(settings);
-    }));
-    wrap.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => b.addEventListener('click', () => {
-      audio.start();
-      audio.setVolumes(settings.mute ? 0 : settings.sfx, settings.mute ? 0 : settings.music);
-      if (b.dataset.a === 'controls') { openSet('controls'); return; } // the bindings, read from the keymap
-      if (b.dataset.a === 'settings') { openSet(); return; }
-      closeSettings();
-      closeScreen(screen);
-      wrap.remove();
-      resolve({ action: b.dataset.a as 'ride' | 'map' });
-    }));
-  });
+    // the pop-up panels over the card row: a course list, Outrun's options, the resort list
+    this.sub = new Screen(this.pop, {
+      primary: () => this.pop.querySelector<HTMLElement>('.on, button, .qrow'),
+      onBack: () => this.closePop(),
+      onIntent: (i, down) => {
+        if (!down) return false;
+        const f = this.sub.focused;
+        if ((i === 'left' || i === 'right') && f?.matches('.qrow')) { this.cycle(f, i === 'left' ? -1 : 1, false); return true; }
+        if (i === 'select' && f?.matches('.qrow')) { this.cycle(f, 1, true); return true; }
+        return false;
+      },
+      onInputKind: () => this.hints(),
+    });
+    this.syncDiscipline();
+    this.drawModes();
+  }
+
+  // ---------------------------------------------------------------- session hooks
+  /** The load behind the menu, 0..1 (a slim bar in the corner). */
+  setProgress(f: number, label: string): void {
+    this.el.querySelector<HTMLElement>('.loadbar .fill')!.style.width = `${Math.round(f * 100)}%`;
+    this.el.querySelector<HTMLElement>('.loadbar .label')!.textContent = label;
+  }
+  /** The session is ready: the still crossfades into the live view, a RIDE pressed early goes now. */
+  setReady(): void {
+    this.ready = true;
+    this.el.classList.add('live');
+    this.el.querySelector<HTMLElement>('.ride')!.textContent = 'Ride';
+    const w = this.waiting; this.waiting = null;
+    if (w) this.choose({ action: w, mode: this.mode });
+  }
+  get isReady(): boolean { return this.ready; }
+  /** Where RIDE starts (BUG-037): the resort start, or a map drop-in with "reset to resort start". */
+  setStart(label: string, custom: boolean): void {
+    this.el.querySelector('.start .where')!.textContent = custom ? 'Continues at your map drop-in' : label;
+    this.el.querySelector<HTMLElement>('button[data-reset]')!.hidden = !custom;
+  }
+  /** The time trial courses (with your best on each) and the units. */
+  setCourses(c: PauseCourse[], metric: boolean): void { this.courses = c; this.metric = metric; this.drawModes(); }
+  get isShown(): boolean { return this.shown; }
+
+  show(): void {
+    if (this.shown) return;
+    this.shown = true;
+    this.el.style.display = '';
+    document.body.classList.add('in-menu');
+    openScreen(this.screen);
+    this.syncDiscipline();
+    this.drawModes();
+    this.hints();
+  }
+  hide(): void {
+    if (!this.shown) return;
+    this.shown = false;
+    closeSettings();
+    this.closePop();
+    closeScreen(this.screen);
+    this.el.style.display = 'none';
+    document.body.classList.remove('in-menu');
+  }
+
+  // ---------------------------------------------------------------- choices
+  private press(a: string): void {
+    if (a === 'settings') { this.openSettings(); return; }
+    if (a === 'controls') { this.openSettings('controls'); return; }
+    if (a === 'credits') { this.openSettings('credits'); return; }
+    if (a === 'resort') { this.openPop('resort'); return; }
+    this.choose({ action: a as 'ride' | 'map', mode: this.mode });
+  }
+  private choose(c: MenuChoice): void {
+    if (!this.ready) {
+      // pressed while loading: says so and goes as soon as the session is ready
+      this.waiting = c.action;
+      this.el.querySelector<HTMLElement>('.ride')!.textContent = 'Loading...';
+      return;
+    }
+    this.hide();
+    this.onChoice?.(c);
+  }
+  private openSettings(cat?: 'controls' | 'credits'): void {
+    openSettings(this.o.settings, { overGame: false, cat, credits: this.o.credits, onChange: (s, what) => { this.onSettingsChange(s, what); this.syncDiscipline(); } });
+  }
+  private setDiscipline(d: 'board' | 'ski'): void {
+    this.o.settings.discipline = d;
+    saveSettings(this.o.settings);
+    this.onSettingsChange(this.o.settings, 'discipline');
+    this.syncDiscipline();
+  }
+  private syncDiscipline(): void {
+    this.el.querySelectorAll<HTMLButtonElement>('button[data-d]').forEach((x) => x.classList.toggle('on', x.dataset.d === this.o.settings.discipline));
+  }
+
+  /** a mode card: Free ride picks at once, Time trial and Outrun open their panel */
+  private pickMode(k: PauseMode['kind']): void {
+    if (k === 'free') { this.mode = { kind: 'free' }; this.drawModes(); return; }
+    this.openPop(k);
+  }
+  private drawModes(): void {
+    this.el.querySelectorAll<HTMLElement>('.card[data-mode]').forEach((c) => c.classList.toggle('on', c.dataset.mode === this.mode.kind));
+    const mode = this.mode;
+    const course = mode.kind === 'trial' ? this.courses.find((c) => c.id === mode.course) : undefined;
+    this.el.querySelector('[data-trial-meta]')!.textContent = course ? `${course.name} · ${course.best !== null ? `best ${clock(course.best)}` : 'no time yet'}` : this.courses.length ? `${this.courses.length} courses on real runs.` : 'Race a real run against your best.';
+    const o = this.o.settings.outrun;
+    const dl = (rowById('outrun.difficulty') as Row & { opts: [string, string][] }).opts.find(([v]) => v === o.difficulty)?.[1] ?? '';
+    this.el.querySelector('[data-outrun-meta]')!.textContent = `A snow monster chases you down. ${dl}, ${o.escape === 'base' ? 'reach the base' : 'endless'}.`;
+    this.el.querySelector<HTMLElement>('.go .ride')!.dataset.mode = MODE_LABEL[mode.kind];
+  }
+
+  // ---------------------------------------------------------------- the pop-up panels
+  private openPop(kind: 'trial' | 'outrun' | 'resort'): void {
+    this.popKind = kind;
+    const pick = (id: string) => { const r = rowById(id)!; return `<div class="qrow" data-q="${id}" data-nav tabindex="-1"><span class="lbl">${esc(r.label.replace(/^Outrun /, '').replace(/^./, (c) => c.toUpperCase()))}</span><span class="ctl"><button class="arr" data-d="-1" data-nav="skip" tabindex="-1" aria-label="Previous">&#8249;</button><span class="pv"></span><button class="arr" data-d="1" data-nav="skip" tabindex="-1" aria-label="Next">&#8250;</button></span></div>`; };
+    const cur = this.mode.kind === 'trial' ? this.mode.course : '';
+    if (kind === 'trial') {
+      this.pop.innerHTML = `<div class="ph">Time trial</div><p>Pick a course: RIDE starts you just above its start gate.</p><div class="courses">${this.courses.length
+        ? this.courses.map((c) => `<button class="course${c.id === cur ? ' on' : ''}" data-course="${c.id}"><span class="cn">${esc(c.name)}</span><span class="cl">${fmtDistance(c.length, this.metric)}</span><span class="cb">${c.best !== null ? clock(c.best) : 'no time yet'}</span></button>`).join('')
+        : '<p class="dim">No courses on this resort.</p>'}</div>`;
+      this.pop.querySelectorAll<HTMLButtonElement>('button[data-course]').forEach((b) => b.addEventListener('click', () => { this.mode = { kind: 'trial', course: b.dataset.course! }; this.closePop(); this.drawModes(); }));
+    } else if (kind === 'outrun') {
+      this.pop.innerHTML = `<div class="ph">Outrun</div><p>A snow monster chases you down the mountain. Stay ahead, or get eaten.</p>${OUTRUN_ROWS.map(pick).join('')}<button class="primary" data-ok>Pick Outrun</button>`;
+      this.pop.querySelectorAll<HTMLElement>('.qrow').forEach((q) => q.addEventListener('click', (e) => { const a = (e.target as HTMLElement).closest<HTMLButtonElement>('button.arr'); this.cycle(q, a ? Number(a.dataset.d) : 1, !a); }));
+      this.pop.querySelector('[data-ok]')!.addEventListener('click', () => { this.mode = { kind: 'outrun' }; this.closePop(); this.drawModes(); });
+      this.fillRows();
+    } else {
+      this.pop.innerHTML = `<div class="ph">Change resort</div><div class="courses">${this.o.resorts.map((r) => `<button class="course${r.slug === this.o.slug ? ' on' : ''}" data-pack="${r.slug}"><span class="cn">${esc(r.name)}</span><span class="cl">${r.slug === this.o.slug ? 'here now' : ''}</span></button>`).join('')}</div>`;
+      this.pop.querySelectorAll<HTMLButtonElement>('button[data-pack]').forEach((b) => b.addEventListener('click', () => {
+        if (b.dataset.pack === this.o.slug) { this.closePop(); return; }
+        // a resort is its own pack: the page reloads into its shot
+        const u = new URL(location.href);
+        u.searchParams.set('pack', b.dataset.pack!);
+        for (const k of ['x', 'y', 'h']) u.searchParams.delete(k);
+        location.href = u.toString();
+      }));
+    }
+    this.pop.hidden = false;
+    this.el.classList.add('popped');
+    openScreen(this.sub);
+    this.hints();
+  }
+  private closePop(): void {
+    if (this.pop.hidden) return;
+    this.pop.hidden = true;
+    this.el.classList.remove('popped');
+    closeScreen(this.sub); // focus goes back to the card that opened it
+    this.popKind = null;
+    this.drawModes();
+    this.hints();
+  }
+  private cycle(q: HTMLElement, d: number, wrap: boolean): void {
+    const r = rowById(q.dataset.q!);
+    if (!r || !('get' in r)) return;
+    const s = this.o.settings;
+    if (r.kind === 'toggle') r.set(s, !r.get(s));
+    else if ('opts' in r) {
+      const opts = optsOf(r, s);
+      const i = opts.findIndex(([v]) => String(v) === String(r.get(s)));
+      const j = wrap ? (i + d + opts.length) % opts.length : Math.max(0, Math.min(opts.length - 1, i + d));
+      if (j === i) return;
+      r.set(s, opts[j][0]);
+    } else return;
+    saveSettings(s);
+    this.onSettingsChange(s, r.what ?? r.id);
+    this.fillRows();
+  }
+  private fillRows(): void {
+    this.pop.querySelectorAll<HTMLElement>('.qrow').forEach((q) => {
+      const r = rowById(q.dataset.q!) as Row & { get: (s: Settings) => string | number | boolean };
+      const v = r.get(this.o.settings);
+      const pv = q.querySelector<HTMLElement>('.pv')!;
+      if (r.kind === 'toggle') { pv.textContent = v ? 'On' : 'Off'; return; }
+      if (!('opts' in r)) return;
+      pv.textContent = optsOf(r, this.o.settings).find(([o]) => String(o) === String(v))?.[1] ?? String(v);
+    });
+  }
+
+  private hints(): void {
+    const h: Hint[] = this.popKind ? [['select', 'Select'], ['move', 'Move'], ['back', 'Back']] : [['select', 'Select'], ['move', 'Move'], ['discipline', 'Snowboard / Skis']];
+    renderHints(this.hintEl, h, lastInputKind());
+  }
+
+  /** Close everything (the page is leaving). */
+  destroy(): void { this.hide(); this.el.remove(); }
+  /** the Settings screen is open over the menu */
+  get settingsUp(): boolean { return settingsOpen(); }
 }

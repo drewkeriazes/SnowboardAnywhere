@@ -251,6 +251,15 @@ export class Controls {
     return this.input;
   }
 
+  /** FEAT-128: a menu over the game (the main menu's backdrop) has the input this frame: drop the key presses,
+   *  the held keys and the controller buttons so no riding action, hold or Esc reaches the session. */
+  suspendFrame(): void {
+    this.pressed.clear(); this.padPressed.clear(); this.keys.clear();
+    this.padDown.fill(false);
+    this.padLookX = this.padLookY = 0; this.gyroDx = this.gyroDy = 0; // the right stick and the gyro don't turn the backdrop
+    this.input.jumpReleased = false;
+  }
+
   endFrame(): void {
     this.pressed.clear();
     this.padPressed.clear();

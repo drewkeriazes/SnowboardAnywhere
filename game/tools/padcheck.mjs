@@ -130,23 +130,24 @@ const tap = async (page, b) => {
 console.log('---- main menu');
 {
   const { page, errors } = await newPage('');
-  await page.waitForSelector('#menu .panel', { timeout: 60000 });
+  await page.waitForSelector('#menu .title', { timeout: 60000 });
   await page.waitForTimeout(300);
   const st = await page.evaluate(() => ({ on: document.body.classList.contains('pad-on'), ps: document.body.classList.contains('pad-ps'), hint: document.querySelector('#menu .hintbar')?.innerHTML ?? '', focus: document.querySelector('#menu .nav-focus')?.textContent ?? '' }));
   check('body.pad-on and pad-ps', st.on && st.ps);
   check('menu hint in glyphs', st.hint.includes('<svg'), st.hint.slice(0, 60));
-  check('focus starts on Free ride', st.focus === 'Free ride', st.focus);
-  await tap(page, 13); // down
+  check('focus starts on Ride', /^Ride/.test(st.focus), st.focus);
+  await tap(page, 15); // right
   const f2 = await page.evaluate(() => document.querySelector('#menu .nav-focus')?.textContent ?? '');
-  check('D-pad down moves the focus', f2 === 'Drop in from the map', f2);
+  check('D-pad right moves the focus', f2 === 'or drop in from the map', f2);
   // a DualSense on the Gamepad API (no rumble on Windows Chrome): the menu offers the WebHID extras; Cross on it asks for the mouse
-  await tap(page, 13);
+  await tap(page, 14); // back to Ride
+  await tap(page, 13); // down: the offer under it
   const offer = await page.evaluate(() => ({ shown: getComputedStyle(document.querySelector('#menu .ds-connect')).display !== 'none', focus: document.querySelector('#menu .nav-focus')?.textContent ?? '' }));
   check('the menu offers the DualSense extras', offer.shown && offer.focus.startsWith('Turn on DualSense'), JSON.stringify(offer));
   await tap(page, 0);
   const note = await page.evaluate(() => document.querySelector('#menu .ds-status')?.textContent ?? '');
   check('Cross on it asks for a mouse click (the picker needs one)', note.includes('mouse click'), note);
-  await tap(page, 13);
+  await page.evaluate(() => document.querySelector('#menu button[data-a="settings"]').focus());
   await tap(page, 0); // Cross on Settings
   const open = await page.evaluate(() => getComputedStyle(document.querySelector('#settings')).display !== 'none');
   check('Cross opens Settings', open);
