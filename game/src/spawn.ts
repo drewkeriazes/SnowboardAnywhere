@@ -8,6 +8,12 @@ export function hasCustomStart(slug: string): boolean {
   try { return localStorage.getItem(spawnKey(slug)) !== null; } catch { return false; }
 }
 
+/** ?x= &y= &h= (degrees) in the URL right now, h in radians; read when a ride starts because the map and the menu rewrite them. */
+export function spawnFromUrl(): { x: number | null; y: number | null; h: number | null } {
+  const p = new URLSearchParams(location.search);
+  return { x: p.has('x') ? Number(p.get('x')) : null, y: p.has('y') ? Number(p.get('y')) : null, h: p.has('h') ? Number(p.get('h')) * Math.PI / 180 : null };
+}
+
 /** Forget the drop-in so the next ride starts at meta.start. */
 export function resetStart(slug: string): void {
   try { localStorage.removeItem(spawnKey(slug)); } catch { /* private mode */ }
