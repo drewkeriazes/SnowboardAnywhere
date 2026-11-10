@@ -1,13 +1,12 @@
 /** Riding on the snow, one physics step (split from sim/Rider.ts, FEAT-165) */
 import type { Rider } from '../Rider';
-import type { SnowState } from '../SnowConditions';
+import { newSnowState, type SnowState } from '../SnowConditions';
 import type { Input } from './types';
 import { FAKIE_SPEED, FEEL, type Feel, G, GROOMED_BONUS, HARD_DEEP, HARD_DRAG, PD_NOSE_DRAG, PD_TAIL_EASE, PLANE_SPEED, POWDER_DRAG, PRESS_DRAG, PRESS_GRIP, SINK_DRAG, SINK_NOSE, SINK_NOSE_SPEED, SINK_SPEED, SINK_TAIL, SKATE_ACC, SKATE_MAX, SKATE_PERIOD, SKATE_SLOPE, SQUAT_AERO, SQUAT_GRIP, STAND_EDGE, SWITCH_GRIP } from './tuning';
 import { carve, grip } from './EdgeModel';
 import { brake } from './Brake';
 import { jump, followGround } from './Jumps';
 import { rideCollide } from './Collision';
-import { newSnowState } from '../SnowConditions';
 
 /**
  * The values one on-snow step shares between its phases (carve, brake, grip, drag, glide), in the order
@@ -35,7 +34,7 @@ export function rideStep(r: Rider, dt: number, input: Input, n: [number, number,
   // gravity projected onto the slope plane: a = g * (slope direction component)
   // slope plane tangent of gravity: g_t = g - (g.n) n where g = (0,0,-G)
   const gn = -G * n[2];
-  let ax = -gn * n[0], ay = -gn * n[1]; // (0 - gn*nx, 0 - gn*ny) -> downhill acceleration
+  const ax = -gn * n[0], ay = -gn * n[1]; // (0 - gn*nx, 0 - gn*ny) -> downhill acceleration
   // board heading vector (unit) and its lateral
   const hx = Math.sin(r.heading), hy = Math.cos(r.heading);
   const lx = hy, ly = -hx; // right-hand lateral

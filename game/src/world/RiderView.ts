@@ -29,6 +29,13 @@ export { LEAD_UPPER, LEAD_HIPS, BOARD_LAG } from './riderView/tuning';
 /** Layer the body is also drawn on, so first person can redraw it with a close near plane. */
 export const BODY_LAYER = 1;
 
+/**
+ * The API: `group`, `mats`, `spray`, `snowCover`, `powderHold`, `discipline`, the BUG-056 tunables
+ * (`leadUpper`, `leadHips`, `boardLag`), `footGap`, `onPlant`, `lensId`, the state getters for checks
+ * (`leadState`, `buryState`, `gaitState`) and the methods. The other fields are the pose state the
+ * world/riderView/ modules share between frames (FEAT-165): internal, public only because TypeScript
+ * has no module-private members.
+ */
 export class RiderView {
   readonly group = new THREE.Group();
   fp = false;

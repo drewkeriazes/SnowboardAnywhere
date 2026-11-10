@@ -53,8 +53,6 @@ export class Rider {
   jumpCharge = 0;
   /** 0..1 how far into the deep squat (FEAT-111), eased over about 0.25 s */
   squat = 0;
-  /** s since the squat was let go from deep; a jump right then pops higher */
-  squatUp = 9;
   speed = 0;
   /** FEAT-127: the board's edge angle to the snow (rad), + = the heading's right-hand edge (the toe edge riding regular; see toeSign), rolled toward the steer at a limited rate */
   edge = 0;
@@ -75,8 +73,6 @@ export class Rider {
   // ---- FEAT-148 hard carve
   /** 0..1 how far into a hard carve (the squat key held while steering on the snow), eased */
   hardCarve = 0;
-  /** 0..1 how far the press has driven the turn in on the current edge */
-  hardDrive = 0;
   /** how far short (g) the edge's hold falls of the turn the press asks for (0 = committed, it bites) */
   carveShort = 0;
   /** 0..1 the washout meter: a big shortfall at speed fills it, full the edge lets go */
@@ -93,7 +89,6 @@ export class Rider {
   /** FEAT-110: pitch rotation in the air (rad, + = front flip, nose down) and its rate */
   flip = 0;
   flipRate = 0;
-  /** FEAT-085: skating now, the stroke phase (0..1, a push at 0), and a callback on each push for sound */
   /** FEAT-112: the board's lean, eased: -1 nose up (tail loaded) .. +1 tail up (nose loaded) */
   lean = 0;
   // ---- FEAT-140 press balance
@@ -111,12 +106,7 @@ export class Rider {
   onPress: ((end: PressEnd, dir: number, t: number, dist: number, switchStance: boolean, from: string) => void) | null = null;
   /** the trick this press was landed into from ('' if none) */
   pressFrom = '';
-  /** the last trick landed and the step it landed on */
-  landTrick = ''; landStep = -1e9;
-  /** lost it: the lean stays flat until the press key (this sign) is let go */
-  pressLock = 0;
-  pbDrift = 1; pbPushT = 0; pbPushLeft = 0; pbPushV = 0;
-  pbNoise = 0; pbNoiseTo = 0; pbNoiseT = 0; pbBump = 0; pbVz = 0; pbCorr = 0;
+  /** FEAT-085: skating now, the stroke phase (0..1, a push at 0), and a callback on each push for sound */
   skating = false;
   skatePhase = 0;
   onSkateStroke: (() => void) | null = null;
@@ -134,7 +124,6 @@ export class Rider {
   chop = 0;
   /** FEAT-053: 0..1 the nose sinking into slow powder (for the drag; the view may tip the board) */
   noseSink = 0;
-  chopT = 0;
   normal: [number, number, number] = [0, 0, 1];
   slopeDeg = 0;
   skid = 0; // 0..1 how much the board is sliding sideways (for spray)
@@ -150,7 +139,6 @@ export class Rider {
   scrape = 0;
   /** signed angle from the travel direction to the board (radians, 0 when nearly stopped) */
   slip = 0;
-  travelYaw = 0;
   // ---- on foot (FEAT-067)
   /** off the board, walking (the board is carried) */
   onFoot = false;
@@ -170,21 +158,14 @@ export class Rider {
   sink = 0;
   /** sliding back down a slope too steep to stand on (m/s, pack x/y) */
   slideVx = 0; slideVy = 0;
-  walkVx = 0; walkVy = 0;
-  hopHeld = false;
   /** BUG-045: climbing onto a ledge (mantle): progress 0..1 (0 = not climbing) and its start and end */
   mantle = 0;
-  readonly mantleFrom = [0, 0, 0]; readonly mantleTo = [0, 0, 0];
-  /** BUG-045: stepping up onto a low ledge: progress 0..1 (0 = not stepping), from mantleFrom to mantleTo */
-  stepT = 0;
   /** scrambling up on all fours (too steep to walk, not too steep to climb) */
   crawling = false;
   /** body-scale slope along the way you are walking (degrees, + = uphill) */
   walkSlopeDeg = 0;
   /** seconds left of a slip back down a face too steep to climb (no walking until it ends) */
   slipT = 0;
-  /** board angle to travel this brake aims for, fixed when the brake starts (0 = ski snowplough) */
-  brakeGamma = STOP_GAMMA;
   /** lateral acceleration in g, positive toward the board's right-hand side (smoothed, for the rider's lean) */
   lateralG = 0;
   landingShock = 0;
@@ -204,8 +185,37 @@ export class Rider {
   /** physics steps so far, and how many of them sampled a coarser height set than the point has */
   steps = 0;
   coarseSteps = 0;
+  // ---- internal: state the sim/rider/ modules keep between steps. Not part of the API (nothing
+  // outside sim/ reads it); public only because TypeScript has no module-private members.
+  /** the terrain and the colliders the rider rides on */
   readonly pack: Pack;
   readonly collider: Collider | null;
+  /** FEAT-111 (Jumps.ts): s since the squat was let go from deep; a jump right then pops higher */
+  squatUp = 9;
+  /** FEAT-148 (EdgeModel.ts): 0..1 how far the press has driven the turn in on the current edge */
+  hardDrive = 0;
+  /** FEAT-053 (EdgeModel.ts): s to the next chop jolt */
+  chopT = 0;
+  /** Brake.ts: the direction of travel the brake swings the board across (the heading while stopped) */
+  travelYaw = 0;
+  /** Brake.ts: board angle to travel this brake aims for, fixed when the brake starts (0 = ski snowplough) */
+  brakeGamma = STOP_GAMMA;
+  /** FEAT-140 (Tricks.ts, Press.ts): the last trick landed and the step it landed on */
+  landTrick = ''; landStep = -1e9;
+  /** FEAT-140 (Press.ts): lost it: the lean stays flat until the press key (this sign) is let go */
+  pressLock = 0;
+  /** FEAT-140 (Press.ts): the drift's direction, the random push (next, left, rate), the bump jitter
+   *  (value, target, next), the bump measure, the last vertical speed and the eased weight shift */
+  pbDrift = 1; pbPushT = 0; pbPushLeft = 0; pbPushV = 0;
+  pbNoise = 0; pbNoiseTo = 0; pbNoiseT = 0; pbBump = 0; pbVz = 0; pbCorr = 0;
+  /** FEAT-067 (OnFoot.ts): the walk velocity (m/s, pack x/y) and the jump key on the last step (a hop is its press) */
+  walkVx = 0; walkVy = 0;
+  hopHeld = false;
+  /** BUG-045 (OnFoot.ts, Collision.ts): the mantle's or step-up's start and end (pack x, y, z) */
+  readonly mantleFrom = [0, 0, 0]; readonly mantleTo = [0, 0, 0];
+  /** BUG-045: stepping up onto a low ledge: progress 0..1 (0 = not stepping), from mantleFrom to mantleTo */
+  stepT = 0;
+  // ---- private to Rider.ts
   private accum = 0;
   private readonly maskTmp = [0, 0, 0, 0];
   private readonly coverTmp = { rock: 0, scree: 0 };
@@ -299,7 +309,7 @@ export class Rider {
     this.squareBoard();
   }
 
-  /** End any brake swing: the board lines up with the heading again. */
+  /** End any brake swing: the board lines up with the heading again (internal: the rider modules call it). */
   squareBoard(): void {
     this.boardYaw = this.travelYaw = this.heading;
     this.brakeAmt = 0; this.brakeSide = 0; this.brakeAcc = 0; this.brakePsi = 0; this.brakeMod = 0; this.scrape = 0; this.slip = 0;

@@ -4,9 +4,12 @@
  */
 import type { Discipline, PressMode } from './types';
 
+// ---- units and the fixed step
 export const G = 9.81;
 export const STEP = 1 / 120;
 export const D2R = Math.PI / 180;
+
+// ---- brake (FEAT-065, FEAT-133)
 /** board angle to the direction of travel in a full hockey stop */
 export const STOP_GAMMA = 84 * D2R;
 /** FEAT-133: steering while braking opens the swing out to GAMMA_SOFT and lets the edge off to
@@ -27,6 +30,7 @@ export const PARK_SPEED = 1;
 /** skis below this speed at brake start snowplough instead of turning across */
 export const PLOUGH_SPEED = 5;
 
+// ---- on foot (FEAT-067, FEAT-068, BUG-045)
 /** FEAT-067 on foot: seconds to unstrap and to strap back in */
 export const UNSTRAP_TIME = 0.8, STRAP_TIME = 1.0;
 /** fastest the rider can be going to unstrap (m/s), and to strap in (standing still) */
@@ -48,6 +52,7 @@ export const STAMINA_RESUME = 1.5;
  */
 export const CLIMB_MAX = 35, CRAWL_MAX = 45, CRAWL = 0.45, BODY_L = 2.5;
 
+// ---- snow conditions: powder, presses in powder, chop (FEAT-053, FEAT-152)
 /** FEAT-053 powder: speed (m/s) by which the board planes and the speed-scaled drag stops growing,
  *  the drag per m/s before that (per unit powder), and the nose-sink drag (g) at a standstill that
  *  is gone by SINK_SPEED m/s */
@@ -61,6 +66,7 @@ export const SINK_NOSE = 0.6, SINK_NOSE_SPEED = 0.6, SINK_TAIL = 0.75, PD_NOSE_D
  *  the board sideways up to CHOP_KICK m/s at full chop and speed, smaller at low speed (gone by CHOP_SPEED) */
 export const CHOP_GAP = 0.2, CHOP_YAW = 0.035, CHOP_KICK = 0.3, CHOP_SPEED = 12;
 
+// ---- edge and carve (FEAT-127, BUG-053), the fall line and edge catch (FEAT-134), the hard carve (FEAT-148)
 /**
  * Feel constants per discipline (FEAT-127 carving):
  * - pivot, pivotTuck: yaw rate (rad/s) of a flat pivot turn at a standstill, fading out by pivotFade m/s
@@ -164,6 +170,7 @@ export const HARD_DEEP = 0.3;
 /** FEAT-148: steer under this does not start a hard carve, and below HARD_MIN_SPEED m/s it is just a squat pivot */
 export const HARD_STEER = 0.3, HARD_MIN_SPEED = 3;
 
+// ---- squat (FEAT-111) and flips (FEAT-110)
 /** FEAT-111 deep squat: ease time (s), extra grip, share of the tuck's drag cut, jump bonus and its window after letting go (s) */
 export const SQUAT_IN = 0.25;
 export const SQUAT_GRIP = 0.08;
@@ -176,6 +183,7 @@ export const FLIP_RATE = 1.1 * Math.PI * 2;
 export const FLIP_EASE = 6, FLIP_DECAY = 4;
 export const FLIP_CLEAN = 35 * Math.PI / 180, FLIP_CRASH = 60 * Math.PI / 180;
 
+// ---- switch (FEAT-139), skating (FEAT-085), the press lean (FEAT-112)
 /** FEAT-139: riding backwards faster than this (m/s) the steering axis turns round and the stance
  *  toggles to switch (or back); was 4 m/s when it spun the drawn rider round, which is now invisible */
 export const FAKIE_SPEED = 2.5;
@@ -189,6 +197,7 @@ export const SKATE_ACC = 4.2, SKATE_MAX = 5.5, SKATE_SLOPE = 10, SKATE_PERIOD = 
  * ollie / nollie (|lean| > 0.5 at release), and the pitch rate it leaves (rad/s per unit lean) */
 export const LEAN_IN = 0.2, PRESS_GRIP = 0.35, PRESS_DRAG = 0.05, OLLIE_POP = 1.3, OLLIE_PITCH = 1.2;
 
+// ---- press balance (FEAT-140, FEAT-152)
 /**
  * FEAT-140 press balance, in needle units per second (the needle runs -1 .. 1, + toward the
  * heading's front end): the base drift, the most it and the runaway grow with the time held (share;
