@@ -92,7 +92,83 @@ Expected result: from the Back Bowls gateway, Blue Sky Basin shows its forest an
 - `perf-check`: frame time and draw calls before and after each phase while tucking down a long run (the stream-heavy case).
 - Watch for shimmering trail edges at distance (aliasing): the box-filtered levels and the slight edge sharpening should keep them stable; if not, sharpen less.
 
+## 7. From high up (FEAT-154, #347)
+
+Researched 2026-11-09 after FEAT-153 and DATA-019 landed, for the FEAT-128 menu backdrop: Vail from 500 to 900 m up showed soft grey blobs over the far terrain, open bowls included, and grey forest on sunlit slopes. All stills here are from `game/tools/aerial.mjs` on Drew's GPU (RTX 2070 SUPER), clear weather, the default sun, at three poses:
+
+| Pose | Eye camera |
+|---|---|
+| Back Bowls gateway | x -727, y 524, heading 170, pitch -22, 700 m up |
+| Front side from the northeast (across I-70) | x 2600, y 7200, heading 220, pitch -14, 600 m up |
+| Blue Sky looking north (over the Back Bowls to the Gore Range) | x 1100, y -3600, heading 355, pitch -12, 800 m up |
+
+Before and after: `docs/renders/2026-11-09-feat154-*.jpg`.
+
+### 7.1 Which term makes the blobs
+Each term switched off in turn (`uDebugFar` in `TerrainMaterial.ts`, plus `uAO` and the shadows setting), same poses:
+
+| Term off | Effect from the air |
+|---|---|
+| Forest darkening (`fd`) | **The blobs go.** The bowls turn white with the drawn tree clumps on them; but the dense forest past the trees (Blue Sky, the front side, the ranges) goes white too, so the term is needed, just not as it was. |
+| Rock and talus | Only the hard-edged dark patches on steep faces (mostly outside the pack) go. Not the blobs. |
+| Baked AO | Barely visible from the air (it fades out by 5 km). |
+| Snow drift normals | No visible change at these distances. |
+| Shadows | Only the near trees' own shadows. |
+
+A red tint of the darkening showed what was wrong with it:
+1. **Sunlit timber read mid grey, not dark.** The darkened ground takes the full sun like the snow beside it. With an albedo of about 0.15 (timber 0.05 plus the 10% of snow mixed in, which outweighed the timber itself), a sunlit slope tone-maps to grey. Real sunlit conifer canopy is mostly shaded needles and the shadow sides of crowns, so it stays dark. The geometric-optical canopy models (Li and Strahler) describe exactly this mutual shadowing.
+2. **The ground went dark under trees that were already drawn.** Inside the tree reach (4.5 km), the ground darkened by the full cover share and the instanced trees and impostors stood on top. Sparse stands in the bowls therefore read as grey halos around the trees.
+3. **Outside the pack there are no trees**, but the darkening still faded in from 350 m to 1 km as if trees stood in front. From the air the near slopes past the pack (front side from the NE) were a half-grey wash.
+4. **No view angle.** FEAT-075 lifted the darkening so that from the snow, at grazing angles, the forest reads as a mass. From above, the real openings between crowns show, and the same lift made every partly forested cell grey.
+
+### 7.2 How the real view looks
+The reference is a cloud-free Sentinel-2 L2A scene from 1 March 2025 (`S2C_MSIL2A_20250301T175311_R141_T13SCD`, 0.02% cloud, sun 40 degrees up), cropped to the pack at 10 m through the Planetary Computer data API (`/api/data/v1/item/bbox/...`; the `crop` route used for NAIP now returns 404). It is in `docs/renders/2026-11-09-feat154-sentinel2-vs-cover.jpg` next to the pack's cover share.
+- From above, the Back Bowls are white with dark tree islands, the lower bowls toward Sun Down's base are forest, and Blue Sky and the front side are dark timber cut by white trails. The cover level shows the same pattern.
+- **Is the cover's forest share right?** On shaded slopes the Sentinel-2 brightness can't separate shaded snow from canopy, so the comparison only uses sunlit slopes (cos of the sun incidence from the 10 m DEM between 0.55 and 0.95). There it unmixes as `(snow - pixel) / (snow - canopy)`, with snow and canopy taken from cover-0 and cover-1 pixels at the same incidence. Region by region the cover matches what the satellite sees: Back Bowls 0.18 against 0.21 (and 0.05 against 0.06 on the most sunlit faces), Blue Sky 0.47 against 0.50 (0.55 against 0.59), the front side 0.35 against 0.41. Cells the cover calls open still unmix at about 0.26 (towns, roads, scattered small trees and noise), so the method has a floor. **Conclusion: the data is not the problem. The blobs came from how the shader drew it.**
+- A crude dark-pixel share of the true-colour image (luminance under 0.45) reads lower in the bowls (0.12 against 0.21). That's the saturated true-colour stretch hiding sparse trees on bright snow, not a real difference.
+
+### 7.3 How other large-terrain renderers draw far forest (cheaply)
+- **Land-class forest with autogen trees near and a forest colour far:** flight sims (X-Plane, Microsoft Flight Simulator) place generated trees from forest land-class polygons out to a set distance and leave the forest to the ground texture past it. This is what we do: instances to 4.5 km, then the cover levels.
+- **A baked far albedo or forest texture per tile** (from imagery or canopy data): cheap and exact in colour, but the lighting is baked into it (section 4.3). We get the same spatial accuracy from the cover share lit in the shader.
+- **Impostor or billboard clusters per tile** (one card per stand rather than per tree): good mid-distance texture at a few draw calls per tile. It's the natural next step if the 1.5 to 8 km band needs more 3D texture than the ground shading gives (section 4.5).
+- **A canopy-height bump in the terrain:** we already lift forested ground past the trees (FEAT-153), which gives treed silhouettes and self-shading.
+- **Canopy optics instead of a flat tint:** the probability that a sight line passes between crowns falls with the path length through the canopy layer. That is the canopy gap fraction, `P(theta) = exp(-k LAI / cos theta)` in Nilson's form. With a share `s` of the ground under crowns, the Poisson version is `(1 - s)^(1/mu)`, where `mu` is the cosine of the view to the ground normal. It makes a stand denser at grazing angles and true to its share from above, at the cost of one `pow`.
+- **Horizon-based shading** (a per-texel horizon angle for sun occlusion past the shadow maps) would put the far valleys into shadow at low sun. It is not needed for these views at 11 am. A follow-up if dawn and dusk backdrops matter.
+
+### 7.4 What was built
+All in `TerrainMaterial.ts`, no new data:
+- **Gap fraction with the drawn trees taken out:** `seen = 1 - ((1 - s) / (1 - rho s))^(1/mu)`. Here `s` is the S-curved cover share and `mu` is clamped to 0.12..1. `rho` (`uForestDrawn`, 0.7) is the part of the canopy the drawn trees cover, fading to 0 at the tree reach (`uLiftNear`) and outside the pack's tree instances (`uTreeRect`). From the snow `mu` is small and the forest stays a dark mass, as FEAT-075 wanted; from the air sparse stands open up. Closed stands (`s` near 1) stay dark whatever `rho` is, which keeps the BUG-023 compensation where the drawn trees are too sparse.
+- **No near fade outside the pack:** past the tree instances the ground carries the forest from the first metre.
+- **Canopy sunlight:** forested pixels take `uCanopySun` (0.3) of the direct diffuse light, and a forested pixel is `uTimberMix` (0.97) timber, up from 0.9.
+- The old second term (`smoothstep(2500, 6000, dist) * forestV`, the raw unlifted share) is gone; the gap fraction covers it.
+
+### 7.5 What the pack should bake
+Nothing new for this. The cover levels already carry the right share (7.2) and everything above is lighting. Candidates for later:
+- A winter "canopy seen from above" level from Sentinel-2, as a check or a correction, needs terrain-illumination correction (7.2 used only sunlit slopes). It would mainly help outside the pack, where WorldCover's tree class is a thresholded share.
+- Generated tree instances outside the pack from the mid cover level (one cell set per 1 km, like FEAT-074's per-cell stands). From the NE pose the near slopes past the pack are now dark forest with snow between the crowns, but they are flat colour with no trees.
+
+### 7.6 Frame cost
+One `pow`, a dot product and a few multiplies per terrain pixel; no new textures, draw calls or vertices. Main against this branch with `aerial.mjs` (`SHOT_DIST` serving a main build), two alternating rounds, 1600 x 900, 30 GPU-finished frames per pose:
+
+| Pose | main (ms) | FEAT-154 (ms) |
+|---|---|---|
+| Born Free start, eye height | 17.8 / 16.9 | 16.8 / 15.6 |
+| Front side mid-run, eye height | 18.9 / 18.7 | 18.6 / 17.0 |
+| Back Bowls gateway, eye height | 19.9 / 19.0 | 18.9 / 19.3 |
+| Blue Sky run, eye height | 18.4 / 19.9 | 19.6 / 19.8 |
+| Gateway, 700 m up | 23.3 / 24.0 | 21.9 / 22.9 |
+| Blue Sky looking north, 800 m up | 23.7 / 24.3 | 24.7 / 24.2 |
+
+All within run-to-run noise, with identical draw calls and triangles. The Low preset runs the same shader; its shorter tree reach only moves where `rho` fades out.
+
+### 7.7 Left over
+- Dense stands where the drawn trees are sparse (BUG-023, FEAT-074) show from the air as dark ground with a few trees standing in it, about 1 to 3 km out from the gateway pose. Raising `rho` doesn't change them (they are closed canopy in the cover); more trees will.
+- Sunlit-slope check only: a full Sentinel-2 comparison needs illumination correction.
+
 ## Sources
+- [Nilson 1971, A theoretical analysis of the frequency of gaps in plant stands (Agricultural Meteorology 8)](https://doi.org/10.1016/0002-1571(71)90092-6)
+- [Li and Strahler 1992, Geometric-optical bidirectional reflectance modeling of the discrete crown vegetation canopy: effect of crown shape and mutual shadowing (IEEE TGRS 30(2), 276-292)](https://doi.org/10.1109/36.134078)
+- [Microsoft Planetary Computer, Sentinel-2 Level-2A](https://planetarycomputer.microsoft.com/dataset/sentinel-2-l2a)
 - [ESA WorldCover (terrabyte docs: classes, 10 m, COG)](https://docs.terrabyte.lrz.de/datasets/esaworldcover/)
 - [ESA WorldCover 2021](https://worldcover2021.esa.int)
 - [ETH Global Sentinel-2 10 m Canopy Height (2020)](https://samapriya.github.io/awesome-gee-community-datasets/projects/canopy)

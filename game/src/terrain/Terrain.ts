@@ -101,6 +101,9 @@ export class Terrain {
     if (pack.dir) pack.dir.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.dir!.meta.minX + tx * pack.dir!.size, pack.dir!.meta.minY + ty * pack.dir!.size, pack.dir!.size, 0);
     if (pack.moguls) pack.moguls.onTileLoaded = (tx, ty) => this.onTileLoaded(pack.moguls!.meta.minX + tx * pack.moguls!.size, pack.moguls!.meta.minY + ty * pack.moguls!.size, pack.moguls!.size, 0);
     if (pack.cover) pack.cover.onLevelLoaded = () => this.applyCover();
+    // FEAT-154: where the pack has tree instances (outside it the forest is the terrain's colour alone)
+    const ins = pack.meta.instances;
+    if (ins) (this.material.userData.uniforms as { uTreeRect: { value: THREE.Vector4 } }).uTreeRect.value.set(ins.minX, ins.minY, ins.minX + ins.cellsX * ins.cellSize, ins.minY + ins.cellsY * ins.cellSize);
   }
 
   /**
