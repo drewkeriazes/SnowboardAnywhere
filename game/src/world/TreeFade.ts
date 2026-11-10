@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 /**
  * FEAT-155: trees that block the view downhill turn see-through. Each frame `TreeFade.update` sets a
- * "view lane" from the chase camera through the rider to a look-ahead point 20 to 40 m along the travel
+ * "view lane" from the chase camera through the rider to a look-ahead point 10 to 30 m along the travel
  * direction (further at speed), one width all the way back to the camera so a tree that faded ahead stays
  * faded as you come up on it and pass; a second, slow look-ahead point keeps the old line faded for a
  * moment after a turn. The tree shaders measure each tree's distance to that lane in the
@@ -24,7 +24,7 @@ const R_SOFT = 1;
 /** trees whose crown is within this many metres of the camera fade (anything right in front of the lens) */
 const R_LENS = 2.5;
 /** look-ahead distance: LOOK_MIN m, plus LOOK_PER_MS m per m/s of speed, up to LOOK_MAX */
-const LOOK_MIN = 20, LOOK_MAX = 40, LOOK_PER_MS = 1;
+const LOOK_MIN = 10, LOOK_MAX = 30, LOOK_PER_MS = 1;
 /** the trees you are about to hit: within KEEP_R m of the board's path over the next KEEP_T s stay solid */
 const KEEP_T = 0.5, KEEP_R = 1.5;
 /** time constant (s) of the lane's look-ahead point, and of the slow one that keeps the old line faded after a turn */

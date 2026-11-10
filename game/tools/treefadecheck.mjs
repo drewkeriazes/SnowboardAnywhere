@@ -1,5 +1,5 @@
 // See-through trees (FEAT-155): finds a tall tree on a slope with a clear line up the fall line above
-// it and rides the chase camera down toward it. Checks that the tree is still solid 40 m out (past the
+// it and rides the chase camera down toward it. Checks that the tree is still solid 30 m out (past the
 // look-ahead), comparing the same frame with the fade on and off; that it turns see-through 20 m out
 // (a good share of its pixels change) while a tree well off to the side does not; that it stays faded
 // a quarter second after turning 35 degrees away (the slow look-ahead); that it stays solid right in the board's path (about to be hit); that the fade eases out with the
@@ -144,11 +144,11 @@ const onScreen = () => page.evaluate((t) => {
   return v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
 }, spot.tree);
 
-// 0. 40 m out at 8 m/s (look-ahead 28 m) the tree is not faded yet
-await place(48); await settle();
-let st = await ride(60, 8, 40);
+// 0. 30 m out at 8 m/s (look-ahead 18 m) the tree is not faded yet
+await place(38); await settle();
+let st = await ride(60, 8, 30);
 const far = await onOff('far', { main: spot.tree, side: null });
-check('40 m out, past the look-ahead, the tree is still solid', far.main !== null && far.main < 0.02, `${((far.main ?? 0) * 100).toFixed(1)}% of its box changed, ${st.along.toFixed(0)} m ahead`);
+check('30 m out, past the look-ahead, the tree is still solid', far.main !== null && far.main < 0.02, `${((far.main ?? 0) * 100).toFixed(1)}% of its box changed, ${st.along.toFixed(0)} m ahead`);
 
 // 1. riding down toward the tree, 20 m short of it: the tree ahead fades, the one off to the side does not
 st = await ride(600, 8, 20);
@@ -157,7 +157,8 @@ console.log('ahead', JSON.stringify({ ...st, main: ahead.main, side: ahead.side,
 check('the tree ahead in the lane turns see-through', ahead.main !== null && ahead.main > 0.08, `${((ahead.main ?? 0) * 100).toFixed(0)}% of its box changed, ${st.dist.toFixed(0)} m ahead`);
 if (spot.sideTree) check('a tree 22 m or more off to the side stays solid', ahead.side === null || ahead.side < 0.02, ahead.side === null ? 'off screen' : `${(ahead.side * 100).toFixed(1)}% changed`);
 
-// 1b. a quarter second after turning 35 degrees away, the tree on the old line is still faded (if still on screen)
+// 1b. from 12 m out, a quarter second after turning 35 degrees away, the tree on the old line is still faded (if still on screen)
+st = await ride(600, 8, 12);
 const swing = await page.evaluate((sp) => {
   const s = window.__sim, r = s.rider, a = Math.atan2(sp.ux, sp.uy) + 35 * Math.PI / 180;
   for (let i = 0; i < 15; i++) { r.heading = a; r.vx = Math.sin(a) * 8; r.vy = Math.cos(a) * 8; window.__step(1, 1 / 60); }
