@@ -17,7 +17,21 @@
       "take-11.json",
       "take-12.json",
       "take-13.json",
-      "take-14.json"
+      "take-14.json",
+      "take-15.json",
+      "take-16.json",
+      "line-red-lead.json",
+      "line-red-mate.json",
+      "line-orange-lead.json",
+      "line-orange-mate.json",
+      "line-yellow-lead.json",
+      "line-yellow-mate.json",
+      "line-green-lead.json",
+      "line-green-mate.json",
+      "line-blue-lead.json",
+      "line-blue-mate.json",
+      "line-purple-lead.json",
+      "line-purple-mate.json"
     ],
     "looks": {
       "back-bowls": {

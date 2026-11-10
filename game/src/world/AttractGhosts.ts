@@ -11,9 +11,9 @@ import { RiderView } from './RiderView';
  * the samples step a full `RiderView` the way the replay viewer poses the rider (no physics). The takes
  * are stacked into one group: each is lined up on the moment it rides `anchor.r` metres from the camera,
  * and they pass that point `STAGGER` seconds apart, so they come down the line together and loop together.
- * A backdrop take (never within `FAR_M` of the camera: a line across the bowl) is not in that queue: every
- * backdrop take starts with the loop, together, so the far slope has riders on it from the moment the menu
- * goes live (FEAT-179).
+ * A backdrop take (`backdrop: true`, or never within `FAR_M` of the camera: a line across the bowl) is not in
+ * that queue: each starts when the menu goes live and loops on its own (its length plus BACKDROP_GAP), so the
+ * far slope has riders on it at once and a long backdrop take doesn't stretch the close riders' loop (FEAT-179).
  */
 export interface AttractTake {
   version: 1;
@@ -25,10 +25,16 @@ export interface AttractTake {
   outfit: string;
   /** the replay samples (sim/Replay.ts, 20 Hz), times from 0 */
   samples: ReplaySample[];
+  /**
+   * FEAT-179: a backdrop take (riders far across the bowl, for example made by a tool from lines drawn on the
+   * shot): it starts with the menu and loops on its own instead of joining the queue of close takes. Without the
+   * flag, a take that never comes within FAR_M of the camera is one too.
+   */
+  backdrop?: boolean;
 }
 
 /** seconds between the ghosts' drops, and the pause before the group goes again */
-const STAGGER = 1.6, GAP = 2.5;
+const STAGGER = 1.6, GAP = 2.5, BACKDROP_GAP = 4;
 /** a take that never comes closer than this to the backdrop camera (m) is a backdrop take */
 const FAR_M = 300;
 
@@ -55,6 +61,8 @@ export class AttractGhosts {
   readonly group = new THREE.Group();
   private ghosts: Ghost[] = [];
   private t = 0;
+  /** FEAT-179: the backdrop takes' own clock (each loops on its length plus BACKDROP_GAP) */
+  private tb = 0;
   /** the backdrop camera the visible windows are fitted to (setView) */
   private view: THREE.Camera | null = null;
   /** resolves when the takes have loaded (or failed to) */
@@ -95,7 +103,7 @@ export class AttractGhosts {
     // the take's own moment at the anchor: the first sample that far from the camera (else its start)
     const a = this.anchor;
     const at = a ? replay.samples.find((s) => Math.hypot(s.x - a.x, s.y - a.y) >= a.r) : undefined;
-    const far = !!a && replay.samples.every((s) => Math.hypot(s.x - a.x, s.y - a.y) > FAR_M);
+    const far = take.backdrop ?? (!!a && replay.samples.every((s) => Math.hypot(s.x - a.x, s.y - a.y) > FAR_M));
     this.ghosts.push({ replay, rider, view, offset: 0, dur: replay.end, anchorT: at ? at.t : 0, far, from: 0, to: replay.end, fadeIn: false, fadeOut: false, mats, casters, alpha: 1 });
     this.stack();
     if (this.view) this.fitWindows();
@@ -111,7 +119,7 @@ export class AttractGhosts {
     const min = Math.min(...raw);
     near.forEach((g, i) => { g.offset = raw[i] - min; });
     for (const g of this.ghosts) if (g.far) g.offset = 0;
-    this.t = 0;
+    this.t = 0; this.tb = 0;
   }
 
   get count(): number { return this.ghosts.length; }
@@ -159,22 +167,26 @@ export class AttractGhosts {
   restartOutOfView(cam: THREE.Camera): void {
     this.setView(cam);
     this.t = this.clearTime(0);
+    this.tb = 0;
     this.update(0);
   }
   /** FEAT-177: is any ghost on screen now (for the camera given)? Backdrop takes, a few px far off, don't count. */
   anyInView(cam: THREE.Camera): boolean {
     this.setFrustum(cam);
-    return this.ghosts.some((g) => !g.far && g.view.group.visible && this.seen(g, this.t - g.offset));
+    return this.ghosts.some((g) => !g.far && g.view.group.visible && this.seen(g, this.lt(g)));
   }
   /** one loop: the last ghost's take after its stagger, then the gap */
-  private get cycle(): number { return Math.max(0, ...this.ghosts.map((g) => g.offset + g.dur)) + GAP; }
+  private get cycle(): number { return Math.max(0, ...this.ghosts.filter((g) => !g.far).map((g) => g.offset + g.dur)) + GAP; }
+  /** a ghost's time in its take now */
+  private lt(g: Ghost): number { return g.far ? this.tb % (g.dur + BACKDROP_GAP) : this.t - g.offset; }
 
   /** Step the ghosts (only while the menu backdrop shows). */
   update(dt: number): void {
     if (!this.ghosts.length) return;
     this.t = (this.t + dt) % this.cycle;
+    this.tb += dt;
     for (const g of this.ghosts) {
-      const lt = this.t - g.offset;
+      const lt = this.lt(g);
       const on = lt >= g.from && lt <= g.to;
       g.view.group.visible = on; g.view.sprayObject.visible = on;
       if (!on) continue;
