@@ -1,68 +1,58 @@
 import * as THREE from 'three';
-import { Terrain } from '../terrain/Terrain';
 import { MOGUL_CREEP_M_PER_DAY } from '../terrain/Moguls';
 import { Rider } from '../sim/Rider';
-import { snowLabel } from '../sim/SnowConditions';
-import { Collider } from '../sim/Collider';
-import { Bridges } from '../world/Bridges';
-import { Landmarks, landmarkStart } from '../world/Landmarks';
-import { Clouds, isOvercast, parseWeather, type CloudCover } from '../world/Clouds';
-import { Snow } from '../world/Snow';
+import { landmarkStart } from '../world/Landmarks';
+import { isOvercast, parseWeather, type CloudCover } from '../world/Clouds';
 import { Controls } from '../sim/Controls';
-import { Vegetation, setVegetationBudget, setVegetationDensity } from '../world/Vegetation';
-import { TreeFade, treeFadeUniforms } from '../world/TreeFade';
-import { Rocks } from '../world/Rocks';
-import { LiftLines } from '../world/LiftLines';
-import { Lifts } from '../world/Lifts';
-import { RunsOverlay } from '../world/RunsOverlay';
-import { Environment } from '../world/Sky';
-import { RiderView, BODY_LAYER } from '../world/RiderView';
+import { setVegetationBudget, setVegetationDensity } from '../world/Vegetation';
+import { treeFadeUniforms } from '../world/TreeFade';
 import { GoggleView } from '../ui/GoggleView';
 import { GoggleLens, LENSES, resolveLens, type LensId } from '../world/Lens';
 import { AutoQuality } from '../ui/AutoQuality';
 import { RunStats } from '../sim/RunStats';
 import { RunCard } from '../ui/RunCard';
-import { fmtSpeed, fmtHeight, fmtDistance } from '../ui/Units';
+import { fmtDistance } from '../ui/Units';
 import { Replay, type ReplaySample } from '../sim/Replay';
 import { SpeedLines } from '../ui/SpeedLines';
 import { ChaseCamera } from '../world/ChaseCamera';
-import { Buildings } from '../world/Buildings';
-import { Roads } from '../world/Roads';
-import { FILL_RATE, Tracks, setTrackFillRate } from '../world/Tracks';
-import { Bootprints } from '../world/Bootprints';
-import { Deform, setDeformHold } from '../world/Deform';
+import { FILL_RATE, setTrackFillRate } from '../world/Tracks';
+import { setDeformHold } from '../world/Deform';
 import { Outrun } from '../sim/Outrun';
-import { Monsters } from '../world/Monster';
-import { Puffs } from '../world/Puffs';
-import { ParticleLight } from '../world/ParticleLight';
-import { Eat } from '../world/Eat';
 import { OutrunUI } from '../ui/OutrunUI';
-import { RiderChair } from '../world/RiderChair';
-import { buildCourses } from '../sim/Courses';
 import { TimeTrial } from '../sim/TimeTrial';
-import { TrialWorld } from '../world/TrialWorld';
 import { ResortMap } from '../ui/ResortMap';
 import { LiftRide } from '../sim/LiftRide';
 import { Prefetch } from '../sim/Prefetch';
 import { MainMenu, type MenuChoice } from '../ui/MainMenu';
 import { attractShot, shotPose, type AttractManifest } from '../world/AttractShots';
-import { AttractGhosts, takeFrom } from '../world/AttractGhosts';
-import { OUTFIT_PRESETS } from '../ui/Settings';
+import { AttractGhosts } from '../world/AttractGhosts';
 import { LoadingScreen } from '../ui/Loading';
 import { PauseMenu, type PauseInfo } from '../ui/PauseMenu';
 import { Labels } from '../ui/Labels';
 import { TouchControls } from '../ui/TouchControls';
-import { sunPosition, guessUtcOffset } from '../world/Sun';
-import { keyName, keysOf, saveSettings, FALL_LINE, type Settings } from '../ui/Settings';
-import { STAMINA, switchName, type PressEnd } from '../sim/Rider';
+import { keysOf, saveSettings, FALL_LINE, type Settings } from '../ui/Settings';
+import { switchName, type PressEnd } from '../sim/Rider';
 import { PressMeter } from '../ui/PressMeter';
 import { hasCustomStart, resetStart, spawnFromUrl, spawnKey } from '../spawn';
 import { GameLoop } from '../core/GameLoop';
+import { TrialHud } from '../ui/TrialHud';
+import { ReplayBar } from '../ui/ReplayBar';
+import { KeyLabels } from '../ui/KeyLabels';
+import { keyHints } from '../ui/KeyHints';
+import { contextPrompt } from '../ui/ContextPrompt';
+import { hudLine } from '../ui/HudLine';
+import { Toast } from '../ui/Toast';
+import { SceneRender } from '../world/SceneRender';
+import { SunClock } from '../world/SunClock';
+import { warmUp as warmUpWorld } from './warmUp';
+import { saveShot as saveShotFile, saveTake as saveTakeFile } from './devSaves';
+import { buildWorld } from './World';
+import { mountLeadTunePanel } from '../ui/LeadTunePanel';
 import { installSimDebug } from '../core/debugHooks';
 import type { GameContext } from '../core/GameContext';
 import { PAD } from '../sim/Pad';
 import { padFx } from '../sim/PadFeedback';
-import { padGlyph, padGlyphs, stickGlyph } from '../ui/PadGlyphs';
+import { stickGlyph } from '../ui/PadGlyphs';
 
 /** FEAT-105: the New snow setting as a snow cover amount */
 const NEW_SNOW: Record<string, number> = { none: 0, dusting: 0.25, '6in': 0.6, powder: 1 };
@@ -86,112 +76,31 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
   const quit = new Promise<void>((resolveQuit) => {
     const hud = document.getElementById('hud')!;
     const status = document.getElementById('status')!;
-    const zr = pack.meta.zRange ?? [0, 3000];
-    const env = new Environment(scene, renderer, pack.meta.sun.azimuth, pack.meta.sun.elevation, zr[0], (zr[0] + zr[1]) / 2);
-    // names show up in the Three.js DevTools scene tree and in scene.getObjectByName()
-    const add = (name: string, o: THREE.Object3D) => { o.name = name; scene.add(o); };
-    const clouds = new Clouds();
-    add('clouds', clouds.mesh);
-    const snow = new Snow();
-    add('snowfall', snow.points);
-    const terrain = new Terrain(pack);
-    if (debugHud && params.debug === 'moguls') terrain.setMogulDebug(true); // BUG-062
-    add('terrain', terrain.group);
-    const collider = new Collider();
-    const veg = new Vegetation(pack, collider);
-    const treeFade = new TreeFade();
-    add('trees', veg.group);
-    const rocks = new Rocks(pack, collider);
-    add('rocks', rocks.group);
-    const lifts = new Lifts(pack);
-    add('lifts', lifts.group);
-    const liftLines = new LiftLines(pack, lifts.all, collider); // FEAT-073
-    /** FEAT-053: the top of the resort (m): the highest lift unloading point, else the pack's start, else the range's top */
-    const resortTop = lifts.all.length ? Math.max(...lifts.all.map((l) => l.top[2])) : (zr[1] ?? 3000);
-    liftLines.setEnabled(settings.liftLines);
-    add('lift lines', liftLines.group);
-    add('lift markers', lifts.markers);
-    const runs = new RunsOverlay(pack);
-    add('run lines', runs.group);
-    const buildings = new Buildings(pack, collider);
-    add('buildings', buildings.group);
-    const roads = new Roads(pack, settings.roadsOnSnow);
-    add('roads', roads.group);
-    const landmarks = new Landmarks(pack, collider); // FEAT-132: hand-placed signs (the Back Bowls gateway)
-    add('landmarks', landmarks.group);
-    const bridges = new Bridges(pack, collider, params.bridgeguess); // BUG-022: OSM-tagged bridges and creek-bed dips; ?bridgeguess adds segment chords
-    add('bridges', bridges.group);
-    const tracks = new Tracks(pack);
-    add('tracks', tracks.group);
-    const bootprints = new Bootprints(pack);
-    add('bootprints', bootprints.mesh);
-    const riderChair = new RiderChair(lifts.material);
-    add('rider chair', riderChair.group);
-    // Outrun (FEAT-097 to FEAT-101): the chase sim, the monsters, their big prints, puffs, the eat sequence, the HUD
+    const world = buildWorld(ctx);
+    const { zr, env, clouds, snow, terrain, collider, veg, treeFade, rocks, lifts, liftLines, resortTop, runs, roads, landmarks, bridges,
+      tracks, bootprints, riderChair, puffs, particleLight, bigprints, deform, monsters, eat, courses, trialWorld, riderView } = world;
+    // Outrun (FEAT-097 to FEAT-101): the chase sim and the HUD (the monsters and the eat sequence are in the world)
     const outrun = new Outrun(pack, lifts);
-    const puffs = new Puffs();
-    const particleLight = new ParticleLight();
-    add('puffs', puffs.points);
-    const bigprints = new Bootprints(pack, 3.2);
-    add('monster prints', bigprints.mesh);
-    // FEAT-044: the tracks and prints near the rider stamped into a texture the terrain deforms from
-    const deform = new Deform();
-    deform.scene.add(tracks.stampGroup, bootprints.stampMesh, bigprints.stampMesh);
-    deform.cullers.push((x, z, s) => bootprints.cullStamp(x, z, s), (x, z, s) => bigprints.cullStamp(x, z, s));
-    const monsters = new Monsters(pack, collider, puffs, bigprints);
-    add('monsters', monsters.group);
-    const eat = new Eat(pack, puffs);
-    add('eat sequence', eat.group);
     const outrunUI = new OutrunUI();
     let chase = audio.chase();
     const eatPosing = new Set<number>();
     const eatLook = new THREE.Vector3();
     let countLast = -1;
     const chairPos = new THREE.Vector3();
-    // time trials (off unless enabled in Settings > Gameplay, or a course picked in Mode for this session)
-    const courses = buildCourses(pack);
     /** FEAT-128: the course picked in pause > Mode (the gates are on for the session), '' in Free ride */
     let trialMode = '';
     const trialsOn = () => settings.timeTrials || !!trialMode;
     const trial = new TimeTrial(pack.meta.slug, courses);
-    const trialWorld = new TrialWorld(pack, courses);
-    add('time trials', trialWorld.group);
-    const trialEl = document.getElementById('trial')!;
-    const finishArrow = document.getElementById('finish-arrow')!;
-    const distStr = (m: number) => settings.units === 'metric' ? (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(0)} m`) : (m >= 1609 ? `${(m / 1609.34).toFixed(2)} mi` : `${(m * 3.28084).toFixed(0)} ft`);
-    let splitMsg = '', splitTimer = 0;
-    const fmt = (t: number) => { const m = Math.floor(t / 60), sec = t - m * 60; return m > 0 ? `${m}:${sec.toFixed(2).padStart(5, '0')}` : `${sec.toFixed(2)}`; };
+    const trialHud = new TrialHud(settings);
     trial.onEvent = (e) => {
-      if (e.kind === 'armed') {
-        const n = trial.candidates.length;
-        splitMsg = n > 1 ? `<span class="dim">${n} courses start here: follow the one you want</span>` : `<span class="dim">Ride through the gate to start</span>`;
-        splitTimer = 99;
-      }
-      else if (e.kind === 'start') { splitMsg = e.best ? `Ghost: ${fmt(e.best.time)}` : 'No ghost yet: set the time'; splitTimer = 3; audio.chime(); padFx.trialEvent('start'); }
-      else if (e.kind === 'split') { splitMsg = e.delta === null ? `Split ${e.index + 1}: ${fmt(e.time)}` : `<span class="${e.delta <= 0 ? 'ahead' : 'behind'}">${e.delta <= 0 ? '' : '+'}${e.delta.toFixed(2)}</span>`; splitTimer = 3; padFx.trialEvent('split'); }
-      else if (e.kind === 'finish') { splitMsg = e.isBest ? `<span class="ahead">New best ${fmt(e.time)}</span>` : `Finished ${fmt(e.time)} <span class="dim">(best ${fmt(e.best!.time)})</span>`; splitTimer = 6; audio.chime(); padFx.trialEvent('finish', e.isBest); }
-      else if (e.kind === 'cancel') { splitMsg = `<span class="behind">${e.reason}</span>`; splitTimer = 3; }
+      trialHud.onEvent(e, trial.candidates.length);
+      if (e.kind === 'start') { audio.chime(); padFx.trialEvent('start'); }
+      else if (e.kind === 'split') padFx.trialEvent('split');
+      else if (e.kind === 'finish') { audio.chime(); padFx.trialEvent('finish', e.isBest); }
     };
     const refreshCourseFlags = () => { map.courseStarts = trialsOn() ? courses.map((c) => ({ x: c.start[0], y: c.start[1], name: c.name, best: trial.loadBest(c)?.time ?? null })) : []; };
     const labels = new Labels(pack);
-    const riderView = new RiderView();
-    add('rider', riderView.group);
-    add('rider spray', riderView.sprayObject);
-    if (debugHud) {
-      // BUG-056 ?debug: sliders for the body lead / board lag chain, to tune it by eye
-      type LeadKey = 'leadUpper' | 'leadHips' | 'boardLag';
-      const rows: [string, LeadKey, number][] = [['Upper lead', 'leadUpper', 0.4], ['Hips lead', 'leadHips', 0.3], ['Board lag', 'boardLag', 0.3]];
-      const panel = document.createElement('div');
-      panel.id = 'lead-tune';
-      panel.style.cssText = 'position:fixed;right:16px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.5);color:#fff;font:12px system-ui;padding:8px 10px;border-radius:6px;z-index:20';
-      panel.innerHTML = rows.map(([label, k, max]) => `<label style="display:block;margin:4px 0">${label} <span data-v="${k}">${riderView[k].toFixed(2)}</span> s<br><input type="range" data-k="${k}" min="0" max="${max}" step="0.01" value="${riderView[k]}" style="width:140px"></label>`).join('');
-      panel.querySelectorAll<HTMLInputElement>('input').forEach((i) => {
-        const k = i.dataset.k as LeadKey;
-        i.oninput = () => { riderView[k] = +i.value; panel.querySelector(`[data-v="${k}"]`)!.textContent = (+i.value).toFixed(2); };
-        i.onpointerup = () => i.blur(); // give the arrow keys back to the rider
-      });
-      document.body.appendChild(panel);
-    }
+    if (debugHud) mountLeadTunePanel(riderView);
 
     const rider = new Rider(pack, collider);
     // on foot (FEAT-067): every foot plant of the skeleton leaves a print and a footstep
@@ -207,17 +116,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     cam.collider = collider; // BUG-032: keep the chase camera out of trees
     const controls = new Controls(canvas);
     const touch = TouchControls.wanted(params.touch) ? new TouchControls(controls) : null;
-    // cascaded shadows: every lit material gets the CSM hook
-    env.registerMaterial(terrain.material);
-    for (const m of Object.values(veg.mat)) env.registerMaterial(m);
-    env.registerMaterial(tracks.material); // BUG-021: tree and ridge shadows fall on the track like on the snow
-    env.registerMaterial(rocks.material); env.registerMaterial(buildings.material); env.registerMaterial(roads.material); env.registerMaterial(lifts.material);
-    for (const m of Object.values(riderView.mats)) env.registerMaterial(m);
-    for (const m of Object.values(monsters.materials)) env.registerMaterial(m);
-    for (const m of eat.materials) env.registerMaterial(m);
-    for (const m of landmarks.materials) env.registerMaterial(m);
     let csmSize = 0;
-    if (!params.noimpostors) veg.enableImpostors(renderer, true);
     const goggles = new GoggleView();
     const lens = new GoggleLens(); // FEAT-130: the tinted lens pass in first person
     let lensWorn: LensId | null = null;
@@ -227,9 +126,9 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     const speedLines = new SpeedLines(document.body); // FEAT-045
     // ---- FEAT-043: the session recording, the replay viewer (K) and the practice rewind (hold Backspace)
     const replay = new Replay();
-    const replayEl = document.createElement('div'); replayEl.id = 'replay';
-    replayEl.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);width:min(720px,92vw);color:#fff;background:rgba(20,24,34,.8);border-radius:12px;padding:8px 14px;font:13px system-ui,sans-serif;display:none;pointer-events:none;z-index:6';
-    document.body.appendChild(replayEl);
+    // FEAT-137: with a controller in use, its button glyphs (an action with no button keeps its key)
+    const keyLabels = new KeyLabels(controls, settings);
+    const replayBar = new ReplayBar(keyLabels);
     const REPLAY_SPEEDS = [0.25, 0.5, 1, 2];
     let replayOpen = false, replayT = 0, replayPlay = true, replaySpeed = 1, replayClean = false, photoFov = 0, replayHour = 12;
     let replayCam: 'follow' | 'trackside' | 'free' = 'follow';
@@ -246,7 +145,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       trial.cancel('Replay');
     };
     const closeReplay = () => {
-      replayOpen = false; replayClean = false; replayEl.style.display = 'none';
+      replayOpen = false; replayClean = false; replayBar.hide();
       if (cam.mode === 'free') cam.mode = settings.camera;
       applySun(settings);
     };
@@ -257,27 +156,13 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       rider.flip = 0; rider.flipRate = 0; rider.spin = 0; rider.airTime = 0; rider.jumpCharge = 0; rider.landingShock = 0; rider.washout = 0; rider.crashSide = 0;
       replay.truncate(s.t); trial.cancel('Rewound');
     };
-    const fmtT = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
     // first person redraws the body with a close near plane so knees, gloves and the board are not clipped
-    const bodyCam = new THREE.PerspectiveCamera(70, 1, 0.05, 30);
-    bodyCam.layers.set(BODY_LAYER);
-    env.sun.layers.enable(BODY_LAYER); env.hemi.layers.enable(BODY_LAYER);
+    const sceneRender = new SceneRender(renderer, scene, env, lens);
     const eye = new THREE.Vector3();
 
     // ---------------------------------------------------------------- sun / time of day
-    const [lon, lat] = pack.meta.lonlat;
-    const utcOff = guessUtcOffset(lon);
-    const timeParam = params.time; // ?time=now or ?time=16.5
-    const applySun = (s: Settings) => {
-      const mode: 'pack' | 'now' | number = timeParam ?? s.timeOfDay;
-      if (mode === 'pack') { env.setSun(pack.meta.sun.azimuth, pack.meta.sun.elevation); return; }
-      let date: Date, hour: number;
-      if (mode === 'now') { const now = new Date(); date = now; hour = now.getUTCHours() + now.getUTCMinutes() / 60 + utcOff; }
-      else { const y = new Date().getFullYear(); date = new Date(Date.UTC(y, s.month - 1, 15)); hour = mode; }
-      const p = sunPosition(lon, lat, date, hour, utcOff);
-      env.setSun(p.azimuth, Math.max(-5, p.elevation));
-    };
-    let sunClock = 0;
+    const sun = new SunClock(env, pack, params.time); // ?time=now or ?time=16.5
+    const applySun = (s: Settings) => sun.apply(s);
     // ?weather=overcast (FEAT-078) and __sim.setWeather (shoot_spots.mjs, per spot) override the
     // saved Weather setting for this session without saving it; picking a Weather in the menu clears it
     let weatherOverride: CloudCover | null = parseWeather(params.weather);
@@ -496,7 +381,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     // still, the HUD hidden, and the riding keys and buttons do nothing (the menu has them).
     const shot = attractShot(pack, start);
     const ghosts = new AttractGhosts(pack, { x: shot.x, y: shot.y, r: 60 }); // stacked as they pass 60 m out from the camera
-    add('attract ghosts', ghosts.group);
+    ghosts.group.name = 'attract ghosts'; scene.add(ghosts.group);
     ghosts.setVisible(false);
     void ghosts.load(import.meta.env.BASE_URL, opts.attractFiles[pack.meta.slug]?.ghosts ?? []);
     let attract = false, attractT = 0;
@@ -558,22 +443,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
 
     // the recording tool (?debug, replay viewer): I / O mark a span, L saves it as a take
     let takeIn: number | null = null, takeOut: number | null = null;
-    const saveTake = () => {
-      if (takeIn === null || takeOut === null || takeOut - takeIn < 1) { showToast('Mark a span first: I at the start, O at the end'); return; }
-      const outfit = Object.entries(OUTFIT_PRESETS).find(([, o]) => Object.keys(o).every((k) => o[k as keyof typeof o] === settings.outfit[k as keyof typeof o]))?.[0] ?? 'Classic red';
-      const take = takeFrom(replay.samples, Math.min(takeIn, takeOut), Math.max(takeIn, takeOut), { pack: pack.meta.slug, discipline: settings.discipline, stance: settings.stance, outfit });
-      ghosts.add(take); // ride it behind the menu now
-      const json = JSON.stringify(take);
-      const download = () => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = `${pack.meta.slug}-take.json`; a.click();
-        showToast('Saved the take to Downloads: put it in game/public/attract/<resort>/ and list it in index.json');
-      };
-      if (hosted) { download(); return; }
-      fetch('/__attract/save', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack: pack.meta.slug, take: json }) })
-        .then(async (r) => { if (!r.ok) throw new Error(await r.text()); const { file } = await r.json() as { file: string }; showToast(`Saved ${file}`); })
-        .catch((e) => { console.warn('take save failed, downloading instead', e); download(); });
-    };
+    const saveTake = () => saveTakeFile({ takeIn, takeOut, samples: replay.samples, slug: pack.meta.slug, settings, ghosts, hosted, toast: (t) => showToast(t) });
 
     // ---------------------------------------------------------------- scene setup
     applySettings(settings, 'init');
@@ -590,36 +460,14 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       pack.mask?.request(x - 600, y - 600, x + 600, y + 600);
     };
     /** Save the canvas: into docs/compare through the dev server when ?spot= is set, else a browser download. */
-    const saveShot = (dataUrl: string, jpgUrl: string) => {
-      const p = cam.eyePose();
-      const pose = { x: +p.x.toFixed(1), y: +p.y.toFixed(1), h: +p.h.toFixed(1), pitch: +p.pitch.toFixed(1), fov: +p.fov.toFixed(1), eye: +p.eye.toFixed(2) };
-      const u = new URL(location.href);
-      for (const [k, v] of Object.entries(pose)) u.searchParams.set(k, String(v));
-      history.replaceState(null, '', u.toString());
-      console.log('eye shot', JSON.stringify({ spot: spotName, ...pose, link: u.toString() }));
-      const download = () => {
-        const a = document.createElement('a');
-        a.href = dataUrl; a.download = `${pack.meta.slug}_${pose.x}_${pose.y}_${pose.h.toFixed(0)}.png`; a.click();
-        showToast('Saved the shot to Downloads');
-      };
-      if (!spotName || hosted) { download(); return; } // the compare-shot endpoint is dev server only
-      fetch('/__compare/save', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pack: pack.meta.slug, spot: spotName, pose, weather: currentWeather(), link: u.toString(), png: dataUrl, jpg: jpgUrl }) })
-        .then(async (r) => {
-          if (!r.ok) throw new Error(await r.text());
-          const { file, warning } = await r.json() as { file: string; warning?: string };
-          if (warning) console.warn(warning);
-          showToast(warning ? `Saved ${file}. ${warning}` : `Saved ${file}`);
-        })
-        .catch((e) => { console.warn('compare save failed, downloading instead', e); download(); });
-    };
+    const saveShot = (dataUrl: string, jpgUrl: string) =>
+      saveShotFile({ dataUrl, jpgUrl, eye: cam.eyePose(), spot: spotName, slug: pack.meta.slug, weather: currentWeather(), hosted, toast: (t) => showToast(t) });
     pack.fine?.request(sx - 600, sy - 600, sx + 600, sy + 600);
     pack.mid?.request(sx - 20000, sy - 20000, sx + 20000, sy + 20000);
     pack.far?.request(-1e9, -1e9, 1e9, 1e9);
     pack.mask?.request(sx - 600, sy - 600, sx + 600, sy + 600);
     // now-playing toast
-    const toast = document.getElementById('toast')!;
-    let toastTimer = 0;
-    const showToast = (text: string, ms = 4000) => { toast.textContent = text; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer = window.setTimeout(() => toast.classList.remove('show'), ms); };
+    const showToast = new Toast().show;
     rider.onTrick = (name) => showToast(name, 1800); // FEAT-110: flips; FEAT-139: spins and switch tricks
     rider.onWashout = (side) => showToast(side > 0 ? 'Washed out onto the hip' : 'Washed out onto the butt', 1800); // FEAT-148: a hard carve the edge could not hold
     // FEAT-140: the press balance meter above the head, and a toast with the time and distance when a press ends (best per resort)
@@ -650,12 +498,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     document.body.appendChild(restartRing);
     const helpEl = document.getElementById('help');
     let helpShown = '', helpT = 0;
-    // FEAT-137: with a controller in use, its button glyphs (an action with no button keeps its key)
-    const padKey = (a: string) => (controls.usingPad ? padGlyphs(controls.padKind, settings.padKeys[a]) : '');
-    const k = (a: string) => padKey(a) || `<kbd>${keysOf(settings, a)}</kbd>`;
-    const k1 = (a: string) => keyName(settings.keys[a]?.[0] ?? ''); // first binding only (the walk cluster reads "WASD")
-    const lookKey = () => (controls.usingPad ? stickGlyph('R') : `<kbd>${keysOf(settings, 'look') || 'Alt'}</kbd>`);
-    const pg = (b: number) => padGlyph(controls.padKind, b);
+    const { padKey, pg } = keyLabels;
     if (settings.keysNote) { boardMsgNote = 'New default key layout available: Settings > Controls > Reset keys'; settings.keysNote = false; saveSettings(settings); }
     const showPrompt = (html: string) => { if (html !== promptShown) { promptShown = html; prompt.innerHTML = html; prompt.classList.toggle('show', html !== ''); } };
 
@@ -685,8 +528,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       if (outrun.active) stopOutrun();
       padFx.stop();
       outrunUI.destroy(); runCard.dispose(); speedLines.dispose(); pressMeter.dispose(); eat.dispose(); puffs.dispose(); bigprints.dispose();
-      trialEl.classList.remove('show');
-      finishArrow.style.display = 'none';
+      trialHud.hide();
       audio.onTrack = null;
       showPrompt('');
       hud.innerHTML = '';
@@ -704,29 +546,8 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
 
     let fpsAcc = 0, fpsN = 0, fps = 0;
     let elapsed = 0;
-    const clockStart = performance.now();
-    const speedStr = (ms: number) => settings.units === 'metric' ? `${(ms * 3.6).toFixed(0)}</b> km/h` : `${(ms * 2.23694).toFixed(0)}</b> mph`;
-    const altStr = (m: number) => fmtHeight(m, settings.units === 'metric');
 
-    /** Main render, then in first person the body again over a cleared depth buffer (near 0.05 m). */
-    function render(): void {
-      const lensOn = lens.active; // FEAT-130: into the lens target, then the lens pass to the screen
-      if (lensOn) lens.begin(renderer, cam.firstPerson ? 2 : 1);
-      renderer.render(scene, cam.camera);
-      if (cam.firstPerson) renderBody(lensOn);
-      if (lensOn) lens.end(renderer);
-    }
-    function renderBody(lensOn: boolean): void {
-      if (lensOn) lens.nextPass();
-      for (const l of env.csm?.lights ?? []) l.layers.enable(BODY_LAYER);
-      bodyCam.position.copy(cam.camera.position); bodyCam.quaternion.copy(cam.camera.quaternion);
-      if (bodyCam.fov !== cam.camera.fov || bodyCam.aspect !== cam.camera.aspect) { bodyCam.fov = cam.camera.fov; bodyCam.aspect = cam.camera.aspect; bodyCam.updateProjectionMatrix(); }
-      const auto = renderer.autoClear, shadows = renderer.shadowMap.autoUpdate;
-      renderer.autoClear = false; renderer.shadowMap.autoUpdate = false; // reuse this frame's shadow maps
-      renderer.clearDepth();
-      renderer.render(scene, bodyCam);
-      renderer.autoClear = auto; renderer.shadowMap.autoUpdate = shadows;
-    }
+    const render = (): void => sceneRender.render(cam.camera, cam.firstPerson);
 
     /** BUG-063: the loading screen, hidden once the first real frames have run behind it */
     let hideLoading: LoadingScreen | null = null, loadFrames = 0;
@@ -815,13 +636,10 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
         const s = replay.at(replayT);
         if (s) replay.overlay(rider, s, pack);
         const span = Math.max(0.01, replay.end - replay.start);
-        replayEl.style.display = replayClean ? 'none' : 'block';
-        replayEl.innerHTML = `<div style="display:flex;justify-content:space-between"><b>REPLAY ${replayPlay ? '&#9654;' : '&#10074;&#10074;'} ${replaySpeed}x</b><span>${fmtT(replayT - replay.start)} / ${fmtT(span)}</span></div>` +
-          `<div style="height:6px;background:rgba(255,255,255,.2);border-radius:3px;margin:6px 0"><div style="height:6px;width:${((replayT - replay.start) / span * 100).toFixed(1)}%;background:#facc15;border-radius:3px"></div></div>` +
-          (controls.usingPad
-            ? `<div style="opacity:.75">${pg(PAD.A)} play &middot; ${pg(PAD.LEFT)}${pg(PAD.RIGHT)} scrub &middot; ${pg(PAD.LB)} ${pg(PAD.RB)} speed &middot; ${pg(PAD.Y)} camera (${replayCam}) &middot; ${pg(PAD.X)} hide &middot; ${pg(PAD.B)} close</div>`
-            : `<div style="opacity:.75">Space play &middot; &larr; &rarr; scrub &middot; &uarr; &darr; speed &middot; C camera (${replayCam}) &middot; - = FOV &middot; , . time of day ${replayHour.toFixed(1)}h &middot; H hide &middot; P photo &middot; K / Esc close</div>`) +
-          (debugHud ? `<div style="opacity:.75">Main menu take: I in ${takeIn === null ? '-' : fmtT(takeIn - replay.start)} &middot; O out ${takeOut === null ? '-' : fmtT(takeOut - replay.start)} &middot; L save</div>` : '');
+        replayBar.draw({
+          playing: replayPlay, speed: replaySpeed, at: replayT - replay.start, span, cam: replayCam, hour: replayHour, usingPad: controls.usingPad,
+          take: debugHud ? { in: takeIn === null ? null : takeIn - replay.start, out: takeOut === null ? null : takeOut - replay.start } : null,
+        }, replayClean);
         if (controls.padOnce(PAD.B)) closeReplay();
       }
       // ---- FEAT-043: rewind (hold): scrub back along the recording, let go to carry on from the
@@ -940,37 +758,8 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
         const showWalls = trial.state === 'running' || (trial.state === 'armed' && trial.candidates.length === 1);
         trialWorld.updateRoute(showWalls ? active : null, trial.along, trial.nextTarget, elapsed, trial.outside > 0);
         map.trialRoute = active ? active.points : null;
-        // edge arrow toward the finish when it is off-screen or behind
-        if (active) {
-          const f = active.finish;
-          const v = new THREE.Vector3(f[0], pack.groundHeight(f[0], f[1]) + 6, -f[1]).project(cam.camera);
-          const behind = v.z > 1;
-          const onScreen = !behind && Math.abs(v.x) < 0.92 && Math.abs(v.y) < 0.9;
-          const distTo = Math.max(0, active.length - trial.along);
-          if (!onScreen) {
-            let ax = behind ? -v.x : v.x, ay = behind ? -v.y : v.y;
-            const m = Math.max(Math.abs(ax), Math.abs(ay)) || 1; ax /= m; ay /= m;
-            const sx = (ax * 0.88 + 1) / 2 * window.innerWidth, sy = (1 - (ay * 0.85)) / 2 * window.innerHeight;
-            finishArrow.style.display = 'block';
-            finishArrow.style.left = `${sx}px`; finishArrow.style.top = `${sy}px`;
-            (finishArrow.firstElementChild as HTMLElement).style.transform = `rotate(${Math.atan2(ax, ay)}rad)`;
-            finishArrow.lastElementChild!.textContent = `${distStr(distTo)}`;
-          } else finishArrow.style.display = 'none';
-        } else finishArrow.style.display = 'none';
-        splitTimer -= dt;
-        if (trial.state === 'running' || trial.state === 'armed' || splitTimer > 0) {
-          const head = trial.course ? `<div class="name">${trial.course.name}</div>` : '';
-          const clock = trial.state === 'running' ? `<div class="clock">${fmt(trial.time)}</div>` : '';
-          const best = trial.course && trial.best ? `<div class="dim">Best ${fmt(trial.best.time)}</div>` : '';
-          const prog = trial.state === 'running' && trial.course
-            ? `<div class="togo">${distStr(Math.max(0, trial.course.length - trial.along))} to the finish</div><div class="bar"><div style="width:${Math.min(100, trial.along / trial.course.length * 100).toFixed(1)}%"></div></div>`
-            : '';
-          const oob = trial.state === 'running' && trial.outside > 0 ? `<div class="split behind">Out of bounds: back in ${trial.graceLeft.toFixed(1)} s</div>` : '';
-          const headArmed = trial.state === 'armed' && trial.candidates.length > 1 ? `<div class="name">${trial.candidates.map((e) => e.c.name).slice(0, 4).join(' &middot; ')}</div>` : head;
-          trialEl.innerHTML = headArmed + clock + prog + oob + best + (splitTimer > 0 ? `<div class="split">${splitMsg}</div>` : '');
-          trialEl.classList.add('show');
-        } else trialEl.classList.remove('show');
-      } else { trialEl.classList.remove('show'); finishArrow.style.display = 'none'; map.trialRoute = null; }
+        trialHud.update(dt, trial, pack, cam.camera);
+      } else { trialHud.hide(); map.trialRoute = null; }
       audio.update(rider, input.tuck, onLift, dt, liftRide.passedTower);
       rider.lastHit = '';
       rider.applyRenderPose();
@@ -1046,7 +835,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       // FEAT-077: groomers get skied out through the day (fresh corduroy first thing, tracked out by
       // mid-afternoon); new snow covers the tracks again
       {
-        const hour = typeof settings.timeOfDay === 'number' ? settings.timeOfDay : settings.timeOfDay === 'now' ? ((new Date().getUTCHours() + new Date().getUTCMinutes() / 60 + utcOff) % 24 + 24) % 24 : 13;
+        const hour = typeof settings.timeOfDay === 'number' ? settings.timeOfDay : settings.timeOfDay === 'now' ? ((new Date().getUTCHours() + new Date().getUTCMinutes() / 60 + sun.utcOff) % 24 + 24) % 24 : 13;
         const day = Math.max(0, Math.min(1, (hour - 8.5) / 6.5));
         const base = SKIED_BASE[settings.snowDay ?? 'mid'];
         terrain.setSkied(base * (0.15 + 0.85 * day * day * (3 - 2 * day)) * (1 - snowCover), settings.snowDay === 'spring' ? 1 : 0);
@@ -1057,7 +846,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
         // "high up" is judged against the resort's own top (the highest lift top), not the pack's far terrain
         sw.zLow = zr[0]; sw.zHigh = resortTop;
         // FEAT-059: mogul fields creep uphill about 8 cm a day from mid-November; new snow softens them
-        const live = settings.timeOfDay === 'now' || timeParam === 'now';
+        const live = sun.live(settings);
         const d = live ? new Date() : new Date(Date.UTC(new Date().getFullYear(), settings.month - 1, 15));
         const seasonStart = Date.UTC(d.getUTCMonth() >= 10 ? d.getUTCFullYear() : d.getUTCFullYear() - 1, 10, 15);
         const seasonDays = Math.max(0, Math.min(150, (d.getTime() - seasonStart) / 86400000));
@@ -1074,50 +863,19 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       liftLines.maintain(rider.x, rider.y);
       const passed = landmarks.maintain(rider.x, rider.y);
       if (passed) showToast(passed.name, 3000);
-      if (settings.timeOfDay === 'now' || timeParam === 'now') { sunClock += dt; if (sunClock > 60) { sunClock = 0; applySun(settings); } }
+      sun.update(dt, settings);
       lifts.updateMarkers(elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
       map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;
-      if (onLift) {
-        const pct = ((liftRide.up / (liftRide.lift ? lifts.rideLength(liftRide.lift) : 1)) * 100).toFixed(0);
-        showPrompt(`<div class="name">${liftRide.lift?.feature.name ?? 'Lift'}</div><div class="row">${k('lift')} skip to the ${liftRide.lift?.kind === 'carpet' ? 'end' : 'top'} <span class="dim">${pct}%</span></div><div class="row">${k('tuck')} hold for ${liftRide.fast ? '<b>5x speed</b>' : '5x speed'} &nbsp; ${lookKey()} look around</div>`);
-      } else if (liftRide.nearby && !map.fullOpen && !detached) {
-        const name = liftRide.nearby.feature.name ?? 'Lift';
-        const dist = settings.units === 'metric' ? `${liftRide.nearbyDist.toFixed(0)} m` : `${(liftRide.nearbyDist * 3.28084).toFixed(0)} ft`;
-        if (liftRide.canBoard) showPrompt(`<div class="name">${name}</div><div class="row">${k('lift')} ${rider.unstrapped ? 'strap in and ' : ''}${liftRide.nearby.kind === 'gondola' ? 'board the gondola' : liftRide.nearby.kind === 'surface' ? 'grab the lift' : liftRide.nearby.kind === 'carpet' ? 'step on' : 'ride up'}</div>`);
-        else if (liftRide.blocker === 'fast') showPrompt(`<div class="name">${name}</div><div class="row">slow down to board ${controls.usingPad ? k('brake') : '<kbd>&darr;</kbd>'} brake</div>`);
-        else showPrompt(`<div class="name">${name}</div><div class="row">ride to the lift <span class="dim">${dist}</span> then ${k('lift')}</div>`);
-      } else if (!map.fullOpen && !detached) {
-        // board on / off
-        const bk = padKey('board') || padKey('lift') || `<kbd>${keysOf(settings, 'board') || keysOf(settings, 'lift')}</kbd>`; // FEAT-124: E straps in and out (or the optional board-only key)
-        if (boardMsgT > 0) showPrompt(`<div class="row">${boardMsg}</div>`);
-        else if (rider.strapState !== 'none') showPrompt('');
-        else if (rider.onFoot) showPrompt(`<div class="row">${bk} strap in${rider.speed > 0.3 ? ' <span class="dim">(stand still)</span>' : ''} &nbsp; ${k('grab')} sprint</div>`);
-        else if (rider.canUnstrap) showPrompt(`<div class="row">${bk} unstrap</div>`);
-        else showPrompt('');
-      } else showPrompt('');
+      showPrompt(contextPrompt(keyLabels, {
+        onLift, liftRide, lifts, mapOpen: map.fullOpen, detached, rider, boardMsg: boardMsgT > 0 ? boardMsg : '', usingPad: controls.usingPad, metric: settings.units === 'metric',
+      }));
       // FEAT-124: only the keys that matter right now (the full list is in Settings > Controls)
       helpT -= dt;
       if (boardMsgNote && (boardNoteT -= dt) <= 0) boardMsgNote = '';
       cam.glance = controls.glancing;
       if (helpEl && helpT <= 0) {
         helpT = 0.25;
-        let h: string;
-        const L = stickGlyph('L');
-        if (controls.usingPad) {
-          // FEAT-137: the same hints in the controller's own buttons
-          if (liftRide.riding) h = `${k('lift')} skip &middot; ${k('tuck')} hold for 5x &middot; ${k('glance')} look behind &middot; ${stickGlyph('R')} look around`;
-          else if (outrun.running) h = `${k('boost')} boost &middot; ${k('glance')} look behind &middot; ${k('jump')} jump`;
-          else if (rider.onFoot) h = `${L} walk &middot; ${k('grab')} sprint &middot; ${k('jump')} jump / climb &middot; ${k('lift')} strap in &middot; ${k('glance')} look behind`;
-          else if (!rider.onGround) h = `${L} spin &middot; ${k('tuck')} front flip &middot; ${k('brake')} backflip &middot; ${k('grab')} grab`;
-          else if (liftRide.nearby) h = `${k('lift')} ride the lift &middot; ${k('brake')} brake`;
-          else h = `${L} steer &middot; ${k('tuck')} tuck &middot; ${k('brake')} brake &middot; hold ${k('jump')} jump (+ ${L} up / down nollie / ollie) &middot; ${k('grab')} squat (+ steer: hard carve) &middot; ${k('pressNose')} ${k('pressTail')} press (${L} balance) &middot; ${k('skate')} skate<br>${k('lift')} interact &middot; hold ${k('glance')} look behind &middot; ${k('camera')} camera &middot; ${k('map')} map &middot; ${pg(PAD.START)} pause`;
-        }
-        else if (liftRide.riding) h = `${k('lift')} skip &middot; ${k('tuck')} hold for 5x &middot; ${k('glance')} look behind &middot; ${k('look')} look around`;
-        else if (outrun.running) h = `${k('boost')} boost &middot; ${k('glance')} look behind &middot; ${k('jump')} jump`;
-        else if (rider.onFoot) h = `${k1('tuck')}${k1('left')}${k1('brake')}${k1('right')} walk &middot; ${k('grab')} sprint &middot; ${k('jump')} jump / climb &middot; ${k('lift')} strap in &middot; ${k('glance')} look behind`;
-        else if (!rider.onGround) h = `${k('left')} ${k('right')} spin &middot; ${k('tuck')} front flip &middot; ${k('brake')} backflip &middot; ${k('grab')} grab`;
-        else if (liftRide.nearby) h = `${k('lift')} ride the lift &middot; ${k('brake')} brake`;
-        else h = `${k('left')} ${k('right')} steer &middot; ${k('tuck')} tuck &middot; ${k('brake')} brake &middot; hold ${k('jump')} jump (+ ${k1('tuck')} / ${k1('brake')} nollie / ollie) &middot; ${k('grab')} squat (+ steer: hard carve) &middot; ${k('pressNose')} ${k('pressTail')} press (${k1('tuck')} / ${k1('brake')} balance) &middot; ${k('skate')} skate<br>${k('lift')} interact &middot; hold ${k('glance')} look behind &middot; ${k('camera')} camera &middot; ${k('map')} map &middot; hold ${k('restart')} restart &middot; Esc pause`;
+        let h = keyHints(keyLabels, controls.usingPad, { onLift: liftRide.riding, outrunRunning: outrun.running, onFoot: rider.onFoot, onGround: rider.onGround, liftNearby: !!liftRide.nearby });
         if (boardMsgNote) h = `<b>${boardMsgNote}</b><br>` + h;
         if (h !== helpShown) { helpShown = h; helpEl.innerHTML = h; }
       }
@@ -1135,60 +893,13 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
 
       fpsAcc += dt; fpsN++;
       if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
-      hud.innerHTML =
-        `<b>${speedStr(rider.speed)} &nbsp; ${altStr(rider.z)} &nbsp; slope ${rider.slopeDeg.toFixed(0)}&deg;` +
-        // FEAT-053: what the snow is here; on foot, how deep the boots sink in it
-        (rider.onFoot ? ` &nbsp; <span class="dim">snow</span> ${snowLabel(rider.snow.kind).toLowerCase()} &middot; <span class="dim">sink</span> ${settings.units === 'metric' ? (rider.sink * 100).toFixed(0) + ' cm' : (rider.sink * 39.37).toFixed(0) + ' in'}` : rider.onGround && !rider.unstrapped ? ` &nbsp; <span class="dim">${snowLabel(rider.snow.kind)}</span>` : '') +
-        (rider.onFoot ? ` &nbsp; ${rider.crawling ? 'SCRAMBLING' : 'ON FOOT'} &nbsp; <span class="dim">sprint</span> ${'&#9646;'.repeat(Math.ceil(rider.stamina / STAMINA * 5))}${'&#9647;'.repeat(5 - Math.ceil(rider.stamina / STAMINA * 5))}` : '') +
-        (rider.switch && !rider.unstrapped ? ' &nbsp; SWITCH' : '') + // FEAT-139
-        (rider.onGround || rider.onFoot ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') +
-        // FEAT-055: the run so far
-        (runStats.active ? `</b><br><span class="dim">${runStats.current ? runStats.current + ' &middot; ' : ''}top ${fmtSpeed(runStats.topSpeed, settings.units === 'metric')} &middot; ${altStr(runStats.vertical)} vert &middot; ${fmtDistance(runStats.distance, settings.units === 'metric')}</span><b>` : '') +
-        `<br><span class="dim">${fps.toFixed(0)} fps &middot; ${terrain.stats.chunks} chunks &middot; ${(terrain.stats.triangles / 1000).toFixed(0)}k tris &middot; trees ${veg.stats.instances} &middot; cam ${cam.mode}` +
-        ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}${auto.level ? ' &middot; ' + auto.describe() : ''}</span>` +
-        // BUG-053 ?debug: the edge model's numbers for tuning (edge angle, the lateral acceleration it balances, turn radius and rate, the brake's cut and swing)
-        (debugHud ? `<br><span class="dim">edge ${(rider.edge * 180 / Math.PI).toFixed(0)}&deg; &middot; aLat ${rider.carveAcc.toFixed(1)} m/s&sup2; (${rider.lateralG.toFixed(2)} g) &middot; R ${Number.isFinite(rider.turnRadius) ? rider.turnRadius.toFixed(0) + ' m' : '&infin;'} &middot; ${(rider.turnRate * 180 / Math.PI).toFixed(0)}&deg;/s` +
-          (rider.hardCarve > 0 ? ` &middot; hard ${rider.hardCarve.toFixed(2)} short ${rider.carveShort.toFixed(2)} g wash ${rider.washout.toFixed(2)}` : '') + // FEAT-148
-          // FEAT-134: the heading's angle off the fall line, the slope, and the edge catch's chance per second
-          ` &middot; fall ${(Math.abs(Math.atan2(Math.sin(Math.atan2(rider.normal[0], rider.normal[1]) - rider.heading), Math.cos(Math.atan2(rider.normal[0], rider.normal[1]) - rider.heading))) * 180 / Math.PI).toFixed(0)}&deg; of ${rider.slopeDeg.toFixed(0)}&deg; &middot; catch ${rider.catchRisk.toFixed(1)}/s` +
-          (rider.brakeAmt > 0 ? ` &middot; brake &Psi; ${(rider.brakePsi * 180 / Math.PI).toFixed(0)}&deg; &gamma; ${(Math.abs(rider.slip) * 180 / Math.PI).toFixed(0)}&deg; ${rider.brakeAcc.toFixed(1)} m/s&sup2; mod ${rider.brakeMod.toFixed(2)}` : '') +
-          // FEAT-053: the snow weights and what they set
-          `<br>snow groomed ${rider.snow.groomed.toFixed(2)} powder ${rider.snow.powder.toFixed(2)} chop ${rider.snow.chop.toFixed(2)} ice ${rider.snow.ice.toFixed(2)} slush ${rider.snow.slush.toFixed(2)} rock ${rider.snow.rock.toFixed(2)} &middot; depth ${(rider.snow.depth * 100).toFixed(0)} cm &middot; grip x${rider.snow.grip.toFixed(2)} &middot; turn x${rider.snow.turn.toFixed(2)} &middot; drag ${rider.snow.drag0.toFixed(2)} + ${rider.snow.drag1.toFixed(4)}v &middot; chop ${rider.chop.toFixed(2)} &middot; sink ${rider.noseSink.toFixed(2)}</span>` : '');
+      hud.innerHTML = hudLine({
+        rider, runStats, metric: settings.units === 'metric', fps, chunks: terrain.stats.chunks, triangles: terrain.stats.triangles, trees: veg.stats.instances,
+        camMode: cam.mode, auto: auto.level ? auto.describe() : '', debug: debugHud,
+      });
     }
 
-    /**
-     * BUG-063: build the world around the start behind the loading screen, without drawing: stream terrain,
-     * trees and rocks with a large per-frame budget (frames stay short, so the page never locks up), then
-     * compile every shader in the background. Ends when nothing near the start is still downloading or
-     * building, or after 20 s. The screen then stays up for the first few real frames (HIDE_AFTER_FRAMES),
-     * so whatever only the full frame draws (clouds, the body pass, GPU uploads) is paid behind it.
-     */
-    async function warmUp(ls: { set(f: number, label: string): void }): Promise<void> {
-      const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
-      terrain.budgetMs = 12; terrain.maxBuilds = 64; veg.budgetMs = 12;
-      const tiles = () => [pack.fine, pack.mid, pack.far, pack.mask, pack.ao, pack.dir, pack.moguls].reduce((n, t) => n + (t?.inFlight ?? 0), 0);
-      const t0 = performance.now();
-      let peak = 1, settled = 0;
-      while (performance.now() - t0 < 20000) {
-        cam.camera.updateMatrixWorld();
-        const cp = cam.camera.position;
-        terrain.update(cp.x, -cp.z, cp.y);
-        veg.update(rider.x, rider.y);
-        rocks.update(rider.x, rider.y);
-        const tl = tiles();
-        const left = terrain.pending + tl + veg.pending + rocks.pending;
-        peak = Math.max(peak, left);
-        ls.set(0.85 * (1 - left / peak), `Terrain ${terrain.pending + tl} · trees ${veg.pending} · rocks ${rocks.pending}`);
-        settled = left === 0 ? settled + 1 : 0;
-        if (settled >= 3) break; // three quiet frames: late tile arrivals have had a chance to mark rebuilds
-        await nextFrame();
-      }
-      ls.set(0.9, 'Compiling shaders...');
-      await renderer.compileAsync(scene, cam.camera).catch((e) => console.warn('compileAsync failed', e));
-      ls.set(0.97, 'Almost there...');
-      // riding: small budgets so streaming never spikes a frame; built parent chunks cover any gaps
-      terrain.budgetMs = 4; terrain.maxBuilds = 10; veg.budgetMs = 3;
-    }
+    const warmUp = (ls: { set(f: number, label: string): void }) => warmUpWorld(ls, world, pack, rider, renderer, scene, cam.camera);
 
     // wait briefly for the fine tiles under the start point, then warm up and go
     (async () => {
@@ -1209,7 +920,6 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
         applySettings: (what: string) => applySettings(settings, what) }, { attract: () => attract, fps: () => fps });
       loop.start(canvas);
     })();
-    void clockStart;
   });
   return { quit };
 }
