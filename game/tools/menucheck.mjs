@@ -154,6 +154,14 @@ const pBefore = await pslot.innerHTML();
 await pslot.click();
 await key('Escape');
 check('pad rebind Esc cancels only the slot', (await pslot.innerHTML()) === pBefore && await setOpen());
+// a second slot clicked while one listens takes over: it shows it listens and keeps the focus
+await page.locator('#settings [data-mount="keys"] button.key[data-action="jump"][data-slot="0"]').click();
+await page.locator('#settings [data-mount="keys"] button.key[data-action="camera"][data-slot="1"]').click();
+const second = await page.evaluate(() => { const b = document.querySelector('#settings [data-mount="keys"] button.key[data-action="camera"][data-slot="1"]'); return { text: b.textContent, focused: document.activeElement === b, jump: document.querySelector('#settings [data-mount="keys"] button.key[data-action="jump"][data-slot="0"]').textContent }; });
+await key('Escape');
+check('a second slot takes over the listening', second.text === '...' && second.focused && second.jump !== '...', JSON.stringify(second));
+// descriptions name the keys from the keymap, not typed by hand
+check('row descriptions read the keymap', await page.evaluate(() => /\bC cycles/.test(document.querySelector('#settings [data-row="camera"] .sdesc').textContent)));
 // the action rows act inside the screen (Reset keys does not start a ride)
 await page.evaluate(() => document.querySelector('#settings [data-row="keys-reset"]')?.click());
 await page.waitForTimeout(150);
@@ -211,6 +219,16 @@ check('fps readout is live while paused', Math.abs(rates.shown - rates.raf) < Ma
 await openCat('camera'); await focusRow('fov'); await key('ArrowRight');
 check('a change applies to the running game', await page.evaluate(() => window.__sim.cam.baseFov === window.__sim.settings.fov && window.__sim.settings.fov === 69));
 await key('ArrowLeft');
+// Reset all keeps the options the pause menu edits live: Outrun set from pause after a Reset all is what runs
+await page.evaluate(() => { const b = document.querySelector('#settings [data-reset-all]'); b.click(); b.click(); });
+await page.waitForTimeout(100);
+await key('Escape');
+await page.evaluate(() => document.querySelector('#pause button[data-a="outrun"]').click());
+await page.evaluate(() => { const s = document.querySelector('#pause select[data-r="difficulty"]'); s.value = 'skifree'; s.dispatchEvent(new Event('input', { bubbles: true })); });
+check('after Reset all the pause Outrun options still apply', await page.evaluate(() => window.__sim.settings.outrun.difficulty === 'skifree'));
+await page.evaluate(() => { const s = document.querySelector('#pause select[data-r="difficulty"]'); s.value = 'normal'; s.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('#pause button[data-a="outrun"]').click(); });
+await page.evaluate(() => document.querySelector('#pause button[data-a="settings"]')?.click());
+await page.waitForTimeout(200);
 // typing in search never reaches the game behind (M is the map)
 await page.focus('#settings .search');
 await page.keyboard.type('m', { delay: 20 });

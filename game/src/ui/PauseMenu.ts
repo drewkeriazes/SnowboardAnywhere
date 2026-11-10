@@ -37,11 +37,12 @@ export class PauseMenu {
     this.el.style.display = 'none';
     document.body.appendChild(this.el);
     this.outrunPanel = this.el.querySelector('.settings.outrun') as HTMLElement;
-    const o = settings.outrun;
+    // read and written on the live settings (Settings > Gameplay edits the same options, and Reset all replaces them)
+    this.fillOutrun();
     this.outrunPanel.querySelectorAll<HTMLSelectElement | HTMLInputElement>('[data-r]').forEach((el) => {
-      const k = el.dataset.r as keyof typeof o;
-      if (el instanceof HTMLInputElement) el.checked = !!o[k]; else el.value = String(o[k]);
+      const k = el.dataset.r as keyof Settings['outrun'];
       el.addEventListener('input', () => {
+        const o = settings.outrun;
         if (el instanceof HTMLInputElement) o.gentle = el.checked;
         else if (k === 'difficulty') o.difficulty = el.value as typeof o.difficulty;
         else o.escape = el.value as typeof o.escape;
@@ -50,7 +51,7 @@ export class PauseMenu {
     });
     this.el.querySelectorAll<HTMLButtonElement>('button[data-a]').forEach((b) => b.addEventListener('click', () => {
       if (b.dataset.a === 'settings') { this.openSettings(); return; }
-      if (b.dataset.a === 'outrun') { this.outrunPanel.classList.toggle('hidden'); this.afterToggle(b, this.outrunPanel); return; }
+      if (b.dataset.a === 'outrun') { this.fillOutrun(); this.outrunPanel.classList.toggle('hidden'); this.afterToggle(b, this.outrunPanel); return; }
       this.hide();
       this.onAction?.(b.dataset.a as PauseAction);
     }));
@@ -84,6 +85,13 @@ export class PauseMenu {
   /** FEAT-128: the settings screen over the live game (dimmed, Peek to see it, the fps readout) */
   private openSettings(): void {
     openSettings(this.settings, { overGame: true, onChange: this.onChange, fps: this.extras.fps, credits: this.extras.credits });
+  }
+  private fillOutrun(): void {
+    const o = this.settings.outrun;
+    this.outrunPanel.querySelectorAll<HTMLSelectElement | HTMLInputElement>('[data-r]').forEach((el) => {
+      const k = el.dataset.r as keyof typeof o;
+      if (el instanceof HTMLInputElement) el.checked = !!o[k]; else el.value = String(o[k]);
+    });
   }
   /** Swap the Outrun panel's button between Start and Stop. */
   setOutrunRunning(on: boolean): void {
