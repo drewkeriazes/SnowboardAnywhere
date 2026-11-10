@@ -28,6 +28,8 @@ export class ResortMap {
   fullOpen = false;
   /** called with pack x, y when the player clicks the full map */
   onPick: ((x: number, y: number) => void) | null = null;
+  /** FEAT-162: told when the full map opens or closes, however it happened (the session's Map state follows it) */
+  onOpenChange: ((open: boolean) => void) | null = null;
   private hover: [number, number] | null = null;
 
   /** FEAT-059: with ?debug, runs that score 0.3 or more for moguls get an orange under-stroke */
@@ -395,8 +397,13 @@ export class ResortMap {
     this.fullOpen = true; this.fullWrap.style.display = 'flex'; this.tryShade();
     if (!this.opened) { this.opened = true; this.zoom = 1; this.centre = this.boundsCentre(); }
     this.drawFull();
+    this.onOpenChange?.(true);
   }
-  close(): void { this.fullOpen = false; this.fullWrap.style.display = 'none'; this.padHelp = null; }
+  close(): void {
+    const was = this.fullOpen;
+    this.fullOpen = false; this.fullWrap.style.display = 'none'; this.padHelp = null;
+    if (was) this.onOpenChange?.(false);
+  }
 
   /** FEAT-137: with a controller the map has a crosshair in the middle: the stick pans under it, the triggers zoom, `padHelp` replaces the mouse help */
   padHelp: string | null = null;
