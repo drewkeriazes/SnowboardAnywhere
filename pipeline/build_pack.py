@@ -11,7 +11,8 @@ Steps
   5. NAIP: 4-band 1 m -> NDVI, brightness -> canopy / aspen / rock / scree / meadow classes
   6. OSM: pistes, lifts (+pylons, stations), buildings, roads, water, peaks -> features.json
   7. Masks (2 m): rock, scree, groomed piste corridors, canopy cover; piste direction for the groomers
-  8. Trees: crown detection on the CHM/NDVI, species from NAIP colour + elevation; rocks on the rock mask
+  8. Trees: crown detection on the CHM/NDVI, species 0..7 (species.py: LANDFIRE class, elevation, aspect,
+     water, ridges, grey dead crowns); shrubs from LANDFIRE, streams, NAIP and forest edges; rocks on the rock mask
   9. Write the pack
 """
 import json, math, os, sys, glob, time
@@ -24,6 +25,8 @@ from packwriter import (write_height_set, write_mask_set, write_instances, write
 from piste_dir import piste_direction
 from terrain_ao import sky_visibility
 from moguls import run_mogul_score, slope_window, paint_field, paint_polygon
+import species as spc
+from species import evt_luts
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 slug = sys.argv[1]
@@ -278,23 +281,11 @@ if lf_tifs:
     if evt_img.ndim == 3:
         evt_img = evt_img[..., 0] if evt_img.shape[-1] < evt_img.shape[0] else evt_img[0]
     table = read_dbf(lf + ".vat.dbf") if os.path.exists(lf + ".vat.dbf") else []
-    # per class: aspen fraction (0..1) and whether it is forest (Tree life form)
-    aspen_frac_of, forest_of, alpine_of = {}, {}, {}
-    for r in table:
-        v = int(float(r.get("VALUE", "0") or 0)); name = r.get("EVT_NAME", "")
-        lfm = r.get("EVT_LF", "")
-        forest_of[v] = lfm == "Tree" and "Urban" not in name
-        alpine_of[v] = "Alpine" in name        # alpine turf, dwarf-shrubland, bedrock and scree, wet meadow
-        if "Aspen-Mixed Conifer" in name or "Aspen-Mixed" in name:
-            aspen_frac_of[v] = 0.5
-        elif "Aspen" in name:
-            aspen_frac_of[v] = 0.85            # stands are mostly aspen with some conifer
-        else:
-            aspen_frac_of[v] = 0.0
+    # per class (species.classify_evt, DATA-020): tree group, aspen fraction, forest (Tree life form, not
+    # urban), alpine (turf, dwarf-shrubland, bedrock and scree, wet meadow), riparian, sagebrush, Gambel oak
     lut_n = int(evt_img.max()) + 1
-    aspen_lut = np.zeros(lut_n, np.float32); forest_lut = np.zeros(lut_n, bool); alpine_lut = np.zeros(lut_n, bool)
-    for v in range(lut_n):
-        aspen_lut[v] = aspen_frac_of.get(v, 0.0); forest_lut[v] = forest_of.get(v, False); alpine_lut[v] = alpine_of.get(v, False)
+    lut = evt_luts(table, lut_n)
+    aspen_lut, forest_lut, alpine_lut, group_lut = lut["aspen"], lut["forest"], lut["alpine"], lut["group"]
     ex0, ey0, epx = tfw[4], tfw[5], tfw[0]   # top-left pixel centre and pixel size (m)
     def evt_at(x_utm, y_utm):
         c = np.clip(np.round((x_utm - ex0) / epx).astype(np.int64), 0, evt_img.shape[1] - 1)
@@ -305,15 +296,16 @@ if lf_tifs:
     gx2 = X0 + (np.arange(W2) + 0.5) * R2; gy2 = Y1 - (np.arange(H2) + 0.5) * R2
     cc = np.clip(np.round((gx2 - ex0) / epx).astype(np.int64), 0, evt_img.shape[1] - 1)
     rr_ = np.clip(np.round((ey0 - gy2) / epx).astype(np.int64), 0, evt_img.shape[0] - 1)
-    lf_forest2 = forest_lut[np.clip(evt_img[np.ix_(rr_, cc)], 0, lut_n - 1)]
-    del gx2, gy2, cc, rr_
+    evt2 = np.clip(evt_img[np.ix_(rr_, cc)], 0, lut_n - 1).astype(np.int16 if lut_n < 32768 else np.int32)
+    lf_forest2 = forest_lut[evt2]
+    del gx2, gy2, cc, rr_   # evt2 stays for the shrubs and the species debug map (stage 8)
     names = {int(float(r.get("VALUE", 0) or 0)): r.get("EVT_NAME", "") for r in table}
     vals, cnts = np.unique(evt_img, return_counts=True)
     top = sorted(zip(cnts, vals), reverse=True)[:5]
     log(f"  LANDFIRE {os.path.basename(lf)} {evt_img.shape}: " + ", ".join(f"{names.get(int(v), v)[:28]} {c/cnts.sum()*100:.0f}%" for c, v in top))
     log(f"  LANDFIRE forest on the 2 m grid {lf_forest2.mean()*100:.1f}%, aspen classes {sum(c for c, v in zip(cnts, vals) if aspen_lut[min(v, lut_n-1)] > 0)/cnts.sum()*100:.1f}%")
 else:
-    log("  no LANDFIRE clip (raw/<slug>/landfire/*.tif); species from NAIP colour only")
+    log("  no LANDFIRE clip (raw/<slug>/landfire/*.tif); species from elevation, aspect and NAIP colour (species.py fallback)")
 
 # ------------------------------------------------------------------ 6. OSM features
 log("OSM")
@@ -488,6 +480,9 @@ for el in natural["elements"]:
         pts = way_points(el)
         if len(pts) >= 4:
             water.append({"name": el["tags"].get("name"), "points": [[x, y] for x, y in pts[:-1]], "z": float(min(ground(x, y) for x, y in pts))})
+# streams and rivers (DATA-020): fir and willow sit near water; not written to features.json
+streams = [way_points(el) for el in natural["elements"]
+           if el.get("type") == "way" and el.get("tags", {}).get("waterway") in ("stream", "river", "brook", "canal", "ditch")]
 peaks = []
 for el in peaks_far["elements"] + natural["elements"]:
     if el.get("type") == "node" and el.get("tags", {}).get("natural") == "peak" and el["tags"].get("name"):
@@ -705,39 +700,108 @@ if evt is not None:
 fr, fc = np.nonzero(fill)
 tree_rows.append(fr); tree_cols.append(fc); tree_h.append(np.maximum(chm_s[fr, fc], 3.0) * rng.uniform(0.75, 1.0, len(fr)))
 rows = np.concatenate(tree_rows); cols = np.concatenate(tree_cols); hgt = np.concatenate(tree_h).astype(np.float32)
+# snags (DATA-020, species 7): grey standing dead crowns. Live canopy needs NDVI > 0.30, so the crowns above
+# never include them: local CHM maxima over 6 m with NDVI < 0.15 inside forest, off buildings, lifts and cliffs,
+# the greyest kept up to 3 % of all trees.
+lift_f = np.zeros((H2, W2), np.float32)
+for l in lifts:
+    (ax_, ay_, _), (bx_, by_, _) = l["stations"]
+    rasterize_corridor(lift_f, [(ax_, ay_), (bx_, by_)], 8)            # towers and chairs read as tall grey points
+    for sx_, sy_ in ((ax_, ay_), (bx_, by_)):
+        rasterize_corridor(lift_f, [(sx_, sy_), (sx_, sy_)], 25)       # terminals
+forest_here = lf_forest2 if evt is not None else ndimage.binary_dilation(canopy, iterations=5)
+snag_c = ((chm_s == maxf) & (chm_s > 6.0) & (ndvi2 < 0.15) & have2 & forest_here & (slope2 < 40)
+          & ~built_any & ~rock_steep & (lift_f == 0))
+del lift_f, forest_here
+sr, sc = np.nonzero(snag_c)
+del snag_c
+keep = spc.cap_snags(ndvi2[sr, sc], len(rows))
+log(f"  snag candidates {len(sr)}, kept {len(keep)}")
+sr, sc = sr[keep], sc[keep]
+is_snag = np.concatenate([np.zeros(len(rows), bool), np.ones(len(sr), bool)])
+rows = np.concatenate([rows, sr]); cols = np.concatenate([cols, sc]); hgt = np.concatenate([hgt, chm_s[sr, sc]]).astype(np.float32)
 jx = rng.uniform(-0.9, 0.9, len(rows)); jy = rng.uniform(-0.9, 0.9, len(rows))
 tx = X0 + (cols + 0.5) * R2 + jx - OX
 ty = Y1 - (rows + 0.5) * R2 + jy - OY
 tz = dem2[rows, cols].astype(np.float32)
 elev = tz
 chm_at = chm_s[rows, cols]        # measured canopy height (0 in lidar gaps), before the fill-tree floor
-alpine = np.zeros(len(rows), bool)
+# terrain for the species rules: aspect, crests and valleys, distance to OSM streams
+north2, east2, tpi_s2, tpi_l2 = spc.terrain_fields(dem2, R2)
+sdist2 = spc.stream_distance(streams, R2, X0 - OX, Y1 - OY, H2, W2)
+log(f"  streams {len(streams)}, cells within 25 m {np.mean(sdist2 < 25) * 100:.1f}%")
+northeast = (north2[rows, cols] + east2[rows, cols]) / math.sqrt(2)
+wet = np.clip(1 - (sdist2[rows, cols] - 30) / 70, 0, 1)
+ridge = (tpi_s2[rows, cols] > 1.5) & (tpi_l2[rows, cols] > 15)
+n_t = len(rows)
 if evt is not None:
     # sample the class 0..15 m off each tree so 30 m pixel edges become ragged stand boundaries
-    ang = rng.uniform(0, 2 * np.pi, len(rows)); rad = rng.uniform(0, 15, len(rows))
-    v = evt(tx + OX + np.cos(ang) * rad, ty + OY + np.sin(ang) * rad)
-    a_frac = aspen_lut[np.clip(v, 0, lut_n - 1)]
+    ang = rng.uniform(0, 2 * np.pi, n_t); rad = rng.uniform(0, 15, n_t)
+    v = np.clip(evt(tx + OX + np.cos(ang) * rad, ty + OY + np.sin(ang) * rad), 0, lut_n - 1)
+    group, a_frac, alpine = group_lut[v], aspen_lut[v], alpine_lut[v]
+    wet = np.maximum(wet, lut["riparian"][v].astype(np.float64))
     # inside aspen classes: aspen with that probability; elsewhere keep small NAIP-detected groves at 50 %
-    roll = rng.uniform(0, 1, len(rows))
-    is_aspen = ((roll < a_frac) | (aspen_like[rows, cols] & (roll < 0.5))) & (elev < 3300)
-    alpine = alpine_lut[np.clip(v, 0, lut_n - 1)]
+    roll = rng.uniform(0, 1, n_t)
+    del v, ang, rad
 else:
-    is_aspen = aspen_like[rows, cols] & (elev < 3150)
-# krummholz (BUG-025): only a tree the lidar measured as short (1 to 4 m) near treeline or in an alpine
+    group = np.zeros(n_t, np.int8); a_frac = np.zeros(n_t, np.float32); alpine = np.zeros(n_t, bool); roll = np.ones(n_t)
+# krummholz (BUG-025) stays: only a tree the lidar measured as short (1 to 4 m) near treeline or in an alpine
 # LANDFIRE class. Colorado treeline is about 3,500 to 3,600 m; subalpine spruce-fir at Vail is tall right
 # up to the summits, so elevation alone never makes a tree krummholz, and no lidar height is capped.
-short = (chm_at > 1.0) & (chm_at < 4.0)
-is_krumm = short & ((elev > 3450) | alpine)
-is_aspen &= ~is_krumm
-species = np.where(is_krumm, 2, np.where(is_aspen, 1, 0)).astype(np.float32)
-crown = np.where(species == 1, hgt * 0.2, hgt * 0.13).astype(np.float32)
-trees = np.stack([tx, ty, tz, hgt, crown, species], axis=1).astype(np.float32)
+species = spc.assign_species(tx, ty, elev, chm_at, group, a_frac, alpine, aspen_like[rows, cols], northeast, wet, ridge, roll, evt is not None)
+species[is_snag] = spc.SNAG
+crown = spc.crown_radius(species, hgt)
+trees = np.stack([tx, ty, tz, hgt, crown, species.astype(np.float32)], axis=1).astype(np.float32)
 CELL = 1000.0
 cells_x = int(math.ceil(W / CELL)); cells_y = int(math.ceil(H / CELL))
 inst = {"cellSize": CELL, "minX": X0 - OX, "minY": Y0 - OY, "cellsX": cells_x, "cellsY": cells_y}
 inst["treeCount"] = write_instances(out, "trees", trees, CELL, X0 - OX, Y0 - OY, cells_x, cells_y)
-log(f"  trees {inst['treeCount']}  (aspen {int(is_aspen.sum())}, krummholz {int(is_krumm.sum())} = {is_krumm.mean()*100:.1f}%, "
-    f"trees above 3350 m {int((elev > 3350).sum())}, median height there {np.median(hgt[elev > 3350]) if (elev > 3350).any() else 0:.1f} m)")
+cnt = np.bincount(species.astype(np.int64), minlength=8)
+log(f"  trees {inst['treeCount']}: " + ", ".join(f"{spc.SPECIES_NAMES[i]} {cnt[i]} ({cnt[i] / n_t * 100:.1f}%)" for i in range(8)))
+lp = species == spc.LODGEPOLE
+log(f"  spruce + fir {(cnt[spc.SPRUCE] + cnt[spc.FIR]) / n_t * 100:.1f}%, lodgepole below 3,100 m {np.mean(elev[lp] < 3100) * 100 if lp.any() else 0:.0f}%, "
+    f"krummholz above 3,350 m {np.mean(elev[species == spc.KRUMMHOLZ] > 3350) * 100 if cnt[spc.KRUMMHOLZ] else 0:.0f}%, snags {cnt[spc.SNAG] / n_t * 100:.1f}%, "
+    f"median height above 3,350 m {np.median(hgt[elev > 3350]) if (elev > 3350).any() else 0:.1f} m")
+for line in spc.band_report(species, elev):
+    log("   ", line)
+os.makedirs(os.path.join(out, "debug"), exist_ok=True)
+spc.debug_png(os.path.join(out, "debug", "species.png"), tx, ty, species, group_lut[evt2] if evt is not None else None, X0 - OX, Y1 - OY, W, H)
+log("  debug/species.png: species per 10 m (left), LANDFIRE group (right)")
+del northeast, wet, ridge, group, a_frac, alpine, roll, trees, crown, is_snag
+
+# shrubs (DATA-020): willow on creek bottoms, juniper in spruce-fir gaps and on open south crests, sagebrush and
+# Gambel oak in their LANDFIRE classes, young conifers along forest edges; density from NAIP NDVI where there is
+# no canopy, at most 200 per hectare. Records x, y, z, height, radius, kind.
+log("shrubs")
+base_ok = have2 & ~built_any & (rock_w < 0.3) & (groomed < 0.3) & (ndvi2 > 0.05) & (slope2 < 40)
+open_ = base_ok & ~canopy
+low = base_ok & (chm < 4.0)                   # willow carr is short canopy, so it may read as canopy
+near_stream = sdist2 < 25
+valley = (tpi_l2 < -3) & (slope2 < 20)
+south_ridge = (north2 < -0.5) & (tpi_s2 > 0.5) & (dem2 > 2700) & (dem2 < 3600)
+del sdist2, tpi_l2, north2, east2, tpi_s2
+gap_edge = ndimage.binary_dilation(canopy, iterations=6)            # within 12 m of canopy
+edge_band = ndimage.binary_dilation(canopy, iterations=3) & (chm < 6.0)
+if evt is not None:
+    g2 = group_lut[evt2]
+    riparian = lut["riparian"][evt2]; sage = lut["sage"][evt2]; oak = lut["oak"][evt2]
+    spruce_fir = g2 == spc.G_SPRUCE_FIR
+    conifer = lf_forest2 & (g2 != spc.G_ASPEN)
+    del g2
+else:
+    riparian = sage = oak = np.zeros((H2, W2), bool)
+    spruce_fir = dem2 > 2900
+    conifer = dem2 > 2700
+p_sh = spc.shrub_probabilities(R2, open_, ndvi2, near_stream, valley, riparian, spruce_fir, gap_edge, south_ridge, sage, oak,
+                               edge_band & conifer, low=low)
+del base_ok, open_, low, near_stream, valley, south_ridge, gap_edge, edge_band, riparian, sage, oak, spruce_fir, conifer
+shrubs = spc.sample_shrubs(p_sh, R2, X0 - OX, Y1 - OY, dem2, np.random.default_rng(20))
+del p_sh
+inst["shrubCount"] = write_instances(out, "shrubs", shrubs, CELL, X0 - OX, Y0 - OY, cells_x, cells_y)
+kc = np.bincount(shrubs[:, 5].astype(np.int64), minlength=len(spc.SHRUB_NAMES))
+log(f"  shrubs {inst['shrubCount']}: " + ", ".join(f"{spc.SHRUB_NAMES[i]} {kc[i]}" for i in range(len(kc)))
+    + f"; densest 100 m cell {spc.peak_density(shrubs, 100.0):.0f} / ha")
+del shrubs
 
 log("rocks")
 rr, rc = np.nonzero(rock_steep | (rock & (slope2 > 20)))
@@ -781,7 +845,7 @@ if seg is not None:
 meta = {"version": 1, "slug": slug, "name": cfg["name"], "crs": crs, "origin": [OX, OY], "lonlat": [lon_c, lat_c],
         "bounds": {"minX": X0 - OX, "minY": Y0 - OY, "maxX": X1 - OX, "maxY": Y1 - OY},
         "zRange": [float(np.floor(Z_MIN / 100) * 100 - 100), float(np.ceil(Z_MAX / 100) * 100 + 100)],
-        "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "dir": dir_meta, "moguls": mog_meta, "instances": inst,
+        "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "dir": dir_meta, "moguls": mog_meta, "instances": inst, "treeSpecies": spc.TREE_SPECIES_VERSION,
         "start": start, "sun": {"azimuth": 160, "elevation": 30}, "attribution": cfg["attribution"]}
 write_meta(out, meta)
 

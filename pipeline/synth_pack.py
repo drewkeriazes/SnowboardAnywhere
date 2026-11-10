@@ -6,6 +6,7 @@ python3 pipeline/synth_pack.py client/public/packs/synth
 import os, sys, json, math
 import numpy as np
 from packwriter import (write_height_set, write_mask_set, write_instances, write_meta, write_features)
+import species as spc
 from terrain_ao import sky_visibility
 from piste_dir import piste_direction
 from moguls import paint_field, slope_window
@@ -188,12 +189,30 @@ TX, TY = TX[keep], TY[keep]
 TZ = height(TX, TY)
 hgt = rng.gamma(6.0, 2.2, len(TX)).astype(np.float32) + 3.0
 hgt *= np.clip((3400 - TZ) / 400.0, 0.35, 1.0)
-species = np.where(TZ > 3280, 2, np.where((TZ < 2950) & (rng.uniform(0, 1, len(TX)) < 0.45), 1, 0)).astype(np.float32)
-crown = (hgt * np.where(species == 1, 0.22, 0.14)).astype(np.float32)
-trees = np.stack([TX, TY, TZ, hgt, crown, species], axis=1).astype(np.float32)
+# species ids 0..7 (DATA-020) from the no-LANDFIRE rules: spruce / fir split, lodgepole low, aspen groves,
+# plus the synthetic treeline's krummholz and a few snags
+nt = len(TX); z0 = np.zeros(nt)
+aspen_like = (TZ < 2950) & (rng.uniform(0, 1, nt) < 0.45)
+species = spc.assign_species(TX, TY, TZ, hgt, np.zeros(nt, np.int8), z0, np.zeros(nt, bool), aspen_like, z0, z0,
+                             np.zeros(nt, bool), z0, False)
+species[TZ > 3280] = spc.KRUMMHOLZ
+species[(species != spc.KRUMMHOLZ) & (spc.hash01(TX, TY, 9) < 0.02)] = spc.SNAG
+crown = spc.crown_radius(species, hgt)
+trees = np.stack([TX, TY, TZ, hgt, crown, species.astype(np.float32)], axis=1).astype(np.float32)
 CELL = 1000.0; cells = int(FS // CELL)
 meta["instances"] = {"cellSize": CELL, "minX": FX0, "minY": FY0, "cellsX": cells, "cellsY": cells}
 meta["instances"]["treeCount"] = write_instances(out, "trees", trees, CELL, FX0, FY0, cells, cells)
+meta["treeSpecies"] = spc.TREE_SPECIES_VERSION
+
+# shrubs: on the thin forest edge, young conifers up high, juniper, sagebrush and willow lower down
+SX = rng.uniform(FX0, FX0 + FS, 400000); SY = rng.uniform(FY0, FY0 + FS, 400000)
+sd = forest[np.clip(yy_idx(SY).astype(int), 0, N - 1), np.clip(xx_idx(SX).astype(int), 0, N - 1)]
+sk = (sd > 0.05) & (sd < 0.5) & (rng.uniform(0, 1, len(SX)) < 0.5)
+SX, SY = SX[sk], SY[sk]; SZ = height(SX, SY)
+kind = np.where(SZ > 2950, spc.YOUNG_CONIFER, rng.choice([spc.WILLOW, spc.JUNIPER, spc.SAGE], len(SX))).astype(np.float32)
+sh = np.select([kind == spc.WILLOW, kind == spc.YOUNG_CONIFER], [rng.uniform(1, 3, len(SX)), rng.uniform(1, 4, len(SX))], rng.uniform(0.3, 1.2, len(SX)))
+shrubs = np.stack([SX, SY, SZ, sh, sh * 0.5, kind], axis=1).astype(np.float32)
+meta["instances"]["shrubCount"] = write_instances(out, "shrubs", shrubs, CELL, FX0, FY0, cells, cells)
 
 # rocks: on rock mask
 rk = rock > 0.5

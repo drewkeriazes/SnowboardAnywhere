@@ -75,7 +75,7 @@ Inputs (match Bonvo so players can switch): Left/Right steer, Up tuck (Cd*A x 0.
 
 Camera (chase): follow point 6 m behind and 2.5 m above the rider along the velocity direction, critically damped spring (omega ~ 6 rad/s), FOV 65 deg at rest rising to 80 deg at 25 m/s, minus 3 deg in a tuck.
 
-## As built (FEAT-127, `game/src/sim/Rider.ts`)
+## As built (FEAT-127, `game/src/sim/rider/EdgeModel.ts`, constants in `sim/rider/tuning.ts`)
 
 The game keeps the carve geometry and the balance but departs from strict ideal carving at speed:
 - Steer sets a target edge `Psi = steer * Psi_cap`; the edge rolls at 400 deg/s (skis 460), 1.5x that while it crosses to the other side (unweighting), easing in over the last few degrees, so edge to edge takes about 0.3 s (BUG-053; was 220 deg/s and 0.6 s, which read as a hang between turns at speed). `Psi_cap` is 72 deg on firm snow (skis 68), 45 deg in powder (the board planes), 85 % of that in a tuck (was 70 %), +5 deg in a squat, less on a press, and at a crawl only 25 deg plus the lean the sidecut's arc needs (slow, a high edge would tip you into the hill).
@@ -85,13 +85,13 @@ The game keeps the carve geometry and the balance but departs from strict ideal 
 - Grip: `g * surface * (0.55 + 0.9 * min(1, Psi / 40 deg))` for the board (skis 0.65 + 0.75), `surface` 1.4 on corduroy, 1.0 off piste, 0.5 less on rock and scree, x1.08 in a squat, less on a press. Past it the heading pulls ahead of the velocity; past 4 deg of slip the arc lets go of the heading (gone by 34 deg), so a wash-out settles into a skid at about 10 to 15 deg of slip rather than spinning out.
 - Result on a 22 deg groomer (board): 8 m/s full edge R ~ 6 m at 1.6 g (the validation target below), 15 m/s R ~ 15 to 17 m, 22 m/s R ~ 30 m, all at 72 deg edge with no skid; on rock the same turn washes out; a squat on corduroy just exceeds the hold.
 
-## As built: the brake (FEAT-065, FEAT-133, `game/src/sim/Rider.ts`)
+## As built: the brake (FEAT-065, FEAT-133, `game/src/sim/rider/Brake.ts`)
 
 Komissarov's snow-cutting model of the side-slip and the hockey stop: holding brake swings the board to the angle of attack `gamma` off the travel direction (84 deg) over 0.25 s while the edge angle `Psi` ramps from 15 deg to a cut that rises with the slope (45 deg on gentle pitches, slope + 12 up to 68). The snow resists the board's slide across its own edge with up to `N tan(Psi)`, and since FEAT-133 that push is applied at right angles to the board rather than against the velocity: the part against the travel direction brakes, `a = g cos(alpha) tan(Psi) sin(gamma)` (the FEAT-065 figure, so a plain stop is unchanged, 1.4 s and 8 m from 10 m/s on 15 deg), and the part across it turns the rider toward the edge, so a partial swing is a skidded turn. The dug-in edge also drags along its own length at up to 35 % of the cut, so the slide settles rather than running on along the board. While the board is swung the carve grip under the heading fades out and the heading follows the travel direction, so the brake's push is not fought by the carve and the board rides off on its new line when the brake lets go.
 
 Steer works the brake while it is held (eased over 0.2 s): toward the brake side squares the board to 90 deg and tips the edge 12 deg past the plain cut (stop from 10 m/s on 15 deg in 1.0 s and 5.8 m instead of 1.4 s and 7.9 m); away from it opens the swing to 40 deg and lets the edge off to 25 deg, a skidded turn that turns 20 deg in the first 1.5 s and about 60 deg by the time it stops, 4 s and 21 m later, drifting down the fall line. On a 35 deg pitch the soft edge cannot hold the slope's pull across the board (`g sin(alpha)` = 5.6 m/s^2 against `g cos(alpha) tan(25 deg)` = 3.7) and the rider side-slips at 3.7 m/s after 3 s; the dug-in edge (47 deg) holds and stops in half a second. `tools/brakecheck.mjs` checks all of these.
 
-## As built: the fall line (FEAT-134, `game/src/sim/Rider.ts`)
+## As built: the fall line (FEAT-134, `game/src/sim/rider/EdgeModel.ts`)
 
 Before FEAT-134 the flat base held 0.55 g sideways (0.77 g on corduroy), more than the pull across a 50 deg pitch, so a rider with no input traversed any slope on rails. Now, scaled by the Fall line setting (Realistic 1, Assisted 0.5, Off 0 = the old behaviour):
 - Grip: `g * surface * (0.12 + 1.33 * min(1, Psi / 40 deg))` for the board, so a flat base holds a waxed base's friction and a full edge holds the same 1.45 g as before. Across a 30 deg groomer the flat board side-slips at `g sin 30 - 0.12 * 1.4 g` = 3.2 m/s^2; 20 deg of uphill edge holds it.

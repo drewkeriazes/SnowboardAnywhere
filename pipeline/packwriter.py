@@ -80,12 +80,14 @@ def write_instances(out_dir: str, kind: str, recs: np.ndarray, cell: float, min_
     return int(len(recs))
 
 def index_cells(out_dir: str, meta: dict) -> None:
-    """List the tree and rock cells that have a file, so the client never asks for empty ones (BUG-036)."""
+    """List the tree, rock and shrub cells that have a file, so the client never asks for empty ones (BUG-036)."""
     inst = meta.get("instances")
     if not inst:
         return
-    for kind, field in (("trees", "treeCells"), ("rocks", "rockCells")):
+    for kind, field in (("trees", "treeCells"), ("rocks", "rockCells"), ("shrubs", "shrubCells")):
         d = os.path.join(out_dir, kind)
+        if kind == "shrubs" and not os.path.isdir(d):
+            continue  # packs before DATA-020 have no shrub set
         names = sorted(f[:-4] for f in os.listdir(d) if f.endswith(".bin")) if os.path.isdir(d) else []
         inst[field] = names  # "cx_cy", matching the file names
 
