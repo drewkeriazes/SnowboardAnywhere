@@ -1,35 +1,38 @@
 import * as THREE from 'three';
 
 /**
- * FEAT-155: trees that block the view downhill turn see-through. Each frame `TreeFade.update` sets the
- * run ahead: from the rider to a look-ahead point 10 to 30 m out (further at speed) along where the
- * camera looks, eased so linked turns do not sweep it side to side, plus a slower point that keeps the
- * old line faded for a moment after a turn. A tree fades when it stands in the view wedge from the
- * camera to the part of the run it would hide: narrow at the lens (so the big trees at the edge of
- * the picture, beside the camera, stay solid) and R_LANE wide on the run (so a tree that faded ahead
- * stays faded as you come up on it and pass). The tree shaders measure this in the vertex shader and
- * discard a share of the tree's fragments in a stable screen-space Bayer pattern
- * (dithered transparency: no sorting, depth write on, the shadow pass draws the tree whole). Trees
- * right in front of the lens fade too; a tree within about 1.5 m of where the board will be in the next
- * half second never fades. Uniforms only: no per-tree CPU work.
+ * FEAT-155: trees that block your view of the run turn see-through, and only those (a tree off to the
+ * side with open snow behind it stays solid). Each frame `TreeFade.update` sets the run: from the rider
+ * to a look-ahead point 10 to 30 m out (further at speed) along the travel direction, smoothed so linked
+ * turns do not sweep it side to side, plus a slower point that keeps the old line faded for a moment
+ * after a turn. In the vertex shader each tree's trunk-to-top line and the run are taken into the
+ * camera's view plane: a tree fades when its silhouette overlaps the run there (with a RUN_HALF margin
+ * either side of the line) and it stands in front of the stretch of run it covers. A faded tree
+ * discards a share of its fragments in a stable screen-space Bayer pattern (dithered transparency: no
+ * sorting, depth write on, the shadow pass draws the tree whole). A tree within about 1 m of where the board will be in the next half second stays solid. Uniforms only:
+ * no per-tree CPU work.
  */
 
 /** the share of a fully faded tree's fragments that are discarded (crowns; trunks keep more, TRUNK_KEEP) */
 const MAX_DISCARD = 0.75;
 /** the lowest part of the tree (trunk and lower boughs) fades this much less than the crown */
 const TRUNK_KEEP = 0.3;
-/** the view wedge's radius (m, past the tree's crown) at the lens and on the run */
-const R_NEAR = 0.75, R_LANE = 3;
-/** the fade eases out over this many metres past the radius, so a tree fades in as the wedge sweeps onto it */
-const R_SOFT = 1.25;
-/** trees whose crown is within this many metres of the camera fade (anything right in front of the lens) */
-const R_LENS = 1;
+/** how much of the slope either side of the line counts as the run (m, at the run's distance) */
+const RUN_HALF = 0.75;
+/** the fade eases out over this many metres of clear gap between the tree and the run (at the tree's distance) */
+const R_SOFT = 0.75;
+/** a tree fades fully once it is this many metres nearer the camera than the run it covers (none when level with it) */
+const IN_FRONT = 2;
+/** the share of the crown radius (from the pack) that counts as the tree's silhouette (the cone narrows upward) */
+const CROWN_K = 0.8;
 /** look-ahead distance: LOOK_MIN m, plus LOOK_PER_MS m per m/s of speed, up to LOOK_MAX */
 const LOOK_MIN = 10, LOOK_MAX = 30, LOOK_PER_MS = 1;
 /** the trees you are about to hit: within KEEP_R m of the board's path over the next KEEP_T s stay solid */
 const KEEP_T = 0.5, KEEP_R = 1.5;
 /** time constant (s) of the look-ahead point, and of the slow one that keeps the old line faded after a turn */
 const TAU = 0.4, TAU_SLOW = 1.5;
+/** time constant (s) of the travel direction the run follows */
+const TAU_DIR = 0.6;
 /** the fade eases fully in or out over this many seconds when the setting or the camera changes */
 const SWITCH_S = 0.3;
 
@@ -47,29 +50,43 @@ export const treeFadeUniforms = {
 export const TREE_FADE_VERT = /* glsl */ `
   uniform vec3 uFadeCam; uniform vec3 uFadeRider; uniform vec3 uFadeAhead; uniform vec3 uFadeAheadSlow; uniform vec3 uFadeNext; uniform float uFadeK;
   varying float vTreeFade;
-  // the tree as a vertical column (base, height) with a crown radius, against one lane leg a..b whose radius goes ra..rb
-  float treeFadeLeg(vec3 a, vec3 b, float ra, float rb, vec3 base, float h, float crown) {
-    vec2 ab = b.xz - a.xz;
-    float t = clamp(dot(base.xz - a.xz, ab) / max(dot(ab, ab), 1e-4), 0.0, 1.0);
-    float y = mix(a.y, b.y, t);
-    float dh = max(0.0, length(base.xz - (a.xz + ab * t)) - crown);
-    float dv = max(0.0, max(base.y - y, y - (base.y + h)));
-    float r = mix(ra, rb, t);
-    return 1.0 - smoothstep(r, r + ${R_SOFT.toFixed(2)}, length(vec2(dh, dv)));
+  // a point in the camera's view plane: (x, y) over the distance (tan of the angle off the view axis), and the distance
+  vec3 treeFadeView(vec3 p) { vec4 v = viewMatrix * vec4(p, 1.0); float d = max(-v.z, 0.05); return vec3(v.xy / d, -v.z); }
+  // the closest distance between segments p1..q1 and p2..q2 (2D); t is where on the second it is
+  float treeFadeSegs(vec2 p1, vec2 q1, vec2 p2, vec2 q2, out float t) {
+    vec2 d1 = q1 - p1, d2 = q2 - p2, r = p1 - p2;
+    float a = dot(d1, d1), e = dot(d2, d2), f = dot(d2, r), s = 0.0;
+    t = 0.0;
+    if (e < 1e-10) { s = a > 1e-10 ? clamp(-dot(d1, r) / a, 0.0, 1.0) : 0.0; }
+    else if (a < 1e-10) { t = clamp(f / e, 0.0, 1.0); }
+    else {
+      float c = dot(d1, r), b = dot(d1, d2), den = a * e - b * b;
+      s = den > 1e-12 ? clamp((b * f - c * e) / den, 0.0, 1.0) : 0.0;
+      t = (b * s + f) / e;
+      if (t < 0.0) { t = 0.0; s = clamp(-c / a, 0.0, 1.0); }
+      else if (t > 1.0) { t = 1.0; s = clamp((b - c) / a, 0.0, 1.0); }
+    }
+    return length(p1 + d1 * s - (p2 + d2 * t));
   }
-  // the view wedge from the camera to the point of the run (rider .. end) this tree would hide
-  float treeFadeWedge(vec3 end, vec3 base, float h, float crown) {
-    vec2 re = end.xz - uFadeRider.xz;
-    float t = clamp(dot(base.xz - uFadeRider.xz, re) / max(dot(re, re), 1e-4), 0.0, 1.0);
-    return treeFadeLeg(uFadeCam, mix(uFadeRider, end, t), ${R_NEAR.toFixed(2)}, ${R_LANE.toFixed(2)}, base, h, crown);
+  // how much the tree (its trunk-to-top line at distance tb.z, silhouette half-width crown) covers the run r..e, seen
+  // from the camera, and stands in front of it: the near side of the crown, not the trunk, has to be nearer than the run
+  float treeFadeRun(vec3 tb, vec3 tt, float crown, vec3 r, vec3 e) {
+    float t;
+    float gap = treeFadeSegs(tb.xy, tt.xy, r.xy, e.xy, t);
+    float rd = mix(r.z, e.z, t); // the distance of the run where the tree covers it
+    float zt = max(tb.z, 0.3);
+    float gapM = gap * zt - crown - ${RUN_HALF.toFixed(2)} * zt / rd; // clear metres at the tree's distance
+    return (1.0 - smoothstep(0.0, ${R_SOFT.toFixed(2)}, gapM)) * (1.0 - smoothstep(rd - ${IN_FRONT.toFixed(2)}, rd - 0.25, tb.z - crown));
   }
   float treeFade(vec3 base, float h, float crown, float localY) {
     if (uFadeK <= 0.0) return 0.0;
-    float f = max(treeFadeWedge(uFadeAhead, base, h, crown), treeFadeWedge(uFadeAheadSlow, base, h, crown));
-    // right in front of the lens
-    float cy = clamp(uFadeCam.y, base.y, base.y + h);
-    float dl = length(vec2(max(0.0, length(uFadeCam.xz - base.xz) - crown), uFadeCam.y - cy));
-    f = max(f, 1.0 - smoothstep(${R_LENS.toFixed(2)}, ${(R_LENS + 1).toFixed(2)}, dl));
+    vec3 tb = treeFadeView(base), tt = treeFadeView(base + vec3(0.0, h, 0.0));
+    float f = 0.0;
+    if (tb.z + crown > 0.3) { // any of the crown in front of the camera
+      vec3 r = treeFadeView(uFadeRider);
+      float cw = crown * ${CROWN_K.toFixed(2)};
+      f = max(treeFadeRun(tb, tt, cw, r, treeFadeView(uFadeAhead)), treeFadeRun(tb, tt, cw, r, treeFadeView(uFadeAheadSlow)));
+    }
     // the tree you are about to hit stays solid: the trunk's distance to the board's path over the next half second
     vec2 pn = uFadeNext.xz - uFadeRider.xz;
     float tn = clamp(dot(base.xz - uFadeRider.xz, pn) / max(dot(pn, pn), 1e-4), 0.0, 1.0);
@@ -120,6 +137,8 @@ export interface FadeRider { x: number; y: number; z: number; vx: number; vy: nu
 export class TreeFade {
   private readonly ahead = new THREE.Vector3();
   private readonly aheadSlow = new THREE.Vector3();
+  /** the smoothed travel direction (pack x, y) */
+  private readonly dir = [0, 1];
   private aheadSet = false;
   private readonly tmp = new THREE.Vector3();
 
@@ -136,11 +155,15 @@ export class TreeFade {
     u.uFadeCam.value.copy(camera.position);
     u.uFadeRider.value.set(r.x, r.z + 1, -r.y);
     u.uFadeNext.value.set(r.x + r.vx * KEEP_T, r.z + 1, -(r.y + r.vy * KEEP_T));
-    // along where the camera looks (the chase camera already follows the travel direction, smoothed)
+    // along the travel direction, smoothed so linked turns do not sweep it (where the camera looks when nearly stopped)
     const sp = Math.hypot(r.vx, r.vy);
-    camera.getWorldDirection(this.tmp);
-    const l = Math.hypot(this.tmp.x, this.tmp.z) || 1;
-    const dx = this.tmp.x / l, dy = -this.tmp.z / l;
+    let wx: number, wy: number;
+    if (sp > 1.5) { wx = r.vx / sp; wy = r.vy / sp; }
+    else { camera.getWorldDirection(this.tmp); const l = Math.hypot(this.tmp.x, this.tmp.z) || 1; wx = this.tmp.x / l; wy = -this.tmp.z / l; }
+    if (!this.aheadSet) { this.dir[0] = wx; this.dir[1] = wy; }
+    else { const kd = 1 - Math.exp(-dt / TAU_DIR); this.dir[0] += (wx - this.dir[0]) * kd; this.dir[1] += (wy - this.dir[1]) * kd; }
+    const dl = Math.hypot(this.dir[0], this.dir[1]) || 1;
+    const dx = this.dir[0] / dl, dy = this.dir[1] / dl;
     const d = Math.min(LOOK_MAX, LOOK_MIN + LOOK_PER_MS * sp);
     const ax = r.x + dx * d, ay = r.y + dy * d;
     const gz = groundHeight(ax, ay);

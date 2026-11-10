@@ -104,8 +104,8 @@ Rider, Accessibility, Credits), the settings in the middle, and what the focused
 Type in the search box to find a setting in any category. Graphics has presets (Low, Medium, High, and Ultra:
 High plus cascaded shadows at full resolution) over its advanced options, Gameplay has Feel presets (Arcade,
 Realistic). Accessibility has UI scale and Reduce motion (camera shake, first person shake and speed
-lines off together). Camera has See-through trees (on by default): in the third-person cameras, trees between you and
-the slope ahead turn see-through so you can see your line; a tree you are about to hit stays solid. Opened from the pause menu, changes show at once behind the screen, with the frame rate in the corner.
+lines off together). Camera has See-through trees (on by default): in the third-person cameras, a tree that hides you or
+your line ahead turns see-through (trees off to the side stay solid); a tree you are about to hit stays solid. Opened from the pause menu, changes show at once behind the screen, with the frame rate in the corner.
 
 ### Controllers
 

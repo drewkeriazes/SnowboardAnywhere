@@ -1,7 +1,9 @@
 // See-through trees (FEAT-155): finds a tall tree on a slope with a clear line up the fall line above
 // it and rides the chase camera down toward it. Checks that the tree is still solid 30 m out (past the
-// look-ahead), comparing the same frame with the fade on and off; that it turns see-through 20 m out
-// (a good share of its pixels change) while a tree well off to the side does not; that it stays faded
+// look-ahead), comparing the same frame with the fade on and off; that it turns see-through 12 m out
+// (a good share of its pixels change); that the same tree 5 m to either side of the line stays solid
+// (it hides nothing but open snow); that its crown fades when it hangs between the camera and the
+// rider; that it stays faded
 // a quarter second after turning 35 degrees away (the slow look-ahead); that it stays solid right in the board's path (about to be hit); that the fade eases out with the
 // setting off and in first person; and the frame time with the fade on and off. Saves on/off shots.
 // node tools/treefadecheck.mjs [pack] [outDir] [--headed | --gpu]   (run after `npx vite build`; exit 1 on a failed check)
@@ -61,7 +63,8 @@ const spot = await page.evaluate(() => {
     const d = c.data; if (!d) continue;
     for (let i = 0; i < d.length; i += 6) trees.push([d[i], d[i + 1], d[i + 2], d[i + 3], d[i + 4], d[i + 5]]);
   }
-  const near = trees.filter((t) => Math.hypot(t[0] - r.x, t[1] - r.y) < 1400 && t[5] === 0 && t[3] >= 10);
+  // away from the base area (lift stations and buildings swing the chase camera), within the streamed trees
+  const near = trees.filter((t) => { const d = Math.hypot(t[0] - r.x, t[1] - r.y); return d > 300 && d < 1400 && t[5] === 0 && t[3] >= 10; });
   near.sort((a, b) => Math.hypot(a[0] - r.x, a[1] - r.y) - Math.hypot(b[0] - r.x, b[1] - r.y));
   for (const t of near.slice(0, 4000)) {
     const e = 4, gx = (gh(t[0] + e, t[1]) - gh(t[0] - e, t[1])) / (2 * e), gy = (gh(t[0], t[1] + e) - gh(t[0], t[1] - e)) / (2 * e);
@@ -70,11 +73,12 @@ const spot = await page.evaluate(() => {
     const clear = trees.every((o) => {
       if (o === t) return true;
       const px = o[0] - t[0], py = o[1] - t[1], along = -(px * ux + py * uy), side = Math.abs(px * uy - py * ux);
-      return !(along > -3 && along < 42 && side < 2.5);
+      // the line above it, and the lines 5 m either side (the beside case), clear of trunks
+      return !(along > -3 && along < 42 && (side < 2.5 || Math.abs(side - 5) < 2));
     });
     if (!clear) continue;
     // a second tree well off to the side of the line, level with the first: it should stay solid
-    const sideTree = trees.find((o) => { const px = o[0] - t[0], py = o[1] - t[1], along = -(px * ux + py * uy), side = Math.abs(px * uy - py * ux); return o[3] >= 8 && side > 22 && side < 40 && Math.abs(along) < 8; }) ?? null;
+    const sideTree = trees.find((o) => { const px = o[0] - t[0], py = o[1] - t[1], along = -(px * ux + py * uy), side = Math.abs(px * uy - py * ux); return o[3] >= 6 && side > 4 && side < 8 && along > 3 && along < 10; }) ?? null;
     return { tree: t, ux, uy, slopeDeg: Math.atan(g) * 180 / Math.PI, sideTree };
   }
   return null;
@@ -150,15 +154,14 @@ let st = await ride(60, 8, 30);
 const far = await onOff('far', { main: spot.tree, side: null });
 check('30 m out, past the look-ahead, the tree is still solid', far.main !== null && far.main < 0.02, `${((far.main ?? 0) * 100).toFixed(1)}% of its box changed, ${st.along.toFixed(0)} m ahead`);
 
-// 1. riding down toward the tree, 20 m short of it: the tree ahead fades, the one off to the side does not
-st = await ride(600, 8, 20);
+// 1. riding down toward the tree, 12 m short of it: the tree ahead fades, one beside the line does not
+st = await ride(600, 8, 12);
 const ahead = await onOff('ahead', { main: spot.tree, side: spot.sideTree });
 console.log('ahead', JSON.stringify({ ...st, main: ahead.main, side: ahead.side, box: ahead.mainBox }));
-check('the tree ahead in the lane turns see-through', ahead.main !== null && ahead.main > 0.08, `${((ahead.main ?? 0) * 100).toFixed(0)}% of its box changed, ${st.dist.toFixed(0)} m ahead`);
-if (spot.sideTree) check('a tree 22 m or more off to the side stays solid', ahead.side === null || ahead.side < 0.02, ahead.side === null ? 'off screen' : `${(ahead.side * 100).toFixed(1)}% changed`);
+check('the tree ahead on the line turns see-through', ahead.main !== null && ahead.main > 0.08, `${((ahead.main ?? 0) * 100).toFixed(0)}% of its box changed, ${st.dist.toFixed(0)} m ahead`);
+if (spot.sideTree) check('a tree 4 to 8 m beside the line just ahead (open snow behind it) stays solid', ahead.side === null || ahead.side < 0.02, ahead.side === null ? 'off screen' : `${(ahead.side * 100).toFixed(1)}% changed`);
 
-// 1b. from 12 m out, a quarter second after turning 35 degrees away, the tree on the old line is still faded (if still on screen)
-st = await ride(600, 8, 12);
+// 1b. a quarter second after turning 35 degrees away, the tree on the old line is still faded (if still on screen)
 const swing = await page.evaluate((sp) => {
   const s = window.__sim, r = s.rider, a = Math.atan2(sp.ux, sp.uy) + 35 * Math.PI / 180;
   for (let i = 0; i < 15; i++) { r.heading = a; r.vx = Math.sin(a) * 8; r.vy = Math.cos(a) * 8; window.__step(1, 1 / 60); }
@@ -166,6 +169,33 @@ const swing = await page.evaluate((sp) => {
 const swingSeen = await onScreen();
 const turned = swingSeen ? await onOff('after_turn', { main: spot.tree, side: null }) : null;
 check('just after a turn away, the tree on the old line stays faded', !swingSeen || (turned.main !== null && turned.main > 0.08), swingSeen ? `${((turned.main ?? 0) * 100).toFixed(0)}% of its box changed` : 'went off screen (inconclusive)');
+
+// 1c. the same tree 5 m beside the line (open snow behind it, as on a groomer): it stays solid as you come up on it.
+// The chase camera's pull-in is off here, so a wall beside the offset line does not swing the view across the tree.
+const keepCollider = await page.evaluate(() => { const c = window.__sim.cam; window.__camCollider = c.collider; c.collider = null; return true; });
+for (const sideM of [5, -5]) {
+  await page.evaluate(([sp, sideM]) => {
+    const s = window.__sim, r = s.rider;
+    r.reset(sp.tree[0] - sp.ux * 30 + sp.uy * sideM, sp.tree[1] - sp.uy * 30 - sp.ux * sideM, Math.atan2(sp.ux, sp.uy));
+  }, [spot, sideM]);
+  await settle();
+  const b = await ride(600, 8, 8);
+  const beside = await onOff(`beside_${sideM > 0 ? 'right' : 'left'}`, { main: spot.tree, side: null });
+  // only a plain chase view counts (a wall beside the offset line can push the camera off to one side)
+  const riderX = await page.evaluate(() => { const s = window.__sim, r = s.rider, c = s.cam.camera; return new c.position.constructor(r.x, r.z + 1, -r.y).project(c).x; });
+  const plain = Math.abs(riderX) < 0.25;
+  check(`a tree 5 m ${sideM > 0 ? 'left' : 'right'} of the line, 8 m ahead, stays solid`, !plain || (beside.main !== null && beside.main < 0.02), plain ? `${((beside.main ?? 0) * 100).toFixed(1)}% of its box changed, ${b.along.toFixed(0)} m ahead` : `camera pushed aside (rider at ${riderX.toFixed(2)} across the view), inconclusive`);
+}
+
+// 1d. a crown hanging between the camera and the rider (the trunk 2 m beside the line, just passed): it fades
+{
+  await page.evaluate((sp) => { const r = window.__sim.rider; r.reset(sp.tree[0] - sp.ux * 30 + sp.uy * 2, sp.tree[1] - sp.uy * 30 - sp.ux * 2, Math.atan2(sp.ux, sp.uy)); }, spot);
+  await settle();
+  const b = await ride(600, 8, -2.5);
+  const over = await onOff('crown_over_rider', { main: spot.tree, side: null });
+  check('a crown between the camera and the rider fades', over.main !== null && over.main > 0.08, `${((over.main ?? 0) * 100).toFixed(0)}% of its box changed, trunk ${(-b.along).toFixed(1)} m behind the rider`);
+}
+if (keepCollider) await page.evaluate(() => { window.__sim.cam.collider = window.__camCollider; });
 
 // 2. right in the board's path (inside the next half second at 8 m/s): it stays solid
 await place(32); await settle();
