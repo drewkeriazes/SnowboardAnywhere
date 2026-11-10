@@ -144,7 +144,7 @@ export async function ride({ world, plan, cfg }) {
     return { wps: out.map(([x, y, , d]) => [x, y, d]), kept: p.length, of: raw.length, near: Math.round(Math.min(...p.map((q) => q[3]))), far: Math.round(Math.max(...p.map((q) => q[3]))) };
   };
   const fallDir = (x, y) => { const e = 3, gx = gz(x + e, y) - gz(x - e, y), gy = gz(x, y + e) - gz(x, y - e), l = Math.hypot(gx, gy) || 1; return [-gx / l, -gy / l]; };
-  const sim = (W, discipline) => {
+  const sim = (W, discipline, phase = 0, straight = false) => {
     if (W.length < 2) { const [fx, fy] = fallDir(W[0][0], W[0][1]); W = [W[0], [W[0][0] + fx * 20, W[0][1] + fy * 20]]; }
     // the line's own direction at its start (over its first 40 m or quarter, not the first leg: a wiggle's first leg
     // points sideways): the start backs up against it, and the rider sets off along it
@@ -163,36 +163,70 @@ export async function ride({ world, plan, cfg }) {
     r.discipline = discipline; r.fallLine = 0; // the Realistic fall line's edge catches crash a bot on traverses
     r.reset(sx, sy, Math.atan2(ux, uy)); r.vx = ux * B.startSpeed; r.vy = uy * B.startSpeed;
     const input = { steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false };
-    const samples = []; let t = 0, acc = 0.05, wi = 0, hidden = 0, everSeen = false, crashes = 0, vmax = 0, dsum = 0, done = false, stall = 0, skipped = 0, wasCrashed = false;
+    // the path: the waypoints every 1 m (arc length s), smoothed over a stretch that grows with the distance from the
+    // camera (close up the drawn wiggles are the turns; far out they are hand shake)
+    const raw = [];
+    for (let i = 0; i < W.length - 1; i++) {
+      const a = W[i], b = W[i + 1], l = dist(a, b), n = Math.max(1, Math.round(l));
+      for (let k = 0; k < n; k++) raw.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n, (a[2] ?? 300) + ((b[2] ?? 300) - (a[2] ?? 300)) * k / n, i]);
+    }
+    raw.push([...W[W.length - 1].slice(0, 2), W[W.length - 1][2] ?? 300, W.length - 1]);
+    const path = raw.map((q, i) => {
+      const h = Math.round(Math.max(1, Math.min(B.smoothMaxM, B.smoothFrac * q[2])));
+      let x = 0, y = 0, n = 0;
+      for (let k = Math.max(0, i - h); k <= Math.min(raw.length - 1, i + h); k++) { x += raw[k][0]; y += raw[k][1]; n++; }
+      return [x / n, y / n, q[2], q[3]];
+    });
+    const samples = []; let t = 0, acc = 0.05, si = 0, hidden = 0, everSeen = false, crashes = 0, vmax = 0, done = false, stall = 0, skipped = 0, wasCrashed = false, tail = 0, braking = false;
+    // linked turns: a sine across the path, its wavelength from the distance from the camera, its width set by the
+    // speed (wider across the fall line when too fast, as a rider checks speed); the phase runs with the distance ridden
+    let turnPhase = phase * 2 * Math.PI, amp = -1;
+    const lam = (d) => Math.max(B.turnMinM, Math.min(B.turnMaxM, B.turnBaseM + B.turnFrac * d));
     for (let step = 0; step < 60 * B.maxS; step++) {
-      const sp = Math.hypot(r.vx, r.vy);
-      let tx, ty;
-      while (wi < W.length && gz(W[wi][0], W[wi][1]) > r.z - Math.min(2, 0.04 * dist([r.x, r.y], W[wi]))) wi++;
-      stall = sp < B.stallSpeed ? stall + 1 / 60 : 0;
-      if (stall > B.stallS && wi < W.length) { wi++; stall = 0; skipped++; }
-      if (wi < W.length) {
-        const w = W[wi], d = dist([r.x, r.y], w), prev = wi > 0 ? W[wi - 1] : [sx, sy];
-        const lx = w[0] - prev[0], ly = w[1] - prev[1];
-        // reached: within a share of the spacing there (a line 20 m from the camera needs a few metres, one 1 km out 18)
-        const reach = Math.max(WP.reachMinM, Math.min(WP.reachedM, WP.reachFrac * WP.spacingFrac * (w[2] ?? 1e4)));
-        if (d < reach || ((r.x - w[0]) * lx + (r.y - w[1]) * ly) > 0) { wi++; continue; }
-        const ll = Math.hypot(lx, ly) || 1, nx = ly / ll, ny = -lx / ll;
-        dsum += sp / 60;
-        // the carving swing only where the line is too far out to show its own turns (none close up, full far out)
-        const near = Math.max(0, Math.min(1, ((w[2] ?? 1e4) - B.swingNearM) / (B.swingFullM - B.swingNearM)));
-        const swing = near * B.swingM * Math.sin(dsum * 2 * Math.PI / B.swingWaveM);
-        tx = w[0] + nx * swing - r.x; ty = w[1] + ny * swing - r.y;
-      } else {
-        done = true;
-        const [fx, fy] = fallDir(r.x, r.y); dsum += sp / 60;
-        const swing = 0.5 * Math.sin(dsum * 2 * Math.PI / B.swingWaveM);
-        tx = fx + fy * swing; ty = fy - fx * swing;
-      }
-      let err = Math.atan2(tx, ty) - r.heading; err = Math.atan2(Math.sin(err), Math.cos(err));
-      input.steer = Math.max(-B.steerCap, Math.min(B.steerCap, err * B.steerGain));
-      // slower close to the camera, where a turn is metres, not tens of metres
+      const sp = Math.hypot(r.vx, r.vy), dt = 1 / 60;
+      // progress along the path: the nearest point a little ahead, never back
+      let best = si, bd = Infinity;
+      for (let k = si; k < Math.min(path.length, si + 40); k++) { const d = (path[k][0] - r.x) ** 2 + (path[k][1] - r.y) ** 2; if (d < bd) { bd = d; best = k; } }
+      si = best;
+      stall = sp < B.stallSpeed ? stall + dt : 0;
+      if (stall > B.stallS && !done) { si = Math.min(path.length - 1, si + 10); stall = 0; skipped++; }
+      if (si >= path.length - 2) done = true;
       const cd = camDist(r.x, r.y, r.z);
-      input.brake = sp > Math.min(B.brakeOver, Math.max(B.brakeMin, B.brakeFrac * cd)); input.tuck = sp < B.tuckUnder && Math.abs(err) < 0.15;
+      // the speed this stretch wants: slower close to the camera and in moguls (soak the bumps up), fast for a straightliner
+      const bumps = pack.mogulAmp ? pack.mogulAmp(r.x, r.y) : 0;
+      let cap = straight ? B.straightOver : Math.min(B.brakeOver, Math.max(B.brakeMin, B.brakeFrac * cd));
+      if (bumps > B.mogulAmpM) cap = Math.min(cap, B.mogulOver);
+      const look = Math.max(B.lookMinM, Math.min(B.lookMaxM, B.lookFrac * sp));
+      let bx, by, nx, ny, d0;
+      if (!done) {
+        const ti = Math.min(path.length - 1, si + Math.round(look)), q = path[ti], q0 = path[Math.max(0, ti - 2)], q1 = path[Math.min(path.length - 1, ti + 2)];
+        const l = Math.hypot(q1[0] - q0[0], q1[1] - q0[1]) || 1;
+        bx = q[0]; by = q[1]; nx = (q1[1] - q0[1]) / l; ny = -(q1[0] - q0[0]) / l; d0 = q[2];
+      } else {
+        // past the line: on down the fall line, still turning
+        const [fx, fy] = fallDir(r.x, r.y);
+        bx = r.x + fx * look; by = r.y + fy * look; nx = fy; ny = -fx; d0 = cd;
+      }
+      const L = lam(d0);
+      // the turns' width: none for a straightliner; grows when too fast, shrinks when slow, within a share of the wavelength
+      const near = Math.max(B.turnNearShare, Math.min(1, (d0 - B.swingNearM) / (B.swingFullM - B.swingNearM)));
+      if (amp < 0) amp = B.turnStartShare * L;
+      amp = Math.max(B.turnMinShare * L, Math.min(B.turnMaxShare * L, amp + B.turnGain * (sp - cap) * dt));
+      turnPhase += 2 * Math.PI * sp * dt / L;
+      const off = straight ? 0 : near * amp * Math.sin(turnPhase + 2 * Math.PI * look / L);
+      const tx = bx + nx * off - r.x, ty = by + ny * off - r.y;
+      let err = Math.atan2(tx, ty) - r.heading; err = Math.atan2(Math.sin(err), Math.cos(err));
+      // the steering eased in (a rider rolls from edge to edge, never snaps)
+      const cmd = Math.max(-B.steerCap, Math.min(B.steerCap, err * B.steerGain));
+      input.steer += (cmd - input.steer) * Math.min(1, dt / B.steerEaseS);
+      // in the air: hands off the steering and grab (a crooked landing without a grab crashes, rider/Tricks.ts)
+      input.grab = !r.onGround;
+      if (!r.onGround) input.steer = 0;
+      // the brake only as a backstop (the turns check the speed): on brakeBand over the cap, off at it
+      if (!braking && sp > cap + B.brakeBand) braking = true;
+      else if (braking && sp < cap) braking = false;
+      input.brake = r.onGround && braking;
+      input.tuck = r.onGround && !braking && (straight || sp < B.tuckUnder) && bumps <= B.mogulAmpM && Math.abs(err) < 0.15;
       r.update(1 / 60, input);
       t += 1 / 60; acc += 1 / 60; vmax = Math.max(vmax, sp);
       const crashedNow = r.crashed > 0;
@@ -203,12 +237,15 @@ export async function ride({ world, plan, cfg }) {
         const f = (r.onGround ? 1 : 0) | (input.tuck ? 2 : 0) | (r.crashed > 0 ? 4 : 0) | (r.switch ? 8 : 0) | (r.goofy ? 16 : 0);
         samples.push({ t: +t.toFixed(3), x: r.x, y: r.y, z: r.z, h: r.boardYaw, lg: r.lateralG, e: r.edgeAngle, f, hd: r.heading, vx: r.vx, vy: r.vy, vz: r.vz, ln: r.lean, fl: r.flip, sq: r.squat, jc: r.jumpCharge, on: r.onFoot ? 1 : 0, hc: r.hardCarve, cf: r.crashFall, cs: r.crashSide });
         if (seen(r.x, r.y, r.z)) { everSeen = true; hidden = 0; } else hidden += 0.05;
-        if (everSeen && hidden > B.endAfterS && (done || wi >= W.length - 1)) break;
+        if (everSeen && hidden > B.endAfterS && (done || si >= path.length - 10)) break;
         if (done && hidden > B.endAfterS) break;
+        // a view that sees all the way down the valley: end tailS after the last waypoint (the menu fades it out)
+        if (done && (tail += 0.05) > B.tailS) break;
       }
     }
     const vis = samples.map((s) => seen(s.x, s.y, s.z));
-    return { samples, crest, stats: { reached: `${Math.min(wi, W.length)}/${W.length}`, dur: +t.toFixed(1), inView: +(vis.filter(Boolean).length * 0.05).toFixed(1), firstSeen: vis.indexOf(true) < 0 ? -1 : +(vis.indexOf(true) * 0.05).toFixed(1), vmax: +vmax.toFixed(1), crashes, skipped } };
+    const passed = Math.min(W.length, (path[Math.min(si, path.length - 1)][3] ?? 0) + (done ? 1 : 0));
+    return { samples, crest, stats: { reached: `${passed}/${W.length}`, dur: +t.toFixed(1), inView: +(vis.filter(Boolean).length * 0.05).toFixed(1), firstSeen: vis.indexOf(true) < 0 ? -1 : +(vis.indexOf(true) * 0.05).toFixed(1), vmax: +vmax.toFixed(1), crashes, skipped } };
   };
   // a rider beside the lead: its take shifted `off(t)` metres across the averaged direction of travel, `lag` samples behind
   const beside = (A, off, lag, goofy) => A.map((q, i) => {
@@ -222,12 +259,17 @@ export async function ride({ world, plan, cfg }) {
   const nearStart = (bs) => seen(bs[0].x, bs[0].y, bs[0].z) && camDist(bs[0].x, bs[0].y, bs[0].z) < G.nearM;
   const LAG = Math.round(G.lagS / 0.05);
   const out = [];
-  for (const [name, raw] of Object.entries(world)) {
-    const P = plan[name];
-    if (!P || !P.riders.length) continue;
-    if (raw.length < C.minRun) { out.push({ name, skipped: `only ${raw.length} points hit the terrain` }); continue; }
-    let wp = waypoints(raw, false), a = sim(wp.wps, P.riders[0].discipline), allRuns = false;
-    if (a.stats.inView < C.minInViewS) { const wp2 = waypoints(raw, true), a2 = sim(wp2.wps, P.riders[0].discipline); if (a2.stats.inView > a.stats.inView) { wp = wp2; a = a2; allRuns = true; } }
+  // a variant's line: shifted `side` x (variantShiftFrac of the distance from the camera, variantShiftMinM..MaxM) across its way
+  const shift = (W, side) => (side ? W.map((w, i) => {
+    const a = W[Math.max(0, i - 1)], b = W[Math.min(W.length - 1, i + 1)], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const o = side * Math.max(G.variantShiftMinM, Math.min(G.variantShiftMaxM, G.variantShiftFrac * (w[2] ?? 300)));
+    return [w[0] + (b[1] - a[1]) / l * o, w[1] - (b[0] - a[0]) / l * o, w[2]];
+  }) : W);
+  for (const [name, raw] of Object.entries(world)) for (const [v, P] of (plan[name]?.variants ?? []).entries()) {
+    if (!P.riders.length) continue;
+    if (raw.length < C.minRun) { if (v === 0) out.push({ name, v, skipped: `only ${raw.length} points hit the terrain` }); continue; }
+    let wp = waypoints(raw, false), a = sim(shift(wp.wps, P.shift), P.riders[0].discipline, P.phase, P.straight), allRuns = false;
+    if (a.stats.inView < C.minInViewS) { const wp2 = waypoints(raw, true), a2 = sim(shift(wp2.wps, P.shift), P.riders[0].discipline, P.phase, P.straight); if (a2.stats.inView > a.stats.inView) { wp = wp2; a = a2; allRuns = true; } }
     const A = a.samples, n = P.riders.length;
     // the formation: rider i (1..n-1) on side +-1 alternately, further out each pair, lagS more behind each
     let spread = 1, riders = [A], minGap = Infinity, tries = 0;
@@ -266,7 +308,7 @@ export async function ride({ world, plan, cfg }) {
         vis: i === 0 ? s.map((q) => seen(q.x, q.y, q.z)) : undefined,
       };
     });
-    out.push({ name, lead: { ...a.stats, cut: +cut.toFixed(1), line: `${wp.kept}/${wp.of} pts${allRuns ? ' (all runs)' : ''}, ${wp.near}..${wp.far} m out` }, minGap: n > 1 ? +minGap.toFixed(1) : null, pair: n > 1 ? [+pairMin.toFixed(1), +pairMax.toFixed(1)] : null, loosened: tries, group, wps: wp.wps });
+    out.push({ name, v, lead: { ...a.stats, cut: +cut.toFixed(1), line: `${wp.kept}/${wp.of} pts${allRuns ? ' (all runs)' : ''}, ${wp.near}..${wp.far} m out` }, minGap: n > 1 ? +minGap.toFixed(1) : null, pair: n > 1 ? [+pairMin.toFixed(1), +pairMax.toFixed(1)] : null, loosened: tries, group, wps: wp.wps });
   }
   return out;
 }
@@ -339,8 +381,8 @@ export async function preview({ before, after, times }) {
   return { frames: res, count: g.count };
 }
 
-/** Takes as positions over time (for the gap check across every pair): [{ file, build, pts: [[x, y, in frame] per 0.1 s] }] (in the frame where the menu goes live). */
-export async function takePaths({ files }) {
+/** Takes as positions over time (for the gap check across every pair): [{ file, build, pts: [[x, y, in frame] or null per 0.1 s of menu time] }] (in the frame where the menu goes live). */
+export async function takePaths({ files, horizon = 120 }) {
   const S = window.__sim, cam = S.cam.camera, V = cam.position.constructor;
   const p0 = S.shotPose(0); S.eyeAt(p0.x, p0.y, p0.h, p0.pitch, p0.fov, p0.eye); window.__step(1, 0); cam.updateMatrixWorld();
   const inFrame = (x, y, z) => { const v = new V(x, z + 1, -y).project(cam); return v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1; };
@@ -349,11 +391,87 @@ export async function takePaths({ files }) {
     try {
       const r = await fetch(`./attract/${window.__sim.pack.meta.slug}/${f}`);
       if (!r.ok) continue;
-      const tk = await r.json(), s = tk.samples, t0 = s[0].t, pts = [];
-      let j = 0;
-      for (let t = 0; t <= s[s.length - 1].t - t0; t += 0.1) { while (j < s.length - 2 && s[j + 1].t - t0 < t) j++; pts.push([s[j].x, s[j].y, inFrame(s[j].x, s[j].y, s[j].z)]); }
+      const tk = await r.json(), s = tk.samples, t0 = s[0].t, pts = [], dur = s[s.length - 1].t - t0;
+      // menu time (every take starts with the menu, after its delay, again every `every` seconds), null while it isn't out
+      const delay = tk.delay ?? 0, every = Math.max(dur, tk.every ?? 0);
+      const at = (lt) => { let lo = 0, hi = s.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (s[m].t - t0 <= lt) lo = m; else hi = m; } return s[lo]; };
+      for (let t = 0; t <= horizon; t += 0.1) {
+        const lt = t < delay ? -1 : (t - delay) % every;
+        if (lt < 0 || lt > dur) { pts.push(null); continue; }
+        const q = at(lt); pts.push([q.x, q.y, inFrame(q.x, q.y, q.z)]);
+      }
       out.push({ file: f, build: tk.build ?? null, pts });
     } catch { /* skip */ }
   }
   return out;
+}
+
+/**
+ * Go on from a recorded take's last sample down the fall line with the bot (linked turns, grab in the air) until the
+ * rider is out of sight (endAfterS) or tailS more seconds in view. Returns { samples, added (s), end } or added 0 when
+ * the take already ends out of sight.
+ */
+export async function extend({ samples, cfg }) {
+  const { bot: B } = cfg;
+  const S = window.__sim, pack = S.pack, cam = S.cam.camera, V = cam.position.constructor, RiderC = S.rider.constructor;
+  const p0 = S.shotPose(0); S.eyeAt(p0.x, p0.y, p0.h, p0.pitch, p0.fov, p0.eye); window.__step(1, 0); cam.updateMatrixWorld();
+  const last = samples[samples.length - 1];
+  pack.fine.request(last.x - 800, last.y - 800, last.x + 800, last.y + 800);
+  for (let i = 0; i < 200 && Number.isNaN(pack.fine.sample(last.x, last.y)); i++) { window.__step(1, 0); await new Promise((r) => setTimeout(r, 50)); }
+  const gz = (x, y) => pack.groundHeight(x, y, 9000);
+  const inFrame = (x, y, z) => { const v = new V(x, z + 1, -y).project(cam); return v.z < 1 && Math.abs(v.x) < 1.02 && Math.abs(v.y) < 1.02; };
+  const occluded = (x, y, z) => { const c = cam.position; const w = new V(x, z + 1, -y); for (let k = 0.02; k < 0.97; k += 0.01) { const px = c.x + (w.x - c.x) * k, py = -(c.z + (w.z - c.z) * k), pz = c.y + (w.y - c.y) * k; const g = gz(px, py); if (Number.isFinite(g) && g > pz + 0.5) return true; } return false; };
+  const seen = (x, y, z) => inFrame(x, y, z) && !occluded(x, y, z);
+  if (!seen(last.x, last.y, last.z)) return { samples: [], added: 0 };
+  const fallDir = (x, y) => { const e = 3, gx = gz(x + e, y) - gz(x - e, y), gy = gz(x, y + e) - gz(x, y - e), l = Math.hypot(gx, gy) || 1; return [-gx / l, -gy / l]; };
+  const r = new RiderC(pack, null);
+  r.discipline = 'board'; r.fallLine = 0; r.goofy = !!(last.f & 16);
+  r.reset(last.x, last.y, last.hd); r.vx = last.vx; r.vy = last.vy;
+  const input = { steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false };
+  const out = []; let t = 0, acc = 0, hidden = 0, braking = false, phase = 0, amp = -1, end = 'tail in view (fades out)';
+  const lam = (d) => Math.max(B.turnMinM, Math.min(B.turnMaxM, B.turnBaseM + B.turnFrac * d));
+  for (let step = 0; step < 60 * B.maxS; step++) {
+    const sp = Math.hypot(r.vx, r.vy), dt = 1 / 60, cd = cam.position.distanceTo(new V(r.x, r.z, -r.y));
+    let cap = Math.min(B.brakeOver, Math.max(B.brakeMin, B.brakeFrac * cd));
+    const bumps = pack.mogulAmp ? pack.mogulAmp(r.x, r.y) : 0;
+    if (bumps > B.mogulAmpM) cap = Math.min(cap, B.mogulOver);
+    const look = Math.max(B.lookMinM, Math.min(B.lookMaxM, B.lookFrac * sp)), L = lam(cd);
+    if (amp < 0) amp = B.turnStartShare * L;
+    amp = Math.max(B.turnMinShare * L, Math.min(B.turnMaxShare * L, amp + B.turnGain * (sp - cap) * dt));
+    phase += 2 * Math.PI * sp * dt / L;
+    const [fx, fy] = fallDir(r.x, r.y), off = amp * Math.sin(phase + 2 * Math.PI * look / L);
+    const tx = fx * look + fy * off, ty = fy * look - fx * off;
+    let err = Math.atan2(tx, ty) - r.heading; err = Math.atan2(Math.sin(err), Math.cos(err));
+    input.steer += (Math.max(-B.steerCap, Math.min(B.steerCap, err * B.steerGain)) - input.steer) * Math.min(1, dt / B.steerEaseS);
+    input.grab = !r.onGround; if (!r.onGround) input.steer = 0;
+    if (!braking && sp > cap + B.brakeBand) braking = true; else if (braking && sp < cap) braking = false;
+    input.brake = r.onGround && braking; input.tuck = false;
+    r.update(dt, input);
+    t += dt; acc += dt;
+    if (acc >= 0.05) {
+      acc = 0;
+      const f = (r.onGround ? 1 : 0) | (r.crashed > 0 ? 4 : 0) | (r.switch ? 8 : 0) | (r.goofy ? 16 : 0);
+      out.push({ t: +(last.t + t).toFixed(3), x: r.x, y: r.y, z: r.z, h: r.boardYaw, lg: r.lateralG, e: r.edgeAngle, f, hd: r.heading, vx: r.vx, vy: r.vy, vz: r.vz, ln: r.lean, fl: r.flip, sq: r.squat, jc: r.jumpCharge, on: r.onFoot ? 1 : 0, hc: r.hardCarve, cf: r.crashFall, cs: r.crashSide });
+      hidden = seen(r.x, r.y, r.z) ? 0 : hidden + 0.05;
+      if (hidden > B.endAfterS) { end = 'out of sight'; break; }
+      if (t > B.extendMaxS) break;
+    }
+  }
+  return { samples: out, added: t, end };
+}
+
+/**
+ * Copies of a recorded take beside it: each sample shifted `shift(t)` metres across the averaged direction of travel,
+ * `lag` samples behind, on the snow there (the same height above it), with the take's own pose: the rider moves the
+ * way it was ridden. `goofy` sets the stance flag. Returns the samples.
+ */
+export function shiftedTake({ samples, shifts }) {
+  const pack = window.__sim.pack, gz = (x, y) => pack.groundHeight(x, y, 9000), A = samples;
+  return shifts.map(({ base, drift, period, phase, lag, goofy }) => A.map((q, i) => {
+    const src = A[Math.max(0, i - lag)];
+    const j0 = Math.max(0, i - lag - 30), j1 = Math.min(A.length - 1, Math.max(0, i - lag + 30));
+    let dx = A[j1].x - A[j0].x, dy = A[j1].y - A[j0].y; const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+    const o = base + drift * Math.sin((q.t - A[0].t) * 2 * Math.PI / period + phase), x = src.x + dy * o, y = src.y - dx * o;
+    return { ...src, t: q.t, x, y, z: gz(x, y) + (src.z - gz(src.x, src.y)), f: (src.f & ~16) | (goofy ? 16 : 0) };
+  }));
 }

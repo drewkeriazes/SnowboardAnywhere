@@ -137,3 +137,22 @@ change the build or a resort needed: what broke, what changed, the config key in
 - **Takes of different lines pass through each other** too: `check` lists pairs closer than 2.5 m while both are in
   frame. On Vail's current set: 7 pairs (takes 1, 3, 4, 5, 14 against generated takes, and two between generated lines).
 - Drew: riders too far out to see are fine; the report says so but doesn't count it.
+- **Breckenridge, Imperial Bowl (2026-11-10).** An orange line next to the lift's red roof was never a hue-histogram
+  local maximum: peaks are now picked busiest first at their bin's mean hue, 15 degrees apart (`extract.hueSplit`;
+  20 / 5 also fell in the wrong bin in floating point). A hooked stroke's walk started at its bend: walked both ways
+  now. Strokes broken at a crossing join up to 70 px when the gap continues them (`extract.joinPx`); a sharp hook at
+  the crossing still splits, and Drew redrew it (`lines a.png b.png`: a later image's colour replaces it).
+- **Crashes on the summit and rock steps**: a bot steering in the air lands crooked, and a crooked landing over an
+  impact of 8 without a grab crashes (`rider/Tricks.ts`). The bot grabs and lets go of the steering in the air.
+- **Views that see down a whole valley** never put a rider out of sight: the ride ends `bot.tailS` (8 s) after the line.
+- **Ride in the menu's frame**: a snip's fit frame (2600 px wide) leaked into "in sight"; cast per image, ride at
+  1920 x 1080.
+- **Wobbly riders** (Drew): the bot braked to hold a low speed near the camera, and every brake swings the board 84
+  degrees across and back. Rewritten as linked turns along a smoothed path that control speed by their width; the
+  brake is a backstop 6 m/s over (`bot.turn*`, `bot.brakeBand`, `bot.brakeMin` 10). Then Drew chose variants of his
+  own two recorded runs (`takes`: his riding, copied 10 m to each side, staggered) for the near lines only; the
+  bot's riders 50 m and more out stayed.
+- **Staggered variants**: takes now carry `delay` and `every` (`world/AttractGhosts.ts`); 3 variants a line set off a
+  third of a cycle apart, lines offset from each other (Drew: "so all the riders don't leave at once").
+- **Shots to compare**: Shift+P's Keep as a candidate, `candidates` renders them, `pick` chooses; a Shift+P with no
+  server downloads `shots.json`, which `candidates <file>` takes.

@@ -1,12 +1,12 @@
 [
   {
-    "id": "breckenridge",
-    "x": -961.8,
-    "y": -656.3,
-    "h": 252.5,
-    "pitch": 0.7,
+    "id": "top-of-imperial-bowl",
+    "x": -1710.9,
+    "y": -222,
+    "h": 145.4,
+    "pitch": -27.5,
     "fov": 75,
-    "eye": 26.2,
+    "eye": 13.71,
     "place": "Imperial Bowl",
     "region": "Breckenridge",
     "dolly": 4,
