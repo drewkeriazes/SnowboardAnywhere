@@ -4,7 +4,7 @@ import { GameAudio } from '../audio/Audio';
 import { availableResorts } from '../resorts';
 import { landmarkStart } from '../world/Landmarks';
 import { LENSES, type LensSetting } from '../world/Lens';
-import { attractShot, loadAttractManifest, resortNumbers, shippedStill } from '../world/AttractShots';
+import { attractShot, loadAttractManifest, loadAttractShots, resortNumbers, shippedStill } from '../world/AttractShots';
 import { cachedMenuStill } from '../ui/MenuStill';
 import { MainMenu } from '../ui/MainMenu';
 import { LoadingScreen } from '../ui/Loading';
@@ -60,7 +60,9 @@ export class Game {
     // backdrop shot while the session loads behind it, then the still crossfades into the live view. Quit to
     // main menu goes back to it without tearing the session down. An eye link (?cam=eye) opens straight at its view.
     const skipMenu = params.cam === 'eye';
-    const shot = attractShot(pack, landmarkStart(pack.meta.slug) ?? pack.meta.start);
+    // FEAT-181: the shots are data (attract/<slug>/shots.json), headless too (tools/shoot_attract.mjs renders the shot)
+    const shots = await loadAttractShots(import.meta.env.BASE_URL, pack.meta.slug);
+    const shot = attractShot(pack, landmarkStart(pack.meta.slug) ?? pack.meta.start, shots);
     const attractFiles = headless ? {} : await loadAttractManifest(import.meta.env.BASE_URL);
     // FEAT-177: the still is the frame this browser kept at its last crossfade (same build, pack and quality), else
     // the shipped one when it was rendered from this build of the pack, else none (the menu over the loading bar)
@@ -76,7 +78,7 @@ export class Game {
     else { status.textContent = ''; loading = new LoadingScreen(pack.meta.name); await loading.painted(); }
     const scene = new THREE.Scene();
     const events = new Events();
-    const session = createSession({ params, canvas, renderer, scene, pack, settings, audio, events }, { menu, attract: !!menu && !skipMenu, loading, attractFiles });
+    const session = createSession({ params, canvas, renderer, scene, pack, settings, audio, events }, { menu, attract: !!menu && !skipMenu, loading, attractFiles, shots });
     await session.quit;
   }
 }

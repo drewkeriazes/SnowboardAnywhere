@@ -19,7 +19,7 @@ import { ResortMap } from '../ui/ResortMap';
 import { LiftRide } from '../sim/LiftRide';
 import { Prefetch } from '../sim/Prefetch';
 import { MainMenu, type MenuChoice } from '../ui/MainMenu';
-import { attractShot, shotPose, CONDITION_FIELDS, type AttractManifest, type ShotConditions } from '../world/AttractShots';
+import { attractShot, shotPose, CONDITION_FIELDS, type AttractManifest, type AttractShot, type ShotConditions } from '../world/AttractShots';
 import { AttractGhosts } from '../world/AttractGhosts';
 import { LoadingScreen } from '../ui/Loading';
 import { PauseMenu, type PauseInfo } from '../ui/PauseMenu';
@@ -62,7 +62,7 @@ import { Modes } from '../modes/Modes';
 const NEW_SNOW: Record<string, number> = { none: 0, dusting: 0.25, '6in': 0.6, powder: 1 };
 
 /** How a session starts: in the main menu (attract) or riding, with the loading screen when there is no menu over it. */
-export interface SessionOpts { menu: MainMenu | null; attract: boolean; loading: LoadingScreen | null; attractFiles: AttractManifest }
+export interface SessionOpts { menu: MainMenu | null; attract: boolean; loading: LoadingScreen | null; attractFiles: AttractManifest; shots: AttractShot[] }
 
 /** One resort loaded and playable: its scene, the rider, the menus over it. */
 export interface Session {
@@ -306,7 +306,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     };
 
     // ---------------------------------------------------------------- FEAT-128: the main menu inside the session (attract)
-    const shot = attractShot(pack, start);
+    const shot = attractShot(pack, start, opts.shots);
     const ghosts = new AttractGhosts(pack);
     ghosts.group.name = 'attract ghosts'; scene.add(ghosts.group);
     ghosts.setVisible(false);
