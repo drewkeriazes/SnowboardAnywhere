@@ -2,8 +2,8 @@
   "_doc": "FEAT-181: every tunable of tools/ghost_lines.mjs. `defaults` are the values that worked on Vail (docs/research/ghost-lines-prototype/README.md); `resorts.<slug>` overrides any of them for one resort (the same nesting, only the keys that differ). Tuning is editing this file, not code; note each change in the README's Learnings.",
   "defaults": {
     "extract": {
-      "_doc": "a drawn pixel: saturation over sat and value over value, or every channel under blackMax; not in the render (no render pixel within 2 px closer than notInRender in any channel); drawn colours are hue peaks at least hueSplit degrees apart, a pixel joining the peak nearest in hue + valueWeight x value (0..255) within joinCost; two strokes of one colour whose ends meet within joinPx are one line; a line is at least minCells cells of cellPx. A JPEG softens colours and black: jpeg replaces any of these for one",
-      "sat": 0.45, "value": 90, "blackMax": 6, "notInRender": 50, "hueSplit": 20, "valueWeight": 0.3, "joinCost": 35, "joinPx": 30, "cellPx": 6, "minCells": 20,
+      "_doc": "a drawn pixel: saturation over sat and value over value, or every channel under blackMax; not in the render (no render pixel within 2 px closer than notInRender in any channel); drawn colours are hue peaks at least hueSplit degrees apart, a pixel joining the peak nearest in hue + valueWeight x value (0..255) within joinCost; two strokes of one colour whose ends meet within joinPx, the gap carrying on the way both run, are one line; a line is at least minCells cells of cellPx. A JPEG softens colours and black: jpeg replaces any of these for one",
+      "sat": 0.45, "value": 90, "blackMax": 6, "notInRender": 50, "hueSplit": 15, "valueWeight": 0.3, "joinCost": 35, "joinPx": 70, "cellPx": 6, "minCells": 20,
       "jpeg": { "sat": 0.33, "blackMax": 12 }
     },
     "fit": {

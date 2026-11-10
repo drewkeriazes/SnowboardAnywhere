@@ -283,23 +283,30 @@ function orderStroke(pts, CELL = 6) {
   let a = cc.reduce((p, c) => (d(c, mean) > d(p, mean) ? c : p));
   a = cc.reduce((p, c) => (d(c, a) > d(p, a) ? c : p));
   const left = new Set(cc); left.delete(a);
-  const out = [a];
-  while (left.size) {
-    const cur = out[out.length - 1], prev = out[out.length - 2];
-    let best = null, bs = Infinity;
-    for (const c of left) {
-      const dd = d(c, cur);
-      if (dd > 30) continue;
-      let turn = 0;
-      if (prev) { const ax = cur[0] - prev[0], ay = cur[1] - prev[1], bx = c[0] - cur[0], by = c[1] - cur[1]; turn = 1 - (ax * bx + ay * by) / ((Math.hypot(ax, ay) * Math.hypot(bx, by)) || 1); }
-      const sc = dd * (1 + 0.6 * turn);
-      if (sc < bs) { bs = sc; best = c; }
+  // greedy from `path`'s last cell, preferring to keep going the same way
+  const walk = (path) => {
+    while (left.size) {
+      const cur = path[path.length - 1], prev = path[path.length - 2];
+      let best = null, bs = Infinity;
+      for (const c of left) {
+        const dd = d(c, cur);
+        if (dd > 30) continue;
+        let turn = 0;
+        if (prev) { const ax = cur[0] - prev[0], ay = cur[1] - prev[1], bx = c[0] - cur[0], by = c[1] - cur[1]; turn = 1 - (ax * bx + ay * by) / ((Math.hypot(ax, ay) * Math.hypot(bx, by)) || 1); }
+        const sc = dd * (1 + 0.6 * turn);
+        if (sc < bs) { bs = sc; best = c; }
+      }
+      if (!best) break;
+      path.push(best); left.delete(best);
+      // cells passed by on the way (within 5 px of the step) are part of it
+      for (const c of [...left]) if (d(c, best) < 5) left.delete(c);
     }
-    if (!best) break;
-    out.push(best); left.delete(best);
-    // cells passed by on the way (within 5 px of the step) are part of it
-    for (const c of [...left]) if (d(c, best) < 5) left.delete(c);
-  }
+    return path;
+  };
+  const one = walk([a]);
+  // the start may be a bend, not an end (the far end of a hooked line): walk the other way from it too
+  const two = walk([a]); // the first walk's cells are taken, so this goes the other way (or nowhere)
+  const out = two.length > 1 ? [...two.slice(1).reverse(), ...one] : one;
   return out.map(([x, y]) => [+x.toFixed(1), +y.toFixed(1)]);
 }
 
@@ -312,7 +319,7 @@ function orderStroke(pts, CELL = 6) {
  * named `<colour>-1`, `<colour>-2` left to right.
  * Returns { lines: [{ name, colour, hue, px: [[x, y], ...] }], dropped: [{ colour, why, box }] }.
  */
-export function extractLines(shot, aligned, { sat = 0.45, value = 90, blackMax = 6, minCells = 20, cellPx = 6, notInRender = 50, hueSplit = 20, valueWeight = 0.3, joinCost = 35, joinPx = 30, ignore = [] } = {}) {
+export function extractLines(shot, aligned, { sat = 0.45, value = 90, blackMax = 6, minCells = 20, cellPx = 6, notInRender = 50, hueSplit = 15, valueWeight = 0.3, joinCost = 35, joinPx = 70, ignore = [] } = {}) {
   const { w, h, data } = shot, ref = aligned.ref.data, canvas = aligned.canvas;
   const cls = new Int16Array(w * h).fill(-1); // -1 none, 360 black (then its class), else the colour's class
   const ignored = (u, v) => ignore.some(([x0, y0, x1, y1]) => u >= x0 && u < x1 && v >= y0 && v < y1);
@@ -329,7 +336,7 @@ export function extractLines(shot, aligned, { sat = 0.45, value = 90, blackMax =
   // the drawn colours: peaks of the hue histogram (at least hueSplit degrees apart), each with the median value of
   // its pixels; a pixel joins the peak nearest in hue plus valueWeight x value (a dark purple and a light pink are
   // close in hue but not in value), within joinCost
-  const H = new Float32Array(w * h), Vv = new Uint8Array(w * h), hist = new Float32Array(72), cand = [];
+  const H = new Float32Array(w * h), Vv = new Uint8Array(w * h), hist = new Float32Array(72), hsum = new Float32Array(72), cand = [];
   for (let i = 0; i < w * h; i++) {
     if (!canvas[i]) continue;
     const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2], [hu, s, v] = hsv(r, g, b);
@@ -338,16 +345,20 @@ export function extractLines(shot, aligned, { sat = 0.45, value = 90, blackMax =
     const u = i % w;
     if (ignored(u, (i - u) / w) || near(i, r, g, b)) continue;
     if (black) { cls[i] = 360; continue; }
-    H[i] = hu; Vv[i] = v; cand.push(i); hist[Math.floor(hu / 5) % 72]++;
+    H[i] = hu; Vv[i] = v; cand.push(i);
+    const bin = Math.floor(hu / 5 + 1e-6) % 72; hist[bin]++; hsum[bin] += hu; // 1e-6: 20 / 5 is 3.999... in floating point
   }
-  const sm = hist.map((_, i) => hist[(i + 71) % 72] * 0.25 + hist[i] * 0.5 + hist[(i + 1) % 72] * 0.25);
-  const total = hist.reduce((a, b) => a + b, 0);
-  let peaks = [];
-  for (let i = 0; i < 72; i++) if (sm[i] >= sm[(i + 71) % 72] && sm[i] > sm[(i + 1) % 72] && sm[i] > Math.max(30, total * 0.002)) peaks.push(i * 5 + 2.5);
-  peaks.sort((a, b) => sm[Math.floor(b / 5)] - sm[Math.floor(a / 5)]);
-  peaks = peaks.filter((p, i) => !peaks.slice(0, i).some((q) => hueDist(p, q) < hueSplit));
+  // the busiest 5 degree bins first, each kept unless a busier kept one is within hueSplit: a colour next to a bigger
+  // one (an orange beside red) is never a local maximum of the histogram, but is its own peak here
+  const sm = hist, total = hist.reduce((a, b) => a + b, 0);
+  const peaks = [];
+  for (const i of [...hist.keys()].sort((a, b) => hist[b] - hist[a])) {
+    if (hist[i] <= Math.max(30, total * 0.002)) break;
+    const p = Math.round(hsum[i] / hist[i] * 10) / 10; // the mean hue in the bin, not its middle
+    if (!peaks.some((q) => hueDist(p, q) < hueSplit)) peaks.push(p);
+  }
   const pv = peaks.map((p) => { const vs = cand.filter((i) => hueDist(H[i], p) < 7.5).map((i) => Vv[i]).sort((a, b) => a - b); return vs.length ? vs[vs.length >> 1] : 200; });
-  if (process.env.GHOST_DEBUG) console.log(`  hue peaks: ${peaks.map((p, j) => `${p} (${Math.round(sm[Math.floor(p / 5)])} px, value ${pv[j]})`).join(', ')}`);
+  if (process.env.GHOST_DEBUG) console.log(`  hue peaks: ${peaks.map((p, j) => `${p} (${Math.round(sm[Math.floor(p / 5 + 1e-6) % 72])} px, value ${pv[j]})`).join(', ')}`);
   const classes = [...peaks.map((p) => ({ hue: p, colour: colourName(p) })), { hue: null, colour: 'black' }];
   for (let i = 0; i < w * h; i++) if (cls[i] === 360) cls[i] = classes.length - 1;
   for (const i of cand) {
@@ -410,7 +421,15 @@ export function extractLines(shot, aligned, { sat = 0.45, value = 90, blackMax =
       const a = lines[i], b = lines[j];
       if (a.colour !== b.colour) continue;
       const ends = [[a.px.at(-1), b.px[0], false, false], [a.px.at(-1), b.px.at(-1), false, true], [a.px[0], b.px[0], true, false], [a.px[0], b.px.at(-1), true, true]];
-      const hit = ends.find(([p, q]) => Math.hypot(p[0] - q[0], p[1] - q[1]) < joinPx);
+      // the ends meet, and the gap carries on the way both strokes run there (a crossing, not two lines side by side)
+      const along = (px, atEnd) => { const n = px.length, p = atEnd ? px[n - 1] : px[0], q = atEnd ? px[Math.max(0, n - 4)] : px[Math.min(n - 1, 3)]; const l = Math.hypot(p[0] - q[0], p[1] - q[1]) || 1; return [(p[0] - q[0]) / l, (p[1] - q[1]) / l]; };
+      const hit = ends.find(([p, q, ra, rb]) => {
+        const gx = q[0] - p[0], gy = q[1] - p[1], gl = Math.hypot(gx, gy);
+        if (gl >= joinPx) return false;
+        if (gl < 15) return true;
+        const ta = along(a.px, !ra), tb = along(b.px, rb); // a's tangent out of its end, b's out of its end (pointing away)
+        return (ta[0] * gx + ta[1] * gy) / gl > 0.3 && -(tb[0] * gx + tb[1] * gy) / gl > 0.3;
+      });
       if (!hit) continue;
       const pa = hit[2] ? a.px.slice().reverse() : a.px, pb = hit[3] ? b.px.slice().reverse() : b.px;
       a.px = [...pa, ...pb];
