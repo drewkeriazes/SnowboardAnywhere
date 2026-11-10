@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { treeFadeUniforms, TREE_FADE_VERT, TREE_FADE_FRAG_HEAD, TREE_FADE_FRAG_BODY } from './TreeFade';
 
 /**
  * Tree impostors: each species' near geometry is rendered once from N yaw angles into an
@@ -58,12 +59,13 @@ export class ImpostorAtlas {
 
 export function impostorMaterial(atlas: THREE.Texture): THREE.ShaderMaterial {
   const mat = new THREE.ShaderMaterial({
-    uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), map: { value: atlas }, angles: { value: ANGLES }, sunColor: { value: new THREE.Color(1, 1, 1) }, sunIntensity: { value: 1 } },
+    uniforms: { ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog), ...treeFadeUniforms, map: { value: atlas }, angles: { value: ANGLES }, sunColor: { value: new THREE.Color(1, 1, 1) }, sunIntensity: { value: 1 } },
     vertexShader: `
       attribute vec3 iPos; attribute vec2 iScale; attribute float iYaw; attribute vec3 iColor;
       varying vec2 vUv; varying vec3 vColor;
       uniform float angles;
       #include <fog_pars_vertex>
+      ${TREE_FADE_VERT}
       void main() {
         // billboard around Y toward the camera
         vec3 toCam = cameraPosition - iPos;
@@ -77,13 +79,17 @@ export function impostorMaterial(atlas: THREE.Texture): THREE.ShaderMaterial {
         vColor = iColor;
         vec4 mvPosition = viewMatrix * vec4(world, 1.0);
         gl_Position = projectionMatrix * mvPosition;
+        // FEAT-155: the same see-through fade as the near trees (quad height is the tree height x 1.16)
+        vTreeFade = treeFade(iPos, iScale.y / 1.16, iScale.x * 0.2, position.y * 1.16);
         #include <fog_vertex>
       }`,
     fragmentShader: `
       uniform sampler2D map; uniform vec3 sunColor; uniform float sunIntensity;
       varying vec2 vUv; varying vec3 vColor;
       #include <fog_pars_fragment>
+      ${TREE_FADE_FRAG_HEAD}
       void main() {
+        ${TREE_FADE_FRAG_BODY}
         vec4 c = texture2D(map, vUv);
         if (c.a < 0.45) discard;
         // the atlas was lit at intensity ~1; retint by the live sun and the instance colour variation

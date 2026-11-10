@@ -139,6 +139,7 @@ export const SECTIONS: Section[] = [
     pick('camera', 'Default camera', [['chase', 'Chase'], ['close', 'Close'], ['far', 'Far (angled)'], ['cine', 'Cinematic'], ['fp', 'First person'], ['helmet', 'Helmet cam']], (s) => `The camera you start with.${keysOf(s, 'camera') ? ` ${keysOf(s, 'camera')} cycles them while riding.` : ''}`),
     slider('fov', 'Field of view', 50, 100, 1, (v) => `${v}°`, 'How wide the chase camera sees. Wider shows more of the slope and feels faster.'),
     toggle('speedFov', 'Widen view with speed', 'The view widens as you go faster.'),
+    toggle('seeThroughTrees', 'See-through trees', 'A tree that hides you or your line ahead turns see-through, so you can see where you are going in the glades. Trees off to the side stay solid, and so does a tree you are about to hit. Not in first person or the helmet cam.'),
   ] },
   { cat: 'camera', title: 'Motion', rows: [
     toggle('camShake', 'Camera shake', 'Rumble at speed and a jolt on landings.', { note: motion }),
