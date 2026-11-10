@@ -101,7 +101,7 @@ const compile = await page.evaluate(() => {
     if (s.scene) s.renderer.compile(s.scene, s.cam.camera); // builds before FEAT-172 have no __sim.scene
     out.push({ weather: w, ms: Math.round(performance.now() - t) });
   }
-  return { passes: out, programs: s.renderer.info.programs?.length ?? 0 };
+  return { passes: out, compiled: !!s.scene, programs: s.renderer.info.programs?.length ?? 0 };
 });
 
 // 2. fixed views. `place` runs in the page after the rider is back at the spawn: it sets the camera.

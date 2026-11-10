@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""FEAT-172 stills bot report: compares two runs of game/tools/cishot.mjs (main and the PR).
+"""FEAT-172 CI report: compares two runs of game/tools/cishot.mjs (main and the PR).
 
-python tools/ci/stills_report.py <before_dir> <after_dir> <out_dir> [--img-base URL] [--run-url URL]
+python tools/ci/stills_report.py <before_dir> <after_dir> <out_dir> [--stills] [--run-url URL]
     [--before-dist DIR --after-dist DIR]
 
 Writes <out_dir>/report.md (the PR comment body, starting with the marker the workflow looks for to
-update its own comment), <out_dir>/img/<view>.jpg (before | after | difference, side by side, small JPEGs
-for the comment) and <out_dir>/summary.json. Exit code 1 when a scene budget count grew by more than
-BUDGET_JUMP over main (with a small absolute floor so a count of 14 textures going to 16 is not a fail),
-or the PR run had shader messages or page errors. Needs numpy and Pillow.
+update its own comment) and <out_dir>/summary.json: the shader compile result, the scene budget counts
+against main and the gzipped JS size. With --stills (asked for with the `stills` label or a manual run)
+also a pixel difference per still and <out_dir>/img/<view>.jpg (before | after | changed pixels, side by
+side), shipped in the run's artifact. Exit code 1 when a scene budget count grew by more than BUDGET_JUMP
+over main (with a small absolute floor so a count of 14 textures going to 16 is not a fail), or the PR
+run had shader messages or page errors. Needs numpy and Pillow.
 """
 import argparse
 import gzip
@@ -80,9 +82,13 @@ def budget_rows(before, after):
     """per view and count: (view, key, before, after, change %, failed)"""
     rows = []
     bviews = {v["name"]: v for v in (before or {}).get("views", [])}
+    # the compile pass adds programs; a side without it (a build before __sim.scene) is not comparable on them
+    both_compiled = all((s or {}).get("compile", {}).get("compiled", False) for s in (before, after))
     for v in (after or {}).get("views", []):
         bv = bviews.get(v["name"])
         for k, floor in FLOORS.items():
+            if k == "programs" and not both_compiled:
+                continue
             a = v.get(k)
             b = bv.get(k) if bv else None
             if a is None:
@@ -106,7 +112,7 @@ def main():
     ap.add_argument("before")
     ap.add_argument("after")
     ap.add_argument("out")
-    ap.add_argument("--img-base", default="", help="URL the img/ folder is published under (empty: no inline images)")
+    ap.add_argument("--stills", action="store_true", help="compare the stills too (pixel difference, side-by-side JPEGs)")
     ap.add_argument("--run-url", default="")
     ap.add_argument("--before-dist", default="")
     ap.add_argument("--after-dist", default="")
@@ -115,9 +121,9 @@ def main():
     os.makedirs(os.path.join(args.out, "img"), exist_ok=True)
     before, after = load_stats(args.before), load_stats(args.after)
     fails = []
-    lines = [MARKER, "## Stills and scene budgets (synthetic pack)", ""]
+    lines = [MARKER, "## Shader compile and scene budgets (synthetic pack)", ""]
     if after is None:
-        lines.append("The PR's still run did not finish, so there is nothing to compare. See the `stills` job log.")
+        lines.append("The PR's run of `cishot.mjs` did not finish, so there is nothing to compare. See the `stills` job log.")
         fails.append("no stats from the PR run")
     else:
         lines.append(f"Rendered on `{after.get('gpu', '?')}`, `lowgfx`, clear sky, noon. "
@@ -126,9 +132,9 @@ def main():
             lines.append("")
             lines.append("`main` did not produce a run (it may predate this check), so only the PR's numbers are shown.")
 
-    # stills
+    # stills (only when asked for)
     shots = []
-    if after is not None:
+    if after is not None and args.stills:
         names = sorted(n for n in os.listdir(args.after) if n.endswith((".png", ".jpg")))
         for n in names:
             stem = os.path.splitext(n)[0]
@@ -141,12 +147,8 @@ def main():
         lines += ["", "### Stills", "", "| view | mean difference | pixels changed |", "|---|---:|---:|"]
         for stem, mean, changed in shots:
             lines.append(f"| `{stem}` | {'n/a' if mean is None else f'{mean:.2f} %'} | {'n/a' if changed is None else f'{changed:.1f} %'} |")
-        if args.img_base and any(m is not None for _, m, _ in shots):
-            lines += ["", "<details><summary>Before | after | changed pixels (magenta)</summary>", ""]
-            for stem, mean, _ in shots:
-                if mean is not None:
-                    lines += [f"**{stem}**", "", f"![{stem}]({args.img_base}/{stem}.jpg)", ""]
-            lines.append("</details>")
+        lines += ["", "A percent or two on `01_spawn_chase` is run-to-run noise. Side-by-side JPEGs (before | after | "
+                  "changed pixels in magenta) and the full stills are in the run's `ci-stills` artifact."]
 
     # shader compile
     if after is not None:
@@ -183,6 +185,8 @@ def main():
             fails.append(f"{view} {k} {fmt(b)} -> {fmt(a)} ({pct:+.1f} %)")
         if heap_fail:
             fails.append(f"JS heap {hb} -> {ha} MB")
+        if before is not None and not before.get("compile", {}).get("compiled", False):
+            lines += ["", "Programs not compared: `main`'s build predates the compile pass (`__sim.scene`)."]
         unsettled = [v["name"] for v in after.get("views", []) if not v.get("settled", True)]
         if unsettled:
             lines.append("")
@@ -200,8 +204,10 @@ def main():
         lines.append("**Check failed:** " + "; ".join(fails))
     else:
         lines.append("**Check passed.**")
+    if not args.stills:
+        lines.append("Before / after stills: add the `stills` label and push, or Actions > Checks > Run workflow with the PR number and stills ticked.")
     if args.run_url:
-        lines.append(f"Full-size stills and `stats.json`: the `ci-stills` artifact on [this run]({args.run_url}).")
+        lines.append(f"Stills and `stats.json`: the `ci-stills` artifact on [this run]({args.run_url}).")
 
     with open(os.path.join(args.out, "report.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")

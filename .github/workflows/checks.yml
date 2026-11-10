@@ -6,10 +6,11 @@
 #                     no pack, no browser)
 #   browser-checks    headless check tools on the synthetic pack, SwiftShader       game/ or pipeline/ changed
 #   pipeline-tests    pytest pipeline/tests                                         pipeline/ changed
-#   stills            main and the PR on the synthetic pack: stills with a pixel    PRs, game/ or pipeline/ changed
-#                     difference per view, shader compile, scene budget counts
-#                     (fails on a count more than 10% over main), bundle size;
-#                     stills-comment posts it on the PR
+#   stills            main and the PR on the synthetic pack (cishot.mjs): shader    PRs, game/ or pipeline/ changed
+#                     compile, scene budget counts (fails on a count more than 10%
+#                     over main), bundle size; stills-comment posts them on the PR.
+#                     The before / after stills comparison only when asked for: the
+#                     PR's `stills` label, or a manual run with `stills` ticked
 #   repo-rules        no em dashes in added Markdown, plain commit messages,         always
 #                     docs-travel warning
 #   public-guards     no Spotify code, no .env files, images <= 1 MB in the right    always
@@ -19,12 +20,11 @@
 # rendering for a runner; run them on Drew's PC and say so in the PR):
 #   need a real pack: lenscheck, outruncheck, snowcheck, treefadecheck, shoot_spots, aerial, views, treeperf
 #   too slow on SwiftShader (over 5 min each): see BROWSER_LOCAL below
-#   known failing on main, left out until fixed: mogulcheck (BUG-072, MOGUL_BUG below)
 #   no pass / fail exit code (they print numbers or save shots for a person to read): leancheck, rider, shoot,
 #   carveshot, brakeshot
 #
 # Rerun: the PR's Checks tab > Re-run jobs, or Actions > Checks > Run workflow (give the PR number to get the
-# stills comment). pr-feedback.yml dispatches this workflow after it pushes, since its GITHUB_TOKEN push does
+# PR comment; tick stills for the before / after stills). pr-feedback.yml dispatches this workflow after it pushes, since its GITHUB_TOKEN push does
 # not start a pull_request run.
 
 name: Checks
@@ -37,9 +37,14 @@ on:
   workflow_dispatch:
     inputs:
       pr:
-        description: PR number (optional; runs the stills against its base and comments there)
+        description: PR number (optional; compares against its base and comments there)
         required: false
         type: string
+      stills:
+        description: Compare the before / after stills too (with a PR number)
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: checks-${{ github.event.pull_request.number || inputs.pr || github.ref }}
@@ -52,8 +57,7 @@ env:
   PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
   BASE_REF: ${{ github.base_ref || 'main' }}
   # Node-only check tools: exit 1 on a failed check, need neither a pack nor a browser
-  PHYSICS_CHECKS: brakecheck carvecheck fakiecheck fallcheck hardcarvecheck presscheck
-  # MOGUL_BUG: mogulcheck's "late tile: no air over 1 s" fails on main (1.07 s), BUG-072 (#400). Add it back here once fixed.
+  PHYSICS_CHECKS: brakecheck carvecheck fakiecheck fallcheck hardcarvecheck mogulcheck presscheck
   # Browser check tools that pass on the synthetic pack under SwiftShader within a few minutes
   BROWSER_CHECKS: switchcheck glancecheck hardposecheck
   # BROWSER_LOCAL (too slow on software rendering for a runner): SURVEY_PENDING
@@ -265,7 +269,10 @@ jobs:
       (github.event_name == 'pull_request' || inputs.pr != '') &&
       (needs.changes.outputs.game == 'true' || needs.changes.outputs.pipeline == 'true')
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: read # the PR's labels (`stills`)
     env:
       OUT: ${{ github.workspace }}/ci-stills
       MAIN: ${{ github.workspace }}/../main-src
@@ -341,6 +348,15 @@ jobs:
       - run: npx vite build
         working-directory: game
 
+      - name: Stills asked for?
+        id: want
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          want=${{ inputs.stills == true && 'true' || 'false' }}
+          if [ "$want" != true ] && gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/labels" --jq '.[].name' | grep -qx stills; then want=true; fi
+          echo "stills=$want" | tee -a "$GITHUB_OUTPUT"
+
       - name: Stills on main (before)
         working-directory: game
         continue-on-error: true
@@ -350,8 +366,8 @@ jobs:
         working-directory: game
         continue-on-error: true
         run: node tools/cishot.mjs synth "$OUT/after" --cpu
-      - name: Menu backdrop still (menu changes only)
-        if: needs.changes.outputs.attract == 'true'
+      - name: Menu backdrop still (stills asked for and the menu changed)
+        if: steps.want.outputs.stills == 'true' && needs.changes.outputs.attract == 'true'
         working-directory: game
         continue-on-error: true
         run: |
@@ -364,7 +380,7 @@ jobs:
         continue-on-error: true
         run: |
           python tools/ci/stills_report.py "$OUT/before" "$OUT/after" "$OUT/report" \
-            --img-base "https://raw.githubusercontent.com/${{ github.repository }}/ci-stills/pr-$PR_NUMBER/${{ github.run_id }}" \
+            ${{ steps.want.outputs.stills == 'true' && '--stills' || '' }} \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --before-dist "$MAIN/game/dist" --after-dist game/dist
       - uses: actions/upload-artifact@v4
@@ -379,9 +395,8 @@ jobs:
           [ "${{ steps.after.outcome }}" = "success" ] || { echo "::error::cishot on the PR failed (shader message, page error or crash): see 'Stills on the PR'"; exit 1; }
           [ "${{ steps.report.outcome }}" = "success" ] || { echo "::error::scene budget over main, or no stats: see 'Report'"; exit 1; }
 
-  # Posts (or updates) one comment on the PR with the report, and publishes its thumbnails on the
-  # ci-stills branch (one commit, force-pushed, a folder per PR) so the comment can show them.
-  # Separate from `stills` so the job with write access runs none of the PR's code.
+  # Posts (or updates) one comment on the PR with the report. Separate from `stills` so the job that can
+  # write to the PR runs none of the PR's code.
   stills-comment:
     needs: stills
     if: >-
@@ -391,11 +406,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      contents: write
       pull-requests: write
-    concurrency:
-      group: ci-stills-branch
-      cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
@@ -404,28 +415,11 @@ jobs:
         with:
           name: ci-stills
           path: art
-      - name: Publish thumbnails
-        if: hashFiles('art/report/img/*.jpg') != ''
-        run: |
-          src="$PWD/art/report/img"
-          mkdir "$RUNNER_TEMP/s" && cd "$RUNNER_TEMP/s" && git init -q
-          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
-          if git fetch -q --depth=1 origin ci-stills 2>/dev/null; then git checkout -q FETCH_HEAD; fi
-          git checkout -q --orphan next
-          git rm -rq --ignore-unmatch "pr-$PR_NUMBER"
-          rm -rf "pr-$PR_NUMBER"
-          mkdir -p "pr-$PR_NUMBER/${{ github.run_id }}"
-          cp "$src"/*.jpg "pr-$PR_NUMBER/${{ github.run_id }}/"
-          printf 'CI stills for PR comments (FEAT-172). Written by .github/workflows/checks.yml; not a code branch.\n' > README.md
-          git add -A
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-            commit -qm "Stills for PR #$PR_NUMBER (run ${{ github.run_id }})"
-          git push -qf origin next:ci-stills
       - name: Comment
         run: |
           body=art/report/report.md
           if [ ! -f "$body" ]; then
-            printf '<!-- ci-stills -->\n## Stills and scene budgets (synthetic pack)\n\nThe stills job failed before it wrote a report: [run log](%s).\n' \
+            printf '<!-- ci-stills -->\n## Shader compile and scene budgets (synthetic pack)\n\nThe stills job failed before it wrote a report: [run log](%s).\n' \
               "${{ github.server_url }}/$REPO/actions/runs/${{ github.run_id }}" > report.md
             body=report.md
           fi

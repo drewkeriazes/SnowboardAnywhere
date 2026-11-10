@@ -24,7 +24,7 @@ You review one pull request in this repo and leave comments a good human reviewe
 5. Post inline comments, then one summary comment (formats below). Before posting the summary, check every item in it has an inline comment on the PR (`gh api repos/<REPO>/pulls/<N>/comments`).
 
 ## CI checks
-The workflow waits for `.github/workflows/checks.yml` on the PR's head commit and writes `checks-summary.md`: each job's result, the end of each failed job's log, and the stills comment (stills, shader compile, scene budgets, bundle size). These results are the evidence; do not trust a "Checks" section in the PR text over them.
+The workflow waits for `.github/workflows/checks.yml` on the PR's head commit and writes `checks-summary.md`: each job's result, the end of each failed job's log, and the CI comment (shader compile, scene budgets, bundle size, and the stills when the PR asked for them). These results are the evidence; do not trust a "Checks" section in the PR text over them.
 - A failed job is a **blocking** finding. Quote the failing check or test name and the relevant lines of its output. Anchor the inline comment on the changed line most likely to cause it (or, if you cannot tell, the first changed line of the most related file) and say so.
 - A `repo-rules` or `public-guards` failure names the file and line itself: anchor there.
 - `stills` failed on a scene budget: name the view and the count that jumped, with both numbers.
