@@ -30,6 +30,8 @@ export interface ShrubKind {
   hump: number;
   /** the share of the snow mound cover it takes once more than half buried (mats and saplings hold it, stems do not) */
   mound: number;
+  /** how high the snow drifts up it where it leaves the snow (m): a mat or a sapling collects a drift, a thin stem a few cm */
+  drift: number;
   /** how much it slows a board riding through (0..1 of the brush drag; young conifers over 1.5 m are trunks instead) */
   brush: number;
   /** the triangle budget per shrub (the card's) */
@@ -37,11 +39,11 @@ export interface ShrubKind {
 }
 
 export const SHRUBS: ShrubKind[] = [
-  { name: 'willow', variants: 3, radius: 0.42, colour: [0x8a2f1c, 0xb8862e], hump: 0, mound: 0, brush: 0.8, budget: 60 },
-  { name: 'juniper', variants: 2, radius: 1.4, colour: [0x2a3c2d, 0x354b37], hump: 0.3, mound: 1, brush: 0.5, budget: 40 },
-  { name: 'sagebrush', variants: 2, radius: 0.6, colour: [0x707a66, 0x89927d], hump: 0.25, mound: 0.8, brush: 0.6, budget: 40 },
-  { name: 'young conifer', variants: 4, radius: 0, colour: [0, 0], hump: 0.4, mound: 0.9, brush: 1, budget: 96 },
-  { name: 'gambel oak', variants: 2, radius: 0.5, colour: [0x4f4339, 0x6e6157], hump: 0, mound: 0, brush: 1, budget: 60 },
+  { name: 'willow', variants: 3, radius: 0.42, colour: [0x8a2f1c, 0xb8862e], hump: 0, mound: 0, drift: 0.04, brush: 0.8, budget: 60 },
+  { name: 'juniper', variants: 2, radius: 1.4, colour: [0x2a3c2d, 0x354b37], hump: 0.3, mound: 1, drift: 0.25, brush: 0.5, budget: 40 },
+  { name: 'sagebrush', variants: 2, radius: 0.6, colour: [0x707a66, 0x89927d], hump: 0.25, mound: 0.8, drift: 0.2, brush: 0.6, budget: 40 },
+  { name: 'young conifer', variants: 4, radius: 0, colour: [0, 0], hump: 0.4, mound: 0.9, drift: 0.2, brush: 1, budget: 96 },
+  { name: 'gambel oak', variants: 2, radius: 0.5, colour: [0x4f4339, 0x6e6157], hump: 0, mound: 0, drift: 0.06, brush: 1, budget: 60 },
 ];
 
 /** the snow a stem or twig holds (it is near vertical; a little on the upper side) */
@@ -69,17 +71,20 @@ function tint(kind: ShrubKind, t: number, mean: number): THREE.Color {
   return new THREE.Color(kind.colour[0]).lerp(new THREE.Color(kind.colour[1]), t).multiplyScalar(1 / (mean || 0.5));
 }
 
-/** willow: 10 to 12 straight thin stems fanning out of one root (a winter willow is a mass of upright red stems) */
+/**
+ * willow: 10 to 12 straight thin stems from one tight root, opening a little toward the top like a vase (a
+ * winter willow is a dense mass of upright red stems); they reach about 60 % of the natural radius
+ */
 function willow(v: number, barkMean: number[]): Builder {
   const k = SHRUBS[WILLOW], R = k.radius, r = rng(4100 + v * 37), b = new Builder();
   b.normR = R; b.normY = 0.6;
   const bark = barkRect(2), n = 10 + v;
   for (let i = 0; i < n; i++) {
     const az = (i / n) * Math.PI * 2 + (r() - 0.5) * 0.7;
-    const rb = 0.02 + 0.13 * Math.sqrt(r()), lean = 0.06 + 0.32 * r(), top = i === 0 ? 1 : 0.55 + 0.42 * r();
+    const rb = 0.01 + 0.05 * Math.sqrt(r()), lean = 0.04 + 0.2 * r(), top = i === 0 ? 1 : 0.55 + 0.42 * r();
     const dx = Math.cos(az), dz = Math.sin(az), bx = dx * rb, bz = dz * rb;
     const reach = Math.min(R - rb, top * Math.tan(lean));
-    stem(b, [new THREE.Vector3(bx, 0, bz), new THREE.Vector3(bx + dx * reach, top, bz + dz * reach)], [0.012, 0.004], az + Math.PI / 4 + r(), bark, tint(k, r(), barkMean[2]));
+    stem(b, [new THREE.Vector3(bx, 0, bz), new THREE.Vector3(bx + dx * reach, top, bz + dz * reach)], [0.008, 0.003], az + Math.PI / 4 + r(), bark, tint(k, r(), barkMean[2]));
   }
   return b;
 }

@@ -84,16 +84,17 @@ const SNOW_VERT_HEAD = TREE_SNOW_VERT + /* glsl */ `
   attribute float snowHold;
   varying vec3 vSnowRel; varying float vSnowHold; varying float vSnowY;
   #ifdef SHRUB
-    // FEAT-159, per instance: the snow line (share of the height under the snow) and the mound cover (0..1)
-    attribute vec2 aShrub;
-    varying vec2 vShrub; varying float vShrubH;
+    // FEAT-159, per instance: the snow line (share of the height under the snow), the mound cover (0..1)
+    // and how high the snow drifts up it (m)
+    attribute vec3 aShrub;
+    varying vec3 vShrub; varying float vShrubH;
   #endif
 `;
 const SNOW_FRAG_HEAD = TREE_SNOW_COMMON + /* glsl */ `
   uniform float uSnowK;
   varying vec3 vSnowRel; varying float vSnowHold; varying float vSnowY;
   #ifdef SHRUB
-    varying vec2 vShrub; varying float vShrubH;
+    varying vec3 vShrub; varying float vShrubH;
   #endif
 `;
 /** after color_fragment: the snow on this fragment, the needle colour under it, and the ghost's alpha */
@@ -117,11 +118,11 @@ const SNOW_COLOR = /* glsl */ `
   }
   #ifdef SHRUB
   {
-    // FEAT-159: the snow drifted round the stems where they come out of it (5 to 25 cm up), and on a
-    // buried mat or sapling the mound over it, a few dark tips showing through
+    // FEAT-159: the snow drifted round it where it comes out of the snow (up to vShrub.z: 25 cm on a mat,
+    // a few cm on a thin stem), and on a buried mat or sapling the mound over it, a few dark tips showing through
     float sn2 = treeSnowNoise(vSnowRel * 4.1 + 7.0);
     float above = (vSnowY - vShrub.x) * vShrubH;
-    float drift = 1.0 - smoothstep(0.05, 0.12 + 0.13 * sn2, above);
+    float drift = 1.0 - smoothstep(0.2 * vShrub.z, vShrub.z * (0.5 + 0.5 * sn2), above);
     float mound = smoothstep(0.35, 0.7, vShrub.y * (0.7 + 0.6 * sn2));
     float c = max(drift, mound);
     if (c > snowCov) { snowCov = c; diffuseColor.rgb = mix(kNeedle, TREE_SNOW_ALB * (0.9 + 0.1 * sn2), c); }
@@ -174,6 +175,10 @@ export function treeMaterial(atlas: THREE.Texture, o: TreeMaterialOpts): THREE.M
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + KIT_BEGIN)
       .replace('#include <project_vertex>', `#include <project_vertex>
         vTreeFade = treeFade(kOrigin, length(ktm[1].xyz), length(ktm[0].xyz), position.y);
+        #ifdef SHRUB
+          // FEAT-159: the see-through fade is for crowns that hide the rider; a shrub only fades when over 2.5 m stands above the snow
+          if ((1.0 - aShrub.x) * vShrubH < 2.5) vTreeFade = 0.0;
+        #endif
         ${COLLAPSE}`);
     shader.fragmentShader = TREE_FADE_FRAG_HEAD + LOD_FRAG_HEAD + SNOW_FRAG_HEAD + TREE_SNOW_LIGHT + shader.fragmentShader
       .replace('#include <clipping_planes_fragment>', `${LOD_FRAG_BODY}\n${TREE_FADE_FRAG_BODY}\n#include <clipping_planes_fragment>`)

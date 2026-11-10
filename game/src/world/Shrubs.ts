@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
 import { aspectOf, snowpackChanged, snowpackDepth, snowpackState, type SnowpackState } from '../sim/Snowpack';
-import { SPECIES, VARIANTS, hash01, fadeWidth, treeMaterial, treeDepthMaterial, newBand, SHRUBS, SHRUB_KINDS, YOUNG_CONIFER, buildShrubGeometries, type TreeKit, type ShrubGeometrySet } from './trees';
+import { SPECIES, VARIANTS, hash01, fadeWidth, treeMaterial, treeDepthMaterial, newBand, SHRUBS, SHRUB_KINDS, WILLOW, YOUNG_CONIFER, buildShrubGeometries, type TreeKit, type ShrubGeometrySet } from './trees';
 import { vegetationNearRadius } from './Vegetation';
 
 /**
@@ -15,7 +15,7 @@ import { vegetationNearRadius } from './Vegetation';
  * it is drawn. A juniper, sagebrush or young conifer buried past its top still shows as a snow-covered
  * hump (SHRUBS[k].hump, fading out under 2 m more snow); willow and oak stems just go under. The material
  * (materials.ts, SHRUB) caps the visible tops with the tree snow, drifts snow round the stems where they
- * leave the snow (the per-instance `aShrub` snow line) and covers a half-buried mat or sapling in a mound.
+ * leave the snow (the per-instance `aShrub`: snow line and drift height, a few cm on a thin stem) and covers a half-buried mat or sapling in a mound.
  *
  * Drawing: one InstancedMesh per kind x variant (20), filled from the shrubs within the reach of where the
  * camera was, regathered every 25 m of movement or when the snowpack changes; the band (materials.ts)
@@ -221,7 +221,8 @@ export class Shrubs {
         crown[i] = Math.max(nat, Math.min(r, 0.32 * h));
       } else {
         combo[i] = first[kind] + Math.floor(hash01(x, y, 3) * SHRUBS[kind].variants) % SHRUBS[kind].variants;
-        crown[i] = Math.max(0.15, r);
+        // a willow record is one bush of a clump: kept to about a third of its height across, so the clump reads as stems close together
+        crown[i] = Math.max(0.15, kind === WILLOW ? Math.min(r, 0.35 * h) : r);
       }
       yaw[i] = hash01(x, y, 5) * Math.PI * 2;
       tint[i] = 0.92 + 0.16 * hash01(x, y, 13);
@@ -284,26 +285,26 @@ export class Shrubs {
           if (b) b[3] = brushUp ? gz + above : OFF;
         }
         if (vis < MIN_SHOW) { buried++; continue; }
-        this.staged[cell.combo![i]].push(cell.cx * 65536 + cell.cy, i, gz + vis - h, this.bury.line, this.bury.mound);
+        this.staged[cell.combo![i]].push(cell.cx * 65536 + cell.cy, i, gz + vis - h, this.bury.line, this.bury.mound, k.drift);
       }
     }
     // fill the meshes
     let drawn = 0;
     const cellOf = (key: number): Cell | undefined => this.cells.get(`${Math.floor(key / 65536)}_${key % 65536}`);
     for (let c = 0; c < this.combos.length; c++) {
-      const list = this.staged[c], n = list.length / 5;
+      const list = this.staged[c], n = list.length / 6;
       let mesh = this.meshes[c];
       if (n === 0) { if (mesh) mesh.visible = false; continue; }
       if (!mesh || mesh.instanceMatrix.count < n) mesh = this.makeMesh(c, Math.ceil(n * 1.5) + 16);
       const attr = mesh.geometry.getAttribute('aShrub') as THREE.InstancedBufferAttribute, sa = attr.array as Float32Array;
       const ca = mesh.instanceColor!.array as Float32Array;
       for (let q = 0; q < n; q++) {
-        const cell = cellOf(list[q * 5])!, i = list[q * 5 + 1], o = i * 6, d = cell.data!;
+        const e = q * 6, cell = cellOf(list[e])!, i = list[e + 1], o = i * 6, d = cell.data!;
         const cr = cell.crown![i], h = d[o + 3];
         this.q.setFromAxisAngle(this.up, cell.yaw![i]);
-        this.mtx.compose(this.pos.set(d[o], list[q * 5 + 2], -d[o + 1]), this.q, this.scl.set(cr, h, cr));
+        this.mtx.compose(this.pos.set(d[o], list[e + 2], -d[o + 1]), this.q, this.scl.set(cr, h, cr));
         mesh.setMatrixAt(q, this.mtx);
-        sa[q * 2] = list[q * 5 + 3]; sa[q * 2 + 1] = list[q * 5 + 4];
+        sa[q * 3] = list[e + 3]; sa[q * 3 + 1] = list[e + 4]; sa[q * 3 + 2] = list[e + 5];
         const t = cell.tint![i];
         ca[q * 3] = t; ca[q * 3 + 1] = t; ca[q * 3 + 2] = t;
       }
@@ -327,7 +328,7 @@ export class Shrubs {
     const combo = this.combos[c], src = combo.geo, g = new THREE.BufferGeometry();
     g.index = src.index;
     for (const name of Object.keys(src.attributes)) g.setAttribute(name, src.getAttribute(name));
-    g.setAttribute('aShrub', new THREE.InstancedBufferAttribute(new Float32Array(cap * 2), 2));
+    g.setAttribute('aShrub', new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3));
     g.boundingBox = src.boundingBox; g.boundingSphere = src.boundingSphere;
     const mesh = new THREE.InstancedMesh(g, combo.young ? this.mat.young : this.mat.shrub, cap);
     mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);

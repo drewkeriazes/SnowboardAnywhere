@@ -329,7 +329,7 @@ function addShrub(kind: number, v: number, x: number, z: number, h: number, r: n
   const g = new THREE.BufferGeometry();
   g.index = src.index;
   for (const n of Object.keys(src.attributes)) g.setAttribute(n, src.getAttribute(n));
-  g.setAttribute('aShrub', new THREE.InstancedBufferAttribute(new Float32Array([b.line, b.mound]), 2));
+  g.setAttribute('aShrub', new THREE.InstancedBufferAttribute(new Float32Array([b.line, b.mound, SHRUBS[kind].drift]), 3));
   const mesh = new THREE.InstancedMesh(g, kind === YOUNG_CONIFER ? youngMat : shrubMat, 1);
   tmpQ.setFromAxisAngle(up, yaw);
   tmpM.compose(new THREE.Vector3(x, b.vis - h, z), tmpQ, new THREE.Vector3(r, h, r));
@@ -343,7 +343,7 @@ function addShrub(kind: number, v: number, x: number, z: number, h: number, r: n
 
 /** the lineup's shrubs: kind, variant, height (m), crown radius (m) */
 const SHRUB_LINE: [number, number, number, number][] = [
-  [0, 0, 1.2, 0.7], [0, 1, 2, 1], [0, 2, 3, 1.3],
+  [0, 0, 1.2, 0.42], [0, 1, 2, 0.7], [0, 2, 3, 1.05],
   [1, 0, 0.35, 0.6], [1, 1, 0.7, 1], [1, 0, 1, 1.4],
   [2, 0, 0.55, 0.35], [2, 1, 0.9, 0.5], [2, 0, 1.2, 0.7],
   [4, 0, 1.4, 1], [4, 1, 2.6, 1.6],
