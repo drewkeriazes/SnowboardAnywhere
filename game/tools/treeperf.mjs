@@ -37,7 +37,7 @@ await page.goto(`http://localhost:${server.address().port}/index.html?pack=${pac
 await page.waitForFunction(() => window.__step, null, { timeout: 120000 });
 page.setDefaultTimeout(300000);
 
-console.log('view                              frame ms   calls  tris(M)  | trees: calls  tris(M)  lod0  lod1');
+console.log('view                              frame ms   calls  tris(M)  | trees: calls  tris(M)  lod0  lod1  | calls / tris(M): lod0  lod1  lod2  impostor  shadow');
 for (const { slug, spec } of spots) {
   for (const v of spec.views ?? []) {
     const e = v.eye ?? {};
@@ -64,10 +64,23 @@ for (const { slug, spec } of spots) {
       runs.sort((a, b) => a.ms - b.ms);
       const all = frame();
       s.veg.group.visible = false; const none = frame(); s.veg.group.visible = true;
+      // FEAT-158: the same split per LOD (each LOD's materials hidden in turn, subtracted; update() re-shows the meshes)
+      const by = {};
+      for (const lod of ['lod0', 'lod1', 'lod2', 'impostor']) {
+        const mats = new Set(s.veg.group.children.filter((m) => m.name.includes(lod)).map((m) => m.material));
+        for (const m of mats) m.visible = false;
+        const f = frame();
+        for (const m of mats) m.visible = true;
+        by[lod] = { calls: all.calls - f.calls, tris: all.tris - f.tris };
+      }
+      // the shadow pass's share of the trees (the frame with the shadow map not redrawn, trees shown and hidden)
+      const sm = s.renderer.shadowMap, au = sm.autoUpdate;
+      sm.autoUpdate = false; const noSh = frame(); s.veg.group.visible = false; const noShNone = frame(); s.veg.group.visible = true; sm.autoUpdate = au;
+      const shadow = { calls: (all.calls - none.calls) - (noSh.calls - noShNone.calls), tris: (all.tris - none.tris) - (noSh.tris - noShNone.tris) };
       info.autoReset = true;
-      return { ms: runs[15].ms, calls: all.calls, tris: all.tris, treeCalls: all.calls - none.calls, treeTris: all.tris - none.tris, lod0: s.veg.stats.lod0 ?? 0, lod1: s.veg.stats.lod1 ?? 0 };
+      return { shadow, ms: runs[15].ms, calls: all.calls, tris: all.tris, treeCalls: all.calls - none.calls, treeTris: all.tris - none.tris, lod0: s.veg.stats.lod0 ?? 0, lod1: s.veg.stats.lod1 ?? 0, by };
     });
-    console.log(`${(slug + '/' + v.id).padEnd(34)} ${r.ms.toFixed(1).padStart(8)} ${String(r.calls).padStart(7)} ${(r.tris / 1e6).toFixed(2).padStart(8)}  | ${String(r.treeCalls).padStart(11)} ${(r.treeTris / 1e6).toFixed(2).padStart(8)} ${String(r.lod0).padStart(5)} ${String(r.lod1).padStart(5)}`);
+    console.log(`${(slug + '/' + v.id).padEnd(34)} ${r.ms.toFixed(1).padStart(8)} ${String(r.calls).padStart(7)} ${(r.tris / 1e6).toFixed(2).padStart(8)}  | ${String(r.treeCalls).padStart(11)} ${(r.treeTris / 1e6).toFixed(2).padStart(8)} ${String(r.lod0).padStart(5)} ${String(r.lod1).padStart(5)}  | ${['lod0', 'lod1', 'lod2', 'impostor'].map((k) => `${r.by[k].calls}/${(r.by[k].tris / 1e6).toFixed(2)}`.padStart(10)).join('')}${`${r.shadow.calls}/${(r.shadow.tris / 1e6).toFixed(2)}`.padStart(10)}`);
   }
 }
 if (errors.length) console.log(errors.slice(0, 10).join('\n'));

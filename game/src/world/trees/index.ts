@@ -78,12 +78,17 @@ export class TreeKit {
     this.setBands(80, 400, 1500, 4500, true);
   }
 
-  /** set the LOD band edges (m); without impostors LOD2 runs out to b3 */
+  /** set the LOD band edges (m); without impostors LOD2 runs out to b3; b0 0 drops LOD0 */
   setBands(b0: number, b1: number, b2: number, b3: number, impostors: boolean): void {
     Object.assign(this.edges, { b0, b1, b2, b3, impostors });
     const f0 = fadeWidth(b0) / 2, f1 = fadeWidth(b1) / 2, f2 = fadeWidth(b2) / 2;
-    this.bands.lod0.value.set(-2, -1, b0 - f0, b0 + f0);
-    this.bands.lod1.value.set(b0 - f0, b0 + f0, b1 - f1, b1 + f1);
+    if (b0 > 0) {
+      this.bands.lod0.value.set(-2, -1, b0 - f0, b0 + f0);
+      this.bands.lod1.value.set(b0 - f0, b0 + f0, b1 - f1, b1 + f1);
+    } else { // FEAT-158: no LOD0 (the Low preset): LOD1 from the camera out
+      this.bands.lod0.value.set(1e8, 1e8 + 1, 1e8 + 2, 1e8 + 3);
+      this.bands.lod1.value.set(-2, -1, b1 - f1, b1 + f1);
+    }
     if (impostors) {
       this.bands.lod2.value.set(b1 - f1, b1 + f1, b2 - f2, b2 + f2);
       this.bands.imp.value.set(b2 - f2, b2 + f2, 1e8, 1e8 + 1);
@@ -187,7 +192,7 @@ export class TreeKit {
 
 export type { Band };
 
-/** per-instance attributes of the far LODs, shared by a cell's LOD2 and impostor meshes */
+/** per-instance attributes of a far LOD mesh (`count` is the capacity) */
 export interface FarAttrs {
   iPos: THREE.InstancedBufferAttribute;
   iScale: THREE.InstancedBufferAttribute;

@@ -202,7 +202,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       env.sun.visible = wantSize === 0;
       env.sun.shadow.mapSize.set(s.quality === 'high' ? 4096 : 2048, s.quality === 'high' ? 4096 : 2048);
       env.setShadows(s.shadows);
-      if (s.quality === 'low') setVegetationBudget(250, 600); else setVegetationDensity(s.treeDensity * auto.current.trees);
+      if (s.quality === 'low') setVegetationBudget(250, 600, false); else setVegetationDensity(s.treeDensity * auto.current.trees); // FEAT-158: Low has no LOD0 cards
       cam.baseFov = s.fov;
       controls.keymap = { ...s.keys };
       controls.invertSteer = s.invertSteer;
@@ -382,7 +382,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     window.addEventListener('resize', onResize);
 
     // ---------------------------------------------------------------- FEAT-162: the frame and the states
-    const draw = (): void => sceneRender.render(cam.camera, cam.firstPerson);
+    const draw = (): void => { veg.cull(cam.camera, renderer.shadowMap.enabled && env.sun.visible && !env.csm ? env.sun : null); sceneRender.render(cam.camera, cam.firstPerson); }; // FEAT-158: the near trees culled to this view
     const frame = new RideFrame({
       ...world, params, settings, pack, renderer, canvas, audio, events, rider, liftRide, prefetch, cam, controls, touch, goggles, lens, runStats, runCard, speedLines, replay,
       modes, map, labels, sun, auto, keyLabels, pressMeter, fps, sky, look, applyAuto, draw, showToast, saveShot, conditions,
