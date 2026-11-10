@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """FEAT-172 CI report: compares two runs of game/tools/cishot.mjs (main and the PR).
 
-python tools/ci/stills_report.py <before_dir> <after_dir> <out_dir> [--stills] [--run-url URL]
+python tools/ci/render_report.py <before_dir> <after_dir> <out_dir> [--stills] [--run-url URL]
     [--before-dist DIR --after-dist DIR]
 
 Writes <out_dir>/report.md (the PR comment body, starting with the marker the workflow looks for to
@@ -123,7 +123,7 @@ def main():
     fails = []
     lines = [MARKER, "## Shader compile and scene budgets (synthetic pack)", ""]
     if after is None:
-        lines.append("The PR's run of `cishot.mjs` did not finish, so there is nothing to compare. See the `stills` job log.")
+        lines.append("The PR's run of `cishot.mjs` did not finish, so there is nothing to compare. See the `render-budgets` job log.")
         fails.append("no stats from the PR run")
     else:
         lines.append(f"Rendered on `{after.get('gpu', '?')}`, `lowgfx`, clear sky, noon. "

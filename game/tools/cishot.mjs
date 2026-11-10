@@ -5,7 +5,7 @@
 //  2. for each fixed view, waits until no tile, terrain chunk or tree cell is pending, resets the rider
 //     to the spawn and saves a still, with that frame's renderer.info (draw calls, triangles, geometries,
 //     textures, programs); the JS heap after a gc() at the end.
-// Writes <outDir>/<view>.png and <outDir>/stats.json. tools/ci/stills_report.py compares two of these
+// Writes <outDir>/<view>.png and <outDir>/stats.json. tools/ci/render_report.py compares two of these
 // (main and the PR) and posts the before / after comment. Exit code 1 on a shader message or page error.
 // node tools/cishot.mjs [pack] [outDir] [--gpu | --cpu | --headed]   (run after `npx vite build`; SHOT_DIST serves another build)
 import { launchBrowser } from './browser.mjs';

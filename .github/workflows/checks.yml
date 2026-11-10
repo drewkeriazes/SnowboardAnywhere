@@ -6,9 +6,9 @@
 #                     no pack, no browser)
 #   browser-checks    headless check tools on the synthetic pack, SwiftShader       game/ or pipeline/ changed
 #   pipeline-tests    pytest pipeline/tests                                         pipeline/ changed
-#   stills            main and the PR on the synthetic pack (cishot.mjs): shader    PRs, game/ or pipeline/ changed
+#   render-budgets    main and the PR on the synthetic pack (cishot.mjs): shader    PRs, game/ or pipeline/ changed
 #                     compile, scene budget counts (fails on a count more than 10%
-#                     over main), bundle size; stills-comment posts them on the PR.
+#                     over main), bundle size; render-budgets-comment posts them.
 #                     The before / after stills comparison only when asked for: the
 #                     PR's `stills` label, or a manual run with `stills` ticked
 #   repo-rules        no em dashes in added Markdown, plain commit messages,         always
@@ -227,7 +227,7 @@ jobs:
           done
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
 
-  stills:
+  render-budgets:
     needs: [changes, synth-pack]
     if: >-
       (github.event_name == 'pull_request' || inputs.pr != '') &&
@@ -321,11 +321,11 @@ jobs:
           if [ "$want" != true ] && gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/labels" --jq '.[].name' | grep -qx stills; then want=true; fi
           echo "stills=$want" | tee -a "$GITHUB_OUTPUT"
 
-      - name: Stills on main (before)
+      - name: Render main (before)
         working-directory: game
         continue-on-error: true
         run: SHOT_DIST="$MAIN/game/dist" SHOT_PACKS="$MAIN_PACKS" node tools/cishot.mjs synth "$OUT/before" --cpu
-      - name: Stills on the PR (after)
+      - name: Render the PR (after)
         id: after
         working-directory: game
         continue-on-error: true
@@ -343,7 +343,7 @@ jobs:
         id: report
         continue-on-error: true
         run: |
-          python tools/ci/stills_report.py "$OUT/before" "$OUT/after" "$OUT/report" \
+          python tools/ci/render_report.py "$OUT/before" "$OUT/after" "$OUT/report" \
             ${{ steps.want.outputs.stills == 'true' && '--stills' || '' }} \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --before-dist "$MAIN/game/dist" --after-dist game/dist
@@ -356,16 +356,16 @@ jobs:
           if-no-files-found: ignore
       - name: Result
         run: |
-          [ "${{ steps.after.outcome }}" = "success" ] || { echo "::error::cishot on the PR failed (shader message, page error or crash): see 'Stills on the PR'"; exit 1; }
+          [ "${{ steps.after.outcome }}" = "success" ] || { echo "::error::cishot on the PR failed (shader message, page error or crash): see 'Render the PR'"; exit 1; }
           [ "${{ steps.report.outcome }}" = "success" ] || { echo "::error::scene budget over main, or no stats: see 'Report'"; exit 1; }
 
-  # Posts (or updates) one comment on the PR with the report. Separate from `stills` so the job that can
+  # Posts (or updates) one comment on the PR with the report. Separate from `render-budgets` so the job that can
   # write to the PR runs none of the PR's code.
-  stills-comment:
-    needs: stills
+  render-budgets-comment:
+    needs: render-budgets
     if: >-
       always() && (github.event_name == 'pull_request' || inputs.pr != '') &&
-      (needs.stills.result == 'success' || needs.stills.result == 'failure') &&
+      (needs.render-budgets.result == 'success' || needs.render-budgets.result == 'failure') &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -383,7 +383,7 @@ jobs:
         run: |
           body=art/report/report.md
           if [ ! -f "$body" ]; then
-            printf '<!-- ci-stills -->\n## Shader compile and scene budgets (synthetic pack)\n\nThe stills job failed before it wrote a report: [run log](%s).\n' \
+            printf '<!-- ci-stills -->\n## Shader compile and scene budgets (synthetic pack)\n\nThe render-budgets job failed before it wrote a report: [run log](%s).\n' \
               "${{ github.server_url }}/$REPO/actions/runs/${{ github.run_id }}" > report.md
             body=report.md
           fi
