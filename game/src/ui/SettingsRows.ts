@@ -69,10 +69,11 @@ export function gfxPresetOf(s: Settings): GfxPreset | 'custom' {
   }
   return 'custom';
 }
-export type FeelPreset = 'arcade' | 'balanced' | 'realistic';
-/** Feel presets set the gameplay feel options together: press balance and the fall line (FEAT-134; jump mode joins as it lands) */
+export type FeelPreset = 'arcade' | 'realistic';
+/** Feel presets set the gameplay feel options together: press balance and the fall line (FEAT-134; jump mode joins as it lands).
+ *  Two, by Drew's call: Arcade forgives, Realistic is the defaults (Hard press balance stays a manual pick) */
 const FEEL: Record<FeelPreset, Partial<Settings>> = {
-  arcade: { pressBalance: 'easy', fallLine: 'off' }, balanced: { pressBalance: 'on', fallLine: 'real' }, realistic: { pressBalance: 'hard', fallLine: 'real' },
+  arcade: { pressBalance: 'easy', fallLine: 'off' }, realistic: { pressBalance: 'on', fallLine: 'real' },
 };
 export function applyFeelPreset(s: Settings, p: FeelPreset): void { Object.assign(s, FEEL[p]); }
 export function feelPresetOf(s: Settings): FeelPreset | 'custom' {
@@ -80,7 +81,7 @@ export function feelPresetOf(s: Settings): FeelPreset | 'custom' {
   return 'custom';
 }
 export const GFX_OPTS: Opt[] = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra']];
-export const FEEL_OPTS: Opt[] = [['arcade', 'Arcade'], ['balanced', 'Balanced'], ['realistic', 'Realistic']];
+export const FEEL_OPTS: Opt[] = [['arcade', 'Arcade'], ['realistic', 'Realistic']];
 
 const outfitPreset = (s: Settings) => Object.entries(OUTFIT_PRESETS).find(([, o]) => (Object.keys(o) as (keyof Outfit)[]).every((k) => o[k] === s.outfit[k]))?.[0] ?? '';
 const colour = (k: keyof Outfit, label: string): Row => ({ kind: 'color', id: `outfit.${k}`, what: 'outfit', label, desc: `The ${label.toLowerCase()} colour. Pick any colour; the preset shows Custom after.`, get: (s) => s.outfit[k], set: (s, v) => { s.outfit[k] = String(v); } });

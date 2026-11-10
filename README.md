@@ -90,7 +90,7 @@ Rider, Accessibility, Credits), the settings in the middle, and what the focused
 
 Type in the search box to find a setting in any category. Graphics has presets (Low, Medium, High, and Ultra:
 High plus cascaded shadows at full resolution) over its advanced options, Gameplay has Feel presets (Arcade,
-Balanced, Realistic). Accessibility has UI scale and Reduce motion (camera shake, first person shake and speed
+Realistic). Accessibility has UI scale and Reduce motion (camera shake, first person shake and speed
 lines off together). Opened from the pause menu, changes show at once behind the screen, with the frame rate in the corner.
 
 ### Controllers
