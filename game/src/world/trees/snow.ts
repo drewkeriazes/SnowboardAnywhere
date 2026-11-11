@@ -25,6 +25,9 @@ import { SNOW_ALBEDO, SNOW_SHADE_TINT } from '../snowLook';
  * behind them, so trees in shade are dark blue-green.
  */
 
+/** FEAT-217: the most shaken trees the near LODs draw bare on their near side */
+export const TREE_SHED_MAX = 8;
+
 export interface TreeSnowState {
   /** 0 bare .. 1 heavy */
   load: number;
@@ -45,6 +48,11 @@ export const treeSnowUniforms = {
   uTreeSunColor: { value: new THREE.Color(3, 3, 3) },
   /** the hemisphere light's ground colour x intensity: the fill from the snow under the crown */
   uTreeGround: { value: new THREE.Color(0.8, 0.8, 0.8) },
+  /** FEAT-217: the trees the rider has shaken snow off (TreeBrush), two vec4 a tree: (base x, base z (three.js, = -north),
+   * the share of the near side's snow gone, the contact height above the base) and (the near side's direction x, z, the
+   * share of that which is the whole tree: a slam into the trunk shakes every side and height) */
+  uTreeShed: { value: Array.from({ length: 2 * TREE_SHED_MAX }, () => new THREE.Vector4()) },
+  uTreeShedN: { value: 0 },
 };
 
 export function setTreeSnow(s: TreeSnowState): void {
@@ -82,14 +90,42 @@ export function treeSnowState(newSnow: number, day: 'fresh' | 'mid' | 'spring', 
   return { load, melt, ghost };
 }
 
+/**
+ * FEAT-217: the load on one tree (0..1) as `TREE_SNOW_VERT` gives it, for a tree whose base is at (x, y, z)
+ * (pack metres: x east, y north, z up): the day's load +-15 % by the tree, or the snow-ghost load in the
+ * ghost band. The hash is the shader's in double precision, so a tree may land a few percent off the
+ * one drawn; the share of it that has melted off the sun side is `uTreeSnow.y`.
+ */
+export function treeSnowLoadAt(x: number, y: number, z: number): number {
+  const u = treeSnowUniforms.uTreeSnow.value, gz = treeSnowUniforms.uGhostZ.value;
+  const m = (v: number): number => ((v % 4096) + 4096) % 4096; // GLSL mod of the three.js x and z (= -north)
+  const s = Math.sin(m(x) * 12.9898 + m(-y) * 78.233) * 43758.5453, h = s - Math.floor(s);
+  const g = u.z * smooth(gz.x, gz.y, z + (h - 0.5) * 50);
+  return Math.max(clamp01(u.x * (0.85 + 0.3 * h)), g);
+}
+
 /** the per-tree load and ghost share (vertex shaders; `o` is the tree's base, world) */
 export const TREE_SNOW_VERT = /* glsl */ `
   uniform vec3 uTreeSnow; uniform vec2 uGhostZ;
+  uniform vec4 uTreeShed[${2 * TREE_SHED_MAX}]; uniform int uTreeShedN;
   varying float vSnowLoad; varying float vSnowGhost;
+  // FEAT-217 (the mesh LODs): the near side's direction (xy), the share of its snow gone and the contact height above the
+  // base; and how much of it is all round the tree
+  varying vec4 vSnowShed; varying float vSnowShedAll;
+  void treeSnowShed(vec3 o) {
+    vSnowShed = vec4(0.0); vSnowShedAll = 0.0;
+    for (int i = 0; i < ${TREE_SHED_MAX}; i++) {
+      if (i >= uTreeShedN) break;
+      vec4 a = uTreeShed[2 * i];
+      vec2 d = o.xz - a.xy;
+      if (dot(d, d) < 0.04) { vec4 b = uTreeShed[2 * i + 1]; vSnowShed = vec4(b.xy, a.zw); vSnowShedAll = b.z; break; }
+    }
+  }
   void treeSnowLoad(vec3 o) {
     float h = fract(sin(dot(mod(o.xz, 4096.0), vec2(12.9898, 78.233))) * 43758.5453);
     float g = uTreeSnow.z * smoothstep(uGhostZ.x, uGhostZ.y, o.y + (h - 0.5) * 50.0);
     vSnowGhost = g;
+    vSnowShed = vec4(0.0); vSnowShedAll = 0.0;
     vSnowLoad = max(clamp(uTreeSnow.x * (0.85 + 0.3 * h), 0.0, 1.0), g);
   }
 `;
@@ -97,7 +133,7 @@ export const TREE_SNOW_VERT = /* glsl */ `
 /** shared fragment helpers: the noise, the coverage and the snow colours */
 export const TREE_SNOW_COMMON = /* glsl */ `
   uniform vec3 uTreeSnow;
-  varying float vSnowLoad; varying float vSnowGhost;
+  varying float vSnowLoad; varying float vSnowGhost; varying vec4 vSnowShed; varying float vSnowShedAll;
   const vec3 TREE_SNOW_ALB = vec3(${SNOW_ALBEDO.map((c) => c.toFixed(3)).join(', ')});
   const vec3 TREE_SNOW_SHADE = vec3(${SNOW_SHADE_TINT.map((c) => c.toFixed(3)).join(', ')});
   float treeSnowHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
