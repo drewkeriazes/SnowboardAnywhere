@@ -6,7 +6,7 @@ import { SNOW_ALBEDO, SNOW_SHADE_TINT } from '../snowLook';
  *
  * Load. `setTreeSnow` sets one load for the day (0 bare .. 1 just after a storm, from the new snow,
  * the snow conditions and the month: `treeSnowState`). Each tree varies it by +-15% and a tree above
- * the snow-ghost line (about 3,350 m) in deep winter goes to a full load with rime (`ghost`).
+ * the snow-ghost band (treeline, 3,450 to 3,560 m) in deep winter goes to a full load with rime (`ghost`).
  *
  * Where it sits (LOD0 and LOD1, per fragment): on the upper side of what you see, from the surface's
  * own facing (screen derivatives, so the top of a card collects snow and its underside stays green),
@@ -36,8 +36,9 @@ export interface TreeSnowState {
 
 export const treeSnowUniforms = {
   uTreeSnow: { value: new THREE.Vector3(0.4, 0, 0) }, // load, melt, ghost
-  /** the snow-ghost band (world y, m): none below x, full from y */
-  uGhostZ: { value: new THREE.Vector2(3300, 3420) },
+  /** the snow-ghost band (world y, m): none below x, full from y. Colorado treeline (FEAT-070): below it the
+   * forest is flocked, not rimed (Hornsilver at 3,380 m in the Feb 2014 photo), krummholz and the top stands are ghosts */
+  uGhostZ: { value: new THREE.Vector2(3450, 3560) },
   /** direction toward the sun (world) and its colour x intensity: the translucency and the far LODs */
   uTreeSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.4).normalize() },
   uTreeSunColor: { value: new THREE.Color(3, 3, 3) },
