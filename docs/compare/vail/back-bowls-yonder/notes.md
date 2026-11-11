@@ -17,3 +17,6 @@ The pair also confirmed the FOV convention: the Maps `y` value is the vertical F
 3. **Lone pines:** the real slopes have several broad, round-crowned lone pines (west and south-lift views, also north-east). The game only has narrow cones. -> FEAT-070
 4. **Snow surface:** real is tracked-out and chalky with ski tracks and sharp small shadows; the game foreground is smooth. -> FEAT-047, BUG-021 (known)
 5. **Sky:** overcast in the photo. Fixed by FEAT-078: the spot is shot with `weather: overcast`.
+
+## Re-shot for BUG-023 (2026-11-11)
+Eye shots re-taken on a pack built from main plus BUG-023 (crown heights from the tallest lidar return, not the blurred CHM). North-east skyline: about 35 trees, the photo about 30; heights now near the photo's (lone trees here median 16 m, were 12). South-west: the valley forest reads dark and continuous. Still narrower than the real open-grown trees -> BUG-083 (#507).

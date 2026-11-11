@@ -13,3 +13,6 @@ Real: Street View, Mar 2014, contributor Josh Jett, listed as "Vail Ski Resort" 
 2. **Trees on the saddle and ridge (north, west):** the real saddle has a small group of lone spruce, and the ridge has several clumps; the game has a few small cones. -> BUG-023
 3. **Forested skyline (east) and valley forest (south):** real is a dense dark band; the game's is thinner, and the far valley is pale. -> BUG-023
 4. **Snow:** spring snow, tracked and wind-textured; the game is fresh corduroy. Season.
+
+## Re-shot for BUG-023 (2026-11-11)
+Eye shots re-taken on a pack built from main plus BUG-023 (crown heights from the tallest lidar return, not the blurred CHM). North: the saddle's lone spruce are there, about 12 against the photo's 15, and taller (median 13 m within 300 m, was 9). Still narrower than the real ones -> BUG-083 (#507).

@@ -763,8 +763,11 @@ chm_s = ndimage.gaussian_filter(chm, 0.8)
 maxf = ndimage.maximum_filter(chm_s, size=3)
 peaks_mask = (chm_s == maxf) & (chm_s > 2.5) & canopy
 pr, pc = np.nonzero(peaks_mask)
-# thin: keep one per 2 cells where crowns are dense
-tree_rows, tree_cols, tree_h = [pr], [pc], [chm_s[pr, pc]]
+# BUG-023: the smoothed CHM finds the peaks, but a crown's height is the tallest return within one cell of it.
+# A lone tree is one return in one 2 m cell, and the blur kept about 0.6 of it (median 6 m drawn against 10 m
+# returned in the Back Bowls; NAIP shadow lengths put those trees at 11 to 12 m). Inside stands it was about 0.9.
+chm_top = ndimage.maximum_filter(chm, size=3)
+tree_rows, tree_cols, tree_h = [pr], [pc], [chm_top[pr, pc]]
 # FEAT-074: no fill trees in the pack. Under continuous canopy the subsampled lidar finds a crown every 10 m or
 # so; the stems between them are a stand density per 4 m cell (stands/, written below) that the client draws
 # near the camera only. (A 10 % fill used to sit in the pack: 0.33 gave 5.26 M trees at Vail, too many to render.)
@@ -800,13 +803,14 @@ keep = spc.cap_snags(ndvi2[sr, sc], len(rows) + max(0.0, stems_est - len(rows)))
 log(f"  snag candidates {len(sr)}, kept {len(keep)}")
 sr, sc = sr[keep], sc[keep]
 is_snag = np.concatenate([np.zeros(len(rows), bool), np.ones(len(sr), bool)])
-rows = np.concatenate([rows, sr]); cols = np.concatenate([cols, sc]); hgt = np.concatenate([hgt, chm_s[sr, sc]]).astype(np.float32)
+rows = np.concatenate([rows, sr]); cols = np.concatenate([cols, sc]); hgt = np.concatenate([hgt, chm_top[sr, sc]]).astype(np.float32)
 jx = rng.uniform(-0.9, 0.9, len(rows)); jy = rng.uniform(-0.9, 0.9, len(rows))
 tx = X0 + (cols + 0.5) * R2 + jx - OX
 ty = Y1 - (rows + 0.5) * R2 + jy - OY
 tz = dem2[rows, cols].astype(np.float32)
 elev = tz
-chm_at = chm_s[rows, cols]        # measured canopy height (0 in lidar gaps), before the fill-tree floor
+chm_at = chm_top[rows, cols]      # measured canopy height (0 in lidar gaps), before the fill-tree floor
+del chm_top
 # terrain for the species rules: aspect, crests and valleys, distance to OSM streams
 north2, east2, tpi_s2, tpi_l2 = spc.terrain_fields(dem2, R2)
 sdist2 = spc.stream_distance(streams, R2, X0 - OX, Y1 - OY, H2, W2)
