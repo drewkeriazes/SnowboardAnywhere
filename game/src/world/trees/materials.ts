@@ -22,7 +22,29 @@ import { treeSnowUniforms, TREE_SNOW_VERT, TREE_SNOW_COMMON, TREE_SNOW_LIGHT } f
 export const kitUniforms = {
   uLodCam: { value: new THREE.Vector3() },
   uWindTime: { value: 0 },
+  /** BUG-081: past this distance (m) the impostors thin (see THIN_GLSL) */
+  uThin: { value: 1e8 },
+  /** BUG-081: (where the generated stems stop, m; the crowns' growth past it, linear; Vegetation STEM_GROW) */
+  uStemGrow: { value: new THREE.Vector2(1e8, 1) },
 };
+
+/**
+ * BUG-081: past uThin an impostor stays with chance (uThin / d)^2 (a hash of its base) and grows by d / uThin, so
+ * the ground under crowns holds while the count falls with the distance and a crown keeps its size on screen:
+ * the far tree ring's ridges draw as the pack's trees do, out to twice the old reach. The draw h is per tree
+ * (Vegetation packs it into iSpec's fraction and leaves out of the buffers the trees that cannot show). Returns the size factor and fades the tree out (vLodVis) as its chance runs out.
+ */
+const THIN_GLSL = /* glsl */ `
+  uniform float uThin; uniform vec2 uStemGrow;
+  float thinTree(vec3 o, float h) {
+    float d = distance(o.xz, uLodCam.xz);
+    float g = mix(1.0, uStemGrow.y, smoothstep(uStemGrow.x, uStemGrow.x * 1.5, d));
+    if (d <= uThin) return g;
+    float keep = uThin * uThin / (d * d);
+    vLodVis *= clamp((keep - h) * 12.0 / keep, 0.0, 1.0);
+    return g * d / uThin;
+  }
+`;
 
 /** (fade-in start, fade-in end, fade-out start, fade-out end), metres from the camera */
 export type Band = { value: THREE.Vector4 };
@@ -268,18 +290,23 @@ export function farMaterial(albedo: THREE.Texture, normal: THREE.Texture, snow: 
       #include <fog_pars_vertex>
       ${LOD_VERT}
       ${TREE_SNOW_VERT}
+      #ifdef BILLBOARD
+        ${THIN_GLSL}
+      #endif
       void main() {
         { float isIn; vLodVis = lodVis(iPos, isIn); vLodIn = isIn; }
         treeSnowLoad(iPos);
-        int s = int(iSpec + 0.5);
+        int s = int(iSpec); // BUG-081: the fraction is the thinning draw
         float hw = uHalfW[s] * iScale.x;
         float col;
         vec3 world;
         #ifdef BILLBOARD
+          float grow = thinTree(iPos, fract(iSpec) / 0.98);
+          hw *= grow;
           vec3 toCam = cameraPosition - iPos;
           float viewYaw = atan(toCam.x, toCam.z);
           vec3 right = vec3(cos(viewYaw), 0.0, -sin(viewYaw));
-          world = iPos + right * position.x * hw + vec3(0.0, position.y * iScale.y, 0.0);
+          world = iPos + right * position.x * hw + vec3(0.0, position.y * iScale.y * grow, 0.0);
           col = floor(mod((viewYaw - iYaw) / 6.2831853 * uAngles + 0.5 + uAngles, uAngles));
         #else
           float c = cos(iYaw), sn = sin(iYaw);

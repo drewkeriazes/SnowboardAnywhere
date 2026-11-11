@@ -71,6 +71,11 @@ export interface InstancesMeta {
   /** DATA-020: shrubs/<cx>_<cy>.bin, Float32 records x, y, z, height, radius, kind; absent in older packs */
   shrubCount?: number;
   shrubCells?: string[];
+  /** BUG-081: farTrees/<cx>_<cy>.bin (pipeline/far_trees.py), the lidar crowns outside the pack bounds in the same
+   * record as trees/, on the same grid but running `treeRing` cells past it on every side (cx, cy may be negative) */
+  treeRing?: number;
+  farTreeCount?: number;
+  farTreeCells?: string[];
 }
 
 export interface PackMeta {

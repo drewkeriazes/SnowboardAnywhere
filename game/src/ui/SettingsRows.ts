@@ -189,7 +189,7 @@ export const SECTIONS: Section[] = [
   ] },
 
   { cat: 'world', title: 'Map', rows: [
-    seg('units', 'Units', [['imperial', 'mph, ft'], ['metric', 'km/h, m']], 'Speed, height and distance units on the HUD and the map.'),
+    seg('units', 'Units', [['imperial', 'mph, ft'], ['metric', 'km/h, m']], 'Speed, height, distance and snow depth units on the HUD and the map.'),
     toggle('showMarkers', 'Lift markers', 'Markers over the lift stations.'),
     toggle('showLabels', 'Peak names', 'Peak and town names on the mountain. Hidden in a storm.'),
   ] },

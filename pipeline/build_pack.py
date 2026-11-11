@@ -1050,6 +1050,17 @@ if treeline_m:
     meta["treeline"] = round(float(treeline_m))
 write_meta(out, meta)
 
+# ------------------------------------------------------------------ 9b. the far tree ring (BUG-081)
+# the lidar crowns on the ridges round the resort (far_trees.py), before the cover, whose land cover levels take
+# their forest from them; needs lidar.far in the config and its nodes in raw/<slug>/ept_far/ (ept_select.py)
+if cfg["lidar"].get("far") and glob.glob(os.path.join(raw, "ept_far", "*.laz")):
+    log("far tree ring")
+    import far_trees
+    far_trees.main([slug, raw, out])
+    meta = json.load(open(os.path.join(out, "meta.json"), encoding="utf-8"))
+else:
+    log("  no far tree ring (lidar.far and raw/<slug>/ept_far/): the ridges round the resort keep the land cover alone")
+
 # ------------------------------------------------------------------ 10. forest cover levels for the far terrain (FEAT-153)
 log("cover")
 from cover import build_cover

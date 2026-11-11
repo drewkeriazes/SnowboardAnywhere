@@ -3,6 +3,7 @@ import { MOGUL_GLSL } from './Moguls';
 import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from './rockShader';
 import { DEFORM_GLSL, deformUniforms } from '../world/Deform';
 import { SNOW_SHADE_TINT } from '../world/snowLook';
+import { SNOWPACK_GLSL, snowpackState, snowpackUniform } from '../sim/Snowpack';
 
 /**
  * Snow / rock / scree / groomed material. Per-vertex class weights arrive in the color attribute
@@ -79,6 +80,8 @@ function snowLightsChunk(): string {
 /** FEAT-153: the canopy lift fades in from the impostors' reach (Vegetation FAR_RADIUS) to full here (m) */
 /** FEAT-153: the canopy lift fades in over this many metres from `uLiftNear`, the impostors' reach (Vegetation FAR_RADIUS, set by Terrain.update) */
 export const LIFT_RAMP = 2000;
+/** BUG-081: the share of the canopy the drawn trees cover past the generated stems' reach, where they grow */
+export const FOREST_DRAWN_FAR = 0.92;
 /** FEAT-153: cover level slots in the shader (coarsest first) */
 export const COVER_SLOTS = 3;
 export const EMPTY_RECT = new THREE.Vector4(-1e7, -1e7, -1e7 + 1000, -1e7 + 1000); // weight 0 everywhere, finite uv
@@ -134,6 +137,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     uSkied: { value: 0.0 },
     uSpring: { value: 0.0 },
     uSnowLee: { value: new THREE.Vector2(1, 0) },
+    /** BUG-081: the season's snowpack (Snowpack.ts snowpackUniform), mid February until the ride sets it */
+    uSnowpack: { value: new THREE.Vector4(...snowpackUniform(snowpackState(2, 'mid', 0), [0, 0, 0, -1])) },
     /** FEAT-059: mogul field amplitude multiplier and uphill creep (m) for the shaded coarse chunks */
     uMogulScale: { value: 1.0 },
     uMogulCreep: { value: 0.0 },
@@ -149,6 +154,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
      *  the share of the sun a sunlit canopy returns (shaded needles and crown sides), and how much of a
      *  forested pixel is timber rather than snow between the crowns. Tuned from 500 to 900 m up on Vail. */
     uForestDrawn: { value: 0.7 },
+    /** BUG-081: where the generated stems stop (Vegetation, set by Terrain.update); past it uForestDrawn rises to FOREST_DRAWN_FAR */
+    uStemReach: { value: 1e8 },
     uCanopySun: { value: 0.22 },
     uTimberMix: { value: 0.97 },
     /** FEAT-154: the rectangle (pack minX, minY, maxX, maxY) holding tree instances; none by default */
@@ -212,7 +219,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         uniform vec3 uSnow, uSnowShade, uGroomed, uShadeTint, uSSS;
         uniform float uWrap, uGlint, uFlat, uAO;
         uniform vec4 uDebugFar;
-        uniform float uForestDrawn, uCanopySun, uLiftNear, uTimberMix;
+        uniform float uForestDrawn, uCanopySun, uLiftNear, uTimberMix, uStemReach;
         uniform vec4 uTreeRect;
         #define AO_POW 2.6
         #define AO_DIRECT 0.6
@@ -224,6 +231,16 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         uniform float uSnowCover;
         uniform float uSkied, uSpring;
         uniform vec2 uSnowLee;
+        ${SNOWPACK_GLSL}
+        // BUG-081: open ground far off (sage, grass and low shrub on the sun slopes) shows through where the
+        // season's snowpack is thinner than it stands (VEG_LO..VEG_HI m), from VEG_NEAR m (full by VEG_FULL;
+        // nearer, the shrub instances show it), at most VEG_MAX of a pixel (the snow between the plants stays white)
+        #define VEG_LO 0.25
+        #define VEG_HI 1.0
+        #define VEG_NEAR 900.0
+        #define VEG_FULL 2200.0
+        #define VEG_MAX 0.6
+        const vec3 VEG_COL = vec3(0.17, 0.15, 0.115);
         // FEAT-153: forest cover levels, coarsest first (rect = minX, minY, maxX, maxY in pack metres)
         uniform sampler2D uCov0, uCov1, uCov2;
         uniform vec4 uCovRect[3];
@@ -424,6 +441,17 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float screeCov = smoothstep(0.5 - edge, 0.5 + edge, wScreeV * 0.65 + (bn2 - 0.5) * 0.7 - snowShift) * (1.0 - rockCov);
         rockCov *= 1.0 - uDebugFar.y; screeCov *= 1.0 - uDebugFar.y;
         float wSnow = 1.0 - rockCov - screeCov;
+        // BUG-081: far off, ungroomed snow over thin snowpack carries the plants poking through it, in patches
+        // (40 m stands and 12 m clumps, the clumps fading once a pixel is wider than a few metres)
+        float vegPix = length(fwidth(wp)); // before the branch: fwidth needs uniform control flow
+        float vegFar = smoothstep(VEG_NEAR, VEG_FULL, dist);
+        float vegK = 0.0;
+        if (vegFar > 0.0 && wGroom < 1.0) { // none of it shows near the rider or on groomed snow
+          float vegPatch = vnoise(wp * 0.025 + 1.7) * 0.6 + mix(0.5, vnoise(wp * 0.08 + 4.2), 1.0 - smoothstep(3.0, 9.0, vegPix)) * 0.4;
+          vegK = (1.0 - smoothstep(VEG_LO, VEG_HI, snowpackDepth(wp.y, ngW))) * vegFar
+            * (1.0 - wGroom) * smoothstep(0.2, 0.8, vegPatch) * VEG_MAX;
+        }
+        snow = mix(snow, VEG_COL, vegK);
         vec3 base = snow * wSnow + rockAlb * rockCov + screeAlb * screeCov;
         base = mix(base, groomed, wGroom * wSnow);
         // BUG-062: the mogul field, once per pixel (pack frame: x east, y = -world z north), fading out
@@ -492,7 +520,10 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         vec2 trd = min(pxyF - uTreeRect.xy, uTreeRect.zw - pxyF);
         float treeHere = smoothstep(0.0, 300.0, min(trd.x, trd.y));
         float viewMu = clamp(dot(ngW, normalize(cameraPosition - wp)), 0.12, 1.0);
-        float rho = uForestDrawn * treeHere * (1.0 - smoothstep(uLiftNear - 800.0, uLiftNear, dist));
+        // BUG-081: past the generated stems the impostors grow to stand in for them (Vegetation STEM_GROW), so they
+        // carry nearly all the canopy there, and the ground no longer lays a flat timber tone between them
+        float rho = mix(uForestDrawn, ${FOREST_DRAWN_FAR.toFixed(2)}, smoothstep(uStemReach, uStemReach * 1.5, dist))
+          * treeHere * (1.0 - smoothstep(uLiftNear - 800.0, uLiftNear, dist));
         float sK = min(forestK, 0.999);
         float seen = 1.0 - pow((1.0 - sK) / (1.0 - rho * sK), (1.0 + TREE_ASPECT * sqrt(1.0 - viewMu * viewMu)) / viewMu);
         float fd = mix(1.0, smoothstep(FOREST_NEAR, FOREST_FULL, dist), treeHere) * seen;
@@ -527,7 +558,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           treeShade = sm.x + (coarse > 0.001 ? coarse * treeShadow(pxyF, dist, treeG) : 0.0);
           treeShade *= shadeGate * (1.0 - fd) * (1.0 - uFlat);
         }
-        gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd) * (1.0 - 0.6 * uSpring); // wet spring snow sparkles less
+        gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd) * (1.0 - vegK) * (1.0 - 0.6 * uSpring); // wet spring snow sparkles less
         diffuseColor.rgb = base;
         if (uDebugFar.w > 0.5) diffuseColor.rgb = mix(vec3(0.9), vec3(0.9, 0.1, 0.1), fd);
         // BUG-062 ?debug=moguls: amplitude as a tint, green where the bumps are in the geometry, red where

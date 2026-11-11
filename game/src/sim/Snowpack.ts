@@ -73,6 +73,30 @@ export function snowpackDepth(st: SnowpackState, z: number, south: number, north
   return Math.max(0, base) + st.fresh;
 }
 
+const f = (v: number): string => (Number.isInteger(v) ? `${v}.0` : `${v}`);
+
+/**
+ * BUG-081: snowpackDepth for the terrain shader, from the same constants. `uSnowpack` = (base, fresh, sun,
+ * override or -1) as snowpackUniform packs it; `n` is the ground normal in the three.js frame (z = south).
+ */
+export const SNOWPACK_GLSL = `
+  uniform vec4 uSnowpack;
+  float snowpackDepth(float z, vec3 n) {
+    if (uSnowpack.w >= 0.0) return uSnowpack.w;
+    float s = length(n.xz);
+    float k = min(1.0, s / ${f(ASPECT_SLOPE)});
+    float south = s > 1e-4 ? n.z / s : 0.0; // the normal leans south (+z) on a south-facing slope
+    float sw = max(0.0, south) * k, nw = max(0.0, -south) * k;
+    float ek = clamp(${f(K_LO)} + ${f(K_PER_KM)} * (z - ${f(Z_LO)}) / 1000.0, ${f(K_MIN)}, ${f(K_MAX)});
+    return max(0.0, uSnowpack.x * ek * (1.0 - uSnowpack.z * sw + ${f(NORTH)} * nw)) + uSnowpack.y;
+  }`;
+
+/** a state packed for SNOWPACK_GLSL's uSnowpack: (base, fresh, sun, override or -1) */
+export function snowpackUniform(st: SnowpackState, out: [number, number, number, number]): [number, number, number, number] {
+  out[0] = st.base; out[1] = st.fresh; out[2] = st.sun; out[3] = st.override === null ? -1 : Math.max(0, st.override);
+  return out;
+}
+
 /** whether two states would bury the shrubs differently enough to redo them (about 2 cm) */
 export function snowpackChanged(a: SnowpackState, b: SnowpackState): boolean {
   if ((a.override === null) !== (b.override === null)) return true;

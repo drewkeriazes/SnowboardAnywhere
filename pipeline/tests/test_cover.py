@@ -148,3 +148,55 @@ def test_dense_timber_keeps_full_forest(tmp_path):
     from cover import crown_area
     _, shade = crown_area(pack_dir, meta, stands.shape[1], stands.shape[0])
     assert lv["crowns"] and np.abs(stands[..., 1] - np.clip(shade, 0, 1)).max() <= 1 / 255 + 1e-6
+
+
+# ------------------------------------------------------------------ BUG-081: land cover calibrated to the lidar
+def test_calibration_recovers_mapping():
+    """a known share -> forest mapping that thins on south faces comes back from the fit, smoothly"""
+    from cover import fit_calibration, apply_calibration
+    rng = np.random.default_rng(1)
+    t = rng.random(40000).astype(np.float32); s = rng.uniform(-1, 1, 40000).astype(np.float32)
+    truth = lambda t, s: 0.6 * t * (1 - 0.4 * np.clip(s, 0, 1))
+    lut = fit_calibration(t, s, truth(t, s) + rng.normal(0, 0.05, t.size))
+    tq = np.array([0.1, 0.5, 0.9, 0.9, 0.5], np.float32); sq = np.array([0.0, -0.8, -0.8, 0.8, 0.6], np.float32)
+    assert np.allclose(apply_calibration(lut, tq, sq), truth(tq, sq), atol=0.03)
+    assert (np.diff(lut, axis=0) >= 0).all()   # never falls as the share rises
+
+
+def test_calibration_sparse_nodes_follow_share_curve():
+    """south faces with no data take the share-only curve instead of a gap"""
+    from cover import fit_calibration, apply_calibration
+    t = np.linspace(0, 1, 5000).astype(np.float32); s = np.full(t.size, -0.9, np.float32)
+    lut = fit_calibration(t, s, 0.5 * t)
+    assert abs(apply_calibration(lut, np.float32([0.8]), np.float32([0.9]))[0] - 0.4) < 0.03
+
+
+def test_south_facing_sign():
+    """a slope rising to the north faces south (+1); flat ground faces nowhere"""
+    from cover import south_facing
+    y = np.arange(20, 0, -1, dtype=np.float32)[:, None] * 16.0   # row 0 = north = highest
+    rises_north = np.repeat(y * 0.5, 20, axis=1)
+    assert np.allclose(south_facing(rises_north, 16.0), 1.0)
+    assert np.allclose(south_facing(-rises_north, 16.0), -1.0)
+    assert np.allclose(south_facing(np.zeros((20, 20), np.float32), 16.0), 0.0)
+
+
+def test_calibrate_maps_land_cover_onto_pack_forest():
+    """inside the pack the calibrated share matches the pack level; outside it follows the same mapping, and a
+    level with too little overlap keeps its raw share"""
+    from cover import PackForest, calibrate, PACK_RES, BLEND_M
+    size = 4000.0
+    n4 = int(size / PACK_RES)
+    pack_r = np.zeros((n4, n4), np.float32); pack_r[:, : n4 // 2] = 0.3   # west half forested at 0.3
+    pack = PackForest(pack_r, {"minX": 0.0, "minY": 0.0, "maxX": size, "maxY": size})
+    res = 16.0
+    xs = np.arange(-2000.0, size + 2000.0, res) + res / 2; ys = (np.arange(size + 2000.0, -2000.0, -res) - res / 2)
+    lc = (xs[None, :] < size / 2).astype(np.float32).repeat(len(ys), 0)   # land cover calls the west half all tree
+    zero = np.zeros_like(lc)
+    out = calibrate(lc, zero, zero, res, pack.at(res, xs, ys), "test", log=lambda *_: None)
+    inside = np.outer((ys > BLEND_M + 300) & (ys < size - BLEND_M - 300), (xs > BLEND_M + 300) & (xs < size / 2 - 300))
+    assert abs(out[inside].mean() - 0.3) < 0.02
+    outside = np.outer(ys > size + 300, xs < size / 2 - 300)
+    assert abs(out[outside].mean() - 0.3) < 0.02
+    tiny = PackForest(pack_r[:50, :50], {"minX": 0.0, "minY": size - 200.0, "maxX": 200.0, "maxY": size})
+    assert np.array_equal(calibrate(lc, zero, zero, res, tiny.at(res, xs, ys), "test", log=lambda *_: None), lc)

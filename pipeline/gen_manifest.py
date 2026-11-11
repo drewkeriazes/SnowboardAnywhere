@@ -104,6 +104,11 @@ for k_src, src in enumerate([cfg["lidar"]] + list(cfg["lidar"].get("extra", []))
     nodes = open(os.path.join(HERE, "resorts", src["nodes_file"])).read().split()
     for k in nodes:
         add(f"{ept}ept-data/{k}.laz", f"{sub}/{k}.laz")
+# BUG-081: the far tree ring's nodes (ept_select.py, lidar.far) to ept_far/, read by far_trees.py
+far = cfg["lidar"].get("far")
+if far and os.path.exists(os.path.join(HERE, "resorts", far["nodes_file"])):
+    for k in open(os.path.join(HERE, "resorts", far["nodes_file"])).read().split():
+        add(f"{cfg['lidar']['ept']}ept-data/{k}.laz", f"ept_far/{k}.laz")
 
 # ---------------------------------------------------------------- Overpass
 lon0, lat0, lon1, lat1 = cfg["lonlat_bbox"]
