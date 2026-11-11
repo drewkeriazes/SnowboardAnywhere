@@ -16,7 +16,9 @@ from urllib.parse import urlencode, quote
 from pyproj import Transformer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-slug = sys.argv[1] if len(sys.argv) > 1 else "vail"
+if len(sys.argv) < 2:
+    sys.exit("usage: python pipeline/gen_manifest.py <slug>  (reads pipeline/resorts/<slug>.json)")
+slug = sys.argv[1]
 cfg = json.load(open(os.path.join(HERE, "resorts", f"{slug}.json")))
 crs = cfg["crs"]
 to_utm = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
