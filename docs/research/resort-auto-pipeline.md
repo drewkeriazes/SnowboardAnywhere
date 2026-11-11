@@ -66,6 +66,19 @@ Drew's call (2026-11-11): game in one repo, resort data in another. Agreed, with
 
 The resorts repo's git history still gets the part worth versioning: the config that built each pack and its report, so a regression shows up as a diff in `reports/vail.md`.
 
+### How the two repos link (FEAT-222)
+No git submodule; two sibling clones linked by a path, a URL, a version number and the board.
+| Link | How |
+|---|---|
+| On disk | Sibling clones: `C:\Users\Drew\git\SnowboardAnywhere` and `C:\Users\Drew\git\MapPacker-SnowboardAnywhere`. The pipeline finds MapPacker at `../MapPacker-SnowboardAnywhere`; `--resorts-repo <path>` overrides. |
+| Resort configs | `pipeline/resorts/*.json` and `*_ept_nodes*.txt` move to MapPacker `resorts/` (one home per file, not copies). The pipeline reads them from there. |
+| Publish (pipeline to MapPacker) | `publish_pack.py` writes the config, `reports/<slug>.md` and `catalog.json` into the MapPacker clone, commits as Drew, pushes, then `gh release create <slug>-v<N> -R drewkeriazes/MapPacker-SnowboardAnywhere`. Uses Drew's local `gh` login; no tokens in either repo. |
+| Download (game to MapPacker) | One constant in `game/tools/get_pack.mjs`: `https://raw.githubusercontent.com/drewkeriazes/MapPacker-SnowboardAnywhere/main/catalog.json`. `SBA_CATALOG_URL` overrides it (a local path works, for testing). |
+| Version | `formatVersion` in the client constant, `meta.json` and the catalog entry. A mismatch shows "needs rebuild", never a broken load. |
+| Traceability | Each catalog entry and release note records the SnowboardAnywhere commit (`pipeline`) and the card that built it: `Built by drewkeriazes/SnowboardAnywhere@<sha> (<card>)`. |
+| Board | One board (projects/2) pulls issues from both repos; card ids are one sequence across them (`tools/card_id.py` reads both). A card lives in the repo whose PR closes it; cross-repo PRs use `Fixes drewkeriazes/MapPacker-SnowboardAnywhere#<n>`. `docs/BOARD.md`. |
+| Docs | MapPacker README: what it holds, how to get a pack, data licences, link back here. This repo's `docs/developer-guide.md` and `docs/pack-format.md` link to MapPacker. |
+
 **Later, not now:** Cloudflare R2 (10 GB-month free, free egress, S3 API) when packs need to be fetched straight from a hosted page, since R2 can send CORS headers. A database (Supabase or D1) only when there is per-player data to store (accounts, times, shared ghosts) or hundreds of resorts; until then `catalog.json` is the database.
 
 ### `catalog.json`
