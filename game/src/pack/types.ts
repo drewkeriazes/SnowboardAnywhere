@@ -75,6 +75,8 @@ export interface InstancesMeta {
 
 export interface PackMeta {
   version: number;
+  /** FEAT-222: the pack format it was built in (pack/format.ts); absent in packs built before it */
+  formatVersion?: number;
   /** FEAT-177: a fresh id each time the pipeline writes meta.json (any stage), so a still from another build is not shown */
   build?: string;
   slug: string;

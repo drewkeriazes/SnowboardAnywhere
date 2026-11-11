@@ -4,6 +4,7 @@ import { saveSettings, type Settings } from './Settings';
 import { closeSettings, openSettings, settingsOpen, type Credit } from './SettingsOverlay';
 import { closeScreen, lastInputKind, openScreen, Screen } from './MenuNav';
 import { renderHints, type Hint } from './HintBar';
+import { fillResortPicker } from './ResortPicker';
 import { optsOf, rowById, type Row } from './SettingsRows';
 import { fmtDistance, fmtHeight } from './Units';
 import type { PauseCourse, PauseMode } from './PauseMenu';
@@ -257,15 +258,15 @@ export class MainMenu {
       this.pop.querySelector('[data-ok]')!.addEventListener('click', () => { this.mode = { kind: 'outrun' }; this.closePop(); this.drawModes(); });
       this.fillRows();
     } else {
-      this.pop.innerHTML = `<div class="ph">Change resort</div><div class="courses">${this.o.resorts.map((r) => `<button class="course${r.slug === this.o.slug ? ' on' : ''}" data-pack="${r.slug}"><span class="cn">${esc(r.name)}</span><span class="cl">${r.slug === this.o.slug ? 'here now' : ''}</span></button>`).join('')}</div>`;
-      this.pop.querySelectorAll<HTMLButtonElement>('button[data-pack]').forEach((b) => b.addEventListener('click', () => {
-        if (b.dataset.pack === this.o.slug) { this.closePop(); return; }
+      this.pop.innerHTML = '<div class="ph">Change resort</div><div class="courses"></div>';
+      // FEAT-222: built packs, then the published ones to download (ui/ResortPicker.ts)
+      fillResortPicker(this.pop, this.o.slug, this.o.resorts, (slug) => {
         // a resort is its own pack: the page reloads into its shot
         const u = new URL(location.href);
-        u.searchParams.set('pack', b.dataset.pack!);
+        u.searchParams.set('pack', slug);
         for (const k of ['x', 'y', 'h']) u.searchParams.delete(k);
         location.href = u.toString();
-      }));
+      }, () => this.closePop());
     }
     this.pop.hidden = false;
     this.el.classList.add('popped');

@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "host": "node tools/host.mjs",
+    "get": "node tools/get_pack.mjs",
     "typecheck": "tsc --noEmit",
     "shoot": "vite build && node tools/shoot.mjs",
     "shoot:headed": "vite build && node tools/shoot.mjs --headed"
