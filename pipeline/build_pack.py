@@ -226,7 +226,20 @@ slope2 = np.degrees(np.arctan(np.hypot(gx, gy))).astype(np.float32)
 # stop steep bare slopes above treeline reading as forest: the DSM is the max point in a 2 m cell and the DEM
 # the mean, so a 35 deg slope alone gives > 2 m of "height", and grey_closing spread that into empty cells.
 canopy = ((chm > 2.5) | ((ndvi2 > 0.45) & (chm > 1.2))) & (ndvi2 > 0.30) & has_pts & have2
-del has_pts
+# BUG-028: that rule finds about a third of the closed stands at Born Free, Mid-Vail and Prima. The lidar return
+# test (has_pts) was not the cause (every forest cell has one within a cell); these two were:
+#  - grey beetle-killed lodgepole: NAIP NDVI under 5 m+ canopy is 0.2 to 0.35 there, under the 0.30 floor;
+#  - the subsampled cloud (about one return per 4 m2) hits a crown at one point, often the ground beside it.
+# So a 5 m+ return counts with NDVI over 0.15 and stands for a crown about 2 m round, and gaps under 8 m inside a
+# stand close. Steep bare slopes stay out: their DSM-over-DEM artefact is under 2 m and cured meadow has no 5 m
+# returns. This grown part is dropped again on every non-glade run corridor in stage 7, so it never narrows a run.
+crown = ndimage.binary_dilation(chm > 5.0, iterations=1) & (ndvi2 > 0.15) & has_pts & have2
+grown = canopy | crown
+grown |= ndimage.binary_closing(grown, iterations=2) & (ndvi2 > 0.15) & have2
+canopy_grown = grown & ~canopy
+log(f"  canopy {canopy.mean()*100:.1f}% from the lidar and NAIP rule, {canopy_grown.mean()*100:.1f}% more from 5 m+ returns over grey crowns and closed gaps (BUG-028)")
+canopy |= canopy_grown
+del has_pts, crown, grown
 # rock: low NDVI, GREY (low colour saturation), not snow. Late-summer NAIP shows cured meadow and
 # groomed pistes as tan grass with NDVI < 0.18 too; saturation 0.22..0.42 for grass vs < 0.15 for rock
 # (measured on the Vail 2023 imagery). Without the saturation test 25 % of the resort came out as rock.
@@ -624,12 +637,18 @@ for run in runs:
         continue
     pts = [(p[0], p[1]) for p in run["points"]]
     hw = {"novice": 22, "easy": 20, "intermediate": 18, "advanced": 14, "expert": 10}.get(run["difficulty"] or "", 12)
-    rasterize_corridor(piste_f, pts, hw)
+    if not run.get("gladed"):
+        rasterize_corridor(piste_f, pts, hw)
     if run["groomed"]:
         rasterize_corridor(groomed, pts, hw)
 groomed = yield_to_ungroomed(groomed, runs)
 piste_any = piste_f > 0
 del piste_f
+# BUG-028: the canopy grown from 5 m+ returns and closed gaps never reaches into a run (glades keep it)
+cut = canopy_grown & (piste_any | (groomed > 0))
+canopy &= ~cut
+log(f"  grown canopy kept off runs: {cut.mean()*100:.2f}% of the pack")
+del cut, canopy_grown
 # built-up: roads and building footprints are grey in NAIP and were classified as rock (I-70, the villages)
 built_f = np.zeros((H2, W2), np.float32)
 for rd in roads:
@@ -693,8 +712,10 @@ tree_rows, tree_cols, tree_h = [pr], [pc], [chm_s[pr, pc]]
 rng = np.random.default_rng(3)
 occupied = np.zeros((H2, W2), bool); occupied[pr, pc] = True
 occupied = ndimage.binary_dilation(occupied, iterations=2)
-# fill density is the main lever on tree count: 0.33 gave 5.26 M trees at Vail (realistic stems, too many to render)
-fill = canopy & ~occupied & (rng.uniform(0, 1, (H2, W2)) < 0.10)
+# fill density is the main lever on tree count: 0.33 gave 5.26 M trees at Vail (realistic stems, too many to render).
+# BUG-028 grew the canopy from 39 % to 67 % of Vail, so the rate went from 0.10 to 0.06 to keep the pack near
+# 1.3 M trees (the 1.5 M instance budget); FEAT-074 moves the fill out of the pack.
+fill = canopy & ~occupied & (rng.uniform(0, 1, (H2, W2)) < 0.06)
 if evt is not None:
     fill &= lf_forest2   # synthetic fill trees only where LANDFIRE says forest (lidar-detected crowns stay everywhere)
 fr, fc = np.nonzero(fill)
