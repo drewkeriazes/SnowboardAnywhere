@@ -56,7 +56,7 @@ Drew's call (2026-11-11): game in one repo, resort data in another. Agreed, with
 | Repo | Holds | Why |
 |---|---|---|
 | `SnowboardAnywhere` (this one) | game, **all pipeline code**, `docs/pack-format.md`, checks | The pack format and the client that reads it change in the same PR. Splitting the pipeline from the client would mean two PRs and version skew on every format change |
-| `MapPacker` (new, Drew creates it) | `resorts/<slug>.json` + EPT node lists + manifests, `catalog.json`, `reports/<slug>.md`, compare spot lists, and **packs as release assets** | Small text in git (history of every recipe and every report); big binaries in releases |
+| `MapPacker-SnowboardAnywhere` (new, Drew creates it) | `resorts/<slug>.json` + EPT node lists + manifests, `catalog.json`, `reports/<slug>.md`, compare spot lists, and **packs as release assets** | Small text in git (history of every recipe and every report); big binaries in releases |
 
 **Packs in releases, not in git history.** Git history keeps every copy forever, and binary tiles do not diff:
 - Vail is 234 MB per build (HANDOFF; more now with `stands/`). Four rebuilds pass GitHub's "ideally under 1 GB" repo size, about twenty pass "under 5 GB strongly recommended". Every clone of the resorts repo would download all of it.
@@ -83,7 +83,7 @@ The resorts repo's git history still gets the part worth versioning: the config 
       "pack": {
         "version": 1, "built": "2026-11-20", "pipeline": "76da1ff",
         "bytes": 120000000, "sha256": "...",
-        "url": "https://github.com/drewkeriazes/MapPacker/releases/download/boston-mills-v1/boston-mills.zip"
+        "url": "https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere/releases/download/boston-mills-v1/boston-mills.zip"
       },
       "report": "reports/boston-mills.md"
     }
