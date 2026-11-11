@@ -587,19 +587,20 @@ class Report:
         # 10 start
         self.line("10", "Default start on a run, on snow, clear of trees", *self.check_start())
 
-        # 11 picker
+        # 11 picker: the menu lists every pack in packs/index.json (FEAT-175, #534); without an index next to the
+        # pack (a pack outside packs/), the game's own list or the catalog
         idx = os.path.join(os.path.dirname(os.path.normpath(self.pack)), "index.json")
         listed = self.slug in load_json(idx).get("packs", []) if os.path.isfile(idx) else None
         resorts_ts = os.path.join(self.repo, "game", "src", "resorts.ts")
-        in_ts = bool(re.search(rf"slug:\s*'{re.escape(self.slug)}'", open(resorts_ts, encoding="utf-8").read())) \
-            if os.path.isfile(resorts_ts) else False
+        in_ts = os.path.isfile(resorts_ts) and bool(re.search(rf"slug:\s*'{re.escape(self.slug)}'", open(resorts_ts, encoding="utf-8").read()))
         catalog = os.path.join(os.path.dirname(self.repo), "MapPacker-SnowboardAnywhere", "catalog.json")
         in_cat = os.path.isfile(catalog) and any(r.get("slug") == self.slug for r in load_json(catalog).get("resorts", []))
-        st = PASS if in_ts and listed is not False else FAIL
-        self.line("11", "In the resort picker", st, ", ".join(
-            [("in game/src/resorts.ts" if in_ts else "not in game/src/resorts.ts")] +
-            ([] if listed is None else ["in packs/index.json" if listed else "not in packs/index.json"]) +
-            (["in the catalog"] if in_cat else [])))
+        where = [w for w, on in (("in packs/index.json", listed), ("in game/src/resorts.ts", in_ts), ("in the catalog", in_cat)) if on]
+        if listed is False:
+            st, where = FAIL, ["not in packs/index.json (python pipeline/packwriter.py <pack_dir> rewrites it)"] + where
+        else:
+            st = PASS if where else WARN
+        self.line("11", "In the resort picker", st, ", ".join(where) or "no packs/index.json next to the pack, not in the catalog")
 
         # 12 courses
         c = course_candidates(self.runs)
