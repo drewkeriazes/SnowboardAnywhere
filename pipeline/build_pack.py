@@ -25,6 +25,7 @@ from packwriter import (write_height_set, write_mask_set, write_instances, write
 from piste_dir import piste_direction
 from terrain_ao import sky_visibility
 from moguls import run_mogul_score, slope_window, paint_field, paint_polygon
+from canopy_spots import run_half_width   # run corridor half widths, shared with the BUG-028 canopy measure
 import species as spc
 import stands
 from species import evt_luts
@@ -693,7 +694,7 @@ for run in runs:
     if run.get("area"):
         continue
     pts = [(p[0], p[1]) for p in run["points"]]
-    hw = {"novice": 22, "easy": 20, "intermediate": 18, "advanced": 14, "expert": 10}.get(run["difficulty"] or "", 12)
+    hw = run_half_width(run)
     if not run.get("gladed"):
         rasterize_corridor(piste_f, pts, hw)
     if run["groomed"]:
@@ -746,7 +747,7 @@ for run in runs:
     if run.get("area"):
         paint_polygon(mog, pts, sc, R2, X0 - OX, Y1 - OY)
     else:
-        hw = {"novice": 22, "easy": 20, "intermediate": 18, "advanced": 14, "expert": 10}.get(run["difficulty"] or "", 12)
+        hw = run_half_width(run)
         paint_field(mog, pts, hw - 2, sc, R2, X0 - OX, Y1 - OY)
 mog *= slope_window(slope2) * (~canopy).astype(np.float32) * (1 - np.clip(groomed, 0, 1)) * (~built_any).astype(np.float32) * (1 - rock_w) * (1 - scree_w)
 mog = np.clip(mog, 0, 1)
