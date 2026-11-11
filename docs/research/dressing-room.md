@@ -1,6 +1,6 @@
 # Dressing room: outfits that look different and ride a little different (design, 2026-11-10)
 
-Idea from Drew: a dressing room where you pick the rider's style. The steez matters. Outfits can nudge stats or skills. KISS version: same pattern as board types (`research-board-types.md`): a small catalog of pieces, each with a few stat numbers, folded into `mods` the rider already reads. Mostly cosmetic, small trade-offs, no new physics.
+Idea from Drew: a dressing room where you pick the rider's style. The steez matters. Outfits can nudge stats or skills. KISS version: same pattern as board types ([board-types.md](board-types.md)): a small catalog of pieces, each with a few stat numbers, folded into `mods` the rider already reads. Mostly cosmetic, small trade-offs, no new physics.
 
 ## 1. Rules that keep it simple and fair
 - Default outfit = today's rider, zero mods. Nothing changes until a player dresses up.
