@@ -90,7 +90,7 @@ The resorts repo's git history still gets the part worth versioning: the config 
   ]
 }
 ```
-`formatVersion` matches a constant in the client; a pack from an older format shows "needs rebuild" instead of loading wrong (the FEAT-074 `stands` problem, caught automatically).
+`formatVersion` is new work: today `meta.json` has only `version` (`docs/pack-format.md`). FEAT-222 adds `formatVersion` to `meta.json` and the catalog, bumps it on every format change, and adds a matching constant in the client; a pack from an older format then shows "needs rebuild" instead of loading wrong (the FEAT-074 `stands` problem, caught automatically).
 
 ## 3. DATA-022 lessons, built in
 
@@ -101,7 +101,7 @@ Each lesson from the checklist becomes something the pipeline does or checks, so
 | LANDFIRE took a slug only after PR #503 (4) | LANDFIRE is a normal stage of `fetch`, never a separate launcher |
 | LANDFIRE calls in-resort forest `Developed-*` (4) | `report.json` logs `LANDFIRE forest x%, open y%`; fails when open ground covers more than half of the lidar canopy |
 | Tree density compared on crowns only (7) | Density is always crowns + stems per km², by elevation band, against Vail's |
-| Pack without `stands` predates FEAT-074 (7) | `formatVersion` in `meta.json` and the catalog |
+| Pack without `stands` predates FEAT-074 (7) | `formatVersion` in `meta.json` and the catalog (new field, FEAT-222) |
 | Far terrain silently skipped without land cover (8) | `cover.py` fails instead of skipping; three cover levels required |
 | Attribution missing for new data (13) | Each fetch stage adds its own attribution line; the report checks every layer has one |
 | Start point by hand (10) | FEAT-175 step 4 picks it; headless `shoot.mjs` ride from it is part of the gate |
@@ -132,7 +132,7 @@ What breaks or changes, and what the pipeline must do:
 |---|---|---|
 | Two ski areas, one ticket | Probably two OpenSkiData areas a mile apart (unverified) | `resolve` lists both; `--with Brandywine` makes one pack over both |
 | Tiny resort | Vail's 1.5 km buffer would make the box mostly farmland | Buffer scales with the polygon (section 1); pack should be a few tens of MB |
-| UTM 17N | Every hand config so far is 12N or 13N | `crs` derived; checks that nothing assumes EPSG:26913 (`ept_select.py` today, FEAT-175 step 2) |
+| UTM 17N | Every hand config so far is 12N or 13N | `crs` derived (FEAT-175 step 2); the first 17N build checks that nothing assumes zone 12N or 13N (no hard-coded zone found in `pipeline/` today) |
 | Hardwood forest, leafless in winter | LANDFIRE eastern classes (oak, maple, beech, hemlock) are not in `species.classify_evt`; our 8 species are western | Unknown EVT share in the report; new species "bare hardwood" plus hemlock as a conifer variant (own card) |
 | Lidar likely flown leaf-off | Fewer canopy returns from bare crowns, so crowns read low and sparse (unverified for this dataset) | `plan` logs the flight season from the EPT metadata; report compares crown count against NAIP leaf-on canopy |
 | No treeline | The derivation expects one (Vail 3,500 m, Big Sky 2,700 m) | Treeline "none" is a valid result; `proceduralForest` and snow ghosts off when there is none (no Colorado fallback of 3,480 m) |
