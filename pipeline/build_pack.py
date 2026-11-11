@@ -271,12 +271,17 @@ scree = rock & (slope2 <= 28) & (slope2 > 12)
 rock_w = rock_steep.astype(np.float32) + (rock & ~rock_steep).astype(np.float32) * 0.5
 rock_w = np.clip(ndimage.gaussian_filter(rock_w, 0.75), 0, 1)
 scree_w = np.clip(scree.astype(np.float32) * 0.8, 0, 1) * (1 - rock_w)
-# aspen vs conifer: aspen is bright green and high NIR in summer; conifer darker
-# aspen vs conifer from NAIP alone is approximate (no clean NIR split in the Sept 2023 imagery);
-# these thresholds pick the brightest ~15 % of canopy. Replace with LANDFIRE EVT classes when raw/vail/landfire exists.
-aspen_like = canopy & (ndvi2 > 0.50) & (grn2 > 68) & (nir2 > 135)
+# aspen vs conifer (DATA-015): leaf-on aspen is brighter than conifer in visible and NIR, and lower in NDVI.
+# Per 2 m cell, the canopy's mean brightness and NIR over ~8 m reads a stand through its crown shadows; the
+# thresholds are fitted below (stage 5b) on this pack's own natural aspen and conifer LANDFIRE classes.
+# Leafy crowns only (NDVI > LEAF_NDVI): the BUG-028 canopy also holds a ring of cured grass round every crown,
+# bright and high in NIR, which read as aspen at every forest edge.
+leaf = canopy & (ndvi2 > spc.LEAF_NDVI)
+bright_s2 = spc.canopy_mean(bright2, leaf)
+nir_s2 = spc.canopy_mean(nir2, leaf)
+ndvi_s2 = spc.canopy_mean(ndvi2, leaf)       # lodgepole against spruce-fir on built classes (stage 5b)
 del grn2, nir2, snowfield, scree
-log(f"  canopy {canopy.mean()*100:.1f}%  rock {rock.mean()*100:.1f}%  meadow {meadow.mean()*100:.1f}%  aspen-like {aspen_like.mean()*100:.1f}%")
+log(f"  canopy {canopy.mean()*100:.1f}%  rock {rock.mean()*100:.1f}%  meadow {meadow.mean()*100:.1f}%")
 
 # ------------------------------------------------------------------ 5b. LANDFIRE EVT (30 m) species, optional
 # raw/<slug>/landfire/*.tif from fetch_landfire.mjs (LFPS, any LF version) + its .tif.vat.dbf class table.
@@ -319,15 +324,24 @@ class LfRaster:
     def at(self, x_utm, y_utm):
         return self.data[self._row(y_utm), self._col(x_utm)]
 
-    def on2(self, rows=slice(None), cols=slice(None)):
-        """the raster on the 2 m grid (or the rows / columns of it given as slices), row 0 = north"""
+    def on2(self, rows=slice(None), cols=slice(None), data=None):
+        """the raster (or `data`, another raster on the same 30 m grid) on the 2 m grid, or the rows / columns of it
+        given as slices, row 0 = north"""
         gx = X0 + (np.arange(W2)[cols] + 0.5) * R2; gy = Y1 - (np.arange(H2)[rows] + 0.5) * R2
-        return self.data[np.ix_(self._row(gy), self._col(gx))]
+        return (self.data if data is None else data)[np.ix_(self._row(gy), self._col(gx))]
+
+    def at_data(self, data, x_utm, y_utm):
+        """`data` (a raster on the same 30 m grid) at the points"""
+        return data[self._row(y_utm), self._col(x_utm)]
 
     def window(self):
         """the 30 m pixels under the pack, for the log"""
+        return self.window_of(self.data)
+
+    def window_of(self, data):
+        """`data` (a raster on the same 30 m grid) under the pack"""
         c, r = self._col(np.array([X0, X1])), self._row(np.array([Y1, Y0]))
-        return self.data[r[0]:r[1] + 1, c[0]:c[1] + 1]
+        return data[r[0]:r[1] + 1, c[0]:c[1] + 1]
 
 evt = None
 lf_tifs = sorted(glob.glob(os.path.join(raw, "landfire", "*.tif")))
@@ -350,8 +364,48 @@ if lf_tifs:
     top = sorted(zip(cnts, vals), reverse=True)[:5]
     log(f"  LANDFIRE {evt_lf.name} {evt_img.shape}: " + ", ".join(f"{names.get(int(v), v)[:28]} {c/cnts.sum()*100:.0f}%" for c, v in top))
     log(f"  LANDFIRE forest on the 2 m grid {lf_forest2.mean()*100:.1f}%, open {lf_open2.mean()*100:.1f}%, aspen classes {sum(c for c, v in zip(cnts, vals) if aspen_lut[min(v, lut_n-1)] > 0)/cnts.sum()*100:.1f}%")
+    # DATA-015: Vail's runs and lift lines are `Developed-*` and its in-resort forest `Urban Evergreen Forest`, which
+    # name no species. Those pixels take a natural forest class from the stands around them (species.natural_evt);
+    # the tree species read evt_nat, everything else (forest gate, shrubs) keeps the real class.
+    evt_nat, filled, lp_share = spc.natural_evt(evt_img, lut)
+    evt_n = lambda x, y: evt_lf.at_data(evt_nat, x, y)
+    lp_at = lambda x, y: evt_lf.at_data(lp_share, x, y)
+    win, win_n = evt_lf.window(), np.clip(evt_lf.window_of(evt_nat), 0, lut_n - 1)
+    built_w = lut["built"][np.clip(win, 0, lut_n - 1)]
+    if built_w.any():
+        gf = np.bincount(group_lut[win_n[built_w]], minlength=len(spc.GROUP_NAMES)) / built_w.sum()
+        log(f"  LANDFIRE built classes (urban, developed) on {built_w.mean() * 100:.1f}% of the pack, {evt_lf.window_of(filled)[built_w].mean() * 100:.0f}% "
+            "of them filled from the natural forest within ~300 m: " + ", ".join(f"{spc.GROUP_NAMES[g]} {gf[g] * 100:.0f}%" for g in range(len(gf)) if gf[g] >= 0.005))
+    del win, win_n, built_w
+    # NAIP aspen thresholds, fitted on the canopy under the natural aspen and conifer classes (cores: one 30 m
+    # pixel in from each class edge)
+    natural = forest_lut[np.clip(evt_img, 0, lut_n - 1)] & ~lut["built"][np.clip(evt_img, 0, lut_n - 1)]
+    g30, a30 = group_lut[np.clip(evt_img, 0, lut_n - 1)], aspen_lut[np.clip(evt_img, 0, lut_n - 1)]
+    asp30 = ndimage.binary_erosion(natural & (g30 == spc.G_ASPEN))
+    con30 = ndimage.binary_erosion(natural & np.isin(g30, (spc.G_SPRUCE_FIR, spc.G_LODGEPOLE)) & (a30 == 0))
+    tb, tn, fit = spc.fit_aspen(bright_s2, nir_s2, evt_lf.on2(data=asp30) & leaf, evt_lf.on2(data=con30) & leaf)
+    lp30 = ndimage.binary_erosion(natural & (g30 == spc.G_LODGEPOLE))
+    sf30 = ndimage.binary_erosion(natural & (g30 == spc.G_SPRUCE_FIR) & (a30 == 0))
+    t_lp, fit_lp = spc.fit_lodgepole(ndvi_s2, evt_lf.on2(data=lp30) & leaf, evt_lf.on2(data=sf30) & leaf)
+    del natural, g30, a30, asp30, con30, lp30, sf30
 else:
     log("  no LANDFIRE clip (raw/<slug>/landfire/*.tif); species from elevation, aspect and NAIP colour (species.py fallback)")
+    tb, tn = spc.ASPEN_DEFAULT; fit = {"fitted": False, "aspen": 0, "conifer": 0}
+aspen_like = canopy & (bright_s2 > tb) & (nir_s2 > tn)
+del bright_s2, nir_s2
+lodgepole_like = (canopy & (ndvi_s2 < t_lp) & ~aspen_like) if evt is not None and t_lp is not None else None
+del ndvi_s2, leaf
+log(f"  NAIP aspen: canopy brightness > {tb:.1f} and NIR > {tn:.1f} over ~8 m on {aspen_like.sum() / max(canopy.sum(), 1) * 100:.1f}% of the canopy; "
+    + (f"fitted on {fit['aspen']} aspen and {fit['conifer']} conifer cells: aspen found {fit['hit'] * 100:.0f}%, conifer taken for aspen {fit['false'] * 100:.1f}%"
+       if fit["fitted"] else f"Vail's fit (this pack's fit doesn't separate them: aspen found {fit['hit'] * 100:.0f}%, conifer taken for aspen {fit['false'] * 100:.1f}%)" if fit.get("weak")
+       else f"Vail's fit (too few labelled cells: {fit['aspen']} aspen, {fit['conifer']} conifer)"))
+if evt is not None and t_lp is not None:
+    log(f"  NAIP lodgepole on built classes: canopy NDVI < {t_lp:.3f} over ~8 m where the forest around is {spc.LODGEPOLE_MIN_SHARE * 100:.0f}%+ lodgepole; "
+        f"fitted on {fit_lp['lodgepole']} lodgepole and {fit_lp['spruce_fir']} spruce-fir cells: lodgepole found {fit_lp['hit'] * 100:.0f}%, spruce-fir taken for it {fit_lp['false'] * 100:.0f}%")
+elif evt is not None:
+    log("  NAIP lodgepole: no tie-breaker on built classes, the built pixels keep their draw from the forest around; "
+        + (f"this pack's NDVI doesn't separate lodgepole from spruce-fir (found {fit_lp['hit'] * 100:.0f}%, spruce-fir taken for it {fit_lp['false'] * 100:.0f}%)"
+           if fit_lp.get("weak") else f"too few labelled cells ({fit_lp['lodgepole']} lodgepole, {fit_lp['spruce_fir']} spruce-fir)"))
 
 # ------------------------------------------------------------------ 5c. LANDFIRE EVC and EVH (30 m), optional
 # DATA-010: existing vegetation cover and height from raw/<slug>/landfire/evc/ and evh/ (fetch_landfire.mjs EVC / EVH),
@@ -817,14 +871,19 @@ n_t = len(rows)
 if evt is not None:
     # sample the class 0..15 m off each tree so 30 m pixel edges become ragged stand boundaries
     ang = rng.uniform(0, 2 * np.pi, n_t); rad = rng.uniform(0, 15, n_t)
-    v = np.clip(evt(tx + OX + np.cos(ang) * rad, ty + OY + np.sin(ang) * rad), 0, lut_n - 1)
-    group, a_frac, alpine = group_lut[v], aspen_lut[v], alpine_lut[v]
-    wet = np.maximum(wet, lut["riparian"][v].astype(np.float64))
-    # inside aspen classes: aspen with that probability; elsewhere keep small NAIP-detected groves at 50 %
+    px_, py_ = tx + OX + np.cos(ang) * rad, ty + OY + np.sin(ang) * rad
+    v = np.clip(evt(px_, py_), 0, lut_n - 1)
+    vn = np.clip(evt_n(px_, py_), 0, lut_n - 1)     # DATA-015: built classes filled from the natural forest
+    group, a_frac, alpine, naip_dec = group_lut[vn], aspen_lut[vn], alpine_lut[v], lut["built"][v]
+    group = spc.naip_conifer_group(group, lp_at(px_, py_), None if lodgepole_like is None else lodgepole_like[rows, cols], naip_dec)
+    wet = np.maximum(wet, lut["riparian"][vn].astype(np.float64))
+    # inside aspen classes: aspen with that probability; elsewhere keep NAIP-detected groves at 50 %; on built
+    # classes NAIP alone decides
     roll = rng.uniform(0, 1, n_t)
-    del v, ang, rad
+    del v, vn, ang, rad, px_, py_
 else:
     group = np.zeros(n_t, np.int8); a_frac = np.zeros(n_t, np.float32); alpine = np.zeros(n_t, bool); roll = np.ones(n_t)
+    naip_dec = None
 # krummholz (BUG-025) stays: only a tree the lidar measured as short (1 to 4 m) near treeline or in an alpine
 # LANDFIRE class. Colorado treeline is about 3,500 to 3,600 m; subalpine spruce-fir at Vail is tall right
 # up to the summits, so elevation alone never makes a tree krummholz, and no lidar height is capped.
@@ -832,7 +891,8 @@ else:
 # treeline (Big Sky's is about 500 m lower); no measured treeline (Vail) leaves them as they were.
 elev_shift = (treeline_m - spc.COLORADO_TREELINE) if treeline_m else 0.0
 log(f"  species elevation bands shifted {elev_shift:+.0f} m for the treeline")
-species = spc.assign_species(tx, ty, elev - elev_shift, chm_at, group, a_frac, alpine, aspen_like[rows, cols], northeast, wet, ridge, roll, evt is not None)
+species = spc.assign_species(tx, ty, elev - elev_shift, chm_at, group, a_frac, alpine, aspen_like[rows, cols], northeast, wet, ridge, roll, evt is not None,
+                             naip_dec)
 species[is_snag] = spc.SNAG
 crown = spc.crown_radius(species, hgt)
 trees = np.stack([tx, ty, tz, hgt, crown, species.astype(np.float32)], axis=1).astype(np.float32)
@@ -849,9 +909,10 @@ log(f"  spruce + fir {(cnt[spc.SPRUCE] + cnt[spc.FIR]) / n_t * 100:.1f}%, lodgep
 for line in spc.band_report(species, elev):
     log("   ", line)
 os.makedirs(os.path.join(out, "debug"), exist_ok=True)
-spc.debug_png(os.path.join(out, "debug", "species.png"), tx, ty, species, group_lut[evt2] if evt is not None else None, X0 - OX, Y1 - OY, W, H)
-log("  debug/species.png: species per 10 m (left), LANDFIRE group (right)")
-del northeast, wet, ridge, group, a_frac, alpine, roll, trees, crown, is_snag
+spc.debug_png(os.path.join(out, "debug", "species.png"), tx, ty, species,
+              group_lut[np.clip(evt_lf.on2(data=evt_nat), 0, lut_n - 1)] if evt is not None else None, X0 - OX, Y1 - OY, W, H)
+log("  debug/species.png: species per 10 m (left), LANDFIRE group with the built classes filled (right)")
+del northeast, wet, ridge, group, a_frac, alpine, roll, naip_dec, trees, crown, is_snag
 
 # FEAT-074: stand density per 4 m cell (stands.py): the chance of a generated stem, the stand height and species,
 # and the ground height, per 1 km tree cell. The detected crowns nearby count against the stand.
@@ -880,14 +941,17 @@ wet4 = np.clip(1 - (sdist2[r2_, c2_] - 30) / 70, 0, 1)
 ridge4 = (tpi_s2[r2_, c2_] > 1.5) & (tpi_l2[r2_, c2_] > 15)
 if evt is not None:
     v4 = np.clip(evt(sx4 + OX, sy4 + OY), 0, lut_n - 1)
-    g4, af4, al4 = group_lut[v4], aspen_lut[v4], alpine_lut[v4]
-    wet4 = np.maximum(wet4, lut["riparian"][v4].astype(np.float64))
-    del v4
+    vn4 = np.clip(evt_n(sx4 + OX, sy4 + OY), 0, lut_n - 1)
+    g4, af4, al4, nd4 = group_lut[vn4], aspen_lut[vn4], alpine_lut[v4], lut["built"][v4]
+    g4 = spc.naip_conifer_group(g4, lp_at(sx4 + OX, sy4 + OY), None if lodgepole_like is None else lodgepole_like[r2_, c2_], nd4)
+    wet4 = np.maximum(wet4, lut["riparian"][vn4].astype(np.float64))
+    del v4, vn4
 else:
-    g4 = np.zeros(len(si), np.int8); af4 = np.zeros(len(si), np.float32); al4 = np.zeros(len(si), bool)
+    g4 = np.zeros(len(si), np.int8); af4 = np.zeros(len(si), np.float32); al4 = np.zeros(len(si), bool); nd4 = None
 sp4[si, sj] = spc.assign_species(sx4, sy4, z4[si, sj] - elev_shift, h4[si, sj], g4, af4, al4, aspen_like[r2_, c2_], ne4, wet4, ridge4,
-                                 spc.hash01(sx4, sy4, 9), evt is not None)
-del si, sj, r2_, c2_, sx4, sy4, ne4, wet4, ridge4, g4, af4, al4
+                                 spc.hash01(sx4, sy4, 9), evt is not None, nd4)
+del si, sj, r2_, c2_, sx4, sy4, ne4, wet4, ridge4, g4, af4, al4, nd4
+del lodgepole_like
 p4 = stands.stem_chance(canopy4, h4, sp4, det4)
 p4[canopy4 <= 0] = 0
 log(f"  stands: canopy on {np.mean(canopy4 > 0) * 100:.1f}% of the 4 m cells, {p4.sum() / 1e6:.2f} M expected stems "
