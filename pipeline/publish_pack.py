@@ -8,7 +8,8 @@ Runs on Drew's PC (needs `gh` signed in with push access to the resorts repo). S
   2. zip the pack, stored (PNG tiles do not compress), fixed timestamps so the same pack gives the same sha256;
      refuse a zip over 1.9 GiB (GitHub's limit per release asset is 2 GiB)
   3. `gh release create <slug>-v<N>` in the resorts repo with the zip, meta.json and the report if there is one
-  4. update catalog.json, copy the resort's config, EPT node lists and manifest into the clone, commit and push
+  4. update catalog.json, copy the resort's config, EPT node lists, manifest and data plan (`resort.py plan`,
+     to reports/<slug>-plan.md) into the clone, commit and push
 
 The resorts repo is cloned next to this checkout (../MapPacker-SnowboardAnywhere) the first time. Layout and
 catalog schema: docs/research/resort-auto-pipeline.md section 2; download side: game/tools/get_pack.mjs.
@@ -200,9 +201,12 @@ def main(argv=None) -> None:
         man = os.path.join(REPO, "pipeline", "manifests", f"{slug}.json")
         if os.path.isfile(man):
             shutil.copy2(man, os.path.join(repo_dir, "manifests", f"{slug}.json"))
+        os.makedirs(os.path.join(repo_dir, "reports"), exist_ok=True)
         if report:
-            os.makedirs(os.path.join(repo_dir, "reports"), exist_ok=True)
             shutil.copy2(report, os.path.join(repo_dir, report_rel))
+        plan = os.path.join(REPO, "pipeline", "resorts", f"{slug}-plan.md")   # FEAT-223 resort.py plan
+        if os.path.isfile(plan):
+            shutil.copy2(plan, os.path.join(repo_dir, "reports", f"{slug}-plan.md"))
         run(["git", "add", "-A"], cwd=repo_dir)
         run(["git", "commit", "-q", "-m", f"{slug} v{version}: {a.status}, {size / 1e6:.0f} MB, pipeline {pipeline}"], cwd=repo_dir)
         try:

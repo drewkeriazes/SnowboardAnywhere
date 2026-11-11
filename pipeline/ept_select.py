@@ -34,8 +34,9 @@ def sources(cfg):
     return [main] + list(cfg["lidar"].get("extra", []))
 
 
-def select(cfg, src, fetch_json=None):
-    """Node keys to download for one source, plus the point count over the ski area."""
+def select(cfg, src, fetch_json=None, stats=None):
+    """Node keys to download for one source, plus the point count over the ski area. `stats`, a dict, gets each
+    selected node's point count ("points": {key: count}, used by resort.py plan to size the download)."""
     fetch_json = fetch_json or (lambda url: json.load(urllib.request.urlopen(url, timeout=60)))
     base = src["ept"] if src["ept"].endswith("/") else src["ept"] + "/"
     ept = fetch_json(base + "ept.json")
@@ -59,7 +60,7 @@ def select(cfg, src, fetch_json=None):
         return cache[key]
 
     counts = dict(hier("0-0-0-0"))
-    sel, pts_in = [], 0
+    sel, pts_in, node_pts = [], 0, {}
     stack = ["0-0-0-0"]
     while stack:
         key = stack.pop()
@@ -72,11 +73,14 @@ def select(cfg, src, fetch_json=None):
         lim = deep if hit(r, inner) else shallow
         if not hit(r, out) or d > lim: continue
         sel.append(key)
+        node_pts[key] = c
         if hit(r, inner): pts_in += c
         for dx in (0, 1):
             for dy in (0, 1):
                 for dz in (0, 1):
                     stack.append(f"{d+1}-{2*x+dx}-{2*y+dy}-{2*z+dz}")
+    if stats is not None:
+        stats["points"] = node_pts
     return sel, pts_in
 
 
@@ -86,15 +90,19 @@ def far_box(cfg):
     return [x0 - p, y0 - p, x1 + p, y1 + p]
 
 
-def select_far(cfg, fetch_json=None, have=()):
+def select_far(cfg, fetch_json=None, have=(), stats=None):
     """Node keys for the far tree ring (BUG-081): every node of the main source down to `lidar.far.max_depth` in
     the grown box, without the ones in `have` (the main list)."""
     c = copy.deepcopy(cfg); c["utm_bbox"] = far_box(cfg)
     src = {k: v for k, v in cfg["lidar"].items() if k not in ("extra", "far")}
     d = int(cfg["lidar"]["far"]["max_depth"]); src["max_depth_resort"] = src["max_depth_outside"] = d
-    sel, _ = select(c, src, fetch_json)
+    st = {}
+    sel, _ = select(c, src, fetch_json, stats=st)
     have = set(have)
-    return [k for k in sel if k not in have]
+    out = [k for k in sel if k not in have]
+    if stats is not None:
+        stats["points"] = {k: st["points"][k] for k in out}
+    return out
 
 
 def main(argv):

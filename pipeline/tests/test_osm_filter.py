@@ -46,6 +46,14 @@ def test_excluded_needs_most_points_inside():
     assert of.excluded(way(4, {"access": "private"}, [(50, 50), (60, 60)]), areas) == "access"
 
 
+def test_excluded_by_osm_id():
+    # FEAT-223: resolve --alone lists the neighbour's own runs and lifts by OSM id, wherever their points lie
+    areas = of.exclude_areas([{"name": "Club", "osm_ways": [11, "12"]}], {"elements": []})
+    assert of.excluded(way(11, {"piste:type": "downhill"}, [(50, 50), (60, 60)]), areas) == "Club"
+    assert of.excluded(way(12, {"aerialway": "chair_lift"}, [(1, 1), (2, 2)]), areas) == "Club"
+    assert of.excluded(way(13, {"piste:type": "downhill"}, [(1, 1), (2, 2)]), areas) is None
+
+
 def test_filter_elements_keeps_nodes_and_non_ski_ways():
     areas = [{"name": "Club", "ring": SQUARE}]
     els = [way(1, {"piste:type": "downhill"}, [(1, 1), (2, 2)]),
