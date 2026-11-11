@@ -10,6 +10,7 @@ Species ids (Float32 field 5 of `trees/<tx>_<ty>.bin`, `meta.treeSpecies` = 2):
 Shrub kinds (field 5 of `shrubs/<tx>_<ty>.bin`, records x, y, z, height, radius, kind):
   0 willow, 1 juniper, 2 sagebrush, 3 young conifer, 4 Gambel oak.
 """
+import re
 import numpy as np
 from scipy import ndimage
 from PIL import Image
@@ -70,6 +71,39 @@ def evt_luts(table, n):
             c = classify_evt(r.get("EVT_NAME", ""), r.get("EVT_LF", ""))
             for k in lut:
                 lut[k][v] = c[k]
+    return lut
+
+
+_LF_NUM = re.compile(r"(\d+(?:\.\d+)?)")
+
+
+def _lf_value(name, prefix):
+    """the number in a LANDFIRE EVC / EVH class name that starts with `prefix`: "Tree Cover = 45%" -> 45,
+    "Tree Height >= 25 meters" -> 25, a range ("Tree Cover >= 10 and < 20%") -> its midpoint. NaN otherwise."""
+    if not name.startswith(prefix):
+        return float("nan")
+    v = [float(m) for m in _LF_NUM.findall(name[len(prefix):])]
+    return sum(v) / len(v) if v else float("nan")
+
+
+def lf_tree_cover(name):
+    """EVC class name -> tree canopy cover 0..1 (DATA-010). NaN for shrub, herb, developed, water and barren
+    classes: the developed forest classes carry no cover, so the lidar and NAIP decide there."""
+    return _lf_value(name, "Tree Cover") / 100.0
+
+
+def lf_tree_height(name):
+    """EVH class name -> tree height in metres (DATA-010), NaN for every non-tree class."""
+    return _lf_value(name, "Tree Height")
+
+
+def lf_value_lut(table, n, fn):
+    """per-value float32 lookup (length n, NaN where the class has no value) from an EVC / EVH .vat.dbf"""
+    lut = np.full(n, np.nan, np.float32)
+    for r in table:
+        v = int(float(r.get("VALUE", "0") or 0))
+        if 0 <= v < n:
+            lut[v] = fn(r.get("CLASSNAMES", ""))
     return lut
 
 

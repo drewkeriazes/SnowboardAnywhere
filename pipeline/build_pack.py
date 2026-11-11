@@ -307,6 +307,52 @@ if lf_tifs:
 else:
     log("  no LANDFIRE clip (raw/<slug>/landfire/*.tif); species from elevation, aspect and NAIP colour (species.py fallback)")
 
+# ------------------------------------------------------------------ 5c. LANDFIRE EVC and EVH (30 m), optional
+# DATA-010: existing vegetation cover and height from raw/<slug>/landfire/evc/ and evh/ (fetch_landfire.mjs EVC / EVH),
+# read by class NAME like EVT ("Tree Cover = 45%", "Tree Height = 17 meters"). Tree classes only: shrub, herb,
+# developed, water and barren cells are NaN, so the lidar and NAIP decide there. Stand density (FEAT-074) and the
+# canopy rules (BUG-028) read them per 2 m cell with .on2() or per point with .at(); nothing is kept on the 2 m grid.
+class LfLayer:
+    def __init__(self, path, fn):
+        tfw = [float(v) for v in open(path[:-4] + ".tfw").read().split()]
+        img = read_tiff(path).astype(np.int32)
+        if img.ndim == 3:
+            img = img[..., 0] if img.shape[-1] < img.shape[0] else img[0]
+        table = read_dbf(path + ".vat.dbf") if os.path.exists(path + ".vat.dbf") else []
+        lut = spc.lf_value_lut(table, int(img.max()) + 1, fn)
+        self.name, self.vals = os.path.basename(path), lut[np.clip(img, 0, None)]   # 30 m float32, NaN off-class
+        self.x0, self.y0, self.px = tfw[4], tfw[5], tfw[0]
+        H_, W_ = self.vals.shape
+        self.cc = np.clip(np.round((X0 + (np.arange(W2) + 0.5) * R2 - self.x0) / self.px).astype(np.int64), 0, W_ - 1)
+        self.rr = np.clip(np.round((self.y0 - (Y1 - (np.arange(H2) + 0.5) * R2)) / self.px).astype(np.int64), 0, H_ - 1)
+
+    def at(self, x_utm, y_utm):
+        c = np.clip(np.round((x_utm - self.x0) / self.px).astype(np.int64), 0, self.vals.shape[1] - 1)
+        r = np.clip(np.round((self.y0 - y_utm) / self.px).astype(np.int64), 0, self.vals.shape[0] - 1)
+        return self.vals[r, c]
+
+    def on2(self, rows=slice(None), cols=slice(None)):
+        """the layer on the 2 m grid (or a window of it), float32 with NaN off-class"""
+        return self.vals[np.ix_(self.rr[rows], self.cc[cols])]
+
+    def window(self):
+        """the 30 m cells under the pack, for the log"""
+        return self.vals[self.rr.min():self.rr.max() + 1, self.cc.min():self.cc.max() + 1]
+
+def load_lf_layer(sub, fn):
+    tifs = sorted(glob.glob(os.path.join(raw, "landfire", sub, "*.tif")))
+    return LfLayer(tifs[-1], fn) if tifs else None
+
+lf_cover = load_lf_layer("evc", spc.lf_tree_cover)
+lf_height = load_lf_layer("evh", spc.lf_tree_height)
+for lyr, what, unit, k in ((lf_cover, "EVC tree cover", "%", 100), (lf_height, "EVH tree height", " m", 1)):
+    if lyr is None:
+        log(f"  no LANDFIRE {what[:3]} (raw/<slug>/landfire/{what[:3].lower()}/*.tif)")
+        continue
+    w = lyr.window(); t = w[np.isfinite(w)]
+    rng_ = f"{t.min() * k:.0f} / {np.median(t) * k:.0f} / {t.max() * k:.0f}{unit} (min / median / max)" if t.size else "none"
+    log(f"  LANDFIRE {what} {lyr.name} {lyr.vals.shape}: tree classes on {t.size / max(w.size, 1) * 100:.1f}% of the pack, {rng_}")
+
 # ------------------------------------------------------------------ 6. OSM features
 log("OSM")
 def load_osm(name):
