@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { type Pack, MOGUL_MAX_RES, MOGUL_SHADE_MAX_RES } from '../pack/Pack';
+import { treelineOf } from '../pack/treeline';
 import { MOGUL_FALL_D } from './Moguls';
 import { createTerrainMaterial, COVER_SLOTS, EMPTY_RECT } from './TerrainMaterial';
 import { vegetationFarRadius } from '../world/Vegetation';
@@ -12,8 +13,6 @@ import type { TreeShade } from '../world/TreeShade';
  * pack y = -three.z).
  */
 const N = 32; // quads per chunk side
-/** Colorado treeline (m): forest below it on the far terrain where there is no canopy mask */
-const TREELINE = 3480;
 function vhash(ix: number, iy: number): number { let h = (ix * 374761393 + iy * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
 function vnoise2(x: number, y: number): number {
   const ix = Math.floor(x), iy = Math.floor(y); let fx = x - ix, fy = y - iy;
@@ -24,15 +23,15 @@ function vnoise2(x: number, y: number): number {
 /**
  * Forest cover 0..1 where there is neither canopy mask nor a cover level (FEAT-153: only before the cover
  * has loaded, or beyond its levels; older packs everywhere past the fine chunks): conifers
- * below a noisy treeline, thinning on steep ground and in open patches (meadows, ski runs).
+ * below a noisy treeline (the pack's own, DATA-021), thinning on steep ground and in open patches (meadows, ski runs).
  */
-function proceduralForest(x: number, y: number, h: number, slope: number): number {
-  const tl = TREELINE + (vnoise2(x / 900, y / 900) - 0.5) * 220;
+function proceduralForest(x: number, y: number, h: number, slope: number, treeline: number): number {
+  const tl = treeline + (vnoise2(x / 900, y / 900) - 0.5) * 220;
   const below = THREE.MathUtils.smoothstep(tl + 40 - h, 0, 160);
   const patch = vnoise2(x / 420 + 31.7, y / 420 - 12.3) * 0.65 + vnoise2(x / 140, y / 140) * 0.35;
   const open = THREE.MathUtils.smoothstep(patch, 0.3, 0.5);
   const flatOK = 1 - THREE.MathUtils.smoothstep(slope, 0.6, 0.85); // cliffs carry no trees
-  const valley = THREE.MathUtils.smoothstep(h, 2450, 2650); // towns and the I-70 corridor are open
+  const valley = THREE.MathUtils.smoothstep(h, treeline - 1030, treeline - 830); // towns and the valley floor are open (2,450 to 2,650 m on Vail's I-70)
   return below * open * flatOK * valley;
 }
 /** share of the canopy height the surface rises by (crowns are cones; the gaps let light through) */
@@ -66,6 +65,8 @@ export class Terrain {
   readonly group = new THREE.Group();
   readonly material: THREE.MeshStandardMaterial;
   private readonly pack: Pack;
+  /** m: the procedural forest's treeline, the pack's own (DATA-021) */
+  private readonly treeline: number;
   private readonly rootMinX: number;
   private readonly rootMinY: number;
   private readonly rootSize: number;
@@ -92,6 +93,7 @@ export class Terrain {
 
   constructor(pack: Pack) {
     this.pack = pack;
+    this.treeline = treelineOf(pack.meta);
     this.material = createTerrainMaterial();
     this.blankTreeMap = (this.material.userData.uniforms as { uTreeMap: { value: THREE.Texture } }).uTreeMap.value;
     const far = pack.meta.terrain.far ?? pack.meta.terrain.mid ?? pack.meta.terrain.fine!;
@@ -379,7 +381,7 @@ export class Terrain {
           const m = pack.mask!.sampleBilinear(x, y, this.maskSample);
           rock = m[0]; scree = m[1]; groom = m[2]; fo = m[3];
         } else {
-          fo = proceduralForest(x, y, h, slope);
+          fo = proceduralForest(x, y, h, slope, this.treeline);
           let canopyH = CANOPY_DEFAULT;
           if (cover) {
             const cs = this.coverSample;

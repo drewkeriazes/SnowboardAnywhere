@@ -36,8 +36,9 @@ export interface TreeSnowState {
 
 export const treeSnowUniforms = {
   uTreeSnow: { value: new THREE.Vector3(0.4, 0, 0) }, // load, melt, ghost
-  /** the snow-ghost band (world y, m): none below x, full from y. Colorado treeline (FEAT-070): below it the
-   * forest is flocked, not rimed (Hornsilver at 3,380 m in the Feb 2014 photo), krummholz and the top stands are ghosts */
+  /** the snow-ghost band (world y, m): none below x, full from y. 30 m under to 80 m over the treeline (FEAT-070,
+   * 3,450 to 3,560 m on Vail; the pack's own treeline since DATA-021, setGhostBand): below it the forest is flocked,
+   * not rimed (Hornsilver at 3,380 m in the Feb 2014 photo), krummholz and the top stands are ghosts */
   uGhostZ: { value: new THREE.Vector2(3450, 3560) },
   /** direction toward the sun (world) and its colour x intensity: the translucency and the far LODs */
   uTreeSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.4).normalize() },
@@ -48,6 +49,11 @@ export const treeSnowUniforms = {
 
 export function setTreeSnow(s: TreeSnowState): void {
   treeSnowUniforms.uTreeSnow.value.set(s.load, s.melt, s.ghost);
+}
+
+/** DATA-021: put the snow-ghost band at this resort's treeline (m) */
+export function setGhostBand(treeline: number): void {
+  treeSnowUniforms.uGhostZ.value.set(treeline - 30, treeline + 80);
 }
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));

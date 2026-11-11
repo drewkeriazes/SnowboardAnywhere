@@ -16,6 +16,9 @@ from scipy import ndimage
 from PIL import Image
 
 SPRUCE, ASPEN, KRUMMHOLZ, FIR, LODGEPOLE, DOUGLAS, LIMBER, SNAG = range(8)
+# the treeline (m) the elevation bands below were tuned for (Vail; game/src/pack/treeline.ts DEFAULT_TREELINE);
+# build_pack.py passes elevations relative to a resort's own treeline (DATA-021)
+COLORADO_TREELINE = 3480.0
 SPECIES_NAMES = ["spruce", "aspen", "krummholz", "fir", "lodgepole", "douglas-fir", "limber", "snag"]
 TREE_SPECIES_VERSION = 2
 # crown radius / height per species (the card's table); lodgepole carries its crown in the top third
@@ -51,7 +54,8 @@ def classify_evt(name, lifeform):
         c["group"], c["aspen"] = G_ASPEN, 0.85            # stands are mostly aspen with some conifer
     elif "Lodgepole" in name or "Ponderosa" in name:      # no ponderosa model: the nearest pine
         c["group"] = G_LODGEPOLE
-    elif "Limber" in name or "Bristlecone" in name or "Pinyon" in name or "Juniper" in name:
+    elif ("Limber" in name or "Bristlecone" in name or "Pinyon" in name or "Juniper" in name
+          or "Whitebark" in name or "Woodland and Parkland" in name):   # DATA-021: Montana's whitebark pine at treeline
         c["group"] = G_LIMBER
     elif "Douglas-fir" in name or "Mixed Conifer" in name:   # southern Rockies montane mixed conifer is Douglas-fir led
         c["group"] = G_DOUGLAS

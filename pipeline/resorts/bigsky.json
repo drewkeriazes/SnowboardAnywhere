@@ -1,0 +1,152 @@
+{
+  "slug": "bigsky",
+  "name": "Big Sky",
+  "country": "US",
+  "region": "Montana",
+  "osm_ski_area_way": 1254863688,
+  "crs": "EPSG:26912",
+  "utm_zone": "12N",
+  "lonlat_bbox": [
+    -111.466,
+    45.245,
+    -111.355,
+    45.322
+  ],
+  "buffer_m": 1000,
+  "utm_bbox": [
+    462400,
+    5009200,
+    473200,
+    5019900
+  ],
+  "origin": [
+    467800,
+    5014550
+  ],
+  "elevation_range_m": [
+    2000,
+    3450
+  ],
+  "mid_ring": {
+    "size_m": 40000,
+    "res_m": 10
+  },
+  "far_ring": {
+    "size_m": 200000,
+    "mapterhorn_zoom": 11
+  },
+  "dem": {
+    "source": "3DEP ImageServer",
+    "res_m": 1,
+    "chunk_px": 1500
+  },
+  "naip": {
+    "source": "Planetary Computer naip 2021 60cm (one 2019 quarter quad where 2021 has none)",
+    "res_m": 1,
+    "max_px": 4000,
+    "items": [
+      "mt_m_4511153_ne_12_060_20190720_20200107",
+      "mt_m_4511154_nw_12_060_20210921",
+      "mt_m_4511153_nw_12_060_20210921",
+      "mt_m_4511146_sw_12_060_20210921",
+      "mt_m_4511146_nw_12_060_20210921",
+      "mt_m_4511145_sw_12_060_20210921",
+      "mt_m_4511145_se_12_060_20210921",
+      "mt_m_4511145_nw_12_060_20210921",
+      "mt_m_4511145_ne_12_060_20210921"
+    ],
+    "item_bboxes_ll": {
+      "mt_m_4511153_ne_12_060_20190720_20200107": [
+        -111.441,
+        45.185,
+        -111.372,
+        45.252
+      ],
+      "mt_m_4511154_nw_12_060_20210921": [
+        -111.378,
+        45.186,
+        -111.31,
+        45.252
+      ],
+      "mt_m_4511153_nw_12_060_20210921": [
+        -111.503,
+        45.185,
+        -111.434,
+        45.252
+      ],
+      "mt_m_4511146_sw_12_060_20210921": [
+        -111.378,
+        45.248,
+        -111.31,
+        45.315
+      ],
+      "mt_m_4511146_nw_12_060_20210921": [
+        -111.378,
+        45.31,
+        -111.31,
+        45.377
+      ],
+      "mt_m_4511145_sw_12_060_20210921": [
+        -111.503,
+        45.248,
+        -111.434,
+        45.315
+      ],
+      "mt_m_4511145_se_12_060_20210921": [
+        -111.441,
+        45.248,
+        -111.372,
+        45.315
+      ],
+      "mt_m_4511145_nw_12_060_20210921": [
+        -111.503,
+        45.31,
+        -111.434,
+        45.377
+      ],
+      "mt_m_4511145_ne_12_060_20210921": [
+        -111.441,
+        45.31,
+        -111.372,
+        45.377
+      ]
+    }
+  },
+  "lidar": {
+    "ept": "https://s3-us-west-2.amazonaws.com/usgs-lidar-public/MT_StatewideP4_5_B22/",
+    "dataset": "MT_StatewideP4_5_B22",
+    "max_depth_resort": 9,
+    "max_depth_outside": 8,
+    "nodes_file": "bigsky_ept_nodes.txt",
+    "extra": [
+      {
+        "ept": "https://s3-us-west-2.amazonaws.com/usgs-lidar-public/MT_Statewide_P3_3_B21/",
+        "dataset": "MT_Statewide_P3_3_B21",
+        "max_depth_resort": 9,
+        "max_depth_outside": 8,
+        "nodes_file": "bigsky_ept_nodes_p3.txt",
+        "utm_bbox": [
+          470400,
+          5009200,
+          473200,
+          5019900
+        ]
+      }
+    ]
+  },
+  "attribution": [
+    "Elevation: USGS 3DEP 1 m lidar DEM, public domain",
+    "Canopy: USGS 3DEP lidar point clouds MT_StatewideP4_5_B22 and MT_Statewide_P3_3_B21 via AWS usgs-lidar-public, public domain",
+    "Imagery: USDA NAIP 2021 (one 2019 tile) via Microsoft Planetary Computer, public domain",
+    "Background terrain: Mapterhorn (mapterhorn.com)",
+    "Runs, lifts, buildings, roads, names: OpenStreetMap contributors (ODbL)"
+  ],
+  "start_run": "Morningstar",
+  "exclude": [
+    {
+      "name": "Yellowstone Club",
+      "osm_way": 1461424414
+    }
+  ],
+  "notes": "Ski-area box from the OSM landuse=winter_sports way 1254863688 (Big Sky Resort), stretched to every public lift and run incl. Moonlight Basin (north to the One and Only gondola top, 45.321 N). Private neighbours: the Yellowstone Club's OSM polygon (way 1461424414) also covers Spanish Peaks Mountain Club, so the one `exclude` entry drops both clubs' runs and lifts (69 run and lift ways, checked 2026-11-10: the bird-named Spanish Peaks runs, the club's own and its connectors) and keeps every Big Sky lift; their lifts are tagged access=private too. MT_StatewideP4_5_B22 covers the box except an east strip (x > 470,900, 10 km2 of the ski area: lower Lone Moose, Highlands, Lewis and Clark), which MT_Statewide_P3_3_B21 fills (lidar.extra, clipped to x > 470,400). NAIP 2021 is the latest on Planetary Computer for Montana (STAC search 2026-11-10); 2021 has no 4511153_ne, so that quarter quad is 2019. UTM 12N."
+}

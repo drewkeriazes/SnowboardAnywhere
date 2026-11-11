@@ -3,7 +3,8 @@ import type { Pack } from '../pack/Pack';
 import type { StandsMeta } from '../pack/types';
 import { decodeRGBA } from '../pack/MaskSet';
 import type { Collider } from '../sim/Collider';
-import { TreeKit, SPECIES_COUNT, VARIANTS, speciesFor, variantFor, crownRadius, hash01, fadeWidth, farAttrs, farGeometry, generateStems, type FarAttrs, type StandGrid } from './trees';
+import { TreeKit, SPECIES_COUNT, VARIANTS, speciesFor, variantFor, crownRadius, hash01, fadeWidth, farAttrs, farGeometry, generateStems, setGhostBand, type FarAttrs, type StandGrid } from './trees';
+import { treelineOf } from '../pack/treeline';
 import { TreeShade } from './TreeShade';
 
 /**
@@ -207,6 +208,7 @@ export class Vegetation {
     this.collider = collider;
     this.kit = new TreeKit();
     this.mat = this.kit.mat;
+    setGhostBand(treelineOf(pack.meta)); // DATA-021: the uniform is shared, so each pack sets its own
     // packs from before DATA-020 have 0 conifer, 1 aspen, 2 krummholz only
     this.legacy = pack.meta.treeSpecies === undefined;
     this.standCells = new Set(pack.meta.stands?.cells ?? []);
