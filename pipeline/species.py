@@ -31,11 +31,17 @@ GROUP_NAMES = ["none", "spruce-fir", "aspen", "lodgepole", "douglas-fir", "limbe
 def classify_evt(name, lifeform):
     """One LANDFIRE EVT class -> tree group, aspen share, and the flags the shrubs and fill trees use.
 
-    `forest` is the old fill-tree gate (Tree life form, not urban). Developed tree classes still get a
-    group, so a lidar tree in a village keeps a plausible species."""
+    `forest`: any Tree life form, the urban and developed forest classes included (BUG-027: LANDFIRE maps
+    Vail's in-resort spruce-fir and lodgepole as `Western Cool Temperate Urban Evergreen Forest`).
+    `open`: truly open ground (meadow, grassland, shrubland, sagebrush, bedrock and scree, water, snow),
+    the only classes the fill trees are kept out of. The `Developed-*` life form (low to high intensity,
+    roads) and the urban or developed herb and shrub classes are neither: unknown, so the lidar canopy and
+    NAIP decide there. Developed tree classes still get a group, so a lidar tree in a village keeps a
+    plausible species."""
     tree = lifeform == "Tree"
-    c = {"group": G_NONE, "aspen": 0.0, "forest": tree and "Urban" not in name, "alpine": "Alpine" in name,
-         "riparian": "Riparian" in name, "sage": "Sagebrush" in name, "oak": "Gambel Oak" in name}
+    built = lifeform == "Developed" or "Urban" in name or "Developed" in name
+    c = {"group": G_NONE, "aspen": 0.0, "forest": tree, "open": not tree and not built and lifeform != "",
+         "alpine": "Alpine" in name, "riparian": "Riparian" in name, "sage": "Sagebrush" in name, "oak": "Gambel Oak" in name}
     if not tree:
         return c
     if "Aspen-Mixed" in name:
@@ -62,7 +68,7 @@ def classify_evt(name, lifeform):
 
 def evt_luts(table, n):
     """per-value lookup arrays (length n) from the .vat.dbf rows"""
-    lut = {k: np.zeros(n, dt) for k, dt in (("group", np.int8), ("aspen", np.float32), ("forest", bool), ("alpine", bool),
+    lut = {k: np.zeros(n, dt) for k, dt in (("group", np.int8), ("aspen", np.float32), ("forest", bool), ("open", bool), ("alpine", bool),
                                             ("riparian", bool), ("sage", bool), ("oak", bool))}
     for r in table:
         v = int(float(r.get("VALUE", "0") or 0))
