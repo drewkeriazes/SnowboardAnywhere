@@ -3,6 +3,7 @@ import { STAMINA } from '../sim/Rider';
 import type { RunStats } from '../sim/RunStats';
 import { snowLabel } from '../sim/SnowConditions';
 import { fmtSpeed, fmtHeight, fmtDistance } from './Units';
+import { conditionsText } from './Conditions';
 
 export interface HudState {
   rider: Rider;
@@ -26,7 +27,7 @@ export function hudLine(s: HudState): string {
   const altStr = (m: number) => fmtHeight(m, metric);
   return `<b>${speedStr(rider.speed)} &nbsp; ${altStr(rider.z)} &nbsp; slope ${rider.slopeDeg.toFixed(0)}&deg;` +
     // FEAT-053: what the snow is here; on foot, how deep the boots sink in it
-    (rider.onFoot ? ` &nbsp; <span class="dim">snow</span> ${snowLabel(rider.snow.kind).toLowerCase()} &middot; <span class="dim">sink</span> ${metric ? (rider.sink * 100).toFixed(0) + ' cm' : (rider.sink * 39.37).toFixed(0) + ' in'}` : rider.onGround && !rider.unstrapped ? ` &nbsp; <span class="dim">${snowLabel(rider.snow.kind)}</span>` : '') +
+    (rider.onFoot ? ` &nbsp; <span class="dim">snow</span> ${snowLabel(rider.snow.kind).toLowerCase()} &middot; <span class="dim">sink</span> ${metric ? (rider.sink * 100).toFixed(0) + ' cm' : (rider.sink * 39.37).toFixed(0) + ' in'}` : rider.onGround && !rider.unstrapped ? ` &nbsp; <span class="dim">${conditionsText(rider, metric)}</span>` : '') + // FEAT-221: the snow and what it is doing to you
     (rider.onFoot ? ` &nbsp; ${rider.crawling ? 'SCRAMBLING' : 'ON FOOT'} &nbsp; <span class="dim">sprint</span> ${'&#9646;'.repeat(Math.ceil(rider.stamina / STAMINA * 5))}${'&#9647;'.repeat(5 - Math.ceil(rider.stamina / STAMINA * 5))}` : '') +
     (rider.switch && !rider.unstrapped ? ' &nbsp; SWITCH' : '') + // FEAT-139
     (rider.onGround || rider.onFoot ? '' : ` &nbsp; AIR ${rider.airTime.toFixed(1)}s`) + (rider.crashed > 0 ? ' &nbsp; CRASH' : '') +
