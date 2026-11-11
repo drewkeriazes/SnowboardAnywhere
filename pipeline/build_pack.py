@@ -148,7 +148,8 @@ dtm_l = np.full((H2, W2), 1e9, np.float32)
 n_pts = 0
 ept = json.load(open(os.path.join(raw, "ept/ept.json"), encoding="utf-8"))
 scale = None
-for p in sorted(glob.glob(os.path.join(raw, "ept", "*.laz"))):
+# ept/*.laz is the main dataset, ept/<dataset>/*.laz any extra one (cfg["lidar"]["extra"]); all EPSG:3857
+for p in sorted(glob.glob(os.path.join(raw, "ept", "*.laz")) + glob.glob(os.path.join(raw, "ept", "*", "*.laz"))):
     try:
         las = laspy.read(p)
     except Exception as e:
@@ -241,6 +242,11 @@ canopy_grown = grown & ~canopy
 log(f"  canopy {canopy.mean()*100:.1f}% from the lidar and NAIP rule, {canopy_grown.mean()*100:.1f}% more from 5 m+ returns over grey crowns and closed gaps (BUG-028)")
 canopy |= canopy_grown
 del has_pts, crown, grown
+# DATA-021: the resort's own treeline for the client's procedural forest and snow-ghost band (Colorado's 3,480 m
+# put Big Sky's bare upper bowls in forest); cfg["treeline_m"] overrides, None when the box never leaves the forest
+import treeline as _tl
+treeline_m = cfg.get("treeline_m") or _tl.derive_treeline(dem2, canopy, have2)
+log(f"  treeline {treeline_m} m ({'config' if cfg.get('treeline_m') else 'from the canopy by elevation'})")
 # rock: low NDVI, GREY (low colour saturation), not snow. Late-summer NAIP shows cured meadow and
 # groomed pistes as tan grass with NDVI < 0.18 too; saturation 0.22..0.42 for grass vs < 0.15 for rock
 # (measured on the Vail 2023 imagery). Without the saturation test 25 % of the resort came out as rock.
@@ -371,6 +377,11 @@ def load_osm(name):
         log("  missing osm", name); return {"elements": []}
     return json.load(open(p, encoding="utf-8"))
 ski = load_osm("ski"); built = load_osm("built"); natural = load_osm("natural"); peaks_far = load_osm("peaks_far"); places_far = load_osm("places_far")
+# DATA-021: members-only neighbours (cfg["exclude"], access=private tags) keep their terrain but lose their runs and lifts
+import osm_filter
+ski, ski_dropped = osm_filter.filter_ski(ski, osm_filter.exclude_areas(cfg.get("exclude"), ski, lambda m: log("  " + m)))
+if ski_dropped:
+    log("  private runs and lifts dropped: " + ", ".join(f"{k} {v}" for k, v in sorted(ski_dropped.items())))
 
 def to_local(lon, lat):
     x, y = to_utm.transform(lon, lat)
@@ -814,7 +825,11 @@ else:
 # krummholz (BUG-025) stays: only a tree the lidar measured as short (1 to 4 m) near treeline or in an alpine
 # LANDFIRE class. Colorado treeline is about 3,500 to 3,600 m; subalpine spruce-fir at Vail is tall right
 # up to the summits, so elevation alone never makes a tree krummholz, and no lidar height is capped.
-species = spc.assign_species(tx, ty, elev, chm_at, group, a_frac, alpine, aspen_like[rows, cols], northeast, wet, ridge, roll, evt is not None)
+# DATA-021: the species' elevation bands were tuned on Vail, so they see the elevation relative to this resort's
+# treeline (Big Sky's is about 500 m lower); no measured treeline (Vail) leaves them as they were.
+elev_shift = (treeline_m - spc.COLORADO_TREELINE) if treeline_m else 0.0
+log(f"  species elevation bands shifted {elev_shift:+.0f} m for the treeline")
+species = spc.assign_species(tx, ty, elev - elev_shift, chm_at, group, a_frac, alpine, aspen_like[rows, cols], northeast, wet, ridge, roll, evt is not None)
 species[is_snag] = spc.SNAG
 crown = spc.crown_radius(species, hgt)
 trees = np.stack([tx, ty, tz, hgt, crown, species.astype(np.float32)], axis=1).astype(np.float32)
@@ -867,7 +882,7 @@ if evt is not None:
     del v4
 else:
     g4 = np.zeros(len(si), np.int8); af4 = np.zeros(len(si), np.float32); al4 = np.zeros(len(si), bool)
-sp4[si, sj] = spc.assign_species(sx4, sy4, z4[si, sj], h4[si, sj], g4, af4, al4, aspen_like[r2_, c2_], ne4, wet4, ridge4,
+sp4[si, sj] = spc.assign_species(sx4, sy4, z4[si, sj] - elev_shift, h4[si, sj], g4, af4, al4, aspen_like[r2_, c2_], ne4, wet4, ridge4,
                                  spc.hash01(sx4, sy4, 9), evt is not None)
 del si, sj, r2_, c2_, sx4, sy4, ne4, wet4, ridge4, g4, af4, al4
 p4 = stands.stem_chance(canopy4, h4, sp4, det4)
@@ -888,7 +903,7 @@ open_ = base_ok & ~canopy
 low = base_ok & (chm < 4.0)                   # willow carr is short canopy, so it may read as canopy
 near_stream = sdist2 < 25
 valley = (tpi_l2 < -3) & (slope2 < 20)
-south_ridge = (north2 < -0.5) & (tpi_s2 > 0.5) & (dem2 > 2700) & (dem2 < 3600)
+south_ridge = (north2 < -0.5) & (tpi_s2 > 0.5) & (dem2 - elev_shift > 2700) & (dem2 - elev_shift < 3600)
 del sdist2, tpi_l2, north2, east2, tpi_s2
 gap_edge = ndimage.binary_dilation(canopy, iterations=6)            # within 12 m of canopy
 edge_band = ndimage.binary_dilation(canopy, iterations=3) & (chm < 6.0)
@@ -900,8 +915,8 @@ if evt is not None:
     del g2
 else:
     riparian = sage = oak = np.zeros((H2, W2), bool)
-    spruce_fir = dem2 > 2900
-    conifer = dem2 > 2700
+    spruce_fir = dem2 - elev_shift > 2900
+    conifer = dem2 - elev_shift > 2700
 p_sh = spc.shrub_probabilities(R2, open_, ndvi2, near_stream, valley, riparian, spruce_fir, gap_edge, south_ridge, sage, oak,
                                edge_band & conifer, low=low)
 del base_ok, open_, low, near_stream, valley, south_ridge, gap_edge, edge_band, riparian, sage, oak, spruce_fir, conifer
@@ -959,6 +974,8 @@ meta = {"version": 1, "slug": slug, "name": cfg["name"], "crs": crs, "origin": [
         "zRange": [float(np.floor(Z_MIN / 100) * 100 - 100), float(np.ceil(Z_MAX / 100) * 100 + 100)],
         "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "dir": dir_meta, "moguls": mog_meta, "instances": inst, "stands": stand_meta, "treeSpecies": spc.TREE_SPECIES_VERSION,
         "start": start, "sun": {"azimuth": 160, "elevation": 30}, "attribution": cfg["attribution"]}
+if treeline_m:
+    meta["treeline"] = round(float(treeline_m))
 write_meta(out, meta)
 
 # ------------------------------------------------------------------ 10. forest cover levels for the far terrain (FEAT-153)

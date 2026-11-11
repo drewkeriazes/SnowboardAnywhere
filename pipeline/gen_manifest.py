@@ -96,11 +96,14 @@ for ty in range(int(math.floor(ty0)), int(math.floor(ty1)) + 1):
         add(f"https://tiles.mapterhorn.com/{z}/{tx}/{ty}.webp", f"mapterhorn/{z}/{tx}_{ty}.webp")
 
 # ---------------------------------------------------------------- Lidar EPT nodes
-ept = cfg["lidar"]["ept"]
-add(ept + "ept.json", "ept/ept.json")
-nodes = open(os.path.join(HERE, "resorts", cfg["lidar"]["nodes_file"])).read().split()
-for k in nodes:
-    add(f"{ept}ept-data/{k}.laz", f"ept/{k}.laz")
+# The main source goes to ept/, each of cfg["lidar"]["extra"] (a second dataset over the part the first one
+# misses, e.g. Big Sky's east strip) to ept/<dataset>/: node keys repeat between datasets.
+for k_src, src in enumerate([cfg["lidar"]] + list(cfg["lidar"].get("extra", []))):
+    ept = src["ept"]; sub = "ept" if k_src == 0 else f"ept/{src['dataset']}"
+    add(ept + "ept.json", f"{sub}/ept.json")
+    nodes = open(os.path.join(HERE, "resorts", src["nodes_file"])).read().split()
+    for k in nodes:
+        add(f"{ept}ept-data/{k}.laz", f"{sub}/{k}.laz")
 
 # ---------------------------------------------------------------- Overpass
 lon0, lat0, lon1, lat1 = cfg["lonlat_bbox"]

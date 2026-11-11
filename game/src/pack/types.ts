@@ -100,6 +100,8 @@ export interface PackMeta {
   /** FEAT-074: stand density per 4 m cell (stands/<cx>_<cy>.png per tree cell); absent in older packs */
   stands?: StandsMeta;
   start: { x: number; y: number; heading: number; run?: string };
+  /** DATA-021: the resort's treeline (m), measured from its canopy by elevation; absent in older packs and where the box never leaves the forest (pack/treeline.ts falls back to Colorado's) */
+  treeline?: number;
   sun: { azimuth: number; elevation: number };
   attribution: string[];
 }

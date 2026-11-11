@@ -155,3 +155,16 @@ def test_lf_cover_and_height_from_class_names():
              {"VALUE": "999", "CLASSNAMES": "Tree Cover = 99%"}]          # out of range: ignored
     lut = spc.lf_value_lut(table, 200, spc.lf_tree_cover)
     assert lut.dtype == np.float32 and abs(lut[145] - 0.45) < 1e-6 and np.isnan(lut[14]) and np.isnan(lut[0])
+
+
+def test_classify_montana_classes():
+    """DATA-021: Big Sky's Northern and Middle Rocky Mountain classes"""
+    c = spc.classify_evt
+    park = c("Northern Rocky Mountain Subalpine Woodland and Parkland", "Tree")   # whitebark pine and subalpine fir at treeline
+    assert park["group"] == spc.G_LIMBER and park["forest"]
+    assert c("Northern Rocky Mountain Whitebark Pine Woodland", "Tree")["group"] == spc.G_LIMBER
+    assert c("Middle Rocky Mountain Montane Douglas-fir Forest and Woodland", "Tree")["group"] == spc.G_DOUGLAS
+    assert c("Northern Rocky Mountain Dry-Mesic Montane Mixed Conifer Forest", "Tree")["group"] == spc.G_DOUGLAS
+    assert c("Rocky Mountain Subalpine Mesic-Wet Spruce-Fir Forest and Woodland", "Tree")["group"] == spc.G_SPRUCE_FIR
+    assert c("Rocky Mountain Poor-Site Lodgepole Pine Forest", "Tree")["group"] == spc.G_LODGEPOLE
+    assert c("Northern Rocky Mountain Avalanche Chute Shrubland", "Shrub")["open"]

@@ -2,6 +2,7 @@
 export const RESORTS: { slug: string; name: string }[] = [
   { slug: 'vail', name: 'Vail' },
   { slug: 'breckenridge', name: 'Breckenridge' },
+  { slug: 'bigsky', name: 'Big Sky' },
   { slug: 'synth', name: 'Test mountain (synthetic)' },
 ];
 

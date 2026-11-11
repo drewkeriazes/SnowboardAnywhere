@@ -1,48 +1,95 @@
 """Select EPT lidar nodes over a resort for the manifest.
 
-Usage: python pipeline/ept_select.py <dataset> <depth_in_ski_area> <depth_in_buffer> [out.txt]
-Boxes are hard-coded below for Breckenridge; edit OUT / IN for another resort (TODO: read from the resort config).
-Walks ept-hierarchy on the public bucket and keeps every node with points that intersects the box."""
+Usage: python pipeline/ept_select.py <slug> [--dry]
+
+Reads pipeline/resorts/<slug>.json and, for the `lidar` source and each entry of `lidar.extra`, walks
+ept-hierarchy on the public bucket and keeps every node with points that intersects the box: down to
+`max_depth_resort` where the node touches the ski area (`lonlat_bbox`), `max_depth_outside` in the rest of the
+buffered box (`utm_bbox`, in the config's `crs`). An extra source may carry its own `utm_bbox` to clip it to the
+part the main dataset misses. Writes each source's `nodes_file` next to the config (not with --dry)."""
+import json, os, sys, urllib.request
 from pyproj import Transformer
-ds, deep, shallow = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-BASE = f"https://s3-us-west-2.amazonaws.com/usgs-lidar-public/{ds}/"
-ept = json.load(urllib.request.urlopen(BASE + "ept.json", timeout=30))
-b = ept["bounds"]; srs = ept["srs"].get("horizontal", "3857")
-to = Transformer.from_crs("EPSG:26913", f"EPSG:{srs}", always_xy=True)
-def box(x0, y0, x1, y1):
-    pts = [to.transform(x, y) for x in (x0, x1) for y in (y0, y1)]
-    return min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts)
-OUT = box(401900, 4364800, 412000, 4375300)          # utm_bbox incl. 1 km buffer
-llto = Transformer.from_crs("EPSG:4326", f"EPSG:{srs}", always_xy=True)
-p0 = llto.transform(-106.128, 39.438); p1 = llto.transform(-106.036, 39.512)
-IN = (p0[0], p0[1], p1[0], p1[1])                      # ski area
-def nb(key):
-    d, x, y, z = map(int, key.split("-")); s = (b[3] - b[0]) / 2 ** d
-    return b[0] + x * s, b[1] + y * s, b[0] + (x + 1) * s, b[1] + (y + 1) * s
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def node_box(bounds, key):
+    d, x, y, _ = map(int, key.split("-")); s = (bounds[3] - bounds[0]) / 2 ** d
+    return bounds[0] + x * s, bounds[1] + y * s, bounds[0] + (x + 1) * s, bounds[1] + (y + 1) * s
+
+
 def hit(r, q): return r[0] < q[2] and r[2] > q[0] and r[1] < q[3] and r[3] > q[1]
-cache = {}
-def hier(key):
-    if key not in cache: cache[key] = json.load(urllib.request.urlopen(f"{BASE}ept-hierarchy/{key}.json", timeout=60))
-    return cache[key]
-counts = dict(hier("0-0-0-0"))
-sel, pts_in = [], 0
-def walk(key):
-    global pts_in
-    c = counts.get(key)
-    if c is None: return
-    if c == -1:
-        counts.update(hier(key)); c = counts[key]
-    if c <= 0: return
-    r = nb(key); d = int(key.split("-")[0])
-    lim = deep if hit(r, IN) else shallow
-    if not hit(r, OUT) or d > lim: return
-    sel.append(key)
-    if hit(r, IN): pts_in += c
-    _, x, y, z = map(int, key.split("-"))
-    for dx in (0, 1):
-        for dy in (0, 1):
-            for dz in (0, 1):
-                walk(f"{d+1}-{2*x+dx}-{2*y+dy}-{2*z+dz}")
-walk("0-0-0-0")
-print(ds, "nodes", len(sel), "points in ski box", pts_in, "max depth", max(int(k.split('-')[0]) for k in sel))
-if len(sys.argv) > 4: open(sys.argv[4], "w").write(" ".join(sel))
+
+
+def clip(a, b): return max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3])
+
+
+def sources(cfg):
+    """The main lidar source and the extra ones, each a dict with ept, dataset, depths and nodes_file."""
+    main = {k: v for k, v in cfg["lidar"].items() if k != "extra"}
+    return [main] + list(cfg["lidar"].get("extra", []))
+
+
+def select(cfg, src, fetch_json=None):
+    """Node keys to download for one source, plus the point count over the ski area."""
+    fetch_json = fetch_json or (lambda url: json.load(urllib.request.urlopen(url, timeout=60)))
+    base = src["ept"] if src["ept"].endswith("/") else src["ept"] + "/"
+    ept = fetch_json(base + "ept.json")
+    b = ept["bounds"]; srs = ept["srs"].get("horizontal", "3857")
+    utm_to = Transformer.from_crs(cfg["crs"], f"EPSG:{srs}", always_xy=True)
+    ll_to = Transformer.from_crs("EPSG:4326", f"EPSG:{srs}", always_xy=True)
+
+    def box(tr, x0, y0, x1, y1):
+        pts = [tr.transform(x, y) for x in (x0, x1) for y in (y0, y1)]
+        return min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts)
+
+    out = box(utm_to, *cfg["utm_bbox"])                   # buffered box
+    if "utm_bbox" in src:
+        out = clip(out, box(utm_to, *src["utm_bbox"]))
+    inner = clip(box(ll_to, *cfg["lonlat_bbox"]), out)    # ski area
+    deep, shallow = int(src["max_depth_resort"]), int(src["max_depth_outside"])
+    cache = {}
+
+    def hier(key):
+        if key not in cache: cache[key] = fetch_json(f"{base}ept-hierarchy/{key}.json")
+        return cache[key]
+
+    counts = dict(hier("0-0-0-0"))
+    sel, pts_in = [], 0
+    stack = ["0-0-0-0"]
+    while stack:
+        key = stack.pop()
+        c = counts.get(key)
+        if c is None: continue
+        if c == -1:
+            counts.update(hier(key)); c = counts[key]
+        if c <= 0: continue
+        r = node_box(b, key); d, x, y, z = map(int, key.split("-"))
+        lim = deep if hit(r, inner) else shallow
+        if not hit(r, out) or d > lim: continue
+        sel.append(key)
+        if hit(r, inner): pts_in += c
+        for dx in (0, 1):
+            for dy in (0, 1):
+                for dz in (0, 1):
+                    stack.append(f"{d+1}-{2*x+dx}-{2*y+dy}-{2*z+dz}")
+    return sel, pts_in
+
+
+def main(argv):
+    if not argv or argv[0].startswith("-"):
+        print(__doc__); return 2
+    slug, dry = argv[0], "--dry" in argv
+    cfg = json.load(open(os.path.join(HERE, "resorts", f"{slug}.json"), encoding="utf-8"))
+    for src in sources(cfg):
+        sel, pts_in = select(cfg, src)
+        print(src["dataset"], "nodes", len(sel), "points in ski box", pts_in,
+              "max depth", max((int(k.split("-")[0]) for k in sel), default=-1))
+        if not dry:
+            with open(os.path.join(HERE, "resorts", src["nodes_file"]), "w") as f:
+                f.write(" ".join(sel))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
