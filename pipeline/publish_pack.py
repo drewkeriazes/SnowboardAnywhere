@@ -12,8 +12,9 @@ Runs on Drew's PC (needs `gh` signed in with push access to the resorts repo). S
 
 The resorts repo is cloned next to this checkout (../MapPacker-SnowboardAnywhere) the first time. Layout and
 catalog schema: docs/research/resort-auto-pipeline.md section 2; download side: game/tools/get_pack.mjs.
-A pack is `playable` only when every DATA-022 MVP line passes in its report (EPIC-15 rule 2); until the report
-exists (FEAT-175) the default is `preview`.
+A pack is `playable` only when every DATA-022 MVP line passes in its report (EPIC-15 rule 2): the status comes
+from `<pack_dir>/report.json` (`pack_report.py`, FEAT-175) when it was made for this build, `preview` without one,
+and `--status playable` is refused unless the report passes.
 """
 import argparse, glob, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time, zipfile
 
@@ -65,6 +66,23 @@ def next_version(slug: str, tags: list, catalog: dict) -> int:
     return max(nums, default=0) + 1
 
 
+def report_status(pack_dir: str, meta: dict, requested: str | None) -> tuple:
+    """(status, why) from the pack's report.json (EPIC-15 rule 2). A report made for another build counts as none.
+    Raises SystemExit when `playable` is asked for and the report does not pass."""
+    path = os.path.join(pack_dir, "report.json")
+    rep = json.load(open(path, encoding="utf-8")) if os.path.isfile(path) else None
+    if rep and rep.get("build") != meta.get("build"):
+        why, rep = f"report.json is for build {rep.get('build')}, the pack is {meta.get('build')}: re-run pack_report.py", None
+    elif rep:
+        why = "report passes" if rep.get("playable") else f"report: MVP lines {', '.join(rep.get('failing', []))} hold it back"
+    else:
+        why = "no report.json (python pipeline/pack_report.py <pack_dir>)"
+    passes = bool(rep and rep.get("playable"))
+    if requested == "playable" and not passes:
+        raise SystemExit(f"refusing --status playable: {why}")
+    return requested or ("playable" if passes else "preview"), why
+
+
 def asset_url(slug: str, version: int, repo: str = RESORTS_REPO) -> str:
     return f"https://github.com/{repo}/releases/download/{slug}-v{version}/{slug}.zip"
 
@@ -113,8 +131,8 @@ def resorts_clone(repo_dir: str, repo: str) -> str:
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("pack_dir")
-    ap.add_argument("--status", choices=["preview", "playable"], default="preview",
-                    help="playable only when the DATA-022 report passes (EPIC-15 rule 2)")
+    ap.add_argument("--status", choices=["preview", "playable"],
+                    help="default from report.json; playable only when the DATA-022 report passes (EPIC-15 rule 2)")
     ap.add_argument("--tier", choices=["gold", "silver", "bronze"], default="gold")
     ap.add_argument("--report", help="report markdown to attach and commit (default <pack_dir>/report.md if present)")
     ap.add_argument("--repo", default=RESORTS_REPO)
@@ -130,6 +148,8 @@ def main(argv=None) -> None:
     if fmt != FORMAT_VERSION:
         raise SystemExit(f"{pack_dir} is pack format {fmt}, this pipeline writes {FORMAT_VERSION}: rebuild it on main "
                          f"(python pipeline/build_pack.py {slug} <raw_dir> <out_dir>) before publishing")
+    a.status, why = report_status(pack_dir, meta, a.status)
+    print(f"status {a.status} ({why})")
     cfg_path = os.path.join(REPO, "pipeline", "resorts", f"{slug}.json")
     cfg = json.load(open(cfg_path, encoding="utf-8")) if os.path.isfile(cfg_path) else {}
     report = a.report or (os.path.join(pack_dir, "report.md") if os.path.isfile(os.path.join(pack_dir, "report.md")) else None)

@@ -18,6 +18,7 @@ pack/<slug>/
   farTrees/<tx>_<ty>.bin    the lidar crowns on the ridges round the resort, outside the bounds (optional, BUG-081)
   rocks/<tx>_<ty>.bin       rock instances per 1 km cell
   features.json             lifts, runs, buildings, roads, water, peaks, labels
+  report.json, report.md    the DATA-022 scorecard from pipeline/pack_report.py (optional, not read by the game)
 ```
 
 ## Height tiles (Terrarium RGB)
@@ -230,6 +231,7 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
   "version": 1, "slug": "vail", "name": "Vail",
   "formatVersion": 1,                                      // FEAT-222: the pack format (see below); absent = 0
   "build": "20261110T171500Z-3fa2c1",                      // FEAT-177: new on every write by any stage (packwriter.stamp_build)
+  "pipeline": "1e2e586",                                   // FEAT-175: commit of the pipeline that wrote it, "+dirty" with local changes; optional
   "crs": "EPSG:26913", "origin": [384300, 4384250], "lonlat": [-106.35, 39.60],
   "bounds": { "minX", "minY", "maxX", "maxY" },           // resort area, local metres
   "zRange": [2300, 3700],
