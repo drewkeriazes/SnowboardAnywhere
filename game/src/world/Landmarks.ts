@@ -50,12 +50,32 @@ export const LANDMARKS: Record<string, Landmark[]> = {
 const START_BACK = 15;
 
 /**
- * The default Free ride start when a landmark is marked `start` (pack metres, heading in radians
- * clockwise from north, like meta.start), else null so the pack's meta.start is used.
+ * FEAT-219: hand-placed Free ride starts for resorts whose start is not a landmark, in pack metres
+ * (x east, y north) with the heading in degrees clockwise from north. A landmark marked `start` wins.
+ */
+interface PlacedStart { x: number; y: number; heading: number; label: string; source: string }
+const STARTS: Record<string, PlacedStart> = {
+  breckenridge: {
+    // Just off the Imperial SuperChair top deck (top station at -1676, -233, 3,914 m), where the flat
+    // unload area rolls over into the bowl: snow (no rock in the mask), 25 deg falling at about 120-140 deg,
+    // 16 m from the top terminal (closer, the chase camera starts inside it) and 32 m in front of the menu
+    // shot's camera (-1711, -222), facing along its view (145 deg).
+    x: -1688, y: -244, heading: 140, label: 'Starts at the top of Imperial Bowl',
+    source: 'the 2026-11-05 pack: 1 m terrain and mask round the Imperial top station; the menu shot in attract/breckenridge/shots.json',
+  },
+};
+
+/**
+ * The default Free ride start when a landmark is marked `start` or the resort has a placed start
+ * (pack metres, heading in radians clockwise from north, like meta.start), else null so the pack's
+ * meta.start is used.
  */
 export function landmarkStart(slug: string): { x: number; y: number; heading: number; label: string } | null {
   const l = (LANDMARKS[slug] ?? []).find((m) => m.start);
-  if (!l) return null;
+  if (!l) {
+    const s = STARTS[slug];
+    return s ? { x: s.x, y: s.y, heading: s.heading * Math.PI / 180, label: s.label } : null;
+  }
   const h = l.heading * Math.PI / 180;
   return { x: l.x - Math.sin(h) * START_BACK, y: l.y - Math.cos(h) * START_BACK, heading: h, label: `Starts at ${l.name}` };
 }

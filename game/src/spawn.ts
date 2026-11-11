@@ -1,4 +1,4 @@
-/** Where Free ride starts (BUG-037): the pack's meta.start (or a landmark marked `start`, FEAT-132), unless the player dropped in from the map. */
+/** Where Free ride starts (BUG-037): the pack's meta.start (or a landmark marked `start`, FEAT-132, or a placed start, FEAT-219, world/Landmarks.ts), unless the player dropped in from the map. */
 export const spawnKey = (slug: string): string => `spawn:${slug}`;
 
 /** True when the next ride starts somewhere other than meta.start (a saved map drop-in or ?x=&y= in the URL). */
