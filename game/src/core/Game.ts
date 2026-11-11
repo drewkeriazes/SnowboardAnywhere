@@ -42,7 +42,7 @@ export class Game {
     if (params.rider) settings.discipline = params.rider;
     const lp = params.lens; if (lp && (lp === 'auto' || lp in LENSES)) settings.goggleLens = lp as LensSetting; // FEAT-130: ?lens=yellow for render checks
     if (params.stance) settings.stance = params.stance; // FEAT-139
-    if (params.lowgfx) { settings.quality = 'low'; settings.shadows = false; settings.treeDensity = 0.3; settings.pixelRatio = 1; }
+    if (params.lowgfx) { settings.quality = 'low'; settings.shadows = false; settings.treeDensity = 0.3; settings.forestDensity = 0.35; settings.pixelRatio = 1; }
     applyUiScale(settings); // FEAT-128: UI scale and Reduce motion (Accessibility)
     // before the menu, so the first song comes from the saved source and playlist
     audio.source = settings.musicSource;

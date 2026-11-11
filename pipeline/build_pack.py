@@ -26,6 +26,7 @@ from piste_dir import piste_direction
 from terrain_ao import sky_visibility
 from moguls import run_mogul_score, slope_window, paint_field, paint_polygon
 import species as spc
+import stands
 from species import evt_luts
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -754,40 +755,38 @@ peaks_mask = (chm_s == maxf) & (chm_s > 2.5) & canopy
 pr, pc = np.nonzero(peaks_mask)
 # thin: keep one per 2 cells where crowns are dense
 tree_rows, tree_cols, tree_h = [pr], [pc], [chm_s[pr, pc]]
-# fill: under continuous canopy the lidar subsample under-detects individual stems, so add jittered
-# fill trees where canopy is present but no detected crown within 4 m
-rng = np.random.default_rng(3)
-occupied = np.zeros((H2, W2), bool); occupied[pr, pc] = True
-occupied = ndimage.binary_dilation(occupied, iterations=2)
-# fill density is the main lever on tree count: 0.33 gave 5.26 M trees at Vail (realistic stems, too many to render).
-# BUG-028 grew the canopy from 39 % to 67 % of Vail, so the rate went from 0.10 to 0.06 to keep the pack near
-# 1.3 M trees (the 1.5 M instance budget); FEAT-074 moves the fill out of the pack.
-fill = canopy & ~occupied & (rng.uniform(0, 1, (H2, W2)) < 0.06)
-if evt is not None:
-    # BUG-027: no synthetic fill trees on truly open LANDFIRE classes (meadow, grassland, shrubland, rock, water).
-    # Forest, urban forest and developed ground keep them where the canopy says so: Vail's in-resort stands are
-    # mapped Urban Evergreen Forest and Developed-Low / Medium. Lidar-detected crowns stay everywhere.
-    fill &= ~lf_open2
-    del lf_open2
-fr, fc = np.nonzero(fill)
-tree_rows.append(fr); tree_cols.append(fc); tree_h.append(np.maximum(chm_s[fr, fc], 3.0) * rng.uniform(0.75, 1.0, len(fr)))
-rows = np.concatenate(tree_rows); cols = np.concatenate(tree_cols); hgt = np.concatenate(tree_h).astype(np.float32)
-# snags (DATA-020, species 7): grey standing dead crowns. Live canopy needs NDVI > 0.30, so the crowns above
-# never include them: local CHM maxima over 6 m with NDVI < 0.15 inside forest, off buildings, lifts and cliffs,
-# the greyest kept up to 3 % of all trees.
+# FEAT-074: no fill trees in the pack. Under continuous canopy the subsampled lidar finds a crown every 10 m or
+# so; the stems between them are a stand density per 4 m cell (stands/, written below) that the client draws
+# near the camera only. (A 10 % fill used to sit in the pack: 0.33 gave 5.26 M trees at Vail, too many to render.)
+# Where stems may stand: canopy, not on truly open LANDFIRE classes (BUG-027), groomed corduroy, built-up ground,
+# cliffs or under a lift line.
 lift_f = np.zeros((H2, W2), np.float32)
 for l in lifts:
     (ax_, ay_, _), (bx_, by_, _) = l["stations"]
     rasterize_corridor(lift_f, [(ax_, ay_), (bx_, by_)], 8)            # towers and chairs read as tall grey points
     for sx_, sy_ in ((ax_, ay_), (bx_, by_)):
         rasterize_corridor(lift_f, [(sx_, sy_), (sx_, sy_)], 25)       # terminals
+stand_ok = canopy & ~built_any & ~rock_steep & (lift_f == 0) & (groomed < 0.3)
+if evt is not None:
+    stand_ok &= ~lf_open2
+    del lf_open2
+rng = np.random.default_rng(3)
+rows = np.concatenate(tree_rows); cols = np.concatenate(tree_cols); hgt = np.concatenate(tree_h).astype(np.float32)
+# snags (DATA-020, species 7): grey standing dead crowns. Live canopy needs NDVI > 0.30, so the crowns above
+# never include them: local CHM maxima over 6 m with NDVI < 0.15 inside forest, off buildings, lifts and cliffs,
+# the greyest kept up to 3 % of all trees.
 forest_here = lf_forest2 if evt is not None else ndimage.binary_dilation(canopy, iterations=5)
 snag_c = ((chm_s == maxf) & (chm_s > 6.0) & (ndvi2 < 0.15) & have2 & forest_here & (slope2 < 40)
           & ~built_any & ~rock_steep & (lift_f == 0))
 del lift_f, forest_here
 sr, sc = np.nonzero(snag_c)
 del snag_c
-keep = spc.cap_snags(ndvi2[sr, sc], len(rows))
+# snags are capped at 3 % of what the client draws: the detected crowns plus the stand's expected stems, estimated
+# here with the spruce crown (the stand's own species come below)
+h4e = ndimage.maximum_filter(chm_s, 2)[::2, ::2]
+stems_est = float((stand_ok[::2, ::2] * stands.K_CLOSE / (np.pi * np.maximum(stands.CROWN_RATIO[0] * np.maximum(h4e, 3.0), 0.5) ** 2)).sum() * 16)
+del h4e
+keep = spc.cap_snags(ndvi2[sr, sc], len(rows) + max(0.0, stems_est - len(rows)))
 log(f"  snag candidates {len(sr)}, kept {len(keep)}")
 sr, sc = sr[keep], sc[keep]
 is_snag = np.concatenate([np.zeros(len(rows), bool), np.ones(len(sr), bool)])
@@ -841,6 +840,50 @@ spc.debug_png(os.path.join(out, "debug", "species.png"), tx, ty, species, group_
 log("  debug/species.png: species per 10 m (left), LANDFIRE group (right)")
 del northeast, wet, ridge, group, a_frac, alpine, roll, trees, crown, is_snag
 
+# FEAT-074: stand density per 4 m cell (stands.py): the chance of a generated stem, the stand height and species,
+# and the ground height, per 1 km tree cell. The detected crowns nearby count against the stand.
+H4, W4 = H2 // 2, W2 // 2
+blk = lambda a: a[:H4 * 2, :W4 * 2].reshape(H4, 2, W4, 2)
+canopy4 = blk(stand_ok).mean(axis=(1, 3)).astype(np.float32)
+del stand_ok
+det4 = np.zeros((H4, W4), np.float32)
+okp = (pr < H4 * 2) & (pc < W4 * 2)
+np.add.at(det4, (pr[okp] // 2, pc[okp] // 2), 1)
+h4 = blk(chm_s).max(axis=(1, 3))
+if lf_height is not None:
+    # lidar gaps under the stand: LANDFIRE EVH (DATA-010) where the CHM reads under 4 m
+    evh4 = lf_height.on2(slice(0, H4 * 2, 2), slice(0, W4 * 2, 2))
+    gap = (h4 < 4) & np.isfinite(evh4)
+    h4[gap] = np.maximum(h4[gap], evh4[gap])
+    del evh4, gap
+h4 = np.clip(h4, 3.0, 45.0).astype(np.float32)
+z4 = blk(dem2).mean(axis=(1, 3)).astype(np.float32)
+sp4 = np.zeros((H4, W4), np.int16)
+si, sj = np.nonzero(canopy4 > 0)
+r2_, c2_ = si * 2, sj * 2
+sx4 = X0 + (sj + 0.5) * 4.0 - OX; sy4 = Y1 - (si + 0.5) * 4.0 - OY
+ne4 = (north2[r2_, c2_] + east2[r2_, c2_]) / math.sqrt(2)
+wet4 = np.clip(1 - (sdist2[r2_, c2_] - 30) / 70, 0, 1)
+ridge4 = (tpi_s2[r2_, c2_] > 1.5) & (tpi_l2[r2_, c2_] > 15)
+if evt is not None:
+    v4 = np.clip(evt(sx4 + OX, sy4 + OY), 0, lut_n - 1)
+    g4, af4, al4 = group_lut[v4], aspen_lut[v4], alpine_lut[v4]
+    wet4 = np.maximum(wet4, lut["riparian"][v4].astype(np.float64))
+    del v4
+else:
+    g4 = np.zeros(len(si), np.int8); af4 = np.zeros(len(si), np.float32); al4 = np.zeros(len(si), bool)
+sp4[si, sj] = spc.assign_species(sx4, sy4, z4[si, sj], h4[si, sj], g4, af4, al4, aspen_like[r2_, c2_], ne4, wet4, ridge4,
+                                 spc.hash01(sx4, sy4, 9), evt is not None)
+del si, sj, r2_, c2_, sx4, sy4, ne4, wet4, ridge4, g4, af4, al4
+p4 = stands.stem_chance(canopy4, h4, sp4, det4)
+p4[canopy4 <= 0] = 0
+log(f"  stands: canopy on {np.mean(canopy4 > 0) * 100:.1f}% of the 4 m cells, {p4.sum() / 1e6:.2f} M expected stems "
+    f"({p4.sum() / max(np.count_nonzero(canopy4) * 16 / 1e4, 1e-6):.0f} per hectare of canopy), "
+    f"detected crowns {len(pr) / 1e6:.2f} M")
+stand_meta = stands.write(out, p4, h4, sp4, z4, CELL, X0 - OX, Y0 - OY, cells_x, cells_y, Z_MIN)
+log(f"  stands/: {len(stand_meta['cells'])} cells, {stand_meta['stems'] / 1e6:.2f} M stems at full density")
+del canopy4, det4, h4, z4, sp4, p4
+
 # shrubs (DATA-020): willow on creek bottoms, juniper in spruce-fir gaps and on open south crests, sagebrush and
 # Gambel oak in their LANDFIRE classes, young conifers along forest edges; density from NAIP NDVI where there is
 # no canopy, at most 200 per hectare. Records x, y, z, height, radius, kind.
@@ -876,6 +919,8 @@ log(f"  shrubs {inst['shrubCount']}: " + ", ".join(f"{spc.SHRUB_NAMES[i]} {kc[i]
 del shrubs
 
 log("rocks")
+# rocks draw from their own seed (FEAT-074), so a change to the tree draws above no longer moves them
+rng = np.random.default_rng(11)
 rr, rc = np.nonzero(rock_steep | (rock & (slope2 > 20)))
 pick = rng.uniform(0, 1, len(rr)) < 0.06
 rr, rc = rr[pick], rc[pick]
@@ -917,7 +962,7 @@ if seg is not None:
 meta = {"version": 1, "slug": slug, "name": cfg["name"], "crs": crs, "origin": [OX, OY], "lonlat": [lon_c, lat_c],
         "bounds": {"minX": X0 - OX, "minY": Y0 - OY, "maxX": X1 - OX, "maxY": Y1 - OY},
         "zRange": [float(np.floor(Z_MIN / 100) * 100 - 100), float(np.ceil(Z_MAX / 100) * 100 + 100)],
-        "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "dir": dir_meta, "moguls": mog_meta, "instances": inst, "treeSpecies": spc.TREE_SPECIES_VERSION,
+        "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "dir": dir_meta, "moguls": mog_meta, "instances": inst, "stands": stand_meta, "treeSpecies": spc.TREE_SPECIES_VERSION,
         "start": start, "sun": {"azimuth": 160, "elevation": 30}, "attribution": cfg["attribution"]}
 write_meta(out, meta)
 

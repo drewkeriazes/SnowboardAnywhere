@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
+import type { StandsMeta } from '../pack/types';
+import { decodeRGBA } from '../pack/MaskSet';
 import type { Collider } from '../sim/Collider';
-import { TreeKit, SPECIES_COUNT, VARIANTS, speciesFor, variantFor, crownRadius, hash01, fadeWidth, farAttrs, farGeometry, type FarAttrs } from './trees';
+import { TreeKit, SPECIES_COUNT, VARIANTS, speciesFor, variantFor, crownRadius, hash01, fadeWidth, farAttrs, farGeometry, generateStems, type FarAttrs, type StandGrid } from './trees';
 import { TreeShade } from './TreeShade';
 
 /**
@@ -15,6 +17,12 @@ import { TreeShade } from './TreeShade';
  * The two near sets are rebuilt on the CPU when the camera has moved part of their margin; the far
  * meshes hold the cell's trees in the 100 m sub-tiles that reach their band, and the shader drops the
  * trees outside it. Distances scale with the graphics setting (setVegetationDensity / setVegetationBudget).
+ *
+ * FEAT-074: a pack with stand density (meta.stands) holds only the detected crowns; a cell within
+ * STAND_MID m past the near radius adds the stems its stand image asks for (trees/stands.ts), so they draw
+ * at every near LOD and as impostors in the mid ring, and nothing beyond, where the terrain's cover shades
+ * the forest. The Forest setting (setStandDensity) scales only these stems. They are solid (in the collider)
+ * only in the cells round the rider.
  *
  * FEAT-158: the near sets are culled per sub-tile against the view (`cull`, before each frame's draw):
  * only the tiles in view, or whose trees' shadows can reach into it, sit at the front of the instance
@@ -30,6 +38,16 @@ let LOD_K = 1;
 let LOD0_ON = true;
 /** FEAT-167: bumped whenever the radii change, so update() redoes the LOD bands only then */
 let bandsVersion = 0;
+/** FEAT-074: the share of the stand density drawn (the Forest setting), 0..1 */
+let STAND_K = 1;
+/** FEAT-074: generated stems reach this far past the near radius, into the impostor ring (m) */
+const STAND_MID = 1000;
+/** a cell keeps its stems until it is this much farther out (m), so it does not regenerate at each crossing */
+const STAND_HYST = 250;
+/** generated stems are solid (in the collider) only in cells this close to the rider (m) */
+const STAND_COLLIDE = 150;
+/** FEAT-074: draw this share (0..1) of the pack's stand density; the detected crowns always draw */
+export function setStandDensity(k: number): void { STAND_K = Math.max(0, Math.min(1, k)); }
 /** FEAT-153: how far the tree impostors reach (m), where the terrain's canopy lift takes over */
 export function vegetationFarRadius(): number { return FAR_RADIUS; }
 /** FEAT-159: the near radius (1500 m at full density); the shrubs scale their 300 m reach by it */
@@ -77,7 +95,15 @@ interface Cell {
   key: string;
   cx: number;
   cy: number;
+  /** the records drawn: the pack's (`base`), then the generated stems (FEAT-074) */
   data: Float32Array | null;
+  base: Float32Array | null;
+  /** FEAT-074: the decoded stand image; 0 not asked, 1 loading, 2 ready, 3 none */
+  stand: StandGrid | null;
+  standState: number;
+  /** the density the stems in `data` were generated at (0 = none) and their collider entries (null = not solid) */
+  gen: number;
+  col: Float32Array[] | null;
   /** per tree: kit species, variant, crown radius (m), yaw, colour variation (3) */
   sp: Uint8Array | null;
   va: Uint8Array | null;
@@ -143,7 +169,7 @@ export class Vegetation {
   private readonly collider: Collider | null;
   private readonly cells = new Map<string, Cell>();
   /** instances: in loaded cells; lod0 / lod1: in the near buffers (after culling); far: in the far buffers; *Packs: buffer refills so far */
-  readonly stats = { cells: 0, instances: 0, lod0: 0, lod1: 0, far: 0, nearPacks: 0, farPacks: 0 };
+  readonly stats = { cells: 0, instances: 0, lod0: 0, lod1: 0, far: 0, nearPacks: 0, farPacks: 0, stems: 0, stemGens: 0 };
   /** BUG-063: stop building cell meshes after this many ms per update (0 = no limit; headless keeps 0) */
   budgetMs = 0;
   /** BUG-063: cells in range still downloading or waiting for their meshes after the last update */
@@ -173,6 +199,8 @@ export class Vegetation {
   private readonly box = new THREE.Box3();
   /** gather scratch: a near-grid tile (gy * 65536 + gx) to the near set's tile index */
   private readonly tileIds = new Map<number, number>();
+  /** FEAT-074: the tree cells with a stand image */
+  private readonly standCells: Set<string>;
 
   constructor(pack: Pack, collider: Collider | null) {
     this.pack = pack;
@@ -181,6 +209,7 @@ export class Vegetation {
     this.mat = this.kit.mat;
     // packs from before DATA-020 have 0 conifer, 1 aspen, 2 krummholz only
     this.legacy = pack.meta.treeSpecies === undefined;
+    this.standCells = new Set(pack.meta.stands?.cells ?? []);
   }
 
   /** Bake the LOD2 / impostor atlases (needs the renderer). `on` false: no billboards, LOD2 runs to the far edge. */
@@ -227,7 +256,8 @@ export class Vegetation {
     const cy0 = Math.max(0, Math.floor((Math.min(y, ay) - r - inst.minY) / cs)), cy1 = Math.min(inst.cellsY - 1, Math.floor((Math.max(y, ay) + r - inst.minY) / cs));
     const keep = this.keep;
     keep.clear();
-    let count = 0, pending = 0, built = 0, farCount = 0;
+    let count = 0, pending = 0, built = 0, farCount = 0, stems = 0;
+    const stands = this.pack.meta.stands, standReach = NEAR_RADIUS + STAND_MID;
     const t0 = performance.now();
     const f1 = fadeWidth(b1) / 2, f2 = fadeWidth(b2) / 2;
     // the distances each far LOD draws at (the shader's bands)
@@ -242,12 +272,26 @@ export class Vegetation {
         keep.add(key);
         let cell = this.cells.get(key);
         if (!cell) {
-          cell = { key, cx, cy, data: null, sp: null, va: null, cr: null, yaw: null, tint: null, order: null, tileStart: null, zMin: 0, zMax: 0, lod2: null, imp: null, loading: false, missing: false, shaded: false };
+          cell = { key, cx, cy, data: null, base: null, stand: null, standState: 0, gen: 0, col: null, sp: null, va: null, cr: null, yaw: null, tint: null, order: null, tileStart: null, zMin: 0, zMax: 0, lod2: null, imp: null, loading: false, missing: false, shaded: false };
           this.cells.set(key, cell);
         }
         if (!cell.data && !cell.loading && !cell.missing) this.load(cell);
         if (cell.loading) pending++;
         if (!cell.data) continue;
+        if (stands) {
+          // FEAT-074: the stand's stems in the near and mid rings, solid round the rider
+          const want = d < (cell.gen > 0 ? standReach + STAND_HYST : standReach) ? STAND_K : 0;
+          if (want > 0 && cell.standState === 0) void this.loadStand(cell, stands);
+          if (cell.standState === 1) pending++;
+          const target = cell.standState === 2 ? want : 0;
+          if (target !== cell.gen) {
+            if (this.budgetMs <= 0 || built === 0 || performance.now() - t0 < this.budgetMs) { this.regenerate(cell, target); built++; }
+            else pending++;
+          }
+          const solid = cell.gen > 0 && d < STAND_COLLIDE;
+          if (solid !== (cell.col !== null)) this.setSolid(cell, solid);
+          stems += (cell.data.length - cell.base!.length) / 6;
+        }
         count += cell.data.length / 6;
         if (this.shade && !cell.shaded) { cell.shaded = true; this.shade.addCell(key, inst.minX + cx * cs, inst.minY + cy * cs, cs, cell.data, cell.cr!, cell.sp!, this.height); }
         if (!far) { pending++; continue; } // waiting for the impostor bake
@@ -290,6 +334,7 @@ export class Vegetation {
     this.pending = pending;
     this.stats.cells = this.cells.size;
     this.stats.instances = count;
+    this.stats.stems = stems;
     this.stats.lod0 = this.near[0].drawn;
     this.stats.lod1 = this.near[1].drawn;
     this.stats.far = farCount;
@@ -360,12 +405,14 @@ export class Vegetation {
   private async load(cell: Cell): Promise<void> {
     cell.loading = true;
     const listed = this.pack.meta.instances?.treeCells;
-    if (listed && !listed.includes(`${cell.cx}_${cell.cy}`)) { cell.missing = true; cell.loading = false; return; } // empty cell, no request
+    // a cell with no detected crowns may still have a stand (FEAT-074): it loads empty and generates its stems
+    const empty = (): void => { if (this.standCells.has(cell.key)) { cell.base = cell.data = new Float32Array(0); this.prepare(cell); } else cell.missing = true; };
+    if (listed && !listed.includes(`${cell.cx}_${cell.cy}`)) { empty(); cell.loading = false; return; } // empty cell, no request
     try {
       const resp = await fetch(`${this.pack.baseUrl}/trees/${cell.cx}_${cell.cy}.bin`);
-      if (!resp.ok) { cell.missing = true; return; }
+      if (!resp.ok) { empty(); return; }
       const buf = await resp.arrayBuffer();
-      cell.data = new Float32Array(buf);
+      cell.base = cell.data = new Float32Array(buf);
       this.prepare(cell);
       if (this.collider) {
         const d = cell.data;
@@ -380,6 +427,54 @@ export class Vegetation {
     } finally {
       cell.loading = false;
     }
+  }
+
+  /** FEAT-074: fetch and decode a cell's stand image */
+  private async loadStand(cell: Cell, st: StandsMeta): Promise<void> {
+    cell.standState = 1;
+    if (!this.standCells.has(cell.key)) { cell.standState = 3; return; }
+    try {
+      const resp = await fetch(`${this.pack.baseUrl}/stands/${cell.key}.png`);
+      if (!resp.ok) { cell.standState = 3; return; }
+      const bmp = await createImageBitmap(await resp.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+      const px = decodeRGBA(bmp, st.size, st.size * 2);
+      bmp.close();
+      const inst = this.pack.meta.instances!;
+      cell.stand = { px, size: st.size, res: st.res, minX: inst.minX + cell.cx * inst.cellSize, minY: inst.minY + cell.cy * inst.cellSize, zBase: st.zBase, zScale: st.zScale, hStep: st.hStep };
+      cell.standState = 2;
+    } catch {
+      cell.standState = 3;
+    }
+  }
+
+  /** FEAT-074: redo a cell's records with its stand's stems at density k (0 = the pack's crowns only), then its LODs and shade */
+  private regenerate(cell: Cell, k: number): void {
+    const solid = cell.col !== null;
+    if (solid) this.setSolid(cell, false);
+    const base = cell.base!, stems = k > 0 && cell.stand ? generateStems(cell.stand, k) : null;
+    if (stems && stems.length) { const d = new Float32Array(base.length + stems.length); d.set(base); d.set(stems, base.length); cell.data = d; }
+    else cell.data = base;
+    cell.gen = k;
+    this.stats.stemGens++;
+    this.prepare(cell);
+    this.dropCell(cell); // the far meshes rebuild with the new records
+    if (this.shade && cell.shaded) { this.shade.removeCell(cell.key); cell.shaded = false; }
+    for (const n of this.near) n.dirty = true;
+    if (solid && k > 0) this.setSolid(cell, true);
+  }
+
+  /** FEAT-074: put a cell's generated stems in the collider, or take them out */
+  private setSolid(cell: Cell, on: boolean): void {
+    if (!on) { if (cell.col && this.collider) for (const e of cell.col) this.collider.remove(e); cell.col = null; return; }
+    const col: Float32Array[] = [];
+    if (this.collider) {
+      const d = cell.data!;
+      for (let i = cell.base!.length; i < d.length; i += 6) {
+        const h = d[i + 3];
+        col.push(this.collider.add(d[i], d[i + 1], Math.max(0.15, h * 0.02), d[i + 2] - 1, d[i + 2] + h));
+      }
+    }
+    cell.col = col;
   }
 
   /** per-tree species, variant, crown, yaw and colour, and the sub-tile index for the near gather */

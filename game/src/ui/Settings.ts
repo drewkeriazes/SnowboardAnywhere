@@ -35,6 +35,8 @@ export interface Settings {
   /** FEAT-044: the snow near the rider deforms (trenches and lips as real geometry); off on the Low preset either way */
   snowDeform: boolean;
   treeDensity: number; // 0.25 .. 1
+  /** FEAT-074: the share of the pack's stand density drawn between the detected crowns, 0 .. 1 */
+  forestDensity: number;
   pixelRatio: number; // 0.5 .. 2 (capped by the device)
   fov: number; // base chase FOV, 50 .. 100
   /** FEAT-062: adaptive quality on, and the frame rate it holds (30, 60 or 0 = uncapped; main.ts makes auto quality aim for 60 when it is 0) */
@@ -159,7 +161,7 @@ export function migrateKeys(raw: Record<string, unknown> | undefined): { keys: R
 }
 
 const DEFAULTS: Settings = {
-  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', snowDay: 'mid', snowDeform: true, treeDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
+  v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', snowDay: 'mid', snowDeform: true, treeDensity: 1, forestDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
   fov: 68, autoQuality: true, targetFps: 60, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', seeThroughTrees: true, fpVignette: true, goggleStrength: 0.6, goggleLens: 'rose', lensStrength: 1, fpShake: 0.3, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, pressBalance: 'on', outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', stance: 'regular', fallLine: 'real', timeOfDay: 'pack', month: 2, units: 'imperial', keys: migrateKeys(undefined).keys,
   outrun: { difficulty: 'normal', escape: 'base', gentle: false },
   padKeys: migratePadKeys(undefined), rumble: true, vibration: 0.8, padDead: 0.18, padTrigDead: 0.3, lookSens: 1, invertLookY: false,
@@ -186,7 +188,7 @@ export function loadSettings(): Settings {
     const a = JSON.parse(localStorage.getItem('audio') ?? '{}');
     if (typeof a.sfx === 'number') s.sfx = a.sfx;
     if (typeof a.music === 'number') s.music = a.music;
-    if (localStorage.getItem('gfx') === 'low') { s.quality = 'low'; s.shadows = false; s.treeDensity = 0.3; s.pixelRatio = 1; }
+    if (localStorage.getItem('gfx') === 'low') { s.quality = 'low'; s.shadows = false; s.treeDensity = 0.3; s.forestDensity = 0.35; s.pixelRatio = 1; }
     return s;
   } catch { return { ...DEFAULTS, keys: migrateKeys(undefined).keys, padKeys: migratePadKeys(undefined), outfit: { ...DEFAULTS.outfit }, outrun: { ...DEFAULTS.outrun } }; }
 }
@@ -209,9 +211,9 @@ export function applyUiScale(s: Settings): void {
 /** Apply a quality preset to the dependent fields. */
 export function applyQuality(s: Settings, q: Quality): void {
   s.quality = q;
-  if (q === 'high') { s.shadows = true; s.treeDensity = 1; s.pixelRatio = Math.min(2, window.devicePixelRatio || 1); }
-  else if (q === 'medium') { s.shadows = true; s.treeDensity = 0.6; s.pixelRatio = 1; }
-  else { s.shadows = false; s.treeDensity = 0.3; s.pixelRatio = 1; }
+  if (q === 'high') { s.shadows = true; s.treeDensity = 1; s.forestDensity = 1; s.pixelRatio = Math.min(2, window.devicePixelRatio || 1); }
+  else if (q === 'medium') { s.shadows = true; s.treeDensity = 0.6; s.forestDensity = 0.6; s.pixelRatio = 1; }
+  else { s.shadows = false; s.treeDensity = 0.3; s.forestDensity = 0.35; s.pixelRatio = 1; }
 }
 
 export function keyName(code: string): string {

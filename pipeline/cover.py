@@ -137,6 +137,10 @@ def tree_heights(pack_dir, meta, cell, w, h):
         c = ((t[:, 0] - b["minX"]) / cell).astype(int); r = ((b["maxY"] - t[:, 1]) / cell).astype(int)
         ok = (c >= 0) & (c < nx) & (r >= 0) & (r < ny)
         np.add.at(hs, (r[ok], c[ok]), t[ok, 3]); np.add.at(cn, (r[ok], c[ok]), 1)
+    # FEAT-074: the stand's generated stems, weighted by their chance
+    import stands
+    _a, _s, shs, scn = stands.expected_crowns(pack_dir, meta, cell, nx, ny, SHADOW_H)
+    hs += shs; cn += scn
     mean = np.where(cn > 0, hs / np.maximum(cn, 1), 0).astype(np.float32)
     k = int(round(cell / PACK_RES))
     return np.repeat(np.repeat(mean, k, 0), k, 1)[:h, :w]
@@ -168,7 +172,10 @@ def crown_area(pack_dir, meta, w, h):
         a = np.pi * cr[ok] ** 2
         np.add.at(area, (r[ok], c[ok]), a)
         np.add.at(shade, (r[ok], c[ok]), a * np.clip(t[ok, 3] / SHADOW_H, 0, 1.5))
-    return (area / PACK_RES ** 2).astype(np.float32), (shade / PACK_RES ** 2).astype(np.float32)
+    # FEAT-074: plus the stems the client generates from the stand density, in expectation
+    import stands
+    sa, ss, _h, _c = stands.expected_crowns(pack_dir, meta, PACK_RES, w, h, SHADOW_H)
+    return (area / PACK_RES ** 2 + sa).astype(np.float32), (shade / PACK_RES ** 2 + ss).astype(np.float32)
 
 
 def closed_stand(crowns):
