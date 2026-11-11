@@ -1,6 +1,6 @@
 import { SPECIES } from './trees/species';
 import { crownProfile } from './trees/generate';
-import { treeSnowLoadAt, treeSnowUniforms } from './trees/snow';
+import { treeSnowLoadAt, treeSnowUniforms, TREE_SHED_MAX } from './trees/snow';
 
 /**
  * FEAT-217: snow puffs off the boughs when the rider brushes a tree. Each frame `TreeBrush.update` asks
@@ -15,6 +15,11 @@ import { treeSnowLoadAt, treeSnowUniforms } from './trees/snow';
  * so none on a spring day, the most on a snow ghost) less what has melted off its sun side, times its
  * size. A tree remembers what it has shed (SHED_KEEP trees at most) and builds back to full over
  * RECOVER_S, so a second pass through the same tree drops less. Aspen and snags hold no snow.
+ *
+ * The unload: the TREE_SHED_MAX shaken trees nearest the rider go to the tree shader (`uTreeShed`,
+ * trees/snow.ts), which draws each one bare on the side the snow fell from, from just under the contact
+ * height to about 2.5 m over it, filling back in as the tree builds back. Only the mesh LODs show it (the far
+ * ones are past 400 m).
  */
 
 /** a needled crown the rider is in (pack metres), from `crownContact` */
@@ -82,6 +87,9 @@ export function crownOverlap(sp: number, tx: number, ty: number, tz: number, h: 
   return best;
 }
 
+/** what a tree remembers: the share of its near-side snow left and when, its base (pack x / y), the near side (unit) and the contact height above its drawn base (m) */
+interface Shed { left: number; t: number; x: number; y: number; dx: number; dy: number; at: number }
+
 /** a stable id for a tree from its base (pack metres, 0.25 m) */
 const treeId = (x: number, y: number): number => (Math.round(x * 4) + 2e5) * 1e6 + Math.round(y * 4) + 2e5;
 
@@ -93,10 +101,13 @@ export class TreeBrush {
   /** the tree in contact last frame (-1 none) */
   private cur = -1;
   /** per tree: the share of its near-side snow left when last touched, and when */
-  private readonly shed = new Map<number, { left: number; t: number }>();
+  private readonly shed = new Map<number, Shed>();
   /** the same for a replay, which starts from the trees as they are and leaves the live memory alone */
-  private readonly replayShed = new Map<number, { left: number; t: number }>();
+  private readonly replayShed = new Map<number, Shed>();
   private wasLive = true;
+  /** the memory drawn on the trees: the live one, or the replay's while it plays */
+  private drawn = this.shed;
+  private readonly near: { d: number; s: Shed; gone: number }[] = [];
   private time = 0;
   private acc = 0;
 
@@ -120,6 +131,13 @@ export class TreeBrush {
     if (!live && this.wasLive) this.replayShed.clear();
     this.wasLive = live;
     const mem = live ? this.shed : this.replayShed;
+    if (active) this.drawn = mem;
+    const k = this.brush(r, dt, active, mem);
+    this.show(r);
+    return k;
+  }
+
+  private brush(r: BrushRider, dt: number, active: boolean, mem: Map<number, Shed>): number {
     const hit = this.hit;
     if (!active || !this.trees.crownContact(r.x, r.y, r.z, hit)) { this.cur = -1; this.acc = 0; return 0; }
     const id = treeId(hit.x, hit.y), entry = id !== this.cur;
@@ -129,7 +147,7 @@ export class TreeBrush {
     const frac = entry ? ENTRY * (0.5 + 0.5 * hit.overlap) * move : RATE * hit.overlap * move * clamp01(sp / 3) * dt;
     const left = this.left(hit.x, hit.y, mem), drop = left * Math.min(1, frac);
     if (drop <= 0) return 0;
-    this.remember(mem, id, left - drop);
+    this.remember(mem, id, left - drop, drop, r, hit);
     const load = treeSnowLoadAt(hit.x, hit.y, hit.z), melt = treeSnowUniforms.uTreeSnow.value.y;
     const snow = smooth(LOAD_FROM, LOAD_FULL, load) * (1 - 0.5 * melt) * Math.max(0.6, Math.min(1.6, hit.cr / 2));
     this.acc += drop * snow * FULL;
@@ -139,10 +157,43 @@ export class TreeBrush {
     return entry ? clamp01(drop * snow * 2.5) : 0;
   }
 
-  private remember(mem: Map<number, { left: number; t: number }>, id: number, left: number): void {
+  private remember(mem: Map<number, Shed>, id: number, left: number, drop: number, r: BrushRider, hit: CrownHit): void {
+    // the near side and height: the last shed's, blended with what the tree already lost so a second side adds to the first
+    let dx = r.x - hit.x, dy = r.y - hit.y;
+    const d = Math.hypot(dx, dy);
+    if (d > 0.05) { dx /= d; dy /= d; } else { dx = 1; dy = 0; }
+    let at = hit.at - (hit.z - 0.3); // above the drawn base (Vegetation puts it 0.3 m under the ground)
+    const old = mem.get(id);
+    if (old) {
+      const gone = Math.max(0, 1 - (old.left + (this.time - old.t) / RECOVER_S)), w = gone / (gone + drop);
+      const bx = old.dx * w + dx * (1 - w), by = old.dy * w + dy * (1 - w), bl = Math.hypot(bx, by);
+      if (bl > 0.05) { dx = bx / bl; dy = by / bl; }
+      at = old.at * w + at * (1 - w);
+    }
     mem.delete(id); // re-inserted last: the map keeps the most recent at the end
-    mem.set(id, { left, t: this.time });
+    mem.set(id, { left, t: this.time, x: hit.x, y: hit.y, dx, dy, at });
     if (mem.size > SHED_KEEP) for (const k of mem.keys()) { mem.delete(k); break; }
+  }
+
+  /** the shaken trees nearest the rider to the tree shader (uTreeShed: three.js x, z) */
+  private show(r: BrushRider): void {
+    const near = this.near;
+    let m = 0;
+    for (const s of this.drawn.values()) {
+      const gone = 1 - Math.min(1, s.left + (this.time - s.t) / RECOVER_S);
+      if (gone <= 0.01) continue;
+      const e = near[m] ??= { d: 0, s, gone: 0 };
+      e.d = Math.hypot(s.x - r.x, s.y - r.y); e.s = s; e.gone = gone; m++;
+    }
+    near.length = m;
+    if (m > TREE_SHED_MAX) near.sort((a, b) => a.d - b.d);
+    const u = treeSnowUniforms.uTreeShed.value, n = Math.min(TREE_SHED_MAX, m);
+    for (let i = 0; i < n; i++) {
+      const s = near[i].s;
+      u[2 * i].set(s.x, -s.y, near[i].gone, s.at);
+      u[2 * i + 1].set(s.dx, -s.dy, 0, 0);
+    }
+    treeSnowUniforms.uTreeShedN.value = n;
   }
 
   /** n particles off the near side of the crown, from the contact height up */

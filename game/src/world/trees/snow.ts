@@ -25,6 +25,9 @@ import { SNOW_ALBEDO, SNOW_SHADE_TINT } from '../snowLook';
  * behind them, so trees in shade are dark blue-green.
  */
 
+/** FEAT-217: the most shaken trees the near LODs draw bare on their near side */
+export const TREE_SHED_MAX = 8;
+
 export interface TreeSnowState {
   /** 0 bare .. 1 heavy */
   load: number;
@@ -45,6 +48,10 @@ export const treeSnowUniforms = {
   uTreeSunColor: { value: new THREE.Color(3, 3, 3) },
   /** the hemisphere light's ground colour x intensity: the fill from the snow under the crown */
   uTreeGround: { value: new THREE.Color(0.8, 0.8, 0.8) },
+  /** FEAT-217: the trees the rider has shaken snow off (TreeBrush), two vec4 a tree: (base x, base z (three.js, = -north),
+   * the share of the near side's snow gone, the contact height above the base) and (the near side's direction x, z) */
+  uTreeShed: { value: Array.from({ length: 2 * TREE_SHED_MAX }, () => new THREE.Vector4()) },
+  uTreeShedN: { value: 0 },
 };
 
 export function setTreeSnow(s: TreeSnowState): void {
@@ -99,11 +106,24 @@ export function treeSnowLoadAt(x: number, y: number, z: number): number {
 /** the per-tree load and ghost share (vertex shaders; `o` is the tree's base, world) */
 export const TREE_SNOW_VERT = /* glsl */ `
   uniform vec3 uTreeSnow; uniform vec2 uGhostZ;
+  uniform vec4 uTreeShed[${2 * TREE_SHED_MAX}]; uniform int uTreeShedN;
   varying float vSnowLoad; varying float vSnowGhost;
+  // FEAT-217 (the mesh LODs): the near side's direction (xy), the share of its snow gone and the contact height above the base
+  varying vec4 vSnowShed;
+  void treeSnowShed(vec3 o) {
+    vSnowShed = vec4(0.0);
+    for (int i = 0; i < ${TREE_SHED_MAX}; i++) {
+      if (i >= uTreeShedN) break;
+      vec4 a = uTreeShed[2 * i];
+      vec2 d = o.xz - a.xy;
+      if (dot(d, d) < 0.04) { vSnowShed = vec4(uTreeShed[2 * i + 1].xy, a.zw); break; }
+    }
+  }
   void treeSnowLoad(vec3 o) {
     float h = fract(sin(dot(mod(o.xz, 4096.0), vec2(12.9898, 78.233))) * 43758.5453);
     float g = uTreeSnow.z * smoothstep(uGhostZ.x, uGhostZ.y, o.y + (h - 0.5) * 50.0);
     vSnowGhost = g;
+    vSnowShed = vec4(0.0);
     vSnowLoad = max(clamp(uTreeSnow.x * (0.85 + 0.3 * h), 0.0, 1.0), g);
   }
 `;
@@ -111,7 +131,7 @@ export const TREE_SNOW_VERT = /* glsl */ `
 /** shared fragment helpers: the noise, the coverage and the snow colours */
 export const TREE_SNOW_COMMON = /* glsl */ `
   uniform vec3 uTreeSnow;
-  varying float vSnowLoad; varying float vSnowGhost;
+  varying float vSnowLoad; varying float vSnowGhost; varying vec4 vSnowShed;
   const vec3 TREE_SNOW_ALB = vec3(${SNOW_ALBEDO.map((c) => c.toFixed(3)).join(', ')});
   const vec3 TREE_SNOW_SHADE = vec3(${SNOW_SHADE_TINT.map((c) => c.toFixed(3)).join(', ')});
   float treeSnowHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }

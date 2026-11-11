@@ -7,6 +7,8 @@
 //   - a second pass through the same tree drops less, and it builds back after RECOVER_S; a replay drops
 //     what the live pass did without taking the tree's snow
 //   - standing still in a crown drops nothing more after the first touch; no frame passes FRAME_CAP
+//   - the unload: a shaken tree goes to the tree shader (uTreeShed) at its base with its near side, the
+//     share gone and the contact height, fills back in, and only the TREE_SHED_MAX nearest are drawn
 // node tools/treepuffcheck.mjs        (exit code 1 if a check fails)
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -18,10 +20,10 @@ import { pathToFileURL } from 'node:url';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'treepuffcheck-'));
 const entry = path.join(dir, 'entry.ts');
 const src = (m) => JSON.stringify(path.join(GAME, 'src', 'world', `${m}.ts`).replace(/\\/g, '/'));
-fs.writeFileSync(entry, [`export * from ${src('TreeBrush')};`, `export { treeSnowState, setTreeSnow } from ${src('trees/snow')};`].join('\n'));
+fs.writeFileSync(entry, [`export * from ${src('TreeBrush')};`, `export { treeSnowState, setTreeSnow, treeSnowUniforms, TREE_SHED_MAX } from ${src('trees/snow')};`].join('\n'));
 const out = path.join(dir, 'brush.mjs');
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error' });
-const { TreeBrush, crownOverlap, treeSnowState, setTreeSnow } = await import(pathToFileURL(out).href);
+const { TreeBrush, crownOverlap, treeSnowState, setTreeSnow, treeSnowUniforms, TREE_SHED_MAX } = await import(pathToFileURL(out).href);
 
 let fails = 0;
 function check(label, ok, detail) { console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}: ${detail}`); if (!ok) fails++; }
@@ -74,19 +76,42 @@ check('from bough height around the rider', lo > -0.01 && hi < 4.5 && hi > 1.5, 
 check('no frame over the cap', storm.most <= 96, `most in a frame ${storm.most}`);
 check('one upload per puff frame', s.commits > 0 && s.commits <= Math.ceil(24 / 10 / DT), `${s.commits} commits`);
 
+// ---- the unload drawn on the tree (three.js: x east, z = -north)
+{
+  const U = treeSnowUniforms, a = U.uTreeShed.value[0], d = U.uTreeShed.value[1];
+  check('the shaken tree goes to the shader', U.uTreeShedN.value === 1 && Math.hypot(a.x, a.y) < 1e-6, `${U.uTreeShedN.value} tree at (${a.x.toFixed(2)}, ${a.y.toFixed(2)})`);
+  check('bare on the near side', d.x > 0.8, `side (${d.x.toFixed(2)}, ${d.y.toFixed(2)}), the rider passed at +x (the first touch, south of the trunk, counts most)`);
+  check('its snow partly gone, at the contact height', a.z > 0.3 && a.z < 1 && a.w > 0.3 && a.w < 2.5, `gone ${a.z.toFixed(2)}, ${a.w.toFixed(2)} m over the drawn base`);
+}
+
 // ---- the second pass drops less, and it builds back
 const again = pass(b, 1.8);
 check('a second pass drops less', again.n < 0.7 * storm.n, `${again.n} vs ${storm.n}`);
 for (let t = 0; t < 300; t += 1) b.update({ x: 50, y: 50, z: 0, vx: 0, vy: 0, vz: 0 }, 1);
 const back = pass(b, 1.8);
 check('builds back over minutes', back.n > 0.85 * storm.n, `${back.n} after 300 s vs ${storm.n}`);
+{
+  const n0 = treeSnowUniforms.uTreeShedN.value;
+  for (let t = 0; t < 300; t += 1) b.update({ x: 50, y: 50, z: 0, vx: 0, vy: 0, vz: 0 }, 1);
+  check('and the bare side fills back in', n0 === 1 && treeSnowUniforms.uTreeShedN.value === 0, `${n0} shaken tree drawn after the pass, ${treeSnowUniforms.uTreeShedN.value} 300 s on`);
+}
+{
+  // a row of 12 spruces 10 m apart, brushed in turn: the nearest TREE_SHED_MAX are drawn
+  const row = Array.from({ length: 12 }, (_, i) => tree(0, 0, i * 10));
+  const br = new TreeBrush(forest(row), sink()), r = { x: 1.8, y: -6, z: 0, vx: 0, vy: 10, vz: 0 };
+  while (r.y < 116) { br.update(r, DT); r.y += 10 * DT; }
+  const U = treeSnowUniforms, ys = Array.from({ length: U.uTreeShedN.value }, (_, i) => -U.uTreeShed.value[2 * i].y);
+  check('the nearest shaken trees are drawn', ys.length === TREE_SHED_MAX && Math.min(...ys) === 40, `${ys.length} of 12, from ${Math.min(...ys)} m to ${Math.max(...ys)} m north (the rider at 116)`);
+}
 
 // ---- a replay of the pass drops what the live one did and leaves the tree's snow alone
 {
   day(1, 'fresh');
   const bl = new TreeBrush(forest(spruce), sink());
   const live = pass(bl, 1.8), replay = (() => { const r = { x: 1.8, y: -12, z: 0, vx: 0, vy: 10, vz: 0 }; let n = 0; while (r.y < 12) { bl.update(r, DT, true, false); n += bl.released; r.y += 10 * DT; } return n; })();
+  const replayN = treeSnowUniforms.uTreeShedN.value;
   const after = pass(bl, 1.8);
+  check('a replay draws its own unload', replayN === 1, `${replayN} tree drawn after the replayed pass`);
   check('a replay drops what the live pass did', Math.abs(replay - live.n) <= 2, `${replay} replayed vs ${live.n} live`);
   check('and leaves the live memory alone', Math.abs(after.n - again.n) <= 3, `${after.n} on the next live pass, like a second pass (${again.n})`);
 }
