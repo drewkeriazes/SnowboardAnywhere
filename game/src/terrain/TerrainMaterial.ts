@@ -443,10 +443,14 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float wSnow = 1.0 - rockCov - screeCov;
         // BUG-081: far off, ungroomed snow over thin snowpack carries the plants poking through it, in patches
         // (40 m stands and 12 m clumps, the clumps fading once a pixel is wider than a few metres)
-        float vegPix = length(fwidth(wp));
-        float vegPatch = vnoise(wp * 0.025 + 1.7) * 0.6 + mix(0.5, vnoise(wp * 0.08 + 4.2), 1.0 - smoothstep(3.0, 9.0, vegPix)) * 0.4;
-        float vegK = (1.0 - smoothstep(VEG_LO, VEG_HI, snowpackDepth(wp.y, ngW))) * smoothstep(VEG_NEAR, VEG_FULL, dist)
-          * (1.0 - wGroom) * smoothstep(0.2, 0.8, vegPatch) * VEG_MAX;
+        float vegPix = length(fwidth(wp)); // before the branch: fwidth needs uniform control flow
+        float vegFar = smoothstep(VEG_NEAR, VEG_FULL, dist);
+        float vegK = 0.0;
+        if (vegFar > 0.0 && wGroom < 1.0) { // none of it shows near the rider or on groomed snow
+          float vegPatch = vnoise(wp * 0.025 + 1.7) * 0.6 + mix(0.5, vnoise(wp * 0.08 + 4.2), 1.0 - smoothstep(3.0, 9.0, vegPix)) * 0.4;
+          vegK = (1.0 - smoothstep(VEG_LO, VEG_HI, snowpackDepth(wp.y, ngW))) * vegFar
+            * (1.0 - wGroom) * smoothstep(0.2, 0.8, vegPatch) * VEG_MAX;
+        }
         snow = mix(snow, VEG_COL, vegK);
         vec3 base = snow * wSnow + rockAlb * rockCov + screeAlb * screeCov;
         base = mix(base, groomed, wGroom * wSnow);

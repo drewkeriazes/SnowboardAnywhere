@@ -360,10 +360,10 @@ def calibrate(forest, built, south, res, truth, name, log=print):
     """BUG-081: the land cover tree share of one level mapped onto the lidar forest (see CAL_*). `truth` is
     (forest, where it holds) on the level's grid: the pack level's, and the far tree ring's where there is one."""
     from scipy import ndimage
-    sig = CAL_SIGMA_M / res
-    t = ndimage.gaussian_filter(forest, sig) if sig >= 0.5 else forest
     if truth is None:
         return forest
+    sig = CAL_SIGMA_M / res
+    t = ndimage.gaussian_filter(forest, sig) if sig >= 0.5 else forest
     p, inside = truth
     ok = inside & (built < 0.1)
     if ok.sum() < CAL_MIN_CELLS:
