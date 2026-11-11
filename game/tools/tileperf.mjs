@@ -1,0 +1,212 @@
+// FEAT-229 step 1: the fine (1 m height), mask and dir (2 m) tiles from load to riding at the start, and over
+// a ride. node tools/tileperf.mjs [pack] [seconds] [--straight] [--track] [--emulate-coarse] [--headed | --gpu | --cpu]   (after `npx vite build`)
+// Load: frames stepped back to back with the warm-up's budgets (warmUp.ts) until nothing is in flight or
+// building. Ride: ArrowUp held with carves alternating every 1.5 s (--straight: none; --track prints the
+// rider every second), stepped at 1/60 s in real-time batches.
+// Reports per set: tiles resident, fetched, bytes, and decode times (TileStats: createImageBitmap wall time,
+// main-thread copy and conversion). Every request() is attributed to who made it: a terrain chunk (by its
+// vertex spacing) or anything else (prefetch around the rider, the spawn box, lifts). "4-8 m only" tiles
+// were never asked for by anything but 4 and 8 m chunks: the ones a 4 m height set would take off fine.
+// --emulate-coarse drops the 4 and 8 m chunks' fine requests (they build from mid instead): the most a 4 m set
+// could save in load time, as its own few tiles are not fetched.
+import { launchBrowser } from './browser.mjs';
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { DIST, PACKS } from './paths.mjs';
+
+const args = process.argv.slice(2);
+const positional = args.filter((a) => !a.startsWith('--'));
+const pack = positional[0] ?? 'vail';
+const seconds = Number(positional[1] ?? 60);
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.webp': 'image/webp', '.bin': 'application/octet-stream', '.css': 'text/css', '.jpg': 'image/jpeg' };
+const server = http.createServer((req, res) => {
+  const u = decodeURIComponent(req.url.split('?')[0]);
+  const [root, rel] = u.startsWith('/packs/') ? [PACKS, u.slice('/packs/'.length)] : [DIST, u];
+  const p = path.join(root, rel);
+  if (!p.startsWith(root) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); res.end(); return; }
+  res.writeHead(200, { 'content-type': types[path.extname(p)] ?? 'application/octet-stream' });
+  fs.createReadStream(p).pipe(res);
+});
+await new Promise((r) => server.listen(0, r));
+const browser = await launchBrowser(args);
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
+const warnings = [];
+page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') warnings.push(`${m.type()}: ${m.text()}`); });
+page.on('pageerror', (e) => warnings.push(`pageerror: ${e.message}`));
+// attribution: every request() rectangle on fine / mask / dir, by requester. Installed the moment the game
+// assigns __step (GameLoop.start, after __sim and before the first headless frame, whose terrain.update
+// already asks for every chunk's tiles).
+await page.addInitScript((emulate) => {
+  let stepFn;
+  Object.defineProperty(window, '__step', { configurable: true, get: () => stepFn, set: (v) => { stepFn = v; if (!window.__hooked) { window.__hooked = true; window.__readyMs = performance.now(); install(); queueMicrotask(() => { window.__firstFrameMs = performance.now(); }); } } });
+  function install() {
+  const w = window, s = w.__sim, p = s.pack;
+  w.__sets = { fine: p.fine, mask: p.mask, dir: p.dir };
+  w.__life = {}; w.__win = {}; w.__inTerrain = false;
+  const keys = (set, x0, y0, x1, y1) => {
+    const m = set.meta, out = [];
+    const tx0 = Math.max(0, Math.floor((x0 - m.minX) / set.size)), ty0 = Math.max(0, Math.floor((y0 - m.minY) / set.size));
+    const tx1 = Math.min(m.tilesX - 1, Math.floor((x1 - m.minX) / set.size)), ty1 = Math.min(m.tilesY - 1, Math.floor((y1 - m.minY) / set.size));
+    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) out.push(ty * 4096 + tx);
+    return out;
+  };
+  const note = (name, set, label, x0, y0, x1, y1) => {
+    for (const k of keys(set, x0, y0, x1, y1)) {
+      for (const tab of [w.__life[name], w.__win[name]]) { let l = tab.get(k); if (!l) tab.set(k, (l = new Set())); l.add(label); }
+    }
+  };
+  w.__note = note;
+  for (const [name, set] of Object.entries(w.__sets)) {
+    if (!set) continue;
+    w.__life[name] = new Map(); w.__win[name] = new Map();
+    const orig = set.request.bind(set);
+    set.request = (x0, y0, x1, y1) => {
+      // Terrain.update asks for each chunk's own box; its vertex spacing is the box size over N = 32
+      const label = w.__inTerrain ? `c${Math.round((x1 - x0) / 32)}` : 'other';
+      note(name, set, label, x0, y0, x1, y1);
+      if (emulate && name === 'fine' && (label === 'c4' || label === 'c8')) return false;
+      return orig(x0, y0, x1, y1);
+    };
+  }
+  const t = s.terrain, upd = t.update.bind(t);
+  t.update = (...a) => { w.__inTerrain = true; try { upd(...a); } finally { w.__inTerrain = false; } };
+  // Session asked for the spawn box (+-600 m) before these hooks went in (fine and mask)
+  const [sx, sy] = s.map.spawnPos;
+  for (const name of ['fine', 'mask']) if (w.__sets[name]) note(name, w.__sets[name], 'other', sx - 600, sy - 600, sx + 600, sy + 600);
+  w.__resident = (set) => { let n = 0; for (const v of set.tiles.values()) if (v) n++; return n; };
+  w.__snap = () => {
+    const o = {};
+    for (const [name, set] of Object.entries(w.__sets)) {
+      if (!set) continue;
+      const st = set.stats;
+      o[name] = { resident: w.__resident(set), inFlight: set.inFlight, loads: st.loads, bytes: st.bytes, fetchMs: st.fetchMs, bitmapMs: st.bitmapMs, decodeMs: st.decodeMs, maxDecodeMs: st.maxDecodeMs, logLen: st.log.length };
+    }
+    return o;
+  };
+  // resident tiles by what asked for them in the window (since the last reset): fine chunks (1, 2 m), only 4 and 8 m chunks, other, nothing
+  w.__classify = () => {
+    const o = {};
+    for (const [name, set] of Object.entries(w.__sets)) {
+      if (!set) continue;
+      const c = { fineChunks: 0, coarseOnly: 0, otherOnly: 0, idle: 0, coarseOnlyTiles: [] };
+      for (const [k, v] of set.tiles) {
+        if (!v) continue;
+        const l = w.__win[name].get(k);
+        if (!l) { c.idle++; continue; }
+        if (l.has('c1') || l.has('c2') || [...l].some((x) => x.startsWith('c') && Number(x.slice(1)) < 1)) c.fineChunks++;
+        else if (l.has('other')) c.otherOnly++;
+        else { c.coarseOnly++; c.coarseOnlyTiles.push(`${k % 4096}_${Math.floor(k / 4096)}`); }
+      }
+      o[name] = c;
+    }
+    return o;
+  };
+  w.__resetWin = () => { for (const name of Object.keys(w.__win)) w.__win[name] = new Map(); };
+  }
+}, args.includes('--emulate-coarse'));
+await page.goto(`http://localhost:${server.address().port}/index.html?pack=${pack}&headless${process.env.SHOT_QUERY ?? ''}`);
+await page.waitForFunction(() => window.__step && window.__hooked, null, { timeout: 120000 });
+page.setDefaultTimeout(600000);
+const [readyMs, firstFrameMs] = await page.evaluate(() => [window.__readyMs, window.__firstFrameMs]);
+
+// ---- load: back-to-back frames with the warm-up budgets until three quiet frames (as warmUp.ts)
+const load = await page.evaluate(async () => {
+  const w = window, s = w.__sim, p = s.pack, t = s.terrain;
+  t.budgetMs = 12; t.maxBuilds = 64; s.veg.budgetMs = 12;
+  const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+  const busy = () => [p.fine, p.mid, p.far, p.mask, p.ao, p.dir, p.moguls].reduce((n, x) => n + (x?.inFlight ?? 0), 0) + t.pending + s.veg.pending;
+  const t0 = performance.now();
+  let first = -1, quiet = 0, frames = 0;
+  while (performance.now() - t0 < 30000) {
+    w.__step(1, 1 / 60); frames++;
+    if (first < 0) first = performance.now();
+    quiet = busy() === 0 ? quiet + 1 : 0;
+    if (quiet >= 3) break;
+    await frame();
+  }
+  t.budgetMs = 4; t.maxBuilds = 10; s.veg.budgetMs = 3;
+  return { t0, first, settled: performance.now(), frames, timedOut: quiet < 3 };
+});
+// steady state at the start: one second of frames for the window
+await page.evaluate(() => { window.__resetWin(); window.__step(60, 1 / 60); });
+const startSnap = await page.evaluate(() => window.__snap());
+const startClass = await page.evaluate(() => window.__classify());
+const startLog = await page.evaluate(() => Object.fromEntries(Object.entries(window.__sets).filter(([, s]) => s).map(([n, s]) => [n, s.stats.log.slice()])));
+
+// ---- ride
+const rideT0 = await page.evaluate(() => performance.now());
+await page.keyboard.down('ArrowUp');
+const track = [];
+const batches = Math.round(seconds * 4);
+let carve = null;
+for (let b = 0; b < batches; b++) {
+  const want = Math.floor(b / 6) % 2 === 0 ? 'ArrowLeft' : 'ArrowRight';
+  if (!args.includes('--straight') && b >= 8 && want !== carve) { if (carve) await page.keyboard.up(carve); await page.keyboard.down(want); carve = want; }
+  const st = await page.evaluate(() => {
+    const w = window, s = w.__sim, r = s.rider;
+    const a = performance.now(); w.__step(15, 1 / 60); const ms = performance.now() - a;
+    const f = s.pack.fine;
+    return { x: r.x, y: r.y, z: r.z, speed: r.speed, crashed: r.crashed, state: s.states?.current ?? '', ms, fine: w.__resident(f), fineFlight: f.inFlight, mask: w.__resident(s.pack.mask), dir: s.pack.dir ? w.__resident(s.pack.dir) : 0 };
+  });
+  track.push(st);
+  await page.waitForTimeout(Math.max(0, 250 - st.ms));
+}
+if (carve) await page.keyboard.up(carve);
+await page.keyboard.up('ArrowUp');
+await page.evaluate(() => { window.__resetWin(); window.__step(60, 1 / 60); });
+const endSnap = await page.evaluate(() => window.__snap());
+const endClass = await page.evaluate(() => window.__classify());
+const life = await page.evaluate(() => Object.fromEntries(Object.entries(window.__life).map(([n, m]) => [n, [...m].map(([k, l]) => [k, [...l]])])));
+const allLog = await page.evaluate(() => Object.fromEntries(Object.entries(window.__sets).filter(([, s]) => s).map(([n, s]) => [n, s.stats.log.slice()])));
+
+// ---- report
+const f1 = (v) => v.toFixed(1), mb = (b) => (b / 1048576).toFixed(1);
+console.log(`pack ${pack}, ${seconds} s ride${args.includes('--emulate-coarse') ? ', EMULATED: no fine tiles for 4 and 8 m chunks' : ''}`);
+console.log(`page load to session ready (__step) ${f1(readyMs)} ms, its first frame done ${f1(firstFrameMs)} ms, tool's first frame ${f1(load.first)} ms, settled ${f1(load.settled)} ms after ${load.frames} frames${load.timedOut ? ' (TIMED OUT at 30 s)' : ''}`);
+const d = (a, b, k) => (a?.[k] ?? 0) - (b?.[k] ?? 0);
+const setLine = (name, log, from, to) => {
+  const ls = log.filter((l) => l.t >= from && l.t < to);
+  if (!ls.length) return `  ${name.padEnd(5)} 0 tiles`;
+  const sum = (k) => ls.reduce((n, l) => n + l[k], 0), max = (k) => Math.max(...ls.map((l) => l[k]));
+  const last = Math.max(...ls.map((l) => l.t));
+  return `  ${name.padEnd(5)} ${String(ls.length).padStart(4)} tiles  ${mb(sum('bytes')).padStart(6)} MB  decode (main) ${f1(sum('decodeMs')).padStart(7)} ms, ${f1(sum('decodeMs') / ls.length)} per tile, max ${f1(max('decodeMs'))}  |  bitmap ${f1(sum('bitmapMs') / ls.length)} ms/tile  fetch ${f1(sum('fetchMs') / ls.length)} ms/tile  |  last at ${f1(last)} ms`;
+};
+console.log(`load (to settled):`);
+for (const n of Object.keys(startLog)) console.log(setLine(n, startLog[n], 0, load.settled));
+console.log(`ride (${seconds} s):`);
+for (const n of Object.keys(allLog)) console.log(setLine(n, allLog[n], rideT0, Infinity));
+for (const [label, snap, cls] of [['start (steady)', startSnap, startClass], ['ride end (steady)', endSnap, endClass]]) {
+  console.log(`${label}:`);
+  for (const n of Object.keys(snap)) {
+    const c = cls[n];
+    console.log(`  ${n.padEnd(5)} resident ${String(snap[n].resident).padStart(3)}: wanted by 1-2 m chunks ${c.fineChunks}, only by 4-8 m chunks ${c.coarseOnly}, only by prefetch / spawn / lifts ${c.otherOnly}, by nothing ${c.idle}`);
+  }
+  console.log(`  fine tiles only for 4-8 m chunks: ${cls.fine.coarseOnlyTiles.join(' ')}`);
+}
+if (args.includes('--track')) for (let i = 0; i < track.length; i += 4) { const t = track[i]; console.log(`  t ${i / 4} s  ${f1(t.x)}, ${f1(t.y)}, ${f1(t.z)}  ${f1(t.speed * 3.6)} km/h  crashed ${t.crashed}  fine ${t.fine} (${t.fineFlight} in flight)`); }
+const peak = Math.max(...track.map((t) => t.fine));
+const dist = track.reduce((n, t, i) => n + (i ? Math.hypot(t.x - track[i - 1].x, t.y - track[i - 1].y) : 0), 0);
+const top = Math.max(...track.map((t) => t.speed));
+console.log(`ride: ${f1(dist)} m, top ${f1(top * 3.6)} km/h, crashed in ${track.filter((t) => t.crashed).length} batches, fine resident peak ${peak}, mask peak ${Math.max(...track.map((t) => t.mask))}, dir peak ${Math.max(...track.map((t) => t.dir))}`);
+const bms = track.map((t) => t.ms / 15).sort((a, b) => a - b);
+console.log(`ride frame ms (15-frame batch means): median ${f1(bms[bms.length >> 1])}, p95 ${f1(bms[Math.floor(bms.length * 0.95)])}, max ${f1(bms[bms.length - 1])}`);
+// every tile fetched over the whole run, by what ever asked for it
+console.log('whole run (load and ride), every tile fetched, by what ever asked for it:');
+for (const n of Object.keys(allLog)) {
+  const req = new Map(life[n]);
+  const groups = { fineChunks: [], coarseOnly: [], otherOnly: [] };
+  for (const l of allLog[n]) {
+    const r = req.get(l.ty * 4096 + l.tx) ?? [];
+    const g = r.some((x) => x === 'c1' || x === 'c2' || (x.startsWith('c') && Number(x.slice(1)) < 1)) ? 'fineChunks' : r.includes('other') || !r.length ? 'otherOnly' : 'coarseOnly';
+    groups[g].push(l);
+  }
+  const tot = allLog[n].reduce((s, l) => s + l.decodeMs + 0, 0), totB = allLog[n].reduce((s, l) => s + l.bytes, 0);
+  const desc = (ls) => `${ls.length} tiles, ${mb(ls.reduce((s, l) => s + l.bytes, 0))} MB, decode ${f1(ls.reduce((s, l) => s + l.decodeMs, 0))} ms`;
+  const cb = groups.coarseOnly.reduce((s, l) => s + l.bytes, 0), cd = groups.coarseOnly.reduce((s, l) => s + l.decodeMs, 0);
+  console.log(`  ${n.padEnd(5)} ${allLog[n].length} tiles (${mb(totB)} MB, decode ${f1(tot)} ms). 1-2 m chunks: ${desc(groups.fineChunks)}; prefetch / spawn / lifts only: ${desc(groups.otherOnly)}; 4-8 m chunks only: ${desc(groups.coarseOnly)} = ${(100 * groups.coarseOnly.length / Math.max(1, allLog[n].length)).toFixed(0)}% of tiles, ${(100 * cb / Math.max(1, totB)).toFixed(0)}% of bytes, ${(100 * cd / Math.max(1e-9, tot)).toFixed(0)}% of decode`);
+}
+console.log('console issues:', warnings.length);
+for (const w of warnings.slice(0, 10)) console.log('  ', w.slice(0, 300));
+await browser.close();
+server.close();

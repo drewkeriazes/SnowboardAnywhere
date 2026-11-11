@@ -1,4 +1,5 @@
 import type { HeightSetMeta } from './types';
+import { TileStats } from './tileStats';
 
 /**
  * One tiled height set (fine / mid / far). Tiles are Terrarium-encoded PNGs decoded on the
@@ -14,6 +15,8 @@ export class HeightSet {
   get inFlight(): number { return this.pending.size; }
   private readonly missing = new Set<number>();
   private readonly baseUrl: string;
+  /** FEAT-229: bytes fetched and decode time (tools/tileperf.mjs) */
+  readonly stats = new TileStats();
   /** called when a tile finishes loading so the terrain can rebuild chunks */
   onTileLoaded: ((tx: number, ty: number) => void) | null = null;
 
@@ -64,13 +67,16 @@ export class HeightSet {
   private async load(tx: number, ty: number): Promise<void> {
     const k = this.key(tx, ty);
     try {
+      const t0 = performance.now();
       const resp = await fetch(`${this.baseUrl}/${tx}_${ty}.png`);
       if (!resp.ok) {
         this.missing.add(k);
         return;
       }
       const blob = await resp.blob();
+      const t1 = performance.now();
       const bmp = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+      const t2 = performance.now();
       const n = this.meta.tileSize;
       const canvas = new OffscreenCanvas(n, n);
       const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
@@ -83,6 +89,8 @@ export class HeightSet {
         out[i] = h <= -32767.5 ? NaN : h;
       }
       this.tiles.set(k, out);
+      const t3 = performance.now();
+      this.stats.add({ tx, ty, t: t3, bytes: blob.size, fetchMs: t1 - t0, bitmapMs: t2 - t1, decodeMs: t3 - t2 });
       this.onTileLoaded?.(tx, ty);
     } catch (e) {
       console.warn('tile load failed', tx, ty, e);

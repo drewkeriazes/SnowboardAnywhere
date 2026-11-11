@@ -1,4 +1,5 @@
 import type { MaskMeta } from './types';
+import { TileStats } from './tileStats';
 
 /** Surface class mask: R rock, G scree, B groomed piste, A canopy cover. Values 0..1. */
 export class MaskSet {
@@ -10,6 +11,8 @@ export class MaskSet {
   get inFlight(): number { return this.pending.size; }
   private readonly missing = new Set<number>();
   private readonly baseUrl: string;
+  /** FEAT-229: bytes fetched and decode time (tools/tileperf.mjs) */
+  readonly stats = new TileStats();
   onTileLoaded: ((tx: number, ty: number) => void) | null = null;
 
   constructor(baseUrl: string, meta: MaskMeta) {
@@ -48,14 +51,20 @@ export class MaskSet {
   private async load(tx: number, ty: number): Promise<void> {
     const k = this.key(tx, ty);
     try {
+      const t0 = performance.now();
       const resp = await fetch(`${this.baseUrl}/${tx}_${ty}.png`);
       if (!resp.ok) {
         this.missing.add(k);
         return;
       }
-      const bmp = await createImageBitmap(await resp.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+      const blob = await resp.blob();
+      const t1 = performance.now();
+      const bmp = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+      const t2 = performance.now();
       this.tiles.set(k, decodeRGBA(bmp, this.meta.tileSize));
       bmp.close();
+      const t3 = performance.now();
+      this.stats.add({ tx, ty, t: t3, bytes: blob.size, fetchMs: t1 - t0, bitmapMs: t2 - t1, decodeMs: t3 - t2 });
       this.onTileLoaded?.(tx, ty);
     } catch (e) {
       this.missing.add(k);
