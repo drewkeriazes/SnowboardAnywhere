@@ -178,7 +178,7 @@ export class RideFrame {
     mf.dt = dt; mf.tuck = this.input.tuck; mf.onLift = this.onLift; mf.frozen = !runs.trial; mf.elapsed = this.elapsed;
     this.p.modes.update(mf);
     this.p.audio.update(this.p.rider, this.input.tuck, this.onLift, dt, this.p.liftRide.passedTower);
-    this.p.rider.lastHit = '';
+    this.p.rider.lastHit = ''; this.p.rider.hitSpeed = 0;
     this.cameras(dt, eyeMode, plan, runs);
     this.skyAndEffects(dt);
     this.streaming(dt);

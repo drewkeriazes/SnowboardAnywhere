@@ -20,6 +20,11 @@ import { treeSnowLoadAt, treeSnowUniforms, TREE_SHED_MAX } from './trees/snow';
  * trees/snow.ts), which draws each one bare on the side the snow fell from, from just under the contact
  * height to about 2.5 m over it, filling back in as the tree builds back. Only the mesh LODs show it (the far
  * ones are past 400 m).
+ *
+ * A slam: riding into a trunk (`Rider.lastHit` 'wall' or 'graze', `hitSpeed` the speed into it) shakes the
+ * whole tree, `Vegetation.trunkAt` finding which. From SLAM_FROM m/s some of it, from SLAM_FULL (where a
+ * square hit crashes) all of it: the tree goes bare on every side top to bottom, and its snow comes down
+ * from the whole crown over the next few frames, clumps falling all the way to the snow.
  */
 
 /** a needled crown the rider is in (pack metres), from `crownContact` */
@@ -35,14 +40,22 @@ export interface CrownHit {
 }
 
 /** the trees the rider can brush */
-export interface CrownSource { crownContact(x: number, y: number, z: number, out: CrownHit): boolean }
+export interface CrownSource {
+  crownContact(x: number, y: number, z: number, out: CrownHit): boolean;
+  /** the tree whose trunk the rider is up against (within its radius plus `reach` m), any species */
+  trunkAt?(x: number, y: number, z: number, reach: number, out: CrownHit): boolean;
+}
 /** where the snow goes (Spray): three.js metres */
 export interface PuffSink {
   emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size: number, kind: number): void;
   commit(): void;
 }
 /** the rider: pack metres and m/s */
-export interface BrushRider { x: number; y: number; z: number; vx: number; vy: number; vz: number }
+export interface BrushRider {
+  x: number; y: number; z: number; vx: number; vy: number; vz: number;
+  /** this frame's collision ('wall', 'graze', ...) and the speed into it (m/s), as `Rider` has them */
+  lastHit?: string; hitSpeed?: number;
+}
 
 /** heights on the body (m above the board) tested against the crown, and its half width (m) */
 const BODY = [0.3, 0.9, 1.6], HALF_W = 0.35;
@@ -62,6 +75,12 @@ const FRAME_CAP = 96;
 const RECOVER_S = 240, SHED_KEEP = 256;
 /** clumps' share of the particles (the rest is the fine cloud) */
 const CLUMPS = 0.6;
+/** a slam into the trunk: the speed into it (m/s) that starts shaking the whole tree, and that shakes all of it off */
+const SLAM_FROM = 2.5, SLAM_FULL = 7;
+/** past the trunk's collider radius, how far the rider can be and still have hit it (the collider keeps them 0.4 m out) */
+const TRUNK_REACH = 0.7;
+/** the whole tree's snow, in near sides */
+const WHOLE = 4;
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 const smooth = (a: number, b: number, x: number): number => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
@@ -88,7 +107,7 @@ export function crownOverlap(sp: number, tx: number, ty: number, tz: number, h: 
 }
 
 /** what a tree remembers: the share of its near-side snow left and when, its base (pack x / y), the near side (unit) and the contact height above its drawn base (m) */
-interface Shed { left: number; t: number; x: number; y: number; dx: number; dy: number; at: number }
+interface Shed { left: number; t: number; x: number; y: number; dx: number; dy: number; at: number; all: number }
 
 /** a stable id for a tree from its base (pack metres, 0.25 m) */
 const treeId = (x: number, y: number): number => (Math.round(x * 4) + 2e5) * 1e6 + Math.round(y * 4) + 2e5;
@@ -110,6 +129,9 @@ export class TreeBrush {
   private readonly near: { d: number; s: Shed; gone: number }[] = [];
   private time = 0;
   private acc = 0;
+  /** a slam's tree and the particles still to come off it */
+  private readonly slamHit: CrownHit = { x: 0, y: 0, z: 0, h: 0, cr: 0, species: 0, overlap: 0, at: 0, r: 0 };
+  private slamAcc = 0;
 
   constructor(private readonly trees: CrownSource, private readonly sink: PuffSink) {}
 
@@ -132,9 +154,39 @@ export class TreeBrush {
     this.wasLive = live;
     const mem = live ? this.shed : this.replayShed;
     if (active) this.drawn = mem;
-    const k = this.brush(r, dt, active, mem);
+    const k = Math.max(this.brush(r, dt, active, mem), active ? this.slam(r, mem) : 0);
+    if (this.slamAcc >= 1) {
+      const n = Math.min(FRAME_CAP - this.released, Math.floor(this.slamAcc));
+      if (n > 0) { this.slamAcc -= n; this.shake(this.slamHit, n); }
+    }
+    if (this.released > 0) this.sink.commit();
     this.show(r);
     return k;
+  }
+
+  /** the share of a tree's snow that is gone (near side), and how much of that is all round */
+  private gone(s: Shed | undefined): number { return s ? Math.max(0, 1 - (s.left + (this.time - s.t) / RECOVER_S)) : 0; }
+
+  /** the tree's snow load as the shader draws it less the melt, times its size (0 .. 1.6) */
+  private snowOn(hit: CrownHit): number {
+    const load = treeSnowLoadAt(hit.x, hit.y, hit.z), melt = treeSnowUniforms.uTreeSnow.value.y;
+    return smooth(LOAD_FROM, LOAD_FULL, load) * (1 - 0.5 * melt) * Math.max(0.6, Math.min(1.6, hit.cr / 2));
+  }
+
+  /** a slam into a trunk this frame: shake the whole tree (some of it under SLAM_FULL); the thump (0..1) */
+  private slam(r: BrushRider, mem: Map<number, Shed>): number {
+    if ((r.lastHit !== 'wall' && r.lastHit !== 'graze') || !this.trees.trunkAt) return 0;
+    const k = smooth(SLAM_FROM, SLAM_FULL, r.hitSpeed ?? 0), hit = this.slamHit;
+    if (k <= 0 || !this.trees.trunkAt(r.x, r.y, r.z, TRUNK_REACH, hit) || !HOLDS[hit.species]) return 0;
+    const snow = this.snowOn(hit);
+    if (snow <= 0) return 0;
+    const id = treeId(hit.x, hit.y), old = mem.get(id), gone = this.gone(old), all = gone > 0 && old ? old.all : 0;
+    const l = 1 - gone;
+    // what is still on the tree, in near sides: the rest of a tree that was only brushed is full
+    const still = all > 0 ? l * WHOLE : WHOLE - 1 + l;
+    this.remember(mem, id, l * (1 - k), l * k, r, hit, Math.max(all, k));
+    this.slamAcc = Math.min(this.slamAcc + still * k * snow * FULL, 16 * FRAME_CAP);
+    return clamp01(0.4 + 0.6 * k) * clamp01(snow * 1.5);
   }
 
   private brush(r: BrushRider, dt: number, active: boolean, mem: Map<number, Shed>): number {
@@ -147,9 +199,9 @@ export class TreeBrush {
     const frac = entry ? ENTRY * (0.5 + 0.5 * hit.overlap) * move : RATE * hit.overlap * move * clamp01(sp / 3) * dt;
     const left = this.left(hit.x, hit.y, mem), drop = left * Math.min(1, frac);
     if (drop <= 0) return 0;
-    this.remember(mem, id, left - drop, drop, r, hit);
-    const load = treeSnowLoadAt(hit.x, hit.y, hit.z), melt = treeSnowUniforms.uTreeSnow.value.y;
-    const snow = smooth(LOAD_FROM, LOAD_FULL, load) * (1 - 0.5 * melt) * Math.max(0.6, Math.min(1.6, hit.cr / 2));
+    const old = mem.get(id);
+    this.remember(mem, id, left - drop, drop, r, hit, old && this.gone(old) > 0 ? old.all : 0);
+    const snow = this.snowOn(hit);
     this.acc += drop * snow * FULL;
     let n = Math.min(FRAME_CAP, Math.floor(this.acc));
     this.acc = Math.min(FRAME_CAP, this.acc - n);
@@ -157,7 +209,7 @@ export class TreeBrush {
     return entry ? clamp01(drop * snow * 2.5) : 0;
   }
 
-  private remember(mem: Map<number, Shed>, id: number, left: number, drop: number, r: BrushRider, hit: CrownHit): void {
+  private remember(mem: Map<number, Shed>, id: number, left: number, drop: number, r: BrushRider, hit: CrownHit, all: number): void {
     // the near side and height: the last shed's, blended with what the tree already lost so a second side adds to the first
     let dx = r.x - hit.x, dy = r.y - hit.y;
     const d = Math.hypot(dx, dy);
@@ -171,7 +223,7 @@ export class TreeBrush {
       at = old.at * w + at * (1 - w);
     }
     mem.delete(id); // re-inserted last: the map keeps the most recent at the end
-    mem.set(id, { left, t: this.time, x: hit.x, y: hit.y, dx, dy, at });
+    mem.set(id, { left, t: this.time, x: hit.x, y: hit.y, dx, dy, at, all });
     if (mem.size > SHED_KEEP) for (const k of mem.keys()) { mem.delete(k); break; }
   }
 
@@ -191,7 +243,7 @@ export class TreeBrush {
     for (let i = 0; i < n; i++) {
       const s = near[i].s;
       u[2 * i].set(s.x, -s.y, near[i].gone, s.at);
-      u[2 * i + 1].set(s.dx, -s.dy, 0, 0);
+      u[2 * i + 1].set(s.dx, -s.dy, s.all, 0);
     }
     treeSnowUniforms.uTreeShedN.value = n;
   }
@@ -221,7 +273,29 @@ export class TreeBrush {
           2 + 1.5 * Math.random(), 0.35 + 0.25 * Math.random(), 1);
       }
     }
-    this.released = n; this.total += n;
-    this.sink.commit();
+    this.released += n; this.total += n;
+  }
+
+  /** n particles off the whole crown (a slam): all round, crown base to top, clumps falling to the snow */
+  private shake(hit: CrownHit, n: number): void {
+    const s = SPECIES[hit.species], base = s.crownBase;
+    for (let i = 0; i < n; i++) {
+      const t = Math.pow(Math.random(), 0.8); // a little more low down, where the crown is wide
+      const pz = hit.z + hit.h * (base + (1 - base) * t);
+      const rr = hit.cr * crownProfile(s.form, t) * (0.5 + 0.5 * Math.random());
+      const a = Math.random() * Math.PI * 2, ux = Math.cos(a), uy = Math.sin(a);
+      const px = hit.x + ux * rr, py = hit.y + uy * rr, out = Math.random(), fall = pz - hit.z;
+      if (Math.random() < CLUMPS) {
+        // a clump: shaken out, then falls the whole way (the wisp settles at 3.5 m/s)
+        const o = 0.3 + 1.2 * out;
+        this.sink.emit(px, pz, -py, ux * o, -0.5 + 1.0 * Math.random(), -uy * o,
+          Math.min(6, 0.8 + fall / 3.5) * (0.85 + 0.3 * Math.random()), 0.18 + 0.14 * Math.random() + (Math.random() < 0.2 ? 0.15 : 0), 0);
+      } else {
+        // the cloud the tree stands in for a while
+        this.sink.emit(px, pz, -py, ux * 0.5 * out + (Math.random() - 0.5) * 0.6, 0.1 + 0.5 * Math.random(), -uy * 0.5 * out + (Math.random() - 0.5) * 0.6,
+          2.5 + 2 * Math.random(), 0.45 + 0.35 * Math.random(), 1);
+      }
+    }
+    this.released += n; this.total += n;
   }
 }

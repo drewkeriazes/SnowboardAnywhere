@@ -199,7 +199,8 @@ shallow groove), the snow around your tracks and footprints sags, and a hockey s
 pushed snow. Hard turns throw spray: light wisps on a groomer, clouds that hang and drift in powder, a
 burst when you land. Brush a snow-loaded spruce or fir and the snow drops off its boughs in a puff
 (more after a storm, on a snow ghost the most, none in spring), and the boughs you hit are green
-until the snow builds back over a few minutes; a tree you just shook has less to drop. Settings > Graphics > Snow dents turns the sag off (the Low preset turns it off
+until the snow builds back over a few minutes; a tree you just shook has less to drop. Slam into the
+trunk and the whole tree shakes off every bit of its snow. Settings > Graphics > Snow dents turns the sag off (the Low preset turns it off
 too).
 
 In first person you look through goggle lenses (Settings > Camera > Goggle lens). In flat light

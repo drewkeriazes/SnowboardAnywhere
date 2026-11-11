@@ -114,14 +114,15 @@ const SNOW_COLOR = /* glsl */ `
     // late in a sunny day the sun side melts back (not on a ghost)
     float load = vSnowLoad * (1.0 - uTreeSnow.y * clamp(dot(kBentW.xz, uTreeSunDir.xz) * 1.5, 0.0, 1.0) * (1.0 - vSnowGhost));
     // FEAT-217: a tree the rider shook is bare where its snow fell: the near side, from a little under the
-    // contact height to about 2.5 m over it (the shaken boughs above let go too), soft at the edges and broken up by the noise
+    // contact height to about 2.5 m over it (the shaken boughs above let go too), soft at the edges and broken up by the noise;
+    // after a slam into the trunk, every side top to bottom
     float shed = 0.0;
     if (vSnowShed.z > 0.0) {
       vec2 rd = vSnowRel.xz; float rl = length(rd);
       float side = rl > 0.05 ? smoothstep(-0.25, 0.45, dot(rd / rl, vSnowShed.xy)) : 0.6;
       float dy = vSnowRel.y - vSnowShed.w;
       float band = smoothstep(-1.4, -0.4, dy) * (1.0 - smoothstep(1.6, 3.0, dy + 0.6 * sn));
-      shed = clamp(vSnowShed.z * 1.6, 0.0, 1.0) * side * band;
+      shed = clamp(vSnowShed.z * 1.6, 0.0, 1.0) * mix(side * band, 1.0, vSnowShedAll);
       load *= 1.0 - shed;
     }
     float ghostK = vSnowGhost * (1.0 - shed);

@@ -9,6 +9,9 @@
 //   - standing still in a crown drops nothing more after the first touch; no frame passes FRAME_CAP
 //   - the unload: a shaken tree goes to the tree shader (uTreeShed) at its base with its near side, the
 //     share gone and the contact height, fills back in, and only the TREE_SHED_MAX nearest are drawn
+//   - a slam into the trunk (8 m/s) shakes the whole tree: many times a brush, from the whole crown all
+//     round, spread over frames under the cap, drawn bare all round; a second slam has nothing left; a bump
+//     drops nothing; half the speed shakes part of it; a lodgepole's crown out of reach still comes down
 // node tools/treepuffcheck.mjs        (exit code 1 if a check fails)
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -34,6 +37,15 @@ const tree = (species, x, y, z = 0, h = 15) => ({ species, x, y, z, h, cr: RADIU
 /** the trees a crown contact is looked up in (what Vegetation.crownContact does over its cells) */
 function forest(trees) {
   return {
+    trunkAt(x, y, z, reach, o) {
+      let best = Infinity;
+      for (const t of trees) {
+        if (z < t.z - 1 || z > t.z + t.h) continue;
+        const gap = Math.hypot(x - t.x, y - t.y) - Math.max(0.15, t.h * 0.02);
+        if (gap < reach && gap < best) { best = gap; Object.assign(o, { x: t.x, y: t.y, z: t.z, h: t.h, cr: t.cr, species: t.species, overlap: 1, at: z + 0.9, r: t.cr }); }
+      }
+      return best < Infinity;
+    },
     crownContact(x, y, z, o) {
       let best = 0;
       const tmp = {};
@@ -134,6 +146,41 @@ check("a lodgepole's bare trunk", pass(new TreeBrush(forest([tree(4, 0, 0)]), si
 check('clear of the crown', pass(new TreeBrush(forest(spruce), sink()), 3.3).n === 0, '1 m outside');
 const deep = pass(new TreeBrush(forest(spruce), sink()), 0.9);
 check('deeper in drops more', deep.n > storm.n, `${deep.n} at 0.9 m from the trunk vs ${storm.n} at 1.8 m`);
+
+// ---- a slam into the trunk: the rider pushed out 0.4 m from it, moving away after the bounce
+function slam(brush, speed, x = 0.7, frames = 60) {
+  const r = { x, y: 0, z: 0, vx: 2, vy: 0, vz: 0, lastHit: 'wall', hitSpeed: speed };
+  let n = 0, most = 0, thump = 0, xs = 0, ys = [], frames1 = 0;
+  for (let f = 0; f < frames; f++) {
+    thump = Math.max(thump, brush.update(r, DT));
+    n += brush.released; most = Math.max(most, brush.released); if (brush.released) frames1++;
+    r.lastHit = ''; r.hitSpeed = 0; r.x += 2 * DT;
+  }
+  return { n, most, thump, frames: frames1 };
+}
+day(1, 'fresh');
+{
+  const s3 = sink(), b3 = new TreeBrush(forest(spruce), s3), hard = slam(b3, 8);
+  const U = treeSnowUniforms, a = U.uTreeShed.value[0], d = U.uTreeShed.value[1];
+  check('a slam shakes the whole tree', hard.n > 4 * storm.n, `${hard.n} particles vs ${storm.n} brushing its edge, thump ${hard.thump.toFixed(2)}`);
+  check('spread over frames under the cap', hard.most <= 96 && hard.frames > 4, `${hard.frames} frames, most ${hard.most}`);
+  const lo = Math.min(...s3.ys), hi = Math.max(...s3.ys);
+  check('from the whole crown, all round', lo < 2 && hi > 12 && Math.abs(s3.xs / s3.n) < 0.3, `heights ${lo.toFixed(1)} .. ${hi.toFixed(1)} m, mean x ${(s3.xs / s3.n).toFixed(2)} m`);
+  check('drawn bare all round', U.uTreeShedN.value === 1 && a.z > 0.99 && d.z > 0.99, `gone ${a.z.toFixed(2)}, all round ${d.z.toFixed(2)}`);
+  const again2 = slam(b3, 8);
+  check('a second slam has nothing left', again2.n < 0.01 * hard.n, `${again2.n} particles (what built back in a second)`);
+  check('and a brush after it nothing', pass(b3, 1.8).n === 0, 'no snow on any side');
+  const bump = slam(new TreeBrush(forest(spruce), sink()), 2), touch = slam(new TreeBrush(forest(spruce), sink()), 0);
+  check('a bump only brushes', bump.n === touch.n, `${bump.n} at 2 m/s into the trunk, ${touch.n} from the crown without a hit`);
+  const half = slam(new TreeBrush(forest(spruce), sink()), 4.75);
+  check('half the speed shakes part of it', half.n > 0.2 * hard.n && half.n < 0.8 * hard.n, `${half.n} at 4.75 m/s vs ${hard.n} at 8`);
+  const lp = sink(), lodge = slam(new TreeBrush(forest([tree(4, 0, 0)]), lp), 8, 0.6);
+  check("a lodgepole's high crown comes down", lodge.n > 0 && Math.min(...lp.ys) > 8, `${lodge.n} particles from ${Math.min(...lp.ys).toFixed(1)} m up`);
+  check('no aspen snow', slam(new TreeBrush(forest([tree(1, 0, 0)]), sink()), 8, 0.75).n === 0, 'no needles');
+  day(0, 'spring', 3);
+  check('nothing to slam off in spring', slam(new TreeBrush(forest(spruce), sink()), 8).n === 0, 'bare trees');
+  day(1, 'fresh');
+}
 
 // ---- standing in a crown
 {
