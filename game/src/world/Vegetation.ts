@@ -6,6 +6,7 @@ import type { Collider } from '../sim/Collider';
 import { TreeKit, SPECIES_COUNT, VARIANTS, speciesFor, variantFor, crownRadius, hash01, fadeWidth, farAttrs, farGeometry, generateStems, setGhostBand, type FarAttrs, type StandGrid } from './trees';
 import { treelineOf } from '../pack/treeline';
 import { TreeShade } from './TreeShade';
+import { crownOverlap, type CrownHit } from './TreeBrush';
 
 /**
  * Streams tree instances per 1 km cell around the rider and draws them with the FEAT-156 tree kit
@@ -66,6 +67,8 @@ function edges(out: number[]): void {
 
 /** sub-tiles per cell side for the near-set gather and the far packing */
 const TILES = 10;
+/** FEAT-217: the widest crown a rider can brush, plus the body (m): a 40 m spruce's 6.5 m */
+const CROWN_REACH = 8;
 const TILE_N = TILES * TILES;
 /** the near sets are rebuilt once the camera has moved this far from where they were gathered (m) */
 const MARGIN0 = 25, MARGIN1 = 60;
@@ -478,6 +481,90 @@ export class Vegetation {
     }
     cell.col = col;
   }
+
+  /** the cell keys over cx0..cx1 x cy0..cy1, row by row; rebuilt only when the range changes, so the per-frame lookups allocate nothing */
+  private nearKeys(cx0: number, cx1: number, cy0: number, cy1: number): string[] {
+    const r = this.keyRange;
+    if (r[0] !== cx0 || r[1] !== cx1 || r[2] !== cy0 || r[3] !== cy1) {
+      r[0] = cx0; r[1] = cx1; r[2] = cy0; r[3] = cy1;
+      this.keyCache.length = 0;
+      for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) this.keyCache.push(`${cx}_${cy}`);
+    }
+    return this.keyCache;
+  }
+  private readonly keyCache: string[] = [];
+  private readonly keyRange = [NaN, NaN, NaN, NaN];
+
+  /**
+   * FEAT-217: the needled crown (of the trees drawn) a rider at (x, y, z) (the board, pack metres) is
+   * deepest in, into `out`; false when the body touches none (`TreeBrush.ts`, `crownOverlap`).
+   */
+  crownContact(x: number, y: number, z: number, out: CrownHit): boolean {
+    const inst = this.pack.meta.instances;
+    if (!inst) return false;
+    const cs = inst.cellSize, ts = cs / TILES, reach = CROWN_REACH;
+    let best = 0;
+    const cx0 = Math.floor((x - reach - inst.minX) / cs), cx1 = Math.floor((x + reach - inst.minX) / cs);
+    const cy0 = Math.floor((y - reach - inst.minY) / cs), cy1 = Math.floor((y + reach - inst.minY) / cs);
+    const keys = this.nearKeys(cx0, cx1, cy0, cy1);
+    for (let cy = cy0, k = 0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++, k++) {
+      const cell = this.cells.get(keys[k]);
+      if (!cell || !cell.order || z > cell.zMax || z + 2 < cell.zMin) continue;
+      const d = cell.data!, cr = cell.cr!, sp = cell.sp!, minX = inst.minX + cx * cs, minY = inst.minY + cy * cs;
+      const tx0 = Math.max(0, Math.floor((x - reach - minX) / ts)), tx1 = Math.min(TILES - 1, Math.floor((x + reach - minX) / ts));
+      const ty0 = Math.max(0, Math.floor((y - reach - minY) / ts)), ty1 = Math.min(TILES - 1, Math.floor((y + reach - minY) / ts));
+      for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
+        const t = ty * TILES + tx;
+        for (let j = cell.tileStart![t]; j < cell.tileStart![t + 1]; j++) {
+          const i = cell.order![j], o = i * 6, r = cr[i] + 0.5;
+          if (Math.abs(d[o] - x) > r || Math.abs(d[o + 1] - y) > r) continue;
+          const k = crownOverlap(sp[i], d[o], d[o + 1], d[o + 2], d[o + 3], cr[i], x, y, z, this.contact);
+          if (k > best) {
+            best = k;
+            out.x = d[o]; out.y = d[o + 1]; out.z = d[o + 2]; out.h = d[o + 3]; out.cr = cr[i]; out.species = sp[i];
+            out.overlap = k; out.at = this.contact.at; out.r = this.contact.r;
+          }
+        }
+      }
+    }
+    return best > 0;
+  }
+  /**
+   * FEAT-217: the tree whose trunk the rider at (x, y, z) (pack metres) is up against: the nearest base
+   * within its collider radius (max(0.15, h * 0.02), as `Collider` has it) plus `reach` m, any species,
+   * written into `out` with overlap 1, the contact at 0.9 m up. False when there is none.
+   */
+  trunkAt(x: number, y: number, z: number, reach: number, out: CrownHit): boolean {
+    const inst = this.pack.meta.instances;
+    if (!inst) return false;
+    const cs = inst.cellSize, ts = cs / TILES, R = reach + 1;
+    let best = Infinity;
+    const cx0 = Math.floor((x - R - inst.minX) / cs), cx1 = Math.floor((x + R - inst.minX) / cs);
+    const cy0 = Math.floor((y - R - inst.minY) / cs), cy1 = Math.floor((y + R - inst.minY) / cs);
+    const keys = this.nearKeys(cx0, cx1, cy0, cy1);
+    for (let cy = cy0, k = 0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++, k++) {
+      const cell = this.cells.get(keys[k]);
+      if (!cell || !cell.order || z > cell.zMax || z + 2 < cell.zMin) continue;
+      const d = cell.data!, minX = inst.minX + cx * cs, minY = inst.minY + cy * cs;
+      const tx0 = Math.max(0, Math.floor((x - R - minX) / ts)), tx1 = Math.min(TILES - 1, Math.floor((x + R - minX) / ts));
+      const ty0 = Math.max(0, Math.floor((y - R - minY) / ts)), ty1 = Math.min(TILES - 1, Math.floor((y + R - minY) / ts));
+      for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
+        const t = ty * TILES + tx;
+        for (let j = cell.tileStart![t]; j < cell.tileStart![t + 1]; j++) {
+          const i = cell.order![j], o = i * 6, h = d[o + 3];
+          if (z < d[o + 2] - 1 || z > d[o + 2] + h) continue;
+          const gap = Math.hypot(d[o] - x, d[o + 1] - y) - Math.max(0.15, h * 0.02);
+          if (gap < reach && gap < best) {
+            best = gap;
+            out.x = d[o]; out.y = d[o + 1]; out.z = d[o + 2]; out.h = h; out.cr = cell.cr![i]; out.species = cell.sp![i];
+            out.overlap = 1; out.at = z + 0.9; out.r = cell.cr![i];
+          }
+        }
+      }
+    }
+    return best < Infinity;
+  }
+  private readonly contact: CrownHit = { x: 0, y: 0, z: 0, h: 0, cr: 0, species: 0, overlap: 0, at: 0, r: 0 };
 
   /** per-tree species, variant, crown, yaw and colour, and the sub-tile index for the near gather */
   private prepare(cell: Cell): void {

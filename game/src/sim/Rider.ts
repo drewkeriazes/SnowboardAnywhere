@@ -171,6 +171,8 @@ export class Rider {
   landingShock = 0;
   /** last collision this step: 'ramp' | 'graze' | 'wall' | '' (for sound and effects; cleared each frame) */
   lastHit = '';
+  /** FEAT-217: the speed into the trunk, rock or wall of that collision (m/s; cleared with lastHit) */
+  hitSpeed = 0;
   /** Outrun boost (FEAT-101): less drag for a few seconds */
   boost = false;
   distance = 0;

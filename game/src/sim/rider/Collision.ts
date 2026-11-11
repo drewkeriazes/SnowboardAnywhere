@@ -34,14 +34,14 @@ export function rideCollide(r: Rider): void {
           r.landingShock = 0.3;
         } else if (headOn < 0.5) {
           // glancing hit on a tree or wall: slide along it, lose a little speed
-          r.lastHit = 'graze';
+          r.lastHit = 'graze'; r.hitSpeed = -vn;
           r.x = hit.x; r.y = hit.y;
           r.vx -= vn * hit.nx; r.vy -= vn * hit.ny;
           r.vx *= 0.85; r.vy *= 0.85;
           r.landingShock = 0.25;
         } else {
           // square hit: bounce off; fast square hits crash
-          r.lastHit = 'wall';
+          r.lastHit = 'wall'; r.hitSpeed = -vn;
           r.x = hit.x; r.y = hit.y;
           if (-vn > 7) r.crashed = 1.2;
           r.vx -= 1.4 * vn * hit.nx; r.vy -= 1.4 * vn * hit.ny;
