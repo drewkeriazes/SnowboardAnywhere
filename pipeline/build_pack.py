@@ -246,7 +246,10 @@ del has_pts, crown, grown
 # put Big Sky's bare upper bowls in forest); cfg["treeline_m"] overrides, None when the box never leaves the forest
 import treeline as _tl
 treeline_m = cfg.get("treeline_m") or _tl.derive_treeline(dem2, canopy, have2)
-log(f"  treeline {treeline_m} m ({'config' if cfg.get('treeline_m') else 'from the canopy by elevation'})")
+if treeline_m is None:
+    log("  treeline none found (no forest belt in the box); the client uses its 3,480 m default")
+else:
+    log(f"  treeline {treeline_m} m ({'config' if cfg.get('treeline_m') else 'from the canopy by elevation'})")
 # rock: low NDVI, GREY (low colour saturation), not snow. Late-summer NAIP shows cured meadow and
 # groomed pistes as tan grass with NDVI < 0.18 too; saturation 0.22..0.42 for grass vs < 0.15 for rock
 # (measured on the Vail 2023 imagery). Without the saturation test 25 % of the resort came out as rock.
