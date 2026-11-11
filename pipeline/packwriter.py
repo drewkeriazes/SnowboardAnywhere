@@ -2,7 +2,7 @@
 
 All inputs are numpy arrays in local metres. Height grids are row 0 = NORTH (max y), like an image.
 """
-import json, os, secrets, struct, time
+import json, os, secrets, struct, subprocess, time
 import numpy as np
 from PIL import Image
 
@@ -103,10 +103,26 @@ def index_packs(packs_dir: str) -> None:
     with open(os.path.join(packs_dir, "index.json"), "w") as f:
         json.dump({"packs": slugs}, f, indent=1)
 
+def pipeline_commit() -> str | None:
+    """the short commit of this checkout, `+dirty` when pipeline/ has uncommitted changes; None outside git"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    try:
+        sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=here, capture_output=True, text=True, timeout=10)
+        if sha.returncode:
+            return None
+        dirty = subprocess.run(["git", "status", "--porcelain", "--", "."], cwd=here, capture_output=True, text=True, timeout=10)
+        return sha.stdout.strip() + ("+dirty" if dirty.stdout.strip() else "")
+    except (OSError, subprocess.SubprocessError):
+        return None
+
 def stamp_build(meta: dict) -> dict:
     """FEAT-177: a fresh `build` id on every meta.json a pipeline stage writes, so the game can tell a
-    main menu still rendered from another build of the pack (UTC time plus a random suffix)."""
+    main menu still rendered from another build of the pack (UTC time plus a random suffix). FEAT-175: and
+    `pipeline`, the commit of the pipeline that wrote it, for pack_report.py and the catalog."""
     meta["build"] = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + secrets.token_hex(3)
+    commit = pipeline_commit()
+    if commit:
+        meta["pipeline"] = commit
     return meta
 
 def write_meta(out_dir: str, meta: dict, stamp: bool = True):

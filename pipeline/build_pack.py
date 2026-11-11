@@ -346,6 +346,7 @@ class LfRaster:
 
 evt = None
 lf_tifs = sorted(glob.glob(os.path.join(raw, "landfire", "*.tif")))
+LANDFIRE_ATTRIBUTION = "Vegetation type: LANDFIRE, USGS and U.S. Forest Service (public domain)"
 if lf_tifs:
     evt_lf = LfRaster(lf_tifs[-1])
     evt_img, table = evt_lf.data, evt_lf.table
@@ -1046,6 +1047,8 @@ meta = {"version": 1, "formatVersion": FORMAT_VERSION, "slug": slug, "name": cfg
         "zRange": [float(np.floor(Z_MIN / 100) * 100 - 100), float(np.ceil(Z_MAX / 100) * 100 + 100)],
         "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "dir": dir_meta, "moguls": mog_meta, "instances": inst, "stands": stand_meta, "treeSpecies": spc.TREE_SPECIES_VERSION,
         "start": start, "sun": {"azimuth": 160, "elevation": 30}, "attribution": cfg["attribution"]}
+if lf_tifs and LANDFIRE_ATTRIBUTION not in meta["attribution"]:   # FEAT-175: pack_report.py line 13 checks every credit
+    meta["attribution"] = meta["attribution"] + [LANDFIRE_ATTRIBUTION]
 if treeline_m:
     meta["treeline"] = round(float(treeline_m))
 write_meta(out, meta)
