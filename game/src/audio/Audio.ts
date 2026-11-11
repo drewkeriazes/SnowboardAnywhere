@@ -32,7 +32,7 @@ type QueueItem = { list: string } & ({ track: TrackInfo } | { style: JukeStyle; 
  *  - lift: drive hum while riding
  * One-shots, each picked from three variants with +/- 8% pitch jitter: jump pop with a board
  * creak, landings in three impact bands with a spray whoosh, crash crunch, rock ramp, tree
- * graze and branch brush, tower clunk, bull-wheel rumble at terminals, boarding and unload chimes.
+ * graze and branch brush, snow off a bough (FEAT-217), tower clunk, bull-wheel rumble at terminals, boarding and unload chimes.
  * On foot (FEAT-067): a boot crunch per footstep by surface (groomed squeak, powder whump, ice
  * scrape), breathing that gets heavier with a sprint or a climb, binding ratchet clicks on and off.
  */
@@ -378,6 +378,13 @@ export class GameAudio {
     const g = (0.4 + 0.6 * k) * (0.4 + 0.6 * v);
     this.burst('highpass', 2200 + Math.random() * 2200, 0.08 + 0.06 * Math.random(), 0.16 * g, 0.6);
     this.burst('bandpass', 700 + Math.random() * 500, 0.16, 0.12 * g, 0.7, 2400);
+  }
+  /** FEAT-217: snow off a bough onto the rider: a soft low thump and the hiss of it sifting down through the needles (k 0..1) */
+  treePuff(k: number): void {
+    if (!this.ctx) return;
+    const g = 0.3 + 0.7 * Math.min(1, k);
+    this.pick([() => this.burst('lowpass', 220, 0.22, 0.3 * g), () => this.burst('lowpass', 190, 0.25, 0.32 * g), () => this.burst('lowpass', 250, 0.2, 0.28 * g)])();
+    this.burst('bandpass', 1600 + Math.random() * 900, 0.45 + 0.3 * k, 0.05 * g, 0.8, 700);
   }
   private towerClunk(): void { this.pick([() => this.tone(140, 0.18, 0.2, 'square', 90), () => this.tone(160, 0.16, 0.2, 'square', 95), () => this.tone(125, 0.2, 0.22, 'square', 85)])(); this.burst('bandpass', 1800, 0.08, 0.1, 2); }
   private bullWheel(): void { this.burst('lowpass', 120, 1.2, 0.3); this.tone(70, 1.0, 0.1, 'triangle'); }

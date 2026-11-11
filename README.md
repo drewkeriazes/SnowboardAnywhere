@@ -190,14 +190,19 @@ buries the nose, slows you and pulls you over it. Open off-piste
 gets tracked out into chop as the day goes on and rattles the board. High exposed ridges are
 wind-scoured ice, and spring mornings leave the groomers icy: the edge holds less and skids sooner.
 Low sunny faces turn to slush in the afternoon, heavy and slow. Settings > Conditions (Snow conditions:
-Fresh, Mid-season or Spring; New snow; Weather; Time of day) all change it. The HUD names
-the snow under you (Groomed, Powder, Chop, Ice, Slush, Rock); on foot it also shows how deep the
-boots sink.
+Fresh, Mid-season or Spring; New snow; Weather; Time of day) all change it. The HUD says
+what the snow under you is and what it is doing to you, in plain words: `Powder 14 in · floating`,
+`Powder 16 in · bogging down, nose sinking`, `Moguls 4 ft · Ice · edges skittering`, `Chop · bumpy`,
+`Slush · heavy and slow`, `Groomed · in the trees`. Depth and mogul size are in inches and feet, or cm
+and metres with Settings > Map and world > Units on metric. On foot it shows the snow and how deep the boots sink.
 
 The snow near you moves. Carving in powder cuts a deep, board-wide trench (a groomer keeps its
 shallow groove), the snow around your tracks and footprints sags, and a hockey stop piles a ridge of
 pushed snow. Hard turns throw spray: light wisps on a groomer, clouds that hang and drift in powder, a
-burst when you land. Settings > Graphics > Snow dents turns the sag off (the Low preset turns it off
+burst when you land. Brush a snow-loaded spruce or fir and the snow drops off its boughs in a puff
+(more after a storm, on a snow ghost the most, none in spring), and the boughs you hit are green
+until the snow builds back over a few minutes; a tree you just shook has less to drop. Slam into the
+trunk and the whole tree shakes off every bit of its snow. Settings > Graphics > Snow dents turns the sag off (the Low preset turns it off
 too).
 
 In first person you look through goggle lenses (Settings > Camera > Goggle lens). In flat light

@@ -16,6 +16,7 @@ import { Lifts } from '../world/Lifts';
 import { RunsOverlay } from '../world/RunsOverlay';
 import { Environment } from '../world/Sky';
 import { RiderView } from '../world/RiderView';
+import { TreeBrush } from '../world/TreeBrush';
 import { Buildings } from '../world/Buildings';
 import { Roads } from '../world/Roads';
 import { Tracks } from '../world/Tracks';
@@ -100,6 +101,7 @@ export function buildWorld(ctx: GameContext) {
   const riderView = new RiderView();
   add('rider', riderView.group);
   add('rider spray', riderView.sprayObject);
+  const treeBrush = new TreeBrush(veg, riderView.spray); // FEAT-217: snow off the boughs of a tree the rider brushes, through the spray ring
   // cascaded shadows: every lit material gets the CSM hook
   env.registerMaterial(terrain.material);
   for (const m of Object.values(veg.mat)) env.registerMaterial(m);
@@ -114,6 +116,6 @@ export function buildWorld(ctx: GameContext) {
   terrain.setTreeShade(veg.shade); // FEAT-171: the drawn trees' shadows past the shadow map
   return {
     zr, env, clouds, snow, terrain, collider, veg, shrubs, treeFade, rocks, lifts, liftLines, resortTop, runs, buildings, roads, landmarks, bridges,
-    tracks, bootprints, riderChair, puffs, particleLight, bigprints, deform, monsters, eat, courses, trialWorld, riderView,
+    tracks, bootprints, riderChair, puffs, particleLight, bigprints, deform, monsters, eat, courses, trialWorld, riderView, treeBrush,
   };
 }

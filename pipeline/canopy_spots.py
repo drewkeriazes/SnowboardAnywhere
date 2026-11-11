@@ -10,7 +10,9 @@ pack build (`RUN_HALF_WIDTH`), plus the whole-disc figure for reference.
 The table uses --radius; the targets below use their own radius per spot. Exits 1 if a target fails.
 
 Reads `meta.json`, `features.json` and the mask alpha (canopy cover) of each pack, and the spots in
-`docs/compare/<slug>/*/spot.json`. Prints a markdown table and checks the BUG-028 targets.
+`docs/compare/<slug>/*/spot.json`. Prints a markdown table and checks the BUG-028 targets. Where the pack has
+tree instances (`trees/*.bin`), the table also gives the detected crowns per hectare of the disc's off-run ground
+(snags, species 7, left out), the crown count DATA-011 compares between lidar densities.
 """
 import argparse
 import glob
@@ -37,6 +39,7 @@ BUILDING_MARGIN = 6
 FOREST_TARGETS = {"born-free": (80.0, 0.5), "mid-vail-wildwood": (100.0, 0.5)}
 OPEN_SPOTS = ["mongolia-bowl", "china-bowl-north-rim", "china-bowl-poppyfields", "back-bowls-campbells"]
 OPEN_TOLERANCE = 0.02
+SNAG = 7                                            # species id of standing dead trees (pack-format.md)
 
 
 def run_half_width(run):
@@ -108,9 +111,35 @@ class PackCanopy:
         self.cover = read_mask_channel(pack_dir, meta, 3)
         self.cleared = cleared_ground(features)
         shapely.prepare(self.cleared)
+        self.trees = read_trees(pack_dir)
 
     def at(self, x, y, radius):
         return spot_canopy(self.cover, self.mask, self.cleared, x, y, radius)
+
+    def crowns(self, x, y, radius):
+        """live detected crowns per hectare of off-run ground within `radius`, NaN without tree instances"""
+        if self.trees is None:
+            return float("nan")
+        return spot_crowns(self.trees, self.cleared, x, y, radius, self.at(x, y, radius)[1])
+
+
+def read_trees(pack_dir):
+    """every tree instance of the pack as an (N, 6) float32 array (x, y, z, height, crownRadius, species), or None"""
+    files = sorted(glob.glob(os.path.join(pack_dir, "trees", "*.bin")))
+    if not files:
+        return None
+    return np.concatenate([np.fromfile(p, "<f4").reshape(-1, 6) for p in files])
+
+
+def spot_crowns(trees, cleared, x, y, radius, off_share):
+    """live crowns (not snags) per hectare of off-run ground within `radius` of (x, y); `off_share` is the off-run
+    share of the disc (spot_canopy)"""
+    area_ha = np.pi * radius * radius * off_share / 1e4
+    if area_ha <= 0:
+        return float("nan")
+    t = trees[((trees[:, 0] - x) ** 2 + (trees[:, 1] - y) ** 2 <= radius * radius) & (trees[:, 5] != SNAG)]
+    off = ~shapely.contains_xy(cleared, t[:, 0], t[:, 1]) if not cleared.is_empty else np.ones(len(t), bool)
+    return float(off.sum()) / area_ha
 
 
 def check_targets(after, before, spots):
@@ -150,18 +179,22 @@ def main():
     before = {n: before_pack.at(x, y, a.radius) for n, (x, y) in spots.items()} if before_pack else None
 
     r = int(a.radius)
-    if before:
-        print(f"| spot | off-run share of {r} m disc | canopy, whole disc (before / after) | canopy, off-run (before / after) |")
-    else:
-        print(f"| spot | off-run share of {r} m disc | canopy, whole disc | canopy, off-run |")
-    print("|---|---:|---:|---:|")
+    crowns = after_pack.trees is not None
+    pair = " (before / after)" if before else ""
+    head = f"| spot | off-run share of {r} m disc | canopy, whole disc{pair} | canopy, off-run{pair} |"
+    print(head + (f" crowns per off-run ha{pair} |" if crowns else ""))
+    print("|---|---:|---:|---:|" + ("---:|" if crowns else ""))
     for name in spots:
         w, share, off = after[name]
+        n = after_pack.crowns(*spots[name], a.radius) if crowns else None
         if before:
             bw, _, boff = before[name]
-            print(f"| {name} | {share:.2f} | {bw:.2f} / {w:.2f} | {boff:.2f} / {off:.2f} |")
+            row = f"| {name} | {share:.2f} | {bw:.2f} / {w:.2f} | {boff:.2f} / {off:.2f} |"
+            if crowns:
+                row += f" {before_pack.crowns(*spots[name], a.radius):.0f} / {n:.0f} |"
         else:
-            print(f"| {name} | {share:.2f} | {w:.2f} | {off:.2f} |")
+            row = f"| {name} | {share:.2f} | {w:.2f} | {off:.2f} |" + (f" {n:.0f} |" if crowns else "")
+        print(row)
     ok, lines = check_targets(after_pack, before_pack, spots)
     print("\n".join(lines))
     sys.exit(0 if ok else 1)

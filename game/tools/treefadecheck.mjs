@@ -187,13 +187,15 @@ for (const sideM of [5, -5]) {
   check(`a tree 5 m ${sideM > 0 ? 'left' : 'right'} of the line, 8 m ahead, stays solid`, !plain || (beside.main !== null && beside.main < 0.02), plain ? `${((beside.main ?? 0) * 100).toFixed(1)}% of its box changed, ${b.along.toFixed(0)} m ahead` : `camera pushed aside (rider at ${riderX.toFixed(2)} across the view), inconclusive`);
 }
 
-// 1d. a crown hanging between the camera and the rider (the trunk 2 m beside the line, just passed): it fades
+// 1d. a crown hanging between the camera and the rider (the trunk just passed, beside the line by 0.6 of its crown
+// radius so the crown reaches over the line; BUG-080: a fixed 2 m put a 1.4 m crown wholly off to the side): it fades
 {
-  await page.evaluate((sp) => { const r = window.__sim.rider; r.reset(sp.tree[0] - sp.ux * 30 + sp.uy * 2, sp.tree[1] - sp.uy * 30 - sp.ux * 2, Math.atan2(sp.ux, sp.uy)); }, spot);
+  const sideM = Math.min(2, Math.max(0.6, 0.6 * spot.tree[4]));
+  await page.evaluate(([sp, sideM]) => { const r = window.__sim.rider; r.reset(sp.tree[0] - sp.ux * 30 + sp.uy * sideM, sp.tree[1] - sp.uy * 30 - sp.ux * sideM, Math.atan2(sp.ux, sp.uy)); }, [spot, sideM]);
   await settle();
   const b = await ride(600, 8, -2.5);
   const over = await onOff('crown_over_rider', { main: spot.tree, side: null });
-  check('a crown between the camera and the rider fades', over.main !== null && over.main > 0.08, `${((over.main ?? 0) * 100).toFixed(0)}% of its box changed, trunk ${(-b.along).toFixed(1)} m behind the rider`);
+  check('a crown between the camera and the rider fades', over.main !== null && over.main > 0.08, `${((over.main ?? 0) * 100).toFixed(0)}% of its box changed, trunk ${(-b.along).toFixed(1)} m behind the rider and ${sideM.toFixed(1)} m beside the line (crown ${spot.tree[4].toFixed(1)} m)`);
 }
 if (keepCollider) await page.evaluate(() => { window.__sim.cam.collider = window.__camCollider; });
 
