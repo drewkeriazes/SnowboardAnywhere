@@ -19,6 +19,7 @@ export const RESORTS_REPO = 'drewkeriazes/MapPacker-SnowboardAnywhere';
 export const CATALOG_URL = `https://raw.githubusercontent.com/${RESORTS_REPO}/main/catalog.json`;
 export const SLUG = /^[a-z0-9][a-z0-9_-]*$/;
 const MARKER = '.catalog.json';
+const STALL_MS = 60_000;
 
 /** The pack format this checkout's client reads (PACK_FORMAT in src/pack/format.ts). */
 export const PACK_FORMAT = (() => {
@@ -80,6 +81,9 @@ export async function getPack(slug, { packsDir = PACKS, catalog, force = false, 
   const problem = formatProblem(entry);
   if (problem) throw new Error(problem);
   const dest = path.join(packsDir, slug);
+  const old = path.join(packsDir, `.${slug}.old`);
+  // a run killed between the two renames of the swap left the pack only as .<slug>.old: put it back first
+  if (fs.existsSync(old) && !fs.existsSync(dest)) fs.renameSync(old, dest);
   const mark = readJson(path.join(dest, MARKER));
   if (fs.existsSync(dest)) {
     if (fs.lstatSync(dest).isSymbolicLink()) throw new Error(`packs/${slug} is a link to ${fs.realpathSync(dest)}: run get there, or remove the link`);
@@ -93,14 +97,18 @@ export async function getPack(slug, { packsDir = PACKS, catalog, force = false, 
   fs.mkdirSync(packsDir, { recursive: true });
   const zipFile = path.join(packsDir, `.${slug}.download.zip`);
   const incoming = path.join(packsDir, `.${slug}.incoming`);
-  const old = path.join(packsDir, `.${slug}.old`);
   for (const p of [incoming, old]) fs.rmSync(p, { recursive: true, force: true });
   try {
     const total = entry.pack.bytes ?? 0;
     const hash = crypto.createHash('sha256');
     let received = 0, last = 0;
+    // a stalled connection fails after STALL_MS with no bytes instead of leaving the job running forever
+    const stall = new AbortController();
+    let timer = setTimeout(() => stall.abort(new Error(`download: no data for ${STALL_MS / 1000} s`)), STALL_MS);
+    const alive = () => { clearTimeout(timer); timer = setTimeout(() => stall.abort(new Error(`download: no data for ${STALL_MS / 1000} s`)), STALL_MS); };
     const count = async function* (src) {
       for await (const c of src) {
+        alive();
         hash.update(c); received += c.length;
         const now = Date.now();
         if (now - last > 250) { last = now; onProgress({ phase: 'download', received, total }); }
@@ -109,12 +117,16 @@ export async function getPack(slug, { packsDir = PACKS, catalog, force = false, 
     };
     const url = entry.pack.url;
     let body;
-    if (isUrl(url)) {
-      const r = await fetch(url);
-      if (!r.ok || !r.body) throw new Error(`download: HTTP ${r.status} from ${url}`);
-      body = Readable.fromWeb(r.body);
-    } else body = fs.createReadStream(url);
-    await pipeline(body, count, fs.createWriteStream(zipFile));
+    try {
+      if (isUrl(url)) {
+        const r = await fetch(url, { signal: stall.signal });
+        if (!r.ok || !r.body) throw new Error(`download: HTTP ${r.status} from ${url}`);
+        body = Readable.fromWeb(r.body);
+      } else body = fs.createReadStream(url);
+      await pipeline(body, count, fs.createWriteStream(zipFile), { signal: stall.signal });
+    } catch (e) {
+      throw stall.signal.aborted ? stall.signal.reason : e;
+    } finally { clearTimeout(timer); }
     onProgress({ phase: 'download', received, total });
     const sha = hash.digest('hex');
     if (sha !== entry.pack.sha256) throw new Error(`download: sha256 ${sha} does not match the catalog's ${entry.pack.sha256}`);
@@ -129,7 +141,8 @@ export async function getPack(slug, { packsDir = PACKS, catalog, force = false, 
       version: entry.pack.version, sha256: sha, build: meta.build ?? null, url, installed: new Date().toISOString(),
     }, null, 1));
     if (fs.existsSync(dest)) fs.renameSync(dest, old);
-    fs.renameSync(incoming, dest);
+    // a failed second rename (Windows EPERM / EBUSY: antivirus, the dev server reading a file) puts the old pack back
+    try { fs.renameSync(incoming, dest); } catch (e) { if (fs.existsSync(old)) fs.renameSync(old, dest); throw e; }
     fs.rmSync(old, { recursive: true, force: true });
     writePackIndex(packsDir);
     onProgress({ phase: 'done', received, total });

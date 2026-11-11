@@ -64,6 +64,12 @@ function packDownloads(): Plugin {
       return job ? send(res, 200, job) : send(res, 404, { error: 'no download for that resort' });
     }
     if (req.method === 'POST' && url.pathname === '/__packs/get') {
+      // the game's own page only: a JSON body forces a CORS preflight this server never answers, and a browser's
+      // Origin must be this host (the server listens on the LAN, so another site must not start a 2 GB download)
+      const origin = req.headers.origin;
+      let sameOrigin = !origin;
+      try { sameOrigin ||= new URL(origin!).host === req.headers.host; } catch { /* "null" or junk: refused */ }
+      if (!(req.headers['content-type'] ?? '').startsWith('application/json') || !sameOrigin) return send(res, 403, { error: 'same-origin JSON only' });
       const chunks: Buffer[] = [];
       for await (const c of req) chunks.push(c as Buffer);
       let slug = '';

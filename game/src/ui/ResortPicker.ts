@@ -72,7 +72,11 @@ export function fillResortPicker(host: HTMLElement, current: string, built: { sl
       if (!r.ok) { fail(((await r.json().catch(() => ({}))) as Job).error ?? `HTTP ${r.status}`); return; }
       for (;;) {
         await new Promise((res) => setTimeout(res, 500));
-        const j = await (await fetch(api(`job?slug=${slug}`), { cache: 'no-store' })).json() as Job;
+        // the panel closed or reopened: stop watching (the server keeps downloading; reopening shows it again)
+        if (host.dataset.picker !== token || host.hidden) return;
+        const jr = await fetch(api(`job?slug=${slug}`), { cache: 'no-store' });
+        const j = await jr.json().catch(() => ({})) as Job;
+        if (!jr.ok) { fail(j.error ?? `HTTP ${jr.status}`); return; } // 404: the server restarted and lost the job
         if (j.phase === 'error') { fail(j.error ?? 'unknown error'); return; }
         if (j.phase === 'done') { note.textContent = 'Ready'; go(slug); return; }
         note.textContent = j.phase === 'unzip' ? 'Unpacking...' : j.total ? `Downloading ${Math.floor((j.received / j.total) * 100)}%` : 'Downloading...';
