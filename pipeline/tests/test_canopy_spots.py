@@ -70,3 +70,16 @@ def test_targets_use_their_own_radius(monkeypatch):
     ok, lines = canopy_spots.check_targets(Fake(), None, {"near": (0, 0), "far": (0, 0)})
     assert not ok
     assert lines[0].startswith("PASS near") and lines[1].startswith("FAIL far")
+
+
+def test_crowns_count_live_trees_off_the_run():
+    from canopy_spots import spot_crowns
+    _, features = closed_forest_with_a_run()
+    cleared = cleared_ground(features)
+    # 10 live crowns and 3 snags off the run (y = 260), 5 live crowns on it (y = 200), 2 outside the disc
+    rows = [[200 + i, 260, 0, 15, 2, 0] for i in range(10)] + [[200 + i, 260, 0, 15, 2, 7] for i in range(3)]
+    rows += [[200 + i, 200, 0, 15, 2, 4] for i in range(5)] + [[390, 390, 0, 15, 2, 0]] * 2
+    trees = np.array(rows, np.float32)
+    _, share, _ = spot_canopy(np.ones((200, 200), np.float32), MASK, cleared, 200, 200, 80)
+    per_ha = spot_crowns(trees, cleared, 200, 200, 80, share)
+    assert abs(per_ha - 10 / (np.pi * 80 * 80 * share / 1e4)) < 1e-3
