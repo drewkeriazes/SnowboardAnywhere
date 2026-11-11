@@ -18,7 +18,15 @@ def test_classify_vail_classes():
     rip = c("Rocky Mountain Subalpine-Montane Riparian Woodland", "Tree")
     assert rip["group"] == spc.G_SPRUCE_FIR and rip["riparian"] and rip["forest"]
     urb = c("Western Cool Temperate Urban Evergreen Forest", "Tree")
-    assert urb["group"] == spc.G_SPRUCE_FIR and not urb["forest"]     # a species for village trees, no fill trees
+    assert urb["group"] == spc.G_SPRUCE_FIR and urb["forest"] and not urb["open"]   # BUG-027: in-resort forest gets fill
+    for nm, lf in (("Developed-Low Intensity", "Developed"), ("Developed-Medium Intensity", "Developed"), ("Developed-Roads", "Developed"),
+                   ("Western Cool Temperate Urban Herbaceous", "Herb"), ("Western Cool Temperate Developed Shrubland", "Shrub")):
+        d = c(nm, lf)
+        assert not d["forest"] and not d["open"], nm        # unknown: the lidar canopy and NAIP decide
+    for nm, lf in (("Rocky Mountain Subalpine-Montane Mesic Meadow", "Herb"), ("Inter-Mountain Basins Montane Sagebrush Steppe", "Shrub"),
+                   ("Rocky Mountain Alpine Bedrock and Scree", "Sparse"), ("Open Water", "Water"),
+                   ("Southern Rocky Mountain Montane-Subalpine Grassland", "Herb")):
+        assert c(nm, lf)["open"], nm                         # truly open: no fill trees
     assert c("Inter-Mountain Basins Montane Sagebrush Steppe", "Shrub")["sage"]
     assert c("Rocky Mountain Gambel Oak-Mixed Montane Shrubland", "Shrub")["oak"]
     meadow = c("Rocky Mountain Subalpine-Montane Mesic Meadow", "Herb")

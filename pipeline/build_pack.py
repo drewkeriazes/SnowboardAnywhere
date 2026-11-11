@@ -298,12 +298,13 @@ if lf_tifs:
     rr_ = np.clip(np.round((ey0 - gy2) / epx).astype(np.int64), 0, evt_img.shape[0] - 1)
     evt2 = np.clip(evt_img[np.ix_(rr_, cc)], 0, lut_n - 1).astype(np.int16 if lut_n < 32768 else np.int32)
     lf_forest2 = forest_lut[evt2]
+    lf_open2 = lut["open"][evt2]   # BUG-027: the fill-tree gate; developed and urban ground is not "open"
     del gx2, gy2, cc, rr_   # evt2 stays for the shrubs and the species debug map (stage 8)
     names = {int(float(r.get("VALUE", 0) or 0)): r.get("EVT_NAME", "") for r in table}
     vals, cnts = np.unique(evt_img, return_counts=True)
     top = sorted(zip(cnts, vals), reverse=True)[:5]
     log(f"  LANDFIRE {os.path.basename(lf)} {evt_img.shape}: " + ", ".join(f"{names.get(int(v), v)[:28]} {c/cnts.sum()*100:.0f}%" for c, v in top))
-    log(f"  LANDFIRE forest on the 2 m grid {lf_forest2.mean()*100:.1f}%, aspen classes {sum(c for c, v in zip(cnts, vals) if aspen_lut[min(v, lut_n-1)] > 0)/cnts.sum()*100:.1f}%")
+    log(f"  LANDFIRE forest on the 2 m grid {lf_forest2.mean()*100:.1f}%, open {lf_open2.mean()*100:.1f}%, aspen classes {sum(c for c, v in zip(cnts, vals) if aspen_lut[min(v, lut_n-1)] > 0)/cnts.sum()*100:.1f}%")
 else:
     log("  no LANDFIRE clip (raw/<slug>/landfire/*.tif); species from elevation, aspect and NAIP colour (species.py fallback)")
 
@@ -696,7 +697,11 @@ occupied = ndimage.binary_dilation(occupied, iterations=2)
 # fill density is the main lever on tree count: 0.33 gave 5.26 M trees at Vail (realistic stems, too many to render)
 fill = canopy & ~occupied & (rng.uniform(0, 1, (H2, W2)) < 0.10)
 if evt is not None:
-    fill &= lf_forest2   # synthetic fill trees only where LANDFIRE says forest (lidar-detected crowns stay everywhere)
+    # BUG-027: no synthetic fill trees on truly open LANDFIRE classes (meadow, grassland, shrubland, rock, water).
+    # Forest, urban forest and developed ground keep them where the canopy says so: Vail's in-resort stands are
+    # mapped Urban Evergreen Forest and Developed-Low / Medium. Lidar-detected crowns stay everywhere.
+    fill &= ~lf_open2
+    del lf_open2
 fr, fc = np.nonzero(fill)
 tree_rows.append(fr); tree_cols.append(fc); tree_h.append(np.maximum(chm_s[fr, fc], 3.0) * rng.uniform(0.75, 1.0, len(fr)))
 rows = np.concatenate(tree_rows); cols = np.concatenate(tree_cols); hgt = np.concatenate(tree_h).astype(np.float32)
