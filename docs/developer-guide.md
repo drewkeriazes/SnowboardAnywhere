@@ -214,6 +214,14 @@ CI's `render-budgets` job then checks the head commit's statuses first and skips
 
 **Required checks** (optional): to block merging on a red check, Settings > Branches > a rule for `main` > Require status checks > pick `typecheck-build` and `pipeline-tests` (they only appear after their first run). Drew switches this on himself.
 
+## README update (`readme-update.yml`)
+
+`.github/workflows/readme-update.yml` (FEAT-227) brings `README.md` up to date with what shipped. It runs only by hand: Actions > Update README > Run workflow, or `gh workflow run readme-update.yml`, with an optional `since` (a commit, tag, branch or date; `-f since=2026-11-01`). Without it, it starts from the last change to `README.md` on `main`, or, when that change was a merged README update PR, from the `main` commit that PR was made from, so a PR that merged while it waited is picked up next time.
+
+Plain steps list the PRs merged into `main` since then (by their merge commits), the cards closed without one of those PRs (this repo and MapPacker) and any commits pushed outside a PR. Claude (`anthropics/claude-code-action`, signed in like `pr-review.yml`) reads them, checks the code for the exact keys, buttons and labels, and edits `README.md` only, for what a player sees. The workflow then commits as Drew, pushes `readme-update-YYYY-MM-DD` and opens a PR listing what changed and what it covered, and starts the Checks and the Claude review on it (a PR opened with the workflow's own token starts neither). When nothing needs changing, the run's summary says so and no PR is opened. A run while a README update PR is still open stops and links to it. It never pushes to `main`.
+
+One-time setup: Settings > Actions > General > Workflow permissions > tick "Allow GitHub Actions to create and approve pull requests". Without it the run pushes the branch and its summary links to open the PR by hand.
+
 ## Pipeline scripts (`pipeline/`)
 
 Flow: `resorts/<slug>.json` -> `gen_manifest.py` -> `manifests/<slug>.json` -> `fetch.ps1` -> `raw/<slug>/` -> `build_pack.py` -> `packs/<slug>/`.
