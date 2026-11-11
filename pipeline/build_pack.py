@@ -224,21 +224,35 @@ gy, gx = np.gradient(dem2, R2)
 slope2 = np.degrees(np.arctan(np.hypot(gx, gy))).astype(np.float32)
 # gx, gy stay alive for the mogul aspect term (freed after scoring)
 
+mx2 = np.maximum(np.maximum(red2, grn2), blu2); mn2 = np.minimum(np.minimum(red2, grn2), blu2)
+sat2 = ((mx2 - mn2) / np.maximum(mx2, 1)).astype(np.float32)
+del mx2, mn2
+# FEAT-175: the NDVI, saturation and brightness thresholds below were measured on Vail's 2023 NAIP; each one is
+# moved to the same percentile of this resort's own imagery over two lidar-defined anchors (naip_calib.py), so
+# another state's or year's NAIP (Big Sky 2021 is darker and greyer) is read on its own scale. Vail gets its own.
+import naip_calib
+_forest_a, _bare_a, _z_forest = naip_calib.anchors(chm, dem2, have2 & has_pts & np.isfinite(dem2))
+NT, _nt_info = naip_calib.derive({"ndvi": ndvi2, "sat": sat2, "bright": bright2}, _forest_a, _bare_a, cfg.get("naip_thresholds"))
+log(f"  NAIP thresholds from {int(_forest_a.sum())} forest and {int(_bare_a.sum())} low bare cells (below {_z_forest or 0:.0f} m):")
+for _l in _nt_info:
+    log(f"    {_l}")
+del _forest_a, _bare_a
+
 # classes
 # canopy needs (a) height above ground AND (b) vegetation in NAIP AND (c) a lidar return nearby. (b) and (c)
 # stop steep bare slopes above treeline reading as forest: the DSM is the max point in a 2 m cell and the DEM
 # the mean, so a 35 deg slope alone gives > 2 m of "height", and grey_closing spread that into empty cells.
-canopy = ((chm > 2.5) | ((ndvi2 > 0.45) & (chm > 1.2))) & (ndvi2 > 0.30) & has_pts & have2
+canopy = ((chm > 2.5) | ((ndvi2 > NT["canopy.leaf_ndvi"]) & (chm > 1.2))) & (ndvi2 > NT["canopy.veg_ndvi"]) & has_pts & have2
 # BUG-028: that rule finds about a third of the closed stands at Born Free, Mid-Vail and Prima. The lidar return
 # test (has_pts) was not the cause (every forest cell has one within a cell); these two were:
 #  - grey beetle-killed lodgepole: NAIP NDVI under 5 m+ canopy is 0.2 to 0.35 there, under the 0.30 floor;
 #  - the subsampled cloud (about one return per 4 m2) hits a crown at one point, often the ground beside it.
-# So a 5 m+ return counts with NDVI over 0.15 and stands for a crown about 2 m round, and gaps under 8 m inside a
+# So a 5 m+ return counts with NDVI over 0.15 (canopy.grow_ndvi) and stands for a crown about 2 m round, and gaps under 8 m inside a
 # stand close. Steep bare slopes stay out: their DSM-over-DEM artefact is under 2 m and cured meadow has no 5 m
 # returns. This grown part is dropped again on every non-glade run corridor in stage 7, so it never narrows a run.
-crown = ndimage.binary_dilation(chm > 5.0, iterations=1) & (ndvi2 > 0.15) & has_pts & have2
+crown = ndimage.binary_dilation(chm > 5.0, iterations=1) & (ndvi2 > NT["canopy.grow_ndvi"]) & has_pts & have2
 grown = canopy | crown
-grown |= ndimage.binary_closing(grown, iterations=2) & (ndvi2 > 0.15) & have2
+grown |= ndimage.binary_closing(grown, iterations=2) & (ndvi2 > NT["canopy.grow_ndvi"]) & have2
 canopy_grown = grown & ~canopy
 log(f"  canopy {canopy.mean()*100:.1f}% from the lidar and NAIP rule, {canopy_grown.mean()*100:.1f}% more from 5 m+ returns over grey crowns and closed gaps (BUG-028)")
 canopy |= canopy_grown
@@ -253,17 +267,14 @@ else:
     log(f"  treeline {treeline_m} m ({'config' if cfg.get('treeline_m') else 'from the canopy by elevation'})")
 # rock: low NDVI, GREY (low colour saturation), not snow. Late-summer NAIP shows cured meadow and
 # groomed pistes as tan grass with NDVI < 0.18 too; saturation 0.22..0.42 for grass vs < 0.15 for rock
-# (measured on the Vail 2023 imagery). Without the saturation test 25 % of the resort came out as rock.
-snowfield = (bright2 > 215) & (ndvi2 < 0.1)
-mx2 = np.maximum(np.maximum(red2, grn2), blu2); mn2 = np.minimum(np.minimum(red2, grn2), blu2)
-sat2 = ((mx2 - mn2) / np.maximum(mx2, 1)).astype(np.float32)
-del mx2, mn2
-grey = sat2 < 0.20
-rock = (ndvi2 < 0.18) & (bright2 > 60) & (bright2 < 215) & grey & have2 & (chm < 1.5)
-meadow = (ndvi2 < 0.30) & ~grey & have2 & (chm < 1.5)   # cured grass; no trees, no rock
+# (measured on the Vail 2023 imagery, rock.grey_sat). Without the saturation test 25 % of the resort came out as rock.
+snowfield = (bright2 > naip_calib.SNOW_BRIGHT) & (ndvi2 < 0.1)
+grey = sat2 < NT["rock.grey_sat"]
+rock = (ndvi2 < NT["rock.ndvi"]) & (bright2 > NT["rock.dark"]) & (bright2 < naip_calib.SNOW_BRIGHT) & grey & have2 & (chm < 1.5)
+meadow = (ndvi2 < NT["rock.bare_ndvi"]) & ~grey & have2 & (chm < 1.5)   # cured grass; no trees, no rock
 del sat2, red2, blu2
 # very steep bare ground is rock whatever colour the imagery gives it (shadowed cliff bands read as dark, not grey)
-rock_steep = (rock & (slope2 > 28)) | ((slope2 > 38) & (ndvi2 < 0.30) & (chm < 1.5) & have2)
+rock_steep = (rock & (slope2 > 28)) | ((slope2 > 38) & (ndvi2 < NT["rock.bare_ndvi"]) & (chm < 1.5) & have2)
 scree = rock & (slope2 <= 28) & (slope2 > 12)
 # R carries rock the imagery saw, nothing else (FEAT-020): full weight on steep bare ground, half on
 # grey rock on gentler slopes, where winter snow covers most of it. The renderer adds rock from slope
@@ -843,7 +854,7 @@ rows = np.concatenate(tree_rows); cols = np.concatenate(tree_cols); hgt = np.con
 # never include them: local CHM maxima over 6 m with NDVI < 0.15 inside forest, off buildings, lifts and cliffs,
 # the greyest kept up to 3 % of all trees.
 forest_here = lf_forest2 if evt is not None else ndimage.binary_dilation(canopy, iterations=5)
-snag_c = ((chm_s == maxf) & (chm_s > 6.0) & (ndvi2 < 0.15) & have2 & forest_here & (slope2 < 40)
+snag_c = ((chm_s == maxf) & (chm_s > 6.0) & (ndvi2 < NT["canopy.grow_ndvi"]) & have2 & forest_here & (slope2 < 40)
           & ~built_any & ~rock_steep & (lift_f == 0))
 del lift_f, forest_here
 sr, sc = np.nonzero(snag_c)
@@ -1048,6 +1059,9 @@ meta = {"version": 1, "formatVersion": FORMAT_VERSION, "slug": slug, "name": cfg
         "start": start, "sun": {"azimuth": 160, "elevation": 30}, "attribution": cfg["attribution"]}
 if treeline_m:
     meta["treeline"] = round(float(treeline_m))
+# FEAT-175: the values this build derived for the resort instead of copying Vail's (pack_report.py line 20)
+meta["derived"] = {**{k: round(v, 4) for k, v in NT.items()},
+                   **({"treeline": round(float(treeline_m))} if treeline_m and not cfg.get("treeline_m") else {})}
 write_meta(out, meta)
 
 # ------------------------------------------------------------------ 9b. the far tree ring (BUG-081)

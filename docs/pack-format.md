@@ -248,6 +248,8 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
               "cells": ["cx_cy", ...], "stems" },          // cells with an image; stems over the pack at full density
   "start": { "x", "y", "heading" },                       // default drop-in
   "treeline": 2700,                                       // optional, m (DATA-021): measured from the canopy; absent = 3,480 (Colorado)
+  "derived": { "rock.grey_sat": 0.093, "treeline": 2700, ... }, // optional (FEAT-175): values the build derived for this resort instead of
+                                                           // copying Vail's (naip_calib.py thresholds, treeline); a log, the client ignores it
   "sun": { "azimuth": 160, "elevation": 32 },             // degrees, default lighting
   "attribution": ["..."]
 }
