@@ -77,7 +77,11 @@ function StartItem($it) {
         $content = New-Object System.Net.Http.StringContent($it.body, [System.Text.Encoding]::UTF8, "application/x-www-form-urlencoded")
         $task = $client.PostAsync($it.url, $content)
     } else {
-        $task = $client.GetAsync($it.url, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead)
+        # DATA-021: the 3DEP ImageServer drops some exports without answering; a healthy 1500 px chunk takes
+        # about 10 s, so give up on it after 3 min and retry instead of holding one of its two slots for 15 min
+        $limit = if ($it.url -like "*nationalmap.gov*") { [TimeSpan]::FromMinutes(3) } else { $client.Timeout }
+        $cts = New-Object System.Threading.CancellationTokenSource($limit)
+        $task = $client.GetAsync($it.url, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead, $cts.Token)
     }
     $script:inflight[$task] = $it
     if (-not $script:hostCounts.ContainsKey($h)) { $script:hostCounts[$h] = 0 }
