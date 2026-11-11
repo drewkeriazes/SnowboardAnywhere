@@ -81,7 +81,7 @@ The resorts repo's git history still gets the part worth versioning: the config 
       "tier": "gold",
       "status": "playable",
       "pack": {
-        "version": 1, "built": "2026-11-20", "pipeline": "76da1ff",
+        "version": 1, "formatVersion": 7, "build": "20261120T150000Z-3fa2c1", "built": "2026-11-20", "pipeline": "76da1ff",
         "bytes": 120000000, "sha256": "...",
         "url": "https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere/releases/download/boston-mills-v1/boston-mills.zip"
       },
@@ -90,7 +90,7 @@ The resorts repo's git history still gets the part worth versioning: the config 
   ]
 }
 ```
-`formatVersion` is new work: today `meta.json` has only `version` (`docs/pack-format.md`). FEAT-222 adds `formatVersion` to `meta.json` and the catalog, bumps it on every format change, and adds a matching constant in the client; a pack from an older format then shows "needs rebuild" instead of loading wrong (the FEAT-074 `stands` problem, caught automatically).
+As built (FEAT-222): each `pack` carries its own `formatVersion` (packs are published at different times), and the top-level one is the newest any pack in the catalog uses. `formatVersion` was new work: before FEAT-222 `meta.json` had only `version` (`docs/pack-format.md`). FEAT-222 adds `formatVersion` to `meta.json` and the catalog, bumps it on every format change, and adds a matching constant in the client; a pack from an older format then shows "needs rebuild" instead of loading wrong (the FEAT-074 `stands` problem, caught automatically).
 
 ## 3. DATA-022 lessons, built in
 

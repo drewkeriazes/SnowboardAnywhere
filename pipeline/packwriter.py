@@ -8,6 +8,11 @@ from PIL import Image
 
 TILE = 512
 
+# FEAT-222: the pack format's version, written to meta.json as `formatVersion` by every full build and to the
+# catalog by publish_pack.py. Bump it (and PACK_FORMAT in game/src/pack/format.ts, the same number) on any
+# change a client must know about, and add a line to docs/pack-format.md > formatVersion.
+FORMAT_VERSION = 1
+
 def encode_terrarium(h: np.ndarray) -> np.ndarray:
     """float32 heights (NaN = void) -> uint8 RGB (H,W,3)."""
     v = np.where(np.isfinite(h), h, -32768.0).astype(np.float64) + 32768.0
@@ -93,7 +98,8 @@ def index_cells(out_dir: str, meta: dict) -> None:
 
 def index_packs(packs_dir: str) -> None:
     """packs/index.json: slugs of every pack with a meta.json, so the menu does not probe missing resorts (BUG-036)."""
-    slugs = sorted(n for n in os.listdir(packs_dir) if os.path.isfile(os.path.join(packs_dir, n, "meta.json")))
+    # dot folders are game/tools/get_pack.mjs's downloads in progress
+    slugs = sorted(n for n in os.listdir(packs_dir) if not n.startswith(".") and os.path.isfile(os.path.join(packs_dir, n, "meta.json")))
     with open(os.path.join(packs_dir, "index.json"), "w") as f:
         json.dump({"packs": slugs}, f, indent=1)
 

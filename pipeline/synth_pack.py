@@ -5,7 +5,7 @@ python3 pipeline/synth_pack.py client/public/packs/synth
 """
 import os, sys, json, math
 import numpy as np
-from packwriter import (write_height_set, write_mask_set, write_instances, write_meta, write_features)
+from packwriter import (FORMAT_VERSION, write_height_set, write_mask_set, write_instances, write_meta, write_features)
 import species as spc
 import stands
 from terrain_ao import sky_visibility
@@ -70,7 +70,7 @@ def grid(min_x, min_y, n_x, n_y, res):
     X, Y = np.meshgrid(xs, ys[::-1])  # row 0 = north
     return X, Y
 
-meta = {"version": 1, "slug": "synth", "name": "Synthetic test mountain", "crs": "local", "origin": [0, 0],
+meta = {"version": 1, "formatVersion": FORMAT_VERSION, "slug": "synth", "name": "Synthetic test mountain", "crs": "local", "origin": [0, 0],
         "lonlat": [-106.35, 39.6], "zRange": [2300, 3700], "terrain": {}, "attribution": ["synthetic"]}
 
 # fine: 4 km x 4 km at 1 m centred on the front side

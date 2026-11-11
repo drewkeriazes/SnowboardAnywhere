@@ -21,7 +21,7 @@ from PIL import Image
 import tifffile
 from scipy import ndimage
 from pyproj import Transformer
-from packwriter import (write_height_set, write_mask_set, write_instances, write_meta, write_features, decode_terrarium)
+from packwriter import (FORMAT_VERSION, write_height_set, write_mask_set, write_instances, write_meta, write_features, decode_terrarium)
 from piste_dir import piste_direction
 from terrain_ao import sky_visibility
 from moguls import run_mogul_score, slope_window, paint_field, paint_polygon
@@ -1041,7 +1041,7 @@ if seg is not None:
     ux, uy = dx / d, dy / d
     start = {"x": x0 + ux * 15.0, "y": y0 + uy * 15.0, "heading": math.atan2(ux, uy), "run": seg["name"]}
     log(f"  start on {seg['name']} ({seg['difficulty']}) at {start['x']:.0f}, {start['y']:.0f}")
-meta = {"version": 1, "slug": slug, "name": cfg["name"], "crs": crs, "origin": [OX, OY], "lonlat": [lon_c, lat_c],
+meta = {"version": 1, "formatVersion": FORMAT_VERSION, "slug": slug, "name": cfg["name"], "crs": crs, "origin": [OX, OY], "lonlat": [lon_c, lat_c],
         "bounds": {"minX": X0 - OX, "minY": Y0 - OY, "maxX": X1 - OX, "maxY": Y1 - OY},
         "zRange": [float(np.floor(Z_MIN / 100) * 100 - 100), float(np.ceil(Z_MAX / 100) * 100 + 100)],
         "terrain": {"fine": fine_meta, "mid": mid_meta, "far": far_meta}, "mask": mask_meta, "ao": ao_meta, "dir": dir_meta, "moguls": mog_meta, "instances": inst, "stands": stand_meta, "treeSpecies": spc.TREE_SPECIES_VERSION,
