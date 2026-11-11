@@ -285,38 +285,60 @@ def read_dbf(path):
         rows.append(r)
     return rows
 
+class LfRaster:
+    """A 30 m LANDFIRE clip (EVT, EVC or EVH) and its .vat.dbf class table: the one georeferencing path for every
+    product. `data` is the class value per pixel, or with `fn` (a class name -> value parser, species.lf_tree_cover
+    or lf_tree_height) that value as float32, NaN off-class. Read per point with .at() or on the 2 m grid with .on2();
+    the 2 m indices are worked out per call, so nothing is held on the 2 m grid."""
+    def __init__(self, path, fn=None):
+        tfw = [float(v) for v in open(path[:-4] + ".tfw").read().split()]
+        img = read_tiff(path).astype(np.int32)
+        if img.ndim == 3:
+            img = img[..., 0] if img.shape[-1] < img.shape[0] else img[0]
+        self.table = read_dbf(path + ".vat.dbf") if os.path.exists(path + ".vat.dbf") else []
+        self.name = os.path.basename(path)
+        self.data = img if fn is None else spc.lf_value_lut(self.table, int(img.max()) + 1, fn)[np.clip(img, 0, None)]
+        self.x0, self.y0, self.px = tfw[4], tfw[5], tfw[0]   # top-left pixel centre and pixel size (m)
+
+    def _col(self, x_utm):
+        return np.clip(np.round((x_utm - self.x0) / self.px).astype(np.int64), 0, self.data.shape[1] - 1)
+
+    def _row(self, y_utm):
+        return np.clip(np.round((self.y0 - y_utm) / self.px).astype(np.int64), 0, self.data.shape[0] - 1)
+
+    def at(self, x_utm, y_utm):
+        return self.data[self._row(y_utm), self._col(x_utm)]
+
+    def on2(self, rows=slice(None), cols=slice(None)):
+        """the raster on the 2 m grid (or the rows / columns of it given as slices), row 0 = north"""
+        gx = X0 + (np.arange(W2)[cols] + 0.5) * R2; gy = Y1 - (np.arange(H2)[rows] + 0.5) * R2
+        return self.data[np.ix_(self._row(gy), self._col(gx))]
+
+    def window(self):
+        """the 30 m pixels under the pack, for the log"""
+        c, r = self._col(np.array([X0, X1])), self._row(np.array([Y1, Y0]))
+        return self.data[r[0]:r[1] + 1, c[0]:c[1] + 1]
+
 evt = None
 lf_tifs = sorted(glob.glob(os.path.join(raw, "landfire", "*.tif")))
 if lf_tifs:
-    lf = lf_tifs[-1]
-    tfw = [float(v) for v in open(lf[:-4] + ".tfw").read().split()]
-    evt_img = read_tiff(lf).astype(np.int32)
-    if evt_img.ndim == 3:
-        evt_img = evt_img[..., 0] if evt_img.shape[-1] < evt_img.shape[0] else evt_img[0]
-    table = read_dbf(lf + ".vat.dbf") if os.path.exists(lf + ".vat.dbf") else []
+    evt_lf = LfRaster(lf_tifs[-1])
+    evt_img, table = evt_lf.data, evt_lf.table
     # per class (species.classify_evt, DATA-020): tree group, aspen fraction, forest (Tree life form, not
     # urban), alpine (turf, dwarf-shrubland, bedrock and scree, wet meadow), riparian, sagebrush, Gambel oak
     lut_n = int(evt_img.max()) + 1
     lut = evt_luts(table, lut_n)
     aspen_lut, forest_lut, alpine_lut, group_lut = lut["aspen"], lut["forest"], lut["alpine"], lut["group"]
-    ex0, ey0, epx = tfw[4], tfw[5], tfw[0]   # top-left pixel centre and pixel size (m)
-    def evt_at(x_utm, y_utm):
-        c = np.clip(np.round((x_utm - ex0) / epx).astype(np.int64), 0, evt_img.shape[1] - 1)
-        r = np.clip(np.round((ey0 - y_utm) / epx).astype(np.int64), 0, evt_img.shape[0] - 1)
-        return evt_img[r, c]
-    evt = evt_at
-    # forest mask on the 2 m grid, for gating the synthetic fill trees
-    gx2 = X0 + (np.arange(W2) + 0.5) * R2; gy2 = Y1 - (np.arange(H2) + 0.5) * R2
-    cc = np.clip(np.round((gx2 - ex0) / epx).astype(np.int64), 0, evt_img.shape[1] - 1)
-    rr_ = np.clip(np.round((ey0 - gy2) / epx).astype(np.int64), 0, evt_img.shape[0] - 1)
-    evt2 = np.clip(evt_img[np.ix_(rr_, cc)], 0, lut_n - 1).astype(np.int16 if lut_n < 32768 else np.int32)
+    evt = evt_lf.at
+    # classes on the 2 m grid, for gating the synthetic fill trees
+    evt2 = np.clip(evt_lf.on2(), 0, lut_n - 1).astype(np.int16 if lut_n < 32768 else np.int32)
     lf_forest2 = forest_lut[evt2]
     lf_open2 = lut["open"][evt2]   # BUG-027: the fill-tree gate; developed and urban ground is not "open"
-    del gx2, gy2, cc, rr_   # evt2 stays for the shrubs and the species debug map (stage 8)
+    # evt2 stays for the shrubs and the species debug map (stage 8)
     names = {int(float(r.get("VALUE", 0) or 0)): r.get("EVT_NAME", "") for r in table}
     vals, cnts = np.unique(evt_img, return_counts=True)
     top = sorted(zip(cnts, vals), reverse=True)[:5]
-    log(f"  LANDFIRE {os.path.basename(lf)} {evt_img.shape}: " + ", ".join(f"{names.get(int(v), v)[:28]} {c/cnts.sum()*100:.0f}%" for c, v in top))
+    log(f"  LANDFIRE {evt_lf.name} {evt_img.shape}: " + ", ".join(f"{names.get(int(v), v)[:28]} {c/cnts.sum()*100:.0f}%" for c, v in top))
     log(f"  LANDFIRE forest on the 2 m grid {lf_forest2.mean()*100:.1f}%, open {lf_open2.mean()*100:.1f}%, aspen classes {sum(c for c, v in zip(cnts, vals) if aspen_lut[min(v, lut_n-1)] > 0)/cnts.sum()*100:.1f}%")
 else:
     log("  no LANDFIRE clip (raw/<slug>/landfire/*.tif); species from elevation, aspect and NAIP colour (species.py fallback)")
@@ -325,37 +347,10 @@ else:
 # DATA-010: existing vegetation cover and height from raw/<slug>/landfire/evc/ and evh/ (fetch_landfire.mjs EVC / EVH),
 # read by class NAME like EVT ("Tree Cover = 45%", "Tree Height = 17 meters"). Tree classes only: shrub, herb,
 # developed, water and barren cells are NaN, so the lidar and NAIP decide there. Stand density (FEAT-074) and the
-# canopy rules (BUG-028) read them per 2 m cell with .on2() or per point with .at(); nothing is kept on the 2 m grid.
-class LfLayer:
-    def __init__(self, path, fn):
-        tfw = [float(v) for v in open(path[:-4] + ".tfw").read().split()]
-        img = read_tiff(path).astype(np.int32)
-        if img.ndim == 3:
-            img = img[..., 0] if img.shape[-1] < img.shape[0] else img[0]
-        table = read_dbf(path + ".vat.dbf") if os.path.exists(path + ".vat.dbf") else []
-        lut = spc.lf_value_lut(table, int(img.max()) + 1, fn)
-        self.name, self.vals = os.path.basename(path), lut[np.clip(img, 0, None)]   # 30 m float32, NaN off-class
-        self.x0, self.y0, self.px = tfw[4], tfw[5], tfw[0]
-        H_, W_ = self.vals.shape
-        self.cc = np.clip(np.round((X0 + (np.arange(W2) + 0.5) * R2 - self.x0) / self.px).astype(np.int64), 0, W_ - 1)
-        self.rr = np.clip(np.round((self.y0 - (Y1 - (np.arange(H2) + 0.5) * R2)) / self.px).astype(np.int64), 0, H_ - 1)
-
-    def at(self, x_utm, y_utm):
-        c = np.clip(np.round((x_utm - self.x0) / self.px).astype(np.int64), 0, self.vals.shape[1] - 1)
-        r = np.clip(np.round((self.y0 - y_utm) / self.px).astype(np.int64), 0, self.vals.shape[0] - 1)
-        return self.vals[r, c]
-
-    def on2(self, rows=slice(None), cols=slice(None)):
-        """the layer on the 2 m grid (or a window of it), float32 with NaN off-class"""
-        return self.vals[np.ix_(self.rr[rows], self.cc[cols])]
-
-    def window(self):
-        """the 30 m cells under the pack, for the log"""
-        return self.vals[self.rr.min():self.rr.max() + 1, self.cc.min():self.cc.max() + 1]
-
+# canopy rules (BUG-028) read them with LfRaster (stage 5b) per 2 m cell (.on2()) or per point (.at()).
 def load_lf_layer(sub, fn):
     tifs = sorted(glob.glob(os.path.join(raw, "landfire", sub, "*.tif")))
-    return LfLayer(tifs[-1], fn) if tifs else None
+    return LfRaster(tifs[-1], fn) if tifs else None
 
 lf_cover = load_lf_layer("evc", spc.lf_tree_cover)
 lf_height = load_lf_layer("evh", spc.lf_tree_height)
@@ -365,7 +360,7 @@ for lyr, what, unit, k in ((lf_cover, "EVC tree cover", "%", 100), (lf_height, "
         continue
     w = lyr.window(); t = w[np.isfinite(w)]
     rng_ = f"{t.min() * k:.0f} / {np.median(t) * k:.0f} / {t.max() * k:.0f}{unit} (min / median / max)" if t.size else "none"
-    log(f"  LANDFIRE {what} {lyr.name} {lyr.vals.shape}: tree classes on {t.size / max(w.size, 1) * 100:.1f}% of the pack, {rng_}")
+    log(f"  LANDFIRE {what} {lyr.name} {lyr.data.shape}: tree classes on {t.size / max(w.size, 1) * 100:.1f}% of the pack, {rng_}")
 
 # ------------------------------------------------------------------ 6. OSM features
 log("OSM")
