@@ -353,7 +353,10 @@ export class RideFrame {
       // late on a clear day, snow ghosts high up in deep winter
       veg.kit.setSnow(treeSnowState(snowCover, cond.snowDay ?? 'mid', d.getUTCMonth() + 1, hour, CLEAR[sky.weather] ?? 0.5));
       // FEAT-159: the shrubs sink into the season's snowpack (?snowdepth= sets one depth everywhere)
-      shrubs.setSnowpack(snowpackState(d.getUTCMonth() + 1, cond.snowDay ?? 'mid', snowCover, params.snowdepth));
+      // BUG-081: and the open ground far off shows through where that snowpack is thin
+      const sp = snowpackState(d.getUTCMonth() + 1, cond.snowDay ?? 'mid', snowCover, params.snowdepth);
+      shrubs.setSnowpack(sp);
+      terrain.setSnowpack(sp);
     }
     rocks.setSnow(Math.min(1, snowCover * 3), snow.wind.x, snow.wind.y); // boulder tops fill three times faster than the slopes
     roads.update(fx, fy);

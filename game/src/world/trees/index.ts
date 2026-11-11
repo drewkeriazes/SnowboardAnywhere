@@ -100,6 +100,10 @@ export class TreeKit {
     }
   }
 
+  /** BUG-081: where the impostors start to thin (m from the camera) */
+  setThin(d: number): void { kitUniforms.uThin.value = d; }
+  /** BUG-081: past `d` m the impostors grow by `g` (linear) to stand in for the stems that stop there */
+  setStemGrow(d: number, g: number): void { kitUniforms.uStemGrow.value.set(d, g); }
   /** per frame: the camera the bands are measured from, and the clock the LOD0 sway runs on */
   setView(camPos: THREE.Vector3, timeS: number): void {
     kitUniforms.uLodCam.value.copy(camPos);

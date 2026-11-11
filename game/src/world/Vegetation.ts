@@ -33,7 +33,18 @@ import { crownOverlap, type CrownHit } from './TreeBrush';
  * tile it left out, so the cells round the camera no longer draw every tree as a collapsed quad.
  */
 let NEAR_RADIUS = 1500;
-let FAR_RADIUS = 4500;
+/** how far the impostors reach (m); past THIN_RADIUS they thin (BUG-081, trees/materials.ts THIN_GLSL) */
+let FAR_RADIUS = 9000;
+let THIN_RADIUS = 4500;
+/** BUG-081: the impostors reach this many times the thinning start, so the ridges round the resort carry trees */
+const FAR_REACH_K = 2;
+/**
+ * BUG-081: past the generated stems' reach (FEAT-074) a pack draws its detected crowns alone, and on Vail the stems
+ * hold 4.2 times the crowns' canopy (crowns 0.064 of the ground, stems 0.28, the same in closed stands). The
+ * impostors there grow by about the square root of 5.2 so the crowns stand in for the stems, and the terrain lets
+ * them carry the forest (TerrainMaterial FOREST_DRAWN_FAR) instead of laying flat timber over the ground between.
+ */
+const STEM_GROW = 2.2;
 /** LOD0 / LOD1 reach as a share of 80 / 400 m */
 let LOD_K = 1;
 /** FEAT-158: false on the Low preset: LOD1 cones from the camera out, no LOD0 cards */
@@ -54,10 +65,12 @@ export function setStandDensity(k: number): void { STAND_K = Math.max(0, Math.mi
 export function vegetationFarRadius(): number { return FAR_RADIUS; }
 /** FEAT-159: the near radius (1500 m at full density); the shrubs scale their 300 m reach by it */
 export function vegetationNearRadius(): number { return NEAR_RADIUS; }
+/** BUG-081: where the generated stems stop (m), past which the crowns grow to stand in for them */
+export function vegetationStemReach(): number { return NEAR_RADIUS + STAND_MID; }
 /** Headless / weak GPU: far fewer instances; `lod0` false draws LOD1 from the camera out (the Low preset). */
-export function setVegetationBudget(near: number, far: number, lod0 = true): void { NEAR_RADIUS = near; FAR_RADIUS = far; LOD_K = Math.max(0.5, Math.min(1, near / 1500)); LOD0_ON = lod0; bandsVersion++; }
-/** Scale the near/far radii by a 0.25..1 density (1 = full 1500 / 4500 m); the LOD0 / LOD1 reach scales more gently. */
-export function setVegetationDensity(d: number): void { const k = Math.max(0.25, Math.min(1, d)); NEAR_RADIUS = 1500 * k; FAR_RADIUS = 4500 * k; LOD_K = 0.6 + 0.4 * k; LOD0_ON = true; bandsVersion++; }
+export function setVegetationBudget(near: number, far: number, lod0 = true): void { NEAR_RADIUS = near; FAR_RADIUS = THIN_RADIUS = far; LOD_K = Math.max(0.5, Math.min(1, near / 1500)); LOD0_ON = lod0; bandsVersion++; }
+/** Scale the near/far radii by a 0.25..1 density (1 = full 1500 m, thinning from 4500 m out to 9000 m); the LOD0 / LOD1 reach scales more gently. */
+export function setVegetationDensity(d: number): void { const k = Math.max(0.25, Math.min(1, d)); NEAR_RADIUS = 1500 * k; THIN_RADIUS = 4500 * k; FAR_RADIUS = THIN_RADIUS * FAR_REACH_K; LOD_K = 0.6 + 0.4 * k; LOD0_ON = true; bandsVersion++; }
 
 /** the LOD band edges for the current setting (m from the camera), into `out`; out[0] is 0 without LOD0 */
 function edges(out: number[]): void {
@@ -82,6 +95,11 @@ const CULL_GROW = [15, 40];
 const SWEEP_MAX = 200;
 /** a far mesh checks its tiles after the camera moves this far (m), and packs this much past its band (m) */
 const FAR_CHECK = 15, FAR_GROW = 150;
+/** BUG-081: an impostor mesh packs the trees it may show from THIN_SLACK m nearer than the camera, and repacks
+ * once the camera has moved half that */
+const THIN_SLACK = 400;
+/** BUG-081: the share of the impostors that stay at d m from the camera (trees/materials.ts THIN_GLSL) */
+const thinKeep = (d: number): number => (d <= THIN_RADIUS ? 1 : (THIN_RADIUS / d) ** 2);
 
 /** one far LOD mesh of a cell: its own instance buffers, holding the trees of the tiles in `mask` */
 interface FarMesh {
@@ -89,6 +107,12 @@ interface FarMesh {
   attrs: FarAttrs;
   mask: Uint8Array;
   count: number;
+  /** BUG-081: the impostors, which thin past THIN_RADIUS; true once a pack left trees out for it */
+  thin: boolean;
+  thinned: boolean;
+  /** where the camera was (pack metres) when the trees were last packed */
+  px: number;
+  py: number;
   /** where the camera was (pack metres) and the band epoch at the last tile check */
   x: number;
   y: number;
@@ -114,6 +138,8 @@ interface Cell {
   cr: Float32Array | null;
   yaw: Float32Array | null;
   tint: Float32Array | null;
+  /** BUG-081: the impostor thinning draw per tree, 0..1 (trees/materials.ts THIN_GLSL) */
+  thin: Float32Array | null;
   /** tree indices grouped by sub-tile; tile t holds order[tileStart[t] .. tileStart[t + 1]) */
   order: Uint32Array | null;
   tileStart: Uint32Array | null;
@@ -252,13 +278,18 @@ export class Vegetation {
       this.bandEpoch++;
       edges(band);
       this.kit.setBands(band[0], band[1], band[2], band[3], this.impostorsOn);
+      this.kit.setThin(THIN_RADIUS);
+      // only a pack with stands has stems to stand in for (older packs hold fill trees instead)
+      this.kit.setStemGrow(this.pack.meta.stands && STAND_K > 0 ? NEAR_RADIUS + STAND_MID : 1e8, STEM_GROW);
       for (const n of this.near) n.dirty = true;
     }
     const b0 = band[0], b1 = band[1], b2 = band[2];
     const cs = inst.cellSize;
     const r = FAR_RADIUS;
-    const cx0 = Math.max(0, Math.floor((Math.min(x, ax) - r - inst.minX) / cs)), cx1 = Math.min(inst.cellsX - 1, Math.floor((Math.max(x, ax) + r - inst.minX) / cs));
-    const cy0 = Math.max(0, Math.floor((Math.min(y, ay) - r - inst.minY) / cs)), cy1 = Math.min(inst.cellsY - 1, Math.floor((Math.max(y, ay) + r - inst.minY) / cs));
+    // BUG-081: the far tree ring runs `treeRing` cells past the grid on every side
+    const ring = inst.farTreeCells?.length ? (inst.treeRing ?? 0) : 0;
+    const cx0 = Math.max(-ring, Math.floor((Math.min(x, ax) - r - inst.minX) / cs)), cx1 = Math.min(inst.cellsX - 1 + ring, Math.floor((Math.max(x, ax) + r - inst.minX) / cs));
+    const cy0 = Math.max(-ring, Math.floor((Math.min(y, ay) - r - inst.minY) / cs)), cy1 = Math.min(inst.cellsY - 1 + ring, Math.floor((Math.max(y, ay) + r - inst.minY) / cs));
     const keep = this.keep;
     keep.clear();
     let count = 0, pending = 0, built = 0, farCount = 0, stems = 0;
@@ -277,7 +308,7 @@ export class Vegetation {
         keep.add(key);
         let cell = this.cells.get(key);
         if (!cell) {
-          cell = { key, cx, cy, data: null, base: null, stand: null, standState: 0, gen: 0, col: null, sp: null, va: null, cr: null, yaw: null, tint: null, order: null, tileStart: null, zMin: 0, zMax: 0, lod2: null, imp: null, loading: false, missing: false, shaded: false };
+          cell = { key, cx, cy, data: null, base: null, stand: null, standState: 0, gen: 0, col: null, sp: null, va: null, cr: null, yaw: null, tint: null, thin: null, order: null, tileStart: null, zMin: 0, zMax: 0, lod2: null, imp: null, loading: false, missing: false, shaded: false };
           this.cells.set(key, cell);
         }
         if (!cell.data && !cell.loading && !cell.missing) this.load(cell);
@@ -409,18 +440,30 @@ export class Vegetation {
 
   private async load(cell: Cell): Promise<void> {
     cell.loading = true;
-    const listed = this.pack.meta.instances?.treeCells;
+    const ins = this.pack.meta.instances;
+    const listed = ins?.treeCells;
     // a cell with no detected crowns may still have a stand (FEAT-074): it loads empty and generates its stems
     const empty = (): void => { if (this.standCells.has(cell.key)) { cell.base = cell.data = new Float32Array(0); this.prepare(cell); } else cell.missing = true; };
-    if (listed && !listed.includes(`${cell.cx}_${cell.cy}`)) { empty(); cell.loading = false; return; } // empty cell, no request
+    // BUG-081: the crowns outside the pack bounds, in the ring and the grid's edge cells
+    const farListed = ins?.farTreeCells?.includes(cell.key) ?? false;
+    const inGrid = !!ins && cell.cx >= 0 && cell.cy >= 0 && cell.cx < ins.cellsX && cell.cy < ins.cellsY;
+    const ownListed = inGrid && (!listed || listed.includes(cell.key));
+    if (!ownListed && !farListed) { empty(); cell.loading = false; return; } // empty cell, no request
     try {
-      const resp = await fetch(`${this.pack.baseUrl}/trees/${cell.cx}_${cell.cy}.bin`);
-      if (!resp.ok) { empty(); return; }
-      const buf = await resp.arrayBuffer();
-      cell.base = cell.data = new Float32Array(buf);
+      const get = async (dir: string, want: boolean): Promise<Float32Array | null> => {
+        if (!want) return null;
+        const resp = await fetch(`${this.pack.baseUrl}/${dir}/${cell.key}.bin`);
+        return resp.ok ? new Float32Array(await resp.arrayBuffer()) : null;
+      };
+      const [own, far] = await Promise.all([get('trees', ownListed), get('farTrees', farListed)]);
+      if (!own && !far) { empty(); return; }
+      let data = own ?? far!;
+      if (own && far) { data = new Float32Array(own.length + far.length); data.set(own); data.set(far, own.length); }
+      cell.base = cell.data = data;
       this.prepare(cell);
-      if (this.collider) {
-        const d = cell.data;
+      if (this.collider && own) {
+        // the far crowns stand outside the pack, where nobody rides
+        const d = own;
         for (let i = 0; i < d.length; i += 6) {
           const h = d[i + 3];
           this.collider.add(d[i], d[i + 1], Math.max(0.15, h * 0.02), d[i + 2] - 1, d[i + 2] + h);
@@ -570,7 +613,7 @@ export class Vegetation {
   private prepare(cell: Cell): void {
     const d = cell.data!, n = d.length / 6;
     const inst = this.pack.meta.instances!;
-    const sp = new Uint8Array(n), va = new Uint8Array(n), cr = new Float32Array(n), yaw = new Float32Array(n), tint = new Float32Array(n * 3);
+    const sp = new Uint8Array(n), va = new Uint8Array(n), cr = new Float32Array(n), yaw = new Float32Array(n), tint = new Float32Array(n * 3), thin = new Float32Array(n);
     const tileOf = new Uint16Array(n), counts = new Uint32Array(TILE_N + 1);
     const ts = inst.cellSize / TILES, minX = inst.minX + cell.cx * inst.cellSize, minY = inst.minY + cell.cy * inst.cellSize;
     let zMin = Infinity, zMax = -Infinity;
@@ -583,6 +626,7 @@ export class Vegetation {
       // colour variation: about +-6% brightness and a slight hue shift
       const b = 0.94 + 0.12 * hash01(x, y, 13);
       tint[i * 3] = b * (0.97 + 0.06 * hash01(x, y, 17)); tint[i * 3 + 1] = b; tint[i * 3 + 2] = b * (0.97 + 0.06 * hash01(x, y, 19));
+      thin[i] = hash01(x, y, 23);
       const tx = Math.min(TILES - 1, Math.max(0, Math.floor((x - minX) / ts))), ty = Math.min(TILES - 1, Math.max(0, Math.floor((y - minY) / ts)));
       tileOf[i] = ty * TILES + tx; counts[tileOf[i] + 1]++;
       zMin = Math.min(zMin, d[o + 2]); zMax = Math.max(zMax, d[o + 2] + h);
@@ -590,7 +634,7 @@ export class Vegetation {
     for (let t = 0; t < TILE_N; t++) counts[t + 1] += counts[t];
     const order = new Uint32Array(n), fill = counts.slice(0, TILE_N);
     for (let i = 0; i < n; i++) order[fill[tileOf[i]]++] = i;
-    cell.sp = sp; cell.va = va; cell.cr = cr; cell.yaw = yaw; cell.tint = tint; cell.order = order; cell.tileStart = counts;
+    cell.sp = sp; cell.va = va; cell.cr = cr; cell.yaw = yaw; cell.tint = tint; cell.thin = thin; cell.order = order; cell.tileStart = counts;
     cell.zMin = n ? zMin : 0; cell.zMax = n ? zMax : 0;
   }
 
@@ -605,7 +649,7 @@ export class Vegetation {
       m.name = `trees ${cell.cx}_${cell.cy} ${name}`;
       m.castShadow = false; m.receiveShadow = false;
       this.group.add(m);
-      const f: FarMesh = { mesh: m, attrs, mask: new Uint8Array(TILE_N), count: 0, x: this.cam.x, y: -this.cam.z, epoch: this.bandEpoch };
+      const f: FarMesh = { mesh: m, attrs, mask: new Uint8Array(TILE_N), count: 0, thin: name === 'impostor', thinned: false, px: 0, py: 0, x: this.cam.x, y: -this.cam.z, epoch: this.bandEpoch };
       this.packFar(cell, f, lo, hi);
       return f;
     };
@@ -630,6 +674,8 @@ export class Vegetation {
     f.x = cpx; f.y = cpy;
     const forced = f.epoch !== this.bandEpoch;
     f.epoch = this.bandEpoch;
+    // BUG-081: the trees left out for thinning come back as the camera closes in
+    if (f.thinned && Math.hypot(cpx - f.px, cpy - f.py) > THIN_SLACK / 2) { this.packFar(cell, f, lo, hi); return; }
     const ts = cell.tileStart!, rg = this.range;
     for (let t = 0; t < TILE_N; t++) {
       if (f.mask[t] || ts[t + 1] === ts[t]) continue;
@@ -646,6 +692,8 @@ export class Vegetation {
     const inst = this.pack.meta.instances!, tw = inst.cellSize / TILES;
     const pos = a.iPos.array as Float32Array, sc = a.iScale.array as Float32Array, yw = a.iYaw.array as Float32Array, col = a.iColor.array as Float32Array, spc = a.iSpec.array as Float32Array;
     let q = 0, tx0 = TILES, tx1 = -1, ty0 = TILES, ty1 = -1;
+    const th = cell.thin!;
+    f.px = this.cam.x; f.py = -this.cam.z; f.thinned = false;
     for (let t = 0; t < TILE_N; t++) {
       f.mask[t] = 0;
       if (ts[t + 1] === ts[t]) continue;
@@ -654,13 +702,18 @@ export class Vegetation {
       f.mask[t] = 1;
       const tx = t % TILES, ty = Math.floor(t / TILES);
       tx0 = Math.min(tx0, tx); tx1 = Math.max(tx1, tx); ty0 = Math.min(ty0, ty); ty1 = Math.max(ty1, ty);
-      for (let j = ts[t]; j < ts[t + 1]; j++, q++) {
+      // BUG-081: only the impostors that can show from THIN_SLACK m nearer (the shader thins the rest out)
+      const keep = f.thin ? thinKeep(Math.max(0, rg[0] - THIN_SLACK)) : 1;
+      if (keep < 1) f.thinned = true;
+      for (let j = ts[t]; j < ts[t + 1]; j++) {
         const i = order[j], o = i * 6;
+        if (th[i] >= keep) continue;
         pos[q * 3] = d[o]; pos[q * 3 + 1] = d[o + 2] - 0.3; pos[q * 3 + 2] = -d[o + 1];
         sc[q * 2] = cell.cr![i]; sc[q * 2 + 1] = d[o + 3];
         yw[q] = cell.yaw![i];
         col[q * 3] = cell.tint![i * 3]; col[q * 3 + 1] = cell.tint![i * 3 + 1]; col[q * 3 + 2] = cell.tint![i * 3 + 2];
-        spc[q] = cell.sp![i];
+        spc[q] = cell.sp![i] + th[i] * 0.98; // BUG-081: the species, and the thinning draw in its fraction
+        q++;
       }
     }
     f.count = q;

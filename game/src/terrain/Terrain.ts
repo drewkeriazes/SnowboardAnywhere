@@ -3,8 +3,9 @@ import { type Pack, MOGUL_MAX_RES, MOGUL_SHADE_MAX_RES } from '../pack/Pack';
 import { treelineOf } from '../pack/treeline';
 import { MOGUL_FALL_D } from './Moguls';
 import { createTerrainMaterial, COVER_SLOTS, EMPTY_RECT } from './TerrainMaterial';
-import { vegetationFarRadius } from '../world/Vegetation';
+import { vegetationFarRadius, vegetationStemReach } from '../world/Vegetation';
 import type { TreeShade } from '../world/TreeShade';
+import { snowpackUniform, type SnowpackState } from '../sim/Snowpack';
 
 /**
  * Chunked quadtree terrain. The root covers the far height set (262 km). Each chunk is an
@@ -65,6 +66,8 @@ export class Terrain {
   readonly group = new THREE.Group();
   readonly material: THREE.MeshStandardMaterial;
   private readonly pack: Pack;
+  /** BUG-081: the pack has stands (FEAT-074), so past the stems' reach its crowns grow to stand in for them */
+  private readonly stemsDrawn: boolean;
   /** m: the procedural forest's treeline, the pack's own (DATA-021) */
   private readonly treeline: number;
   private readonly rootMinX: number;
@@ -110,7 +113,10 @@ export class Terrain {
     if (pack.cover) pack.cover.onLevelLoaded = () => this.applyCover();
     // FEAT-154: where the pack has tree instances (outside it the forest is the terrain's colour alone)
     const ins = pack.meta.instances;
-    if (ins) (this.material.userData.uniforms as { uTreeRect: { value: THREE.Vector4 } }).uTreeRect.value.set(ins.minX, ins.minY, ins.minX + ins.cellsX * ins.cellSize, ins.minY + ins.cellsY * ins.cellSize);
+    this.stemsDrawn = !!pack.meta.stands;
+    // BUG-081: and the far tree ring round it
+    const ring = ins?.farTreeCells?.length ? (ins.treeRing ?? 0) * ins.cellSize : 0;
+    if (ins) (this.material.userData.uniforms as { uTreeRect: { value: THREE.Vector4 } }).uTreeRect.value.set(ins.minX - ring, ins.minY - ring, ins.minX + ins.cellsX * ins.cellSize + ring, ins.minY + ins.cellsY * ins.cellSize + ring);
   }
 
   /**
@@ -147,6 +153,13 @@ export class Terrain {
     const l = Math.hypot(windX, windZ);
     if (l > 1e-6) u.uSnowLee.value.set(windX / l, windZ / l);
   }
+
+  /** BUG-081: the season's snowpack (FEAT-159), for the ground that shows through thin snow far off */
+  setSnowpack(st: SnowpackState): void {
+    const u = this.material.userData.uniforms as { uSnowpack: { value: THREE.Vector4 } };
+    u.uSnowpack.value.fromArray(snowpackUniform(st, this.spTmp));
+  }
+  private readonly spTmp: [number, number, number, number] = [0, 0, 0, -1];
 
   /** FEAT-077: how skied the snow is (0 fresh corduroy .. 1 tracked out and chopped) and how much spring snow (0..1). */
   setSkied(skied: number, spring: number): void {
@@ -279,6 +292,8 @@ export class Terrain {
     this.material.userData.shader?.uniforms.uTime && (this.material.userData.shader.uniforms.uTime.value = performance.now() / 1000);
     // FEAT-153: the canopy lift starts where the tree impostors end, which moves with the tree density setting
     (this.material.userData.uniforms as { uLiftNear: { value: number } }).uLiftNear.value = vegetationFarRadius();
+    // BUG-081: past the stems' reach the grown crowns carry the forest (packs with stands only, as Vegetation)
+    (this.material.userData.uniforms as { uStemReach: { value: number } }).uStemReach.value = this.stemsDrawn ? vegetationStemReach() : 1e8;
   }
 
   private isAncestor(a: Chunk, d: Chunk): boolean {
