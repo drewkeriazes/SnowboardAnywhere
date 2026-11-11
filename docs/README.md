@@ -22,6 +22,7 @@ Start here. Everything a session needs to know that is not code lives in this fo
 | [developer-guide.md](developer-guide.md) | Full feature list, code layout, test tools, every pipeline script, URL parameters, milestone status (the detail behind the top-level README). |
 | [HANDOFF.md](HANDOFF.md) | Current state and next steps when a session picks the project up. |
 | [research/compare-findings-roadmap.md](research/compare-findings-roadmap.md) | Before tree, rock, building or snow realism work: what the DATA-008 photo pairs found, pack measurements per spot, root causes with code locations, the phased plan (FEAT-072, #116) and the compare metrics harness. |
+| [research/rpg-rider-stats.md](research/rpg-rider-stats.md) | Before FEAT-194 (#462, RPG-style rider stats): how THPS, Elder Scrolls and Riders Republic do it, four ways to build it, the v1 skill report card (stat formulas and code hooks) and the optional Arcade-only physics scaling. |
 | [compare/README.md](compare/README.md) | Real vs game photo pairs (Street View spot vs the eye camera): the workflow, the checklist and the index of spots. |
 | [pack-format.md](pack-format.md) | The resort pack layout the pipeline writes and the game reads. |
 
