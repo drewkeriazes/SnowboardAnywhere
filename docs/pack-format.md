@@ -104,6 +104,14 @@ The downhill pistes of every resort in view (`osm/pistes_wide.json`) are burned 
 so Beaver Creek's and Copper's trails show. G, B and A are quantised (2.5 m, 1/8, 1/4) to keep the files
 small. Without `raw/<slug>/landcover/` the build skips these two levels.
 
+WorldCover calls a 10 m pixel tree cover from about 10% canopy, so its share runs about twice the `pack`
+level's R (on Vail 0.73 against 0.38 where both exist, and ten times on the low south-facing slopes, where
+open sage and aspen read as forest). So when a pack level exists, R of `mid` and `far` is calibrated to it
+(BUG-081): a lookup on the WorldCover share (blurred over 16 m) and how south-facing the cell is (from the
+level's own height set), fitted per pack on the cells at least `blend` m inside the pack bounds, then stored
+in 1/32 steps. The share then hands over to the pack level at its edge without a step, and the land cover's
+forest follows the draws and shaded aspects the way the lidar's does. The build log prints the fit by aspect.
+
 The terrain shader samples R per pixel from a mipmapped GPU texture past about 300 m, so a trail
 narrower than a far chunk's vertex spacing still shows as a white cut; chunks coarser than 8 m take all
 four channels per vertex (forest, rock, and the canopy lift past the instanced trees). Finer levels fade
