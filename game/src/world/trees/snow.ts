@@ -82,6 +82,20 @@ export function treeSnowState(newSnow: number, day: 'fresh' | 'mid' | 'spring', 
   return { load, melt, ghost };
 }
 
+/**
+ * FEAT-217: the load on one tree (0..1) as `TREE_SNOW_VERT` gives it, for a tree whose base is at (x, y, z)
+ * (pack metres: x east, y north, z up): the day's load +-15 % by the tree, or the snow-ghost load in the
+ * ghost band. The hash is the shader's in double precision, so a tree may land a few percent off the
+ * one drawn; the share of it that has melted off the sun side is `uTreeSnow.y`.
+ */
+export function treeSnowLoadAt(x: number, y: number, z: number): number {
+  const u = treeSnowUniforms.uTreeSnow.value, gz = treeSnowUniforms.uGhostZ.value;
+  const m = (v: number): number => ((v % 4096) + 4096) % 4096; // GLSL mod of the three.js x and z (= -north)
+  const s = Math.sin(m(x) * 12.9898 + m(-y) * 78.233) * 43758.5453, h = s - Math.floor(s);
+  const g = u.z * smooth(gz.x, gz.y, z + (h - 0.5) * 50);
+  return Math.max(clamp01(u.x * (0.85 + 0.3 * h)), g);
+}
+
 /** the per-tree load and ghost share (vertex shaders; `o` is the tree's base, world) */
 export const TREE_SNOW_VERT = /* glsl */ `
   uniform vec3 uTreeSnow; uniform vec2 uGhostZ;

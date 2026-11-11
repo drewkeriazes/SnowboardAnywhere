@@ -139,6 +139,17 @@ export class Spray {
     this.spawned++;
   }
 
+  /**
+   * FEAT-217: one particle from outside the board's emitters (snow off a tree's boughs, `TreeBrush.ts`):
+   * where (three.js), its velocity (m/s), life (s), size (m) and kind (0 a falling clump, 1 a hanging
+   * cloud). Call after this frame's `update` and `commit` the batch, which uploads it with the board's.
+   */
+  emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, size: number, kind: number): void {
+    this.spawn(x, y, z, vx, vy, vz, life, size, kind);
+  }
+  /** upload what `emit` wrote this frame */
+  commit(): void { this.flush(); }
+
   /** a wisp or a cloud by the snow's softness: writes kind, life and size into `pk` (no allocation) */
   private pick(soft: number): void {
     const cloud = Math.random() < soft, out = this.pk;

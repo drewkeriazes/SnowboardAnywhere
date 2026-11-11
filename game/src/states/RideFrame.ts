@@ -231,15 +231,17 @@ export class RideFrame {
     return runs;
   }
 
-  /** 6. View sync on the render pose: rider view, tracks, prints, puffs. Then the sim pose comes back. */
+  /** 6. View sync on the render pose: rider view, snow off the trees, tracks, prints, puffs. Then the sim pose comes back. */
   private syncView(dt: number, runs: Runs): void {
-    const { rider, riderView, cam, tracks, bootprints, bigprints, puffs, liftRide } = this.p;
+    const { rider, riderView, cam, tracks, bootprints, bigprints, puffs, liftRide, treeBrush, audio } = this.p;
     const input = this.input, onLift = this.onLift;
     // visuals draw the pose interpolated between the last two 120 Hz physics steps; gameplay
     // (trials, lifts, audio) keeps reading the sim pose
     riderView.setFirstPerson(cam.firstPerson);
     rider.applyRenderPose();
     if (runs.pose) riderView.update(rider, dt, input.tuck, input.grab, onLift && liftRide.airborneRide);
+    // FEAT-217: brushing a tree shakes the snow off its boughs (after the spray's update, into the same ring)
+    if (runs.pose) { const k = treeBrush.update(rider, dt, !onLift && !this.detached, runs.record); if (k > 0) audio.treePuff(k); }
     if (runs.tracks) tracks.update(rider, dt, onLift && liftRide.airborneRide);
     bootprints.update(dt); bigprints.update(dt); puffs.update(dt);
     rider.restoreSimPose();

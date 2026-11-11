@@ -234,8 +234,8 @@ interface Plan {
   seed: number;
 }
 
-/** the crown radius profile (share of the max) at t = 0 (crown base) .. 1 (top) */
-function profile(form: Species['form'], t: number): number {
+/** the crown radius profile (share of the max) at t = 0 (crown base) .. 1 (top); FEAT-217 measures crown contact with it */
+export function crownProfile(form: Species['form'], t: number): number {
   switch (form) {
     case 'spruce': return t < 0.15 ? 0.86 + 0.14 * t / 0.15 : Math.pow(1 - (t - 0.15) / 0.85, 0.92);
     case 'fir': return t < 0.06 ? 0.9 + 0.1 * t / 0.06 : Math.pow(1 - (t - 0.06) / 0.94, 1.12);
@@ -261,7 +261,7 @@ function makePlan(sp: Species, variant: number): Plan {
       if (i > 1 && i < n - 2 && r() < 0.08 + 0.04 * variant) continue; // an irregular gap
       const t = (i + 0.3 + (r() - 0.5) * 0.5) / n;
       const y = lerp(y0, y1, t);
-      const rr = R * profile(form, clamp01(t)) * (0.88 + 0.24 * r());
+      const rr = R * crownProfile(form, clamp01(t)) * (0.88 + 0.24 * r());
       plan.whorls.push({ y, r: Math.max(R * 0.12, rr), rot: r() * Math.PI * 2, cards: Math.round(lerp(sp.cards[0], sp.cards[1], r())) });
     }
     if (form === 'lodgepole') for (let i = 0, k = 2 + Math.floor(r() * 3); i < k; i++) plan.stubs.push({ y: lerp(0.25, sp.crownBase - 0.04, r()), az: r() * Math.PI * 2, len: R * (0.3 + 0.3 * r()) });
@@ -365,7 +365,7 @@ function lod0(plan: Plan, cellMean: number[], barkMean: number[]): Builder {
     for (let k = 0; k < 3; k++) for (let j = 0; j < 2; j++) {
       const az = plan.seed + k * 1.1 + j * Math.PI / 2;
       const yy = yb + k * fillH * 0.62;
-      const rr = R * profile(form, clamp01((yy + fillH * 0.5 - sp.crownBase) / (plan.crownTop - sp.crownBase))) * 0.9;
+      const rr = R * crownProfile(form, clamp01((yy + fillH * 0.5 - sp.crownBase) / (plan.crownTop - sp.crownBase))) * 0.9;
       tmpO.set(0, yy, 0); tmpD.set(0, 1, 0);
       b.holdK = 0.35; // upright, inside the crown
       card(b, tmpO, tmpD, fillH * 1.1, rr * 1.6, az, 0, fillCell, tn.needle, () => 0.55, true);
@@ -476,7 +476,7 @@ function lod1(plan: Plan, cellMean: number[], barkMean: number[]): Builder {
       const ya = lerp(y0, y1, ta), yb = lerp(y0, y1, tb);
       let rr = 0;
       for (const w of ws) if (w.y >= ya - 0.02 && w.y < yb + 0.02) rr = Math.max(rr, w.r);
-      if (rr === 0) rr = R * profile(form, ta);
+      if (rr === 0) rr = R * crownProfile(form, ta);
       const top = k === tiers - 1 ? (plan.top === 'broken' ? y1 : 1) : lerp(y0, y1, Math.min(1, tb + 0.18));
       const droop = form === 'spruce' ? 0.35 : form === 'fir' ? 0.12 : lodge ? 0 : 0.15;
       starCone(b, ya - (form === 'spruce' ? 0.03 : 0.015), top, rr * (lodge ? 0.9 : 0.86), 5, r() * 6.28, droop, dense, c, 0.6, 0, 0, lodge && k === 0 ? 0.1 : 0.25);
