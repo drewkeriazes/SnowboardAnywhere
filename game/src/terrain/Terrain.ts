@@ -5,6 +5,7 @@ import { MOGUL_FALL_D } from './Moguls';
 import { createTerrainMaterial, COVER_SLOTS, EMPTY_RECT } from './TerrainMaterial';
 import { vegetationFarRadius } from '../world/Vegetation';
 import type { TreeShade } from '../world/TreeShade';
+import { snowpackUniform, type SnowpackState } from '../sim/Snowpack';
 
 /**
  * Chunked quadtree terrain. The root covers the far height set (262 km). Each chunk is an
@@ -147,6 +148,13 @@ export class Terrain {
     const l = Math.hypot(windX, windZ);
     if (l > 1e-6) u.uSnowLee.value.set(windX / l, windZ / l);
   }
+
+  /** BUG-081: the season's snowpack (FEAT-159), for the ground that shows through thin snow far off */
+  setSnowpack(st: SnowpackState): void {
+    const u = this.material.userData.uniforms as { uSnowpack: { value: THREE.Vector4 } };
+    u.uSnowpack.value.fromArray(snowpackUniform(st, this.spTmp));
+  }
+  private readonly spTmp: [number, number, number, number] = [0, 0, 0, -1];
 
   /** FEAT-077: how skied the snow is (0 fresh corduroy .. 1 tracked out and chopped) and how much spring snow (0..1). */
   setSkied(skied: number, spring: number): void {

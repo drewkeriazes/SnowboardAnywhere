@@ -67,6 +67,22 @@ WC_TREE, WC_BUILT, WC_BARE = 10, 50, 60
 ETH_NODATA = 255
 TREE_MIN_H = 3.0        # m: WorldCover trees shorter than this in ETH are shrubs or clearings
 BARE_ROCK = 0.6         # rock weight of a cell that is all bare ground (snow covers the gentler part)
+# BUG-081: WorldCover calls a 10 m pixel tree cover from about 10% canopy, so its tree share runs about twice the
+# pack level's forest (the share under closed canopy, weighted by the drawn trees) on Vail, and ten times on the
+# low south-facing slopes (open sage and aspen read as forest). The land cover levels are calibrated to the pack
+# level where they overlap: a lookup on the tree share (blurred over CAL_SIGMA_M, so a lone 10 m tree pixel counts
+# as the clump it is) and how south-facing the cell is, fitted per pack with bilinear weights on CAL_T x CAL_S nodes.
+# A node with fewer than CAL_K cells' weight shrinks toward the share-only curve. Without a pack level (or with too
+# little overlap, CAL_MIN_CELLS) the level keeps the raw share. 16 m of blur fits as well as 32 m (Vail, fitted on
+# one half of the pack and checked on the other) and keeps the stand edges crisper. The result is stored in CAL_Q
+# steps (the raw share only ever took k * k of them): a smooth share compresses about 2x worse in the PNG.
+CAL_SIGMA_M = 16.0
+CAL_Q = 32
+CAL_T = np.linspace(0.0, 1.0, 11)
+CAL_S = np.linspace(-1.0, 1.0, 5)
+CAL_K = 30.0
+CAL_MIN_CELLS = 500
+CAL_FLAT = 0.05         # height gradient below which a cell faces nowhere (aspect 0)
 ATTRIBUTION = [
     "Land cover: ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium (CC BY 4.0)",
     "Canopy height: Lang et al. 2023, ETH Global Sentinel-2 10m Canopy Height 2020 (CC BY 4.0)",
@@ -237,6 +253,125 @@ def pack_level(pack_dir, meta, runs, log=print):
     return lv
 
 
+# ------------------------------------------------------------------ BUG-081: land cover calibrated to the lidar
+def _weights(v, nodes):
+    """(lower node index, weight of the upper node) of each value on an evenly spaced node axis"""
+    f = np.clip((v - nodes[0]) / (nodes[1] - nodes[0]), 0, len(nodes) - 1 - 1e-6)
+    i = np.floor(f).astype(np.int64)
+    return i, (f - i).astype(np.float64)
+
+
+def fit_calibration(t, south, p):
+    """lookup (len(CAL_T), len(CAL_S)) of the mean pack forest p by land cover tree share t and south-facing
+    -1..1, from flat arrays of overlapping cells. Bilinear weights; each node shrinks toward the share-only curve
+    by CAL_K cells; the result never falls as the share rises."""
+    nt, ns = len(CAL_T), len(CAL_S)
+    it, wt = _weights(t, CAL_T)
+    js, ws = _weights(south, CAL_S)
+    p = p.astype(np.float64)
+    # share-only curve
+    s1 = np.bincount(it, p * (1 - wt), nt) + np.bincount(it + 1, p * wt, nt)
+    c1 = np.bincount(it, 1 - wt, nt) + np.bincount(it + 1, wt, nt)
+    have = c1 > 1e-6
+    m = np.interp(np.arange(nt), np.flatnonzero(have), s1[have] / c1[have])
+    s2 = np.zeros(nt * ns); c2 = np.zeros(nt * ns)
+    for di, wi in ((0, 1 - wt), (1, wt)):
+        for dj, wj in ((0, 1 - ws), (1, ws)):
+            k = (it + di) * ns + js + dj
+            s2 += np.bincount(k, p * wi * wj, nt * ns); c2 += np.bincount(k, wi * wj, nt * ns)
+    lut = ((s2 + CAL_K * np.repeat(m, ns)) / (c2 + CAL_K)).reshape(nt, ns)
+    return np.maximum.accumulate(lut, axis=0)
+
+
+def apply_calibration(lut, t, south):
+    """bilinear lookup of fit_calibration's table"""
+    it, wt = _weights(t, CAL_T)
+    js, ws = _weights(south, CAL_S)
+    return ((lut[it, js] * (1 - ws) + lut[it, js + 1] * ws) * (1 - wt)
+            + (lut[it + 1, js] * (1 - ws) + lut[it + 1, js + 1] * ws) * wt).astype(np.float32)
+
+
+def south_facing(hgt, res):
+    """-1 (faces north) .. 1 (faces south) per cell of a height grid (row 0 = north); 0 on the flat and on voids"""
+    h = np.where(np.isfinite(hgt), hgt, np.nanmean(hgt) if np.isfinite(hgt).any() else 0.0)
+    d_row, d_col = np.gradient(h, res)
+    dzdy = -d_row   # rows run south
+    g = np.hypot(d_col, dzdy)
+    s = np.where(g > CAL_FLAT, dzdy / np.maximum(g, 1e-9), 0.0)   # a south face rises to the north
+    return np.where(np.isfinite(hgt), s, 0.0).astype(np.float32)
+
+
+def read_height_set(pack_dir, meta, name):
+    """a whole height set as one float32 grid (row 0 = north) and its (res, minX, maxY), or None"""
+    from packwriter import decode_terrarium
+    m = (meta.get("terrain") or {}).get(name)
+    if not m:
+        return None
+    T = m["tileSize"]
+    big = np.full((m["tilesY"] * T, m["tilesX"] * T), np.nan, np.float32)
+    for ty in range(m["tilesY"]):
+        for tx in range(m["tilesX"]):
+            p = os.path.join(pack_dir, name, f"{tx}_{ty}.png")
+            if os.path.exists(p):
+                r0 = (m["tilesY"] - 1 - ty) * T
+                big[r0:r0 + T, tx * T:(tx + 1) * T] = decode_terrarium(np.asarray(Image.open(p).convert("RGB")))
+    return big, m["res"], m["minX"], m["minY"] + m["tilesY"] * T * m["res"]
+
+
+def heights_at(hs, xs, ys):
+    """nearest heights of a read_height_set grid at cell centres xs (east) by ys (north, falling), (len(ys), len(xs))"""
+    big, res, min_x, max_y = hs
+    c = np.floor((xs - min_x) / res).astype(np.int64); r = np.floor((max_y - ys) / res).astype(np.int64)
+    okc = (c >= 0) & (c < big.shape[1]); okr = (r >= 0) & (r < big.shape[0])
+    out = np.full((len(ys), len(xs)), np.nan, np.float32)
+    out[np.ix_(okr, okc)] = big[np.ix_(r[okr], c[okc])]
+    return out
+
+
+class PackForest:
+    """the pack level's forest (R, 0..1 at PACK_RES, row 0 = north) and its bounds, for calibrating the land cover"""
+    def __init__(self, forest, bounds):
+        self.forest, self.b = forest, bounds
+
+    def at(self, res, xs, ys):
+        """the forest averaged over res-sized cells centred at xs by ys, and which of them lie inside the pack at
+        least BLEND_M from its edge (where the client shows the pack level alone)"""
+        from scipy import ndimage
+        k = max(1, int(round(res / PACK_RES)))
+        f = ndimage.uniform_filter(self.forest, k, mode="nearest") if k > 1 else self.forest
+        b = self.b
+        c = np.floor((xs - b["minX"]) / PACK_RES).astype(np.int64); r = np.floor((b["maxY"] - ys) / PACK_RES).astype(np.int64)
+        inc = (xs > b["minX"] + BLEND_M) & (xs < b["maxX"] - BLEND_M) & (c >= 0) & (c < f.shape[1])
+        inr = (ys > b["minY"] + BLEND_M) & (ys < b["maxY"] - BLEND_M) & (r >= 0) & (r < f.shape[0])
+        out = np.zeros((len(ys), len(xs)), np.float32)
+        out[np.ix_(inr, inc)] = f[np.ix_(r[inr], c[inc])]
+        return out, np.outer(inr, inc)
+
+
+def calibrate(forest, built, south, res, xs, ys, pack, name, log=print):
+    """BUG-081: the land cover tree share of one level mapped onto the pack level's forest (see CAL_*)"""
+    from scipy import ndimage
+    sig = CAL_SIGMA_M / res
+    t = ndimage.gaussian_filter(forest, sig) if sig >= 0.5 else forest
+    if pack is None:
+        return forest
+    p, inside = pack.at(res, xs, ys)
+    ok = inside & (built < 0.1)
+    if ok.sum() < CAL_MIN_CELLS:
+        log(f"  {name}: {ok.sum()} cells overlap the pack level, too few to calibrate; raw land cover share kept")
+        return forest
+    lut = fit_calibration(t[ok], south[ok], p[ok])
+    out = np.round(apply_calibration(lut, t, south) * CAL_Q) / CAL_Q
+    def part(sel, what):
+        if not sel.any():
+            return f"{what} none"
+        return f"{what} {forest[sel].mean():.3f} -> {out[sel].mean():.3f} (pack {p[sel].mean():.3f})"
+    log(f"  {name} calibrated on {ok.sum()} cells (BUG-081): {part(ok, 'forest where both')}; "
+        f"{part(ok & (south < -0.3), 'north-facing')}, {part(ok & (south > 0.3), 'south-facing')}; "
+        f"whole level {forest.mean():.3f} -> {out.mean():.3f}")
+    return out
+
+
 # ------------------------------------------------------------------ DATA-019: land cover outside the pack
 def read_window(path, lon_a, lat_a, lon_b, lat_b, level, fill):
     """pixels of one pyramid level of a 3 x 3 degree EPSG:4326 COG inside a lon/lat box, decoding only the
@@ -307,8 +442,9 @@ def osm_pistes(path, to_local):
     return runs
 
 
-def landcover_level(pack_dir, raw_dir, cfg, name, res, k, rect, runs, log=print):
-    """one land cover level over rect = (minX, minY, w cells, h cells), local metres"""
+def landcover_level(pack_dir, raw_dir, cfg, name, res, k, rect, runs, log=print, pack=None, heights=None):
+    """one land cover level over rect = (minX, minY, w cells, h cells), local metres; calibrated to `pack` (a
+    PackForest) with the aspect from `heights` (a read_height_set grid) when both are given (BUG-081)"""
     from pyproj import Transformer
     min_x, min_y, w, h = rect
     max_y = min_y + h * res
@@ -354,11 +490,16 @@ def landcover_level(pack_dir, raw_dir, cfg, name, res, k, rect, runs, log=print)
     height = np.where(forest > 0, ndimage.gaussian_filter(height, HEIGHT_SIGMA) / np.maximum(ndimage.gaussian_filter(has, HEIGHT_SIGMA), 1e-3), 0)
     log(f"  {name} cover {w} x {h} at {res:g} m (pyramid level {lvl}, {k} x {k} samples): forest {forest.mean()*100:.1f}%, "
         f"bare {bare.mean()*100:.1f}%, built-up {built.mean()*100:.1f}%, pistes on {burn.mean()*100:.2f}% of it")
+    if pack is not None and heights is not None:
+        cx = min_x + (np.arange(w) + 0.5) * res; cy = max_y - (np.arange(h) + 0.5) * res
+        south = south_facing(heights_at(heights, cx, cy), res)
+        forest = calibrate(forest, built, south, res, cx, cy, pack, name, log)
     return write_level(pack_dir, name, to_rgba(forest, height, bare * BARE_ROCK, built), res, min_x, min_y)
 
 
-def landcover_levels(pack_dir, raw_dir, cfg, meta, log=print):
-    """DATA-019: the mid and far land cover levels, or [] without the raw land cover"""
+def landcover_levels(pack_dir, raw_dir, cfg, meta, log=print, pack=None):
+    """DATA-019: the mid and far land cover levels, or [] without the raw land cover; calibrated to `pack` (a
+    PackForest, BUG-081) with the aspect from the height set of the same name"""
     if not cfg or not glob.glob(os.path.join(raw_dir, "landcover", "worldcover", "*.tif")):
         log("  no land cover (raw/<slug>/landcover/worldcover/*.tif); the far terrain keeps the procedural treeline")
         return []
@@ -381,17 +522,25 @@ def landcover_levels(pack_dir, raw_dir, cfg, meta, log=print):
             half = cfg["far_ring"]["size_m"] / 2
             n = int(round(2 * half / res))
             rect = (-half, -half, n, n)
-        out.append(landcover_level(pack_dir, raw_dir, cfg, name, res, k, rect, runs, log))
+        heights = read_height_set(pack_dir, meta, name) if pack is not None else None
+        out.append(landcover_level(pack_dir, raw_dir, cfg, name, res, k, rect, runs, log, pack, heights))
+        del heights
     return out
 
 
 def build_cover(pack_dir, raw_dir, cfg=None, log=print):
-    """write cover/*.png and return the meta entry"""
+    """write cover/*.png and return the meta entry. The pack level comes first: the land cover levels are
+    calibrated to its forest (BUG-081)."""
     meta = json.load(open(os.path.join(pack_dir, "meta.json"), encoding="utf-8"))
     feats = json.load(open(os.path.join(pack_dir, "features.json"), encoding="utf-8"))
-    levels = landcover_levels(pack_dir, raw_dir, cfg, meta, log)
+    pack_lv, pack = None, None
     if meta.get("mask"):
-        levels.append(pack_level(pack_dir, meta, feats.get("runs", []), log))
+        pack_lv = pack_level(pack_dir, meta, feats.get("runs", []), log)
+        r = np.asarray(Image.open(os.path.join(pack_dir, pack_lv["file"])))[..., 0].astype(np.float32) / 255.0
+        pack = PackForest(r, meta["bounds"])
+    levels = landcover_levels(pack_dir, raw_dir, cfg, meta, log, pack)
+    if pack_lv:
+        levels.append(pack_lv)
     return {"heightMax": HEIGHT_MAX, "blend": BLEND_M, "levels": levels}
 
 

@@ -3,6 +3,7 @@ import { MOGUL_GLSL } from './Moguls';
 import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from './rockShader';
 import { DEFORM_GLSL, deformUniforms } from '../world/Deform';
 import { SNOW_SHADE_TINT } from '../world/snowLook';
+import { SNOWPACK_GLSL, snowpackState, snowpackUniform } from '../sim/Snowpack';
 
 /**
  * Snow / rock / scree / groomed material. Per-vertex class weights arrive in the color attribute
@@ -134,6 +135,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     uSkied: { value: 0.0 },
     uSpring: { value: 0.0 },
     uSnowLee: { value: new THREE.Vector2(1, 0) },
+    /** BUG-081: the season's snowpack (Snowpack.ts snowpackUniform), mid February until the ride sets it */
+    uSnowpack: { value: new THREE.Vector4(...snowpackUniform(snowpackState(2, 'mid', 0), [0, 0, 0, -1])) },
     /** FEAT-059: mogul field amplitude multiplier and uphill creep (m) for the shaded coarse chunks */
     uMogulScale: { value: 1.0 },
     uMogulCreep: { value: 0.0 },
@@ -224,6 +227,16 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         uniform float uSnowCover;
         uniform float uSkied, uSpring;
         uniform vec2 uSnowLee;
+        ${SNOWPACK_GLSL}
+        // BUG-081: open ground far off (sage, grass and low shrub on the sun slopes) shows through where the
+        // season's snowpack is thinner than it stands (VEG_LO..VEG_HI m), from VEG_NEAR m (full by VEG_FULL;
+        // nearer, the shrub instances show it), at most VEG_MAX of a pixel (the snow between the plants stays white)
+        #define VEG_LO 0.25
+        #define VEG_HI 1.0
+        #define VEG_NEAR 900.0
+        #define VEG_FULL 2200.0
+        #define VEG_MAX 0.6
+        const vec3 VEG_COL = vec3(0.17, 0.15, 0.115);
         // FEAT-153: forest cover levels, coarsest first (rect = minX, minY, maxX, maxY in pack metres)
         uniform sampler2D uCov0, uCov1, uCov2;
         uniform vec4 uCovRect[3];
@@ -424,6 +437,13 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float screeCov = smoothstep(0.5 - edge, 0.5 + edge, wScreeV * 0.65 + (bn2 - 0.5) * 0.7 - snowShift) * (1.0 - rockCov);
         rockCov *= 1.0 - uDebugFar.y; screeCov *= 1.0 - uDebugFar.y;
         float wSnow = 1.0 - rockCov - screeCov;
+        // BUG-081: far off, ungroomed snow over thin snowpack carries the plants poking through it, in patches
+        // (40 m stands and 12 m clumps, the clumps fading once a pixel is wider than a few metres)
+        float vegPix = length(fwidth(wp));
+        float vegPatch = vnoise(wp * 0.025 + 1.7) * 0.6 + mix(0.5, vnoise(wp * 0.08 + 4.2), 1.0 - smoothstep(3.0, 9.0, vegPix)) * 0.4;
+        float vegK = (1.0 - smoothstep(VEG_LO, VEG_HI, snowpackDepth(wp.y, ngW))) * smoothstep(VEG_NEAR, VEG_FULL, dist)
+          * (1.0 - wGroom) * smoothstep(0.2, 0.8, vegPatch) * VEG_MAX;
+        snow = mix(snow, VEG_COL, vegK);
         vec3 base = snow * wSnow + rockAlb * rockCov + screeAlb * screeCov;
         base = mix(base, groomed, wGroom * wSnow);
         // BUG-062: the mogul field, once per pixel (pack frame: x east, y = -world z north), fading out
@@ -527,7 +547,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           treeShade = sm.x + (coarse > 0.001 ? coarse * treeShadow(pxyF, dist, treeG) : 0.0);
           treeShade *= shadeGate * (1.0 - fd) * (1.0 - uFlat);
         }
-        gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd) * (1.0 - 0.6 * uSpring); // wet spring snow sparkles less
+        gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd) * (1.0 - vegK) * (1.0 - 0.6 * uSpring); // wet spring snow sparkles less
         diffuseColor.rgb = base;
         if (uDebugFar.w > 0.5) diffuseColor.rgb = mix(vec3(0.9), vec3(0.9, 0.1, 0.1), fd);
         // BUG-062 ?debug=moguls: amplitude as a tint, green where the bumps are in the geometry, red where
