@@ -42,6 +42,21 @@ export interface CoverMeta {
   levels: CoverLevelMeta[];
 }
 
+/** FEAT-074: the stand images (pipeline/stands.py) */
+export interface StandsMeta {
+  /** 4 m cells, `size` per tree cell side */
+  res: number;
+  size: number;
+  /** ground height = byte pair / zScale + zBase (m); stand height = G * hStep (m) */
+  zBase: number;
+  zScale: number;
+  hStep: number;
+  /** tree cells with a stand image, as "cx_cy" */
+  cells: string[];
+  /** stems over the whole pack at full density */
+  stems: number;
+}
+
 export interface InstancesMeta {
   cellSize: number;
   minX: number;
@@ -82,6 +97,8 @@ export interface PackMeta {
   instances?: InstancesMeta;
   /** DATA-020: 2 = tree species ids 0..7 (see docs/pack-format.md); absent = 0..2 */
   treeSpecies?: number;
+  /** FEAT-074: stand density per 4 m cell (stands/<cx>_<cy>.png per tree cell); absent in older packs */
+  stands?: StandsMeta;
   start: { x: number; y: number; heading: number; run?: string };
   sun: { azimuth: number; elevation: number };
   attribution: string[];

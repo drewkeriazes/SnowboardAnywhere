@@ -7,6 +7,7 @@ import os, sys, json, math
 import numpy as np
 from packwriter import (write_height_set, write_mask_set, write_instances, write_meta, write_features)
 import species as spc
+import stands
 from terrain_ao import sky_visibility
 from piste_dir import piste_direction
 from moguls import paint_field, slope_window
@@ -184,7 +185,8 @@ TX, TY = np.meshgrid(tx, ty)
 TX = TX + rng.uniform(-2.2, 2.2, TX.shape); TY = TY + rng.uniform(-2.2, 2.2, TY.shape)
 ci = np.clip(yy_idx(TY).astype(int), 0, N - 1); cj = np.clip(xx_idx(TX).astype(int), 0, N - 1)
 dens = forest[ci, cj]
-keep = rng.uniform(0, 1, TX.shape) < dens * 0.85
+# FEAT-074: a third of the trees are "detected crowns" in the pack; the stand density below fills the rest
+keep = rng.uniform(0, 1, TX.shape) < dens * 0.3
 TX, TY = TX[keep], TY[keep]
 TZ = height(TX, TY)
 hgt = rng.gamma(6.0, 2.2, len(TX)).astype(np.float32) + 3.0
@@ -203,6 +205,25 @@ CELL = 1000.0; cells = int(FS // CELL)
 meta["instances"] = {"cellSize": CELL, "minX": FX0, "minY": FY0, "cellsX": cells, "cellsY": cells}
 meta["instances"]["treeCount"] = write_instances(out, "trees", trees, CELL, FX0, FY0, cells, cells)
 meta["treeSpecies"] = spc.TREE_SPECIES_VERSION
+
+# FEAT-074: stand density per 4 m cell from the forest field, the crowns above counting against it
+N4 = N // 2
+f4 = forest[:N4 * 2, :N4 * 2].reshape(N4, 2, N4, 2).mean(axis=(1, 3)).astype(np.float32)
+X4, Y4 = grid(FX0, FY0, N4, N4, 4.0)
+Z4 = height(X4, Y4).astype(np.float32)
+H4 = np.clip(19.0 * np.clip((3400 - Z4) / 400.0, 0.35, 1.0), 3.0, 45.0).astype(np.float32)
+det4 = np.zeros((N4, N4), np.float32)
+np.add.at(det4, (np.clip(((FY0 + FS) - TY) // 4, 0, N4 - 1).astype(int), np.clip((TX - FX0) // 4, 0, N4 - 1).astype(int)), 1)
+n4 = int((f4 > 0).sum()); fi, fj = np.nonzero(f4 > 0); zz = np.zeros(n4)
+SP4 = np.zeros((N4, N4), np.int16)
+SP4[fi, fj] = spc.assign_species(X4[fi, fj], Y4[fi, fj], Z4[fi, fj], H4[fi, fj], np.zeros(n4, np.int8), zz, np.zeros(n4, bool),
+                                 (Z4[fi, fj] < 2950) & (spc.hash01(X4[fi, fj], Y4[fi, fj], 8) < 0.45), zz, zz, np.zeros(n4, bool),
+                                 spc.hash01(X4[fi, fj], Y4[fi, fj], 9), False)   # aspen groves as the crowns above
+SP4[(Z4 > 3280) & (f4 > 0)] = spc.KRUMMHOLZ
+P4 = stands.stem_chance(f4, H4, SP4, det4)
+P4[f4 <= 0] = 0
+meta["stands"] = stands.write(out, P4, H4, SP4, Z4, CELL, FX0, FY0, cells, cells, meta["zRange"][0])
+print(f"stands: {meta['stands']['stems']} stems at full density in {len(meta['stands']['cells'])} cells")
 
 # shrubs: on the thin forest edge, young conifers up high, juniper, sagebrush and willow lower down
 SX = rng.uniform(FX0, FX0 + FS, 400000); SY = rng.uniform(FY0, FY0 + FS, 400000)

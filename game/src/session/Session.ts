@@ -3,7 +3,7 @@ import { Rider } from '../sim/Rider';
 import { landmarkStart } from '../world/Landmarks';
 import { isOvercast, parseWeather, type CloudCover } from '../world/Clouds';
 import { Controls } from '../sim/Controls';
-import { setVegetationBudget, setVegetationDensity } from '../world/Vegetation';
+import { setVegetationBudget, setVegetationDensity, setStandDensity } from '../world/Vegetation';
 import { treeFadeUniforms } from '../world/TreeFade';
 import { GoggleView } from '../ui/GoggleView';
 import { GoggleLens } from '../world/Lens';
@@ -160,6 +160,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       clouds.configure(sky.weather, autoClouds(s.quality));
       renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2) * q.res);
       if (s.quality !== 'low') setVegetationDensity(s.treeDensity * q.trees);
+      setStandDensity((s.forestDensity ?? 1) * q.trees); // FEAT-074
       const flakes = s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500;
       snow.setCount(Math.round((sky.weather === 'storm' ? flakes : flakes / 6) * q.snow));
     };
@@ -204,6 +205,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       env.sun.shadow.mapSize.set(s.quality === 'high' ? 4096 : 2048, s.quality === 'high' ? 4096 : 2048);
       env.setShadows(s.shadows);
       if (s.quality === 'low') setVegetationBudget(250, 600, false); else setVegetationDensity(s.treeDensity * auto.current.trees); // FEAT-158: Low has no LOD0 cards
+      setStandDensity((s.forestDensity ?? 1) * auto.current.trees); // FEAT-074: only the generated stems
       cam.baseFov = s.fov;
       controls.keymap = { ...s.keys };
       controls.invertSteer = s.invertSteer;

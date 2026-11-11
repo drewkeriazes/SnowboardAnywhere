@@ -61,7 +61,7 @@ export function applyGfxPreset(s: Settings, p: GfxPreset): void {
   s.csmExperimental = p === 'ultra';
   if (p === 'ultra') s.pixelRatio = fullRes();
 }
-const GFX_FIELDS = ['quality', 'shadows', 'treeDensity', 'pixelRatio', 'csmExperimental'] as const;
+const GFX_FIELDS = ['quality', 'shadows', 'treeDensity', 'forestDensity', 'pixelRatio', 'csmExperimental'] as const;
 export function gfxPresetOf(s: Settings): GfxPreset | 'custom' {
   for (const p of ['low', 'medium', 'high', 'ultra'] as GfxPreset[]) {
     const t = { ...s }; applyGfxPreset(t, p);
@@ -164,10 +164,11 @@ export const SECTIONS: Section[] = [
     seg('targetFps', 'Target FPS', [[30, '30'], [60, '60'], [0, 'Uncapped']], 'The frame rate auto quality holds. 30 also caps the frame rate (saves battery); Uncapped aims for 60.'),
   ] },
   { cat: 'graphics', title: 'Advanced', rows: [
-    { ...seg('quality', 'Detail', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], 'The base detail level: shadow map size, snowflake count and the tree budget. Changing it moves Shadows, Trees and Resolution with it.'), set: (s: Settings, v: V) => applyQuality(s, v as Settings['quality']) } as Row,
+    { ...seg('quality', 'Detail', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], 'The base detail level: shadow map size, snowflake count and the tree budget. Changing it moves Shadows, Trees, Forest and Resolution with it.'), set: (s: Settings, v: V) => applyQuality(s, v as Settings['quality']) } as Row,
     toggle('shadows', 'Shadows', 'Sun shadows from the rider, trees and terrain.'),
     toggle('csmExperimental', 'Cascaded shadows (beta)', 'Sharper shadows near you and shadows far away, in several layers. Experimental: it has turned the terrain black on some GPUs.'),
-    slider('treeDensity', 'Trees', 0.25, 1, 0.05, pct, 'How many trees are drawn.'),
+    slider('treeDensity', 'Trees', 0.25, 1, 0.05, pct, 'How far out trees are drawn.'),
+    slider('forestDensity', 'Forest', 0, 1, 0.05, pct, 'How closed the forest near you is: the stems drawn between the trees the lidar found. The mapped trees always stay.', { cost: 'Tree instances near you scale with it.' }),
     slider('pixelRatio', 'Resolution', 0.5, 2, 0.25, (v) => `${v}x`, 'Render resolution against the screen. Lower is softer and faster; the device caps the top.', { cost: 'The biggest single cost: pixels drawn scale with its square.' }),
     toggle('snowDeform', 'Snow dents', 'The snow near you takes real trenches and lips.', { note: (s) => (s.quality === 'low' ? 'Off while Detail is Low.' : null) }),
   ] },
