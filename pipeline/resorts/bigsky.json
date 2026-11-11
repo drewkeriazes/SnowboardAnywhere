@@ -141,7 +141,7 @@
     "Background terrain: Mapterhorn (mapterhorn.com)",
     "Runs, lifts, buildings, roads, names: OpenStreetMap contributors (ODbL)"
   ],
-  "start_run": "Upper Morningstar",
+  "start_run": "Morningstar",
   "exclude": [
     {
       "name": "Yellowstone Club",

@@ -213,7 +213,7 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
   "stands": { "res": 4, "size": 250, "zBase", "zScale": 32, "hStep": 0.25,  // optional, FEAT-074
               "cells": ["cx_cy", ...], "stems" },          // cells with an image; stems over the pack at full density
   "start": { "x", "y", "heading" },                       // default drop-in
-  "treeline": 2950,                                       // optional, m (DATA-021): measured from the canopy; absent = 3,480 (Colorado)
+  "treeline": 2700,                                       // optional, m (DATA-021): measured from the canopy; absent = 3,480 (Colorado)
   "sun": { "azimuth": 160, "elevation": 32 },             // degrees, default lighting
   "attribution": ["..."]
 }
