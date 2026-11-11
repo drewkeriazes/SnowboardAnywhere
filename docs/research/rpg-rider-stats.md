@@ -83,3 +83,12 @@ Keep it at +/-15 %: enough to feel, not enough to break the carve model. Realist
 - [Killer Feature: The Elder Scrolls' learning by doing (Film Stories)](https://filmstories.co.uk/?p=45821)
 - [Riders Republic review (eXputer)](https://exputer.com/reviews/riders-republic-review-a-thrill-ride/)
 - Code: `game/src/sim/rider/tuning.ts`, `Jumps.ts`, `EdgeModel.ts`, `Press.ts`, `sim/RunStats.ts`, `ui/SettingsRows.ts` at 30a335a
+
+## 7. Cards (EPIC-13, #465, filed 2026-11-10)
+- FEAT-203 (#475) riding quality events on the bus (`turnEnd`, `landing`, richer `runEnd`); shared with FEAT-189 scoring. Today `core/Events.ts` has `trick` (name only), `washout`, `pressEnd`, `runEnd`.
+- FEAT-194 (#462) the v1 report card (`sim/RiderStats.ts`)
+- FEAT-204 (#476) Rider page, season graph, run card line, toasts
+- FEAT-205 (#477) rider profiles (several riders on one PC)
+- FEAT-206 (#478) coach tips: lowest stat picks a real run from the pack data and a drill
+- FEAT-207 (#479) ShredFinder real stats beside game stats (display only)
+- FEAT-208 (#480) Arcade-only stat physics, +/-15 %
