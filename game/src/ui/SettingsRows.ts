@@ -164,7 +164,7 @@ export const SECTIONS: Section[] = [
     seg('targetFps', 'Target FPS', [[30, '30'], [60, '60'], [0, 'Uncapped']], 'The frame rate auto quality holds. 30 also caps the frame rate (saves battery); Uncapped aims for 60.'),
   ] },
   { cat: 'graphics', title: 'Advanced', rows: [
-    { ...seg('quality', 'Detail', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], 'The base detail level: shadow map size, snowflake count and the tree budget. Changing it moves Shadows, Trees and Resolution with it.'), set: (s: Settings, v: V) => applyQuality(s, v as Settings['quality']) } as Row,
+    { ...seg('quality', 'Detail', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], 'The base detail level: shadow map size, snowflake count and the tree budget. Changing it moves Shadows, Trees, Forest and Resolution with it.'), set: (s: Settings, v: V) => applyQuality(s, v as Settings['quality']) } as Row,
     toggle('shadows', 'Shadows', 'Sun shadows from the rider, trees and terrain.'),
     toggle('csmExperimental', 'Cascaded shadows (beta)', 'Sharper shadows near you and shadows far away, in several layers. Experimental: it has turned the terrain black on some GPUs.'),
     slider('treeDensity', 'Trees', 0.25, 1, 0.05, pct, 'How far out trees are drawn.'),
