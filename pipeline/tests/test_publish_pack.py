@@ -81,7 +81,7 @@ def test_get_pack_installs_a_published_zip(tmp_path):
     assert (packs / "demo" / "fine" / "0_0.png").read_bytes() == (pack / "fine" / "0_0.png").read_bytes()
     assert not (packs / "demo" / "debug").exists()
     assert json.load(open(packs / "demo" / ".catalog.json"))["sha256"] == sha
-    assert json.load(open(packs / "index.json"))["packs"] == ["demo"]
+    assert json.load(open(packs / "index.json")) == {"packs": ["demo"], "names": {"demo": "Demo Mountain"}}
     assert "already" in run().stdout
     # a bad checksum is refused and leaves the installed pack alone
     entry["pack"]["sha256"] = "0" * 64

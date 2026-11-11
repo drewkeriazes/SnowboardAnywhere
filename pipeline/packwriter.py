@@ -97,11 +97,19 @@ def index_cells(out_dir: str, meta: dict) -> None:
         inst[field] = names  # "cx_cy", matching the file names
 
 def index_packs(packs_dir: str) -> None:
-    """packs/index.json: slugs of every pack with a meta.json, so the menu does not probe missing resorts (BUG-036)."""
+    """packs/index.json: slugs of every pack with a meta.json, so the menu does not probe missing resorts (BUG-036),
+    and each one's name from its meta.json (FEAT-175)."""
     # dot folders are game/tools/get_pack.mjs's downloads in progress
     slugs = sorted(n for n in os.listdir(packs_dir) if not n.startswith(".") and os.path.isfile(os.path.join(packs_dir, n, "meta.json")))
-    with open(os.path.join(packs_dir, "index.json"), "w") as f:
-        json.dump({"packs": slugs}, f, indent=1)
+    names = {}
+    for n in slugs:   # FEAT-175: the menu lists every pack by its own name, with no entry in game/src/resorts.ts
+        try:
+            with open(os.path.join(packs_dir, n, "meta.json"), encoding="utf-8") as f:
+                names[n] = json.load(f).get("name") or n
+        except (OSError, ValueError):
+            names[n] = n
+    with open(os.path.join(packs_dir, "index.json"), "w", encoding="utf-8") as f:
+        json.dump({"packs": slugs, "names": names}, f, indent=1, ensure_ascii=False)
 
 def stamp_build(meta: dict) -> dict:
     """FEAT-177: a fresh `build` id on every meta.json a pipeline stage writes, so the game can tell a

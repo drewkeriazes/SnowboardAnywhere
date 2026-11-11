@@ -30,3 +30,12 @@ def test_reindex_keeps_the_build(tmp_path):
     b = read(pack)["build"]
     write_meta(str(pack), read(pack), stamp=False)
     assert read(pack)["build"] == b
+
+
+def test_index_names_each_pack(tmp_path):
+    # FEAT-175: the menu lists a new resort by its meta.json name without an entry in game/src/resorts.ts
+    for slug, name in (("demo", "Demo Mountain"), ("bostonmills", "Boston Mills")):
+        (tmp_path / "packs" / slug).mkdir(parents=True)
+        write_meta(str(tmp_path / "packs" / slug), {"slug": slug, "name": name})
+    idx = json.load(open(tmp_path / "packs" / "index.json", encoding="utf-8"))
+    assert idx == {"packs": ["bostonmills", "demo"], "names": {"bostonmills": "Boston Mills", "demo": "Demo Mountain"}}
