@@ -73,7 +73,7 @@ Verified specs (boardom.co): Ride Warpig 2025-26, 148 cm: waist 260 mm, sidecut 
 1. New `game/src/sim/rider/Boards.ts`: `Board` type, `BOARDS` catalog (section 4), `boardFeel()` (section 3).
 2. `Rider`: hold `feel` and `mods`, recomputed when the board changes; replace the 3 `FEEL[r.discipline]` reads with `r.feel` (skis keep `FEEL.ski`).
 3. Multiply the constants in section 3 by `r.mods` where they are used (Jumps, Press, EdgeModel catch, snow drag, chop).
-4. `Settings.ts`: `board: string` (default `custom-camber`, which reproduces today's `FEEL.board`, so nothing changes until a player picks another). A picker row with a 7-bar stat card.
+4. `Settings.ts`: `board: string` (default `custom-camber`). `boardFeel` is computed relative to this board's own output (or the board gets neutral stats), so the default reproduces today's `FEEL.board` and all mods are exactly 1; nothing changes until a player picks another. A picker row with a 7-bar stat card.
 5. Check: `carvecheck.mjs` on each board (sidecut sets turn radius), `fallcheck.mjs` (rocker catches less), one powder ride per type. Default board must give identical results to today.
 
 Out of scope v1: powsurf, skinning on splitboards, per-size boards, custom board builder.
