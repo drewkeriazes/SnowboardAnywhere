@@ -16,7 +16,23 @@ npm run dev
 ```
 
 Open http://localhost:5173/?pack=vail. Use `?pack=synth` for a synthetic test mountain if you have
-no resort pack built yet (packs are generated locally, see below).
+no resort pack yet.
+
+### Getting a resort
+
+Resort packs are not in this repo. Published ones (Vail, Breckenridge, Big Sky) are release downloads in
+[MapPacker-SnowboardAnywhere](https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere):
+
+```
+cd game
+npm run get vail          # download, check and unpack into packs/vail (about 240 MB)
+npm run get -- --list     # what is published, and which you have
+```
+
+Or open **Change resort** on the main menu: a published resort you don't have shows "Download (size)";
+pick it and the game downloads it and loads it. A pack in an older format than the game reads shows
+"needs rebuild". `npm run get` won't replace a pack you built yourself unless you add `-- --force` (it
+deletes the old one). To build a pack from the raw data instead, see "How a resort gets built" below.
 
 ### Play on another computer
 
@@ -226,6 +242,7 @@ The game streams that pack. Fetching runs on Windows with PowerShell; building r
 
 ```
 python pipeline/build_pack.py vail <raw_dir> packs/vail
+python pipeline/publish_pack.py packs/vail     # optional: publish it for npm run get (needs push access)
 ```
 
 ## More

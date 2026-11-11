@@ -228,6 +228,7 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
 ```
 {
   "version": 1, "slug": "vail", "name": "Vail",
+  "formatVersion": 1,                                      // FEAT-222: the pack format (see below); absent = 0
   "build": "20261110T171500Z-3fa2c1",                      // FEAT-177: new on every write by any stage (packwriter.stamp_build)
   "crs": "EPSG:26913", "origin": [384300, 4384250], "lonlat": [-106.35, 39.60],
   "bounds": { "minX", "minY", "maxX", "maxY" },           // resort area, local metres
@@ -251,3 +252,14 @@ Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/min
   "attribution": ["..."]
 }
 ```
+
+## formatVersion
+
+FEAT-222. `meta.json` `formatVersion` is the pack format a build wrote: `FORMAT_VERSION` in `pipeline/packwriter.py`, which must equal `PACK_FORMAT` in `game/src/pack/format.ts` (`pipeline/tests/test_publish_pack.py` checks). `publish_pack.py` copies it into the resorts repo's `catalog.json`; `get_pack.mjs` installs only a pack of the game's own format, and the resort picker shows an older one as "needs rebuild" (still loadable when it is on disk). Packs built before FEAT-222 have no field and count as 0.
+
+Bump both constants in the same PR as any change a client must know about: a new required layer, a changed encoding, or a field the client now relies on. Optional layers the client already treats as absent don't need a bump. Add a line here:
+
+| formatVersion | Since | What |
+|---|---|---|
+| 0 | | Packs without the field (built before FEAT-222), whatever layers they have |
+| 1 | FEAT-222, 2026-11-11 | The format at FEAT-222: `stands/` (FEAT-074), `treeSpecies` 2 (DATA-020), `cover` levels (FEAT-153), `treeline` when measured (DATA-021), `build` (FEAT-177) |
