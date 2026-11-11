@@ -57,8 +57,10 @@ export function localPacks(packsDir = PACKS) {
 
 /** packs/index.json, as packwriter.index_packs writes it. */
 export function writePackIndex(packsDir = PACKS) {
-  const packs = Object.keys(localPacks(packsDir)).sort();
-  fs.writeFileSync(path.join(packsDir, 'index.json'), JSON.stringify({ packs }, null, 1));
+  const local = localPacks(packsDir);
+  const packs = Object.keys(local).sort();
+  const names = Object.fromEntries(packs.map((p) => [p, local[p].name]));
+  fs.writeFileSync(path.join(packsDir, 'index.json'), JSON.stringify({ packs, names }, null, 1));
 }
 
 /** Why a catalog pack can't be installed by this game, or null. */

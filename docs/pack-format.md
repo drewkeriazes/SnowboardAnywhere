@@ -205,7 +205,7 @@ The build writes `debug/species.png` into the pack: the most common species per 
 
 Cell size is `meta.instances.cellSize` (1000 m), origin `meta.instances.minX/minY`. `treeCells`, `rockCells` and `shrubCells` list the cells that have a file (`"cx_cy"`); the client only requests those. Packs built before BUG-036 lack the lists and the client requests every cell in range; add them without a rebuild with `python pipeline/packwriter.py packs/<slug>`.
 
-`packs/index.json` (`{"packs": ["synth", "vail"]}`) lists every pack folder with a `meta.json`. `write_meta` rewrites it after each build; the menu reads it instead of probing each resort's `meta.json`.
+`packs/index.json` (`{"packs": ["synth", "vail"], "names": {"synth": "Test mountain (synthetic)", "vail": "Vail"}}`) lists every pack folder with a `meta.json`, and each pack's `meta.json` `name` (FEAT-175). `write_meta` rewrites it after each build, and `get_pack.mjs` after each install; the menu reads it instead of probing each resort's `meta.json`, and lists every pack in it under that name, so a new resort needs no entry in `game/src/resorts.ts` (which only orders the known ones and names packs in an index without `names`).
 
 ## features.json
 
