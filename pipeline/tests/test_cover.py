@@ -193,10 +193,10 @@ def test_calibrate_maps_land_cover_onto_pack_forest():
     xs = np.arange(-2000.0, size + 2000.0, res) + res / 2; ys = (np.arange(size + 2000.0, -2000.0, -res) - res / 2)
     lc = (xs[None, :] < size / 2).astype(np.float32).repeat(len(ys), 0)   # land cover calls the west half all tree
     zero = np.zeros_like(lc)
-    out = calibrate(lc, zero, zero, res, xs, ys, pack, "test", log=lambda *_: None)
+    out = calibrate(lc, zero, zero, res, pack.at(res, xs, ys), "test", log=lambda *_: None)
     inside = np.outer((ys > BLEND_M + 300) & (ys < size - BLEND_M - 300), (xs > BLEND_M + 300) & (xs < size / 2 - 300))
     assert abs(out[inside].mean() - 0.3) < 0.02
     outside = np.outer(ys > size + 300, xs < size / 2 - 300)
     assert abs(out[outside].mean() - 0.3) < 0.02
     tiny = PackForest(pack_r[:50, :50], {"minX": 0.0, "minY": size - 200.0, "maxX": 200.0, "maxY": size})
-    assert np.array_equal(calibrate(lc, zero, zero, res, xs, ys, tiny, "test", log=lambda *_: None), lc)
+    assert np.array_equal(calibrate(lc, zero, zero, res, tiny.at(res, xs, ys), "test", log=lambda *_: None), lc)

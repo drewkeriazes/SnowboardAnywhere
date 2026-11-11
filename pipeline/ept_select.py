@@ -6,8 +6,12 @@ Reads pipeline/resorts/<slug>.json and, for the `lidar` source and each entry of
 ept-hierarchy on the public bucket and keeps every node with points that intersects the box: down to
 `max_depth_resort` where the node touches the ski area (`lonlat_bbox`), `max_depth_outside` in the rest of the
 buffered box (`utm_bbox`, in the config's `crs`). An extra source may carry its own `utm_bbox` to clip it to the
-part the main dataset misses. Writes each source's `nodes_file` next to the config (not with --dry)."""
-import json, os, sys, urllib.request
+part the main dataset misses. Writes each source's `nodes_file` next to the config (not with --dry).
+
+BUG-081: `lidar.far` ({"pad_m", "max_depth", "nodes_file"}) adds the far tree ring: the main source's nodes down to
+`max_depth` in `utm_bbox` grown by `pad_m` on every side, less the nodes the main list already has. They go to
+`ept_far/` (gen_manifest.py) and `far_trees.py` turns them into the trees drawn on the ridges round the resort."""
+import copy, json, os, sys, urllib.request
 from pyproj import Transformer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -26,7 +30,7 @@ def clip(a, b): return max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[
 
 def sources(cfg):
     """The main lidar source and the extra ones, each a dict with ept, dataset, depths and nodes_file."""
-    main = {k: v for k, v in cfg["lidar"].items() if k != "extra"}
+    main = {k: v for k, v in cfg["lidar"].items() if k not in ("extra", "far")}
     return [main] + list(cfg["lidar"].get("extra", []))
 
 
@@ -76,6 +80,23 @@ def select(cfg, src, fetch_json=None):
     return sel, pts_in
 
 
+def far_box(cfg):
+    """The far tree ring's outer box (config crs): `utm_bbox` grown by `lidar.far.pad_m`."""
+    p = float(cfg["lidar"]["far"]["pad_m"]); x0, y0, x1, y1 = cfg["utm_bbox"]
+    return [x0 - p, y0 - p, x1 + p, y1 + p]
+
+
+def select_far(cfg, fetch_json=None, have=()):
+    """Node keys for the far tree ring (BUG-081): every node of the main source down to `lidar.far.max_depth` in
+    the grown box, without the ones in `have` (the main list)."""
+    c = copy.deepcopy(cfg); c["utm_bbox"] = far_box(cfg)
+    src = {k: v for k, v in cfg["lidar"].items() if k not in ("extra", "far")}
+    d = int(cfg["lidar"]["far"]["max_depth"]); src["max_depth_resort"] = src["max_depth_outside"] = d
+    sel, _ = select(c, src, fetch_json)
+    have = set(have)
+    return [k for k in sel if k not in have]
+
+
 def main(argv):
     if not argv or argv[0].startswith("-"):
         print(__doc__); return 2
@@ -87,6 +108,14 @@ def main(argv):
               "max depth", max((int(k.split("-")[0]) for k in sel), default=-1))
         if not dry:
             with open(os.path.join(HERE, "resorts", src["nodes_file"]), "w") as f:
+                f.write(" ".join(sel))
+    far = cfg["lidar"].get("far")
+    if far:
+        have = open(os.path.join(HERE, "resorts", cfg["lidar"]["nodes_file"])).read().split()
+        sel = select_far(cfg, have=have)
+        print("far ring", far["pad_m"], "m: nodes", len(sel))
+        if not dry:
+            with open(os.path.join(HERE, "resorts", far["nodes_file"]), "w") as f:
                 f.write(" ".join(sel))
     return 0
 

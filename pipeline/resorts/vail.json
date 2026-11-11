@@ -117,7 +117,8 @@
     "dataset": "USGS_LPC_CO_Central_Western_2016_LAS_2018",
     "max_depth_resort": 9,
     "max_depth_outside": 8,
-    "nodes_file": "vail_ept_nodes.txt"
+    "nodes_file": "vail_ept_nodes.txt",
+    "far": { "pad_m": 5000, "max_depth": 9, "nodes_file": "vail_ept_far_nodes.txt" }
   },
   "attribution": [
     "Elevation: USGS 3DEP (CO_Central_Western_2016 1 m lidar DEM), public domain",

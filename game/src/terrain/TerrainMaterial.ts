@@ -80,6 +80,8 @@ function snowLightsChunk(): string {
 /** FEAT-153: the canopy lift fades in from the impostors' reach (Vegetation FAR_RADIUS) to full here (m) */
 /** FEAT-153: the canopy lift fades in over this many metres from `uLiftNear`, the impostors' reach (Vegetation FAR_RADIUS, set by Terrain.update) */
 export const LIFT_RAMP = 2000;
+/** BUG-081: the share of the canopy the drawn trees cover past the generated stems' reach, where they grow */
+export const FOREST_DRAWN_FAR = 0.92;
 /** FEAT-153: cover level slots in the shader (coarsest first) */
 export const COVER_SLOTS = 3;
 export const EMPTY_RECT = new THREE.Vector4(-1e7, -1e7, -1e7 + 1000, -1e7 + 1000); // weight 0 everywhere, finite uv
@@ -152,6 +154,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
      *  the share of the sun a sunlit canopy returns (shaded needles and crown sides), and how much of a
      *  forested pixel is timber rather than snow between the crowns. Tuned from 500 to 900 m up on Vail. */
     uForestDrawn: { value: 0.7 },
+    /** BUG-081: where the generated stems stop (Vegetation, set by Terrain.update); past it uForestDrawn rises to FOREST_DRAWN_FAR */
+    uStemReach: { value: 1e8 },
     uCanopySun: { value: 0.22 },
     uTimberMix: { value: 0.97 },
     /** FEAT-154: the rectangle (pack minX, minY, maxX, maxY) holding tree instances; none by default */
@@ -215,7 +219,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         uniform vec3 uSnow, uSnowShade, uGroomed, uShadeTint, uSSS;
         uniform float uWrap, uGlint, uFlat, uAO;
         uniform vec4 uDebugFar;
-        uniform float uForestDrawn, uCanopySun, uLiftNear, uTimberMix;
+        uniform float uForestDrawn, uCanopySun, uLiftNear, uTimberMix, uStemReach;
         uniform vec4 uTreeRect;
         #define AO_POW 2.6
         #define AO_DIRECT 0.6
@@ -512,7 +516,10 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         vec2 trd = min(pxyF - uTreeRect.xy, uTreeRect.zw - pxyF);
         float treeHere = smoothstep(0.0, 300.0, min(trd.x, trd.y));
         float viewMu = clamp(dot(ngW, normalize(cameraPosition - wp)), 0.12, 1.0);
-        float rho = uForestDrawn * treeHere * (1.0 - smoothstep(uLiftNear - 800.0, uLiftNear, dist));
+        // BUG-081: past the generated stems the impostors grow to stand in for them (Vegetation STEM_GROW), so they
+        // carry nearly all the canopy there, and the ground no longer lays a flat timber tone between them
+        float rho = mix(uForestDrawn, ${FOREST_DRAWN_FAR.toFixed(2)}, smoothstep(uStemReach, uStemReach * 1.5, dist))
+          * treeHere * (1.0 - smoothstep(uLiftNear - 800.0, uLiftNear, dist));
         float sK = min(forestK, 0.999);
         float seen = 1.0 - pow((1.0 - sK) / (1.0 - rho * sK), (1.0 + TREE_ASPECT * sqrt(1.0 - viewMu * viewMu)) / viewMu);
         float fd = mix(1.0, smoothstep(FOREST_NEAR, FOREST_FULL, dist), treeHere) * seen;

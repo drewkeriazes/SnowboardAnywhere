@@ -67,10 +67,10 @@ WC_TREE, WC_BUILT, WC_BARE = 10, 50, 60
 ETH_NODATA = 255
 TREE_MIN_H = 3.0        # m: WorldCover trees shorter than this in ETH are shrubs or clearings
 BARE_ROCK = 0.6         # rock weight of a cell that is all bare ground (snow covers the gentler part)
-# BUG-081: WorldCover calls a 10 m pixel tree cover from about 10% canopy, so its tree share runs about twice the
-# pack level's forest (the share under closed canopy, weighted by the drawn trees) on Vail, and ten times on the
-# low south-facing slopes (open sage and aspen read as forest). The land cover levels are calibrated to the pack
-# level where they overlap: a lookup on the tree share (blurred over CAL_SIGMA_M, so a lone 10 m tree pixel counts
+# BUG-081: WorldCover calls a 10 m pixel tree cover from about 10% canopy, so its tree share runs over the pack
+# level's forest (the share under closed canopy, weighted by the drawn trees and their stems), most on the
+# south-facing slopes (Vail, current build: 0.75 against 0.71, south faces 0.65 against 0.57; against a pack from
+# before FEAT-074's stems it read twice). The land cover levels are calibrated to the pack level where they overlap: a lookup on the tree share (blurred over CAL_SIGMA_M, so a lone 10 m tree pixel counts
 # as the clump it is) and how south-facing the cell is, fitted per pack with bilinear weights on CAL_T x CAL_S nodes.
 # A node with fewer than CAL_K cells' weight shrinks toward the share-only curve. Without a pack level (or with too
 # little overlap, CAL_MIN_CELLS) the level keeps the raw share. 16 m of blur fits as well as 32 m (Vail, fitted on
@@ -83,6 +83,12 @@ CAL_S = np.linspace(-1.0, 1.0, 5)
 CAL_K = 30.0
 CAL_MIN_CELLS = 500
 CAL_FLAT = 0.05         # height gradient below which a cell faces nowhere (aspect 0)
+# BUG-081: in the far tree ring (far_trees.py) the land cover levels take their forest from the lidar crowns instead:
+# the drawn crowns' share of the ground (the pack's and the ring's), averaged over FAR_SIGMA, mapped onto the pack
+# level's forest by a lookup fitted the same way (CAL_*) where the pack's own crowns and its forest overlap. The
+# share is read as t = share / RING_T_FULL (Vail's closed timber draws about 0.3 to 0.4). The ring's own forest
+# also joins the pack level as what the land cover is calibrated to, so the fit sees the ridges round the resort.
+RING_T_FULL = 0.4
 ATTRIBUTION = [
     "Land cover: ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium (CC BY 4.0)",
     "Canopy height: Lang et al. 2023, ETH Global Sentinel-2 10m Canopy Height 2020 (CC BY 4.0)",
@@ -133,11 +139,13 @@ def burn_runs(runs, w, h, res, min_x, max_y, k=1.0, to_px=None):
     return np.asarray(img, np.float32) / 255.0
 
 
-def tree_records(pack_dir, meta):
-    """the pack's tree instances, one (n, 6) float32 array per cell: x, y, z, height, crown radius, species"""
+def tree_records(pack_dir, meta, kind="trees"):
+    """the pack's tree instances, one (n, 6) float32 array per cell: x, y, z, height, crown radius, species;
+    kind "farTrees" gives the far tree ring's (BUG-081)"""
     inst = meta.get("instances") or {}
-    d = os.path.join(pack_dir, "trees")
-    names = inst.get("treeCells") or ([f[:-4] for f in os.listdir(d) if f.endswith(".bin")] if os.path.isdir(d) else [])
+    d = os.path.join(pack_dir, kind)
+    listed = inst.get("treeCells" if kind == "trees" else "farTreeCells")
+    names = listed or ([f[:-4] for f in os.listdir(d) if f.endswith(".bin")] if os.path.isdir(d) else [])
     for nm in names:
         p = os.path.join(d, f"{nm}.bin")
         if os.path.exists(p):
@@ -348,28 +356,73 @@ class PackForest:
         return out, np.outer(inr, inc)
 
 
-def calibrate(forest, built, south, res, xs, ys, pack, name, log=print):
-    """BUG-081: the land cover tree share of one level mapped onto the pack level's forest (see CAL_*)"""
+def calibrate(forest, built, south, res, truth, name, log=print):
+    """BUG-081: the land cover tree share of one level mapped onto the lidar forest (see CAL_*). `truth` is
+    (forest, where it holds) on the level's grid: the pack level's, and the far tree ring's where there is one."""
     from scipy import ndimage
     sig = CAL_SIGMA_M / res
     t = ndimage.gaussian_filter(forest, sig) if sig >= 0.5 else forest
-    if pack is None:
+    if truth is None:
         return forest
-    p, inside = pack.at(res, xs, ys)
+    p, inside = truth
     ok = inside & (built < 0.1)
     if ok.sum() < CAL_MIN_CELLS:
-        log(f"  {name}: {ok.sum()} cells overlap the pack level, too few to calibrate; raw land cover share kept")
+        log(f"  {name}: {ok.sum()} cells overlap the lidar forest, too few to calibrate; raw land cover share kept")
         return forest
     lut = fit_calibration(t[ok], south[ok], p[ok])
     out = np.round(apply_calibration(lut, t, south) * CAL_Q) / CAL_Q
     def part(sel, what):
         if not sel.any():
             return f"{what} none"
-        return f"{what} {forest[sel].mean():.3f} -> {out[sel].mean():.3f} (pack {p[sel].mean():.3f})"
+        return f"{what} {forest[sel].mean():.3f} -> {out[sel].mean():.3f} (lidar {p[sel].mean():.3f})"
     log(f"  {name} calibrated on {ok.sum()} cells (BUG-081): {part(ok, 'forest where both')}; "
         f"{part(ok & (south < -0.3), 'north-facing')}, {part(ok & (south > 0.3), 'south-facing')}; "
         f"whole level {forest.mean():.3f} -> {out.mean():.3f}")
     return out
+
+
+def crown_grid(recs, res, min_x, max_y, w, h):
+    """the drawn crowns' share of each res-sized cell (row 0 = north), their summed height and count"""
+    area = np.zeros((h, w), np.float64); hs = np.zeros((h, w), np.float64); n = np.zeros((h, w), np.float64)
+    for t in recs:
+        cr = crown_radii(t[:, 5], t[:, 3], t[:, 4])
+        c = np.floor((t[:, 0] - min_x) / res).astype(np.int64); r = np.floor((max_y - t[:, 1]) / res).astype(np.int64)
+        ok = (c >= 0) & (c < w) & (r >= 0) & (r < h)
+        np.add.at(area, (r[ok], c[ok]), np.pi * cr[ok] ** 2)
+        np.add.at(hs, (r[ok], c[ok]), t[ok, 3]); np.add.at(n, (r[ok], c[ok]), 1)
+    return (area / res ** 2).astype(np.float32), hs, n
+
+
+def ring_forest(pack_dir, meta, res, min_x, max_y, w, h, south, pack_truth, name, log=print):
+    """BUG-081: the forest, canopy height and weight (0..1, fading in over BLEND_M inside the ring's outer edge) of
+    the far tree ring on one land cover level's grid, or None (no ring, or too little of the pack to fit on)"""
+    inst = meta.get("instances") or {}
+    box_l = inst.get("farTreeBox")
+    if not inst.get("farTreeCells") or not box_l or pack_truth is None:
+        return None
+    from scipy import ndimage
+    p, inside = pack_truth
+    if inside.sum() < CAL_MIN_CELLS:
+        return None
+    own, ohs, on = crown_grid(tree_records(pack_dir, meta), res, min_x, max_y, w, h)
+    far, fhs, fn = crown_grid(tree_records(pack_dir, meta, "farTrees"), res, min_x, max_y, w, h)
+    sig = FAR_SIGMA / res
+    blur = (lambda a: ndimage.gaussian_filter(a, sig)) if sig >= 0.5 else (lambda a: a)
+    t_own = np.clip(blur(own) / RING_T_FULL, 0, 1); t_all = np.clip(blur(own + far) / RING_T_FULL, 0, 1)
+    lut = fit_calibration(t_own[inside], south[inside], p[inside])
+    forest = np.round(apply_calibration(lut, t_all, south) * CAL_Q) / CAL_Q
+    cnt = on + fn
+    hgt = np.where(cnt > 0, (ohs + fhs) / np.maximum(cnt, 1), 0).astype(np.float32)
+    has = (cnt > 0).astype(np.float32)
+    hgt = np.where(forest > 0, ndimage.gaussian_filter(hgt, HEIGHT_SIGMA) / np.maximum(ndimage.gaussian_filter(has, HEIGHT_SIGMA), 1e-3), 0)
+    cx = min_x + (np.arange(w) + 0.5) * res; cy = max_y - (np.arange(h) + 0.5) * res
+    dx = np.minimum(cx - box_l[0], box_l[2] - cx); dy = np.minimum(cy - box_l[1], box_l[3] - cy)
+    wgt = np.outer(smoothstep(0, BLEND_M, dy), smoothstep(0, BLEND_M, dx)).astype(np.float32)
+    sel = wgt > 0.99
+    log(f"  {name} far tree ring (BUG-081): forest {forest[sel].mean() if sel.any() else 0:.3f} over "
+        f"{sel.sum() * res * res / 1e6:.0f} km2 from {fn.sum():.0f} far crowns, fitted on {inside.sum()} pack cells "
+        f"(pack {p[inside].mean():.3f}, its crowns mapped {apply_calibration(lut, t_own[inside], south[inside]).mean():.3f})")
+    return forest, hgt, wgt
 
 
 # ------------------------------------------------------------------ DATA-019: land cover outside the pack
@@ -493,7 +546,18 @@ def landcover_level(pack_dir, raw_dir, cfg, name, res, k, rect, runs, log=print,
     if pack is not None and heights is not None:
         cx = min_x + (np.arange(w) + 0.5) * res; cy = max_y - (np.arange(h) + 0.5) * res
         south = south_facing(heights_at(heights, cx, cy), res)
-        forest = calibrate(forest, built, south, res, cx, cy, pack, name, log)
+        truth = pack.at(res, cx, cy)
+        meta = json.load(open(os.path.join(pack_dir, "meta.json"), encoding="utf-8"))
+        ring = ring_forest(pack_dir, meta, res, min_x, max_y, w, h, south, truth, name, log)
+        if ring is not None:
+            # the ring's lidar forest is what the land cover is calibrated to as well, outside the pack
+            rf, rh, rw = ring
+            p, inside = truth
+            truth = (np.where(inside, p, rf), inside | (rw > 0.99))
+        forest = calibrate(forest, built, south, res, truth, name, log)
+        if ring is not None:
+            forest = forest * (1 - rw) + rf * rw
+            height = np.where(rh > 0, height * (1 - rw) + rh * rw, height * (1 - rw))
     return write_level(pack_dir, name, to_rgba(forest, height, bare * BARE_ROCK, built), res, min_x, min_y)
 
 
