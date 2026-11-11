@@ -53,6 +53,7 @@ Notes: there is no Colorado-specific krummholz class; derive krummholz from elev
 Starting-point rules at 1 m, with NDVI = (NIR - R) / (NIR + R):
 - Conifer canopy: NDVI > 0.45 and CHM > 3 m and NIR relatively low (conifers are darker in NIR than broadleaf).
 - Aspen canopy: NDVI > 0.55 and CHM > 3 m and NIR high and green high (summer leaf-on).
+  Measured on Vail's 2023 NAIP (DATA-015, 2026-11-11): leaf-on aspen is brighter than conifer in visible and NIR but *lower* in NDVI (median 0.43 under the natural aspen class against 0.50 under spruce-fir and lodgepole), so an NDVI > 0.5 test found only 7 % of the aspen. Canopy brightness and NIR averaged over about 8 m separate them at about 90 % balanced accuracy; `species.fit_aspen` fits the two thresholds per pack. Lodgepole against spruce-fir is weaker (canopy NDVI 0.44 against 0.53, about 75 % right), so it only breaks ties on LANDFIRE's urban and developed classes.
 - Meadow / grass: NDVI 0.3 to 0.55 and CHM < 1 m.
 - Rock / scree: NDVI < 0.15, brightness (R+G+B)/3 mid-to-high, slope > 30 deg or OSM natural=bare_rock|scree|cliff. Scree has low local height variance in the DEM, outcrops high.
 - Water: NDVI < 0 and NIR very low, plus OSM natural=water.

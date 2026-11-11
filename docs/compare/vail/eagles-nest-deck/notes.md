@@ -16,3 +16,6 @@ The compass of this photosphere is good: Eagle's Nest is at a grid bearing of 21
 4. **Forest edge by the run (south-east):** real is a dense spruce wall plus aspen; the game has scattered black cones along the run edge. -> BUG-023
 5. **Lift terminal roof colour (west):** the real Pride Express top terminal has a dark blue-grey roof; the game uses the same red roof for every terminal. Minor.
 6. **Snow:** real foreground is wind-packed and tracked, with ropes, bamboo poles, a closed sign and crowds; the game has corduroy right up to the deck. Grooming here is plausible; the furniture is out of scope.
+
+## Species check (DATA-015, 2026-11-11)
+Within 150 m aspen went from 27 % to 71 % and lodgepole from 44 % to 2 %. The deck sits on `Developed-*` and urban classes, which used to fall back to lodgepole by elevation; they now take the natural forest around them (91 % aspen within 300 m), and NAIP decides aspen. The south-west band below the deck is on natural aspen pixels: 63 % aspen before, 70 % after.

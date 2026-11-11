@@ -11,3 +11,6 @@ Position and compass: the pin is 10 m from The Divide, and the Skyline Express l
 1. **Mixed aspen and spruce forest at the run edge is missing.** Real: tall aspen (pale white-grey bare trunks, fine twig crowns) mixed with spruce and fir, standing a few metres from the run on both sides and closing the view into a corridor. The pack has 0 trees within 15 m, 12 within 50 m, and of 94 trees within 100 m only **one is aspen**. The game shows open snow with lone dark cones and a wide view where the photo has a tree corridor. -> BUG-023 (density), FEAT-070 (aspen shape), aspen classification (LANDFIRE EVT, see HANDOFF)
 2. **Snow:** chopped spring snow and soft bumps; the game is smooth corduroy. -> FEAT-059 / season.
 3. **Sky:** close; scattered cumulus in both.
+
+## Species check (DATA-015, 2026-11-11)
+Within 150 m the pack is spruce 44 %, fir 51 %, aspen 1 %, before and after DATA-015. The aspen in the photo is in neither source: LANDFIRE maps the spot as `Urban Evergreen Forest` with natural spruce-fir all round (95 % of the natural forest within 300 m), and the 2023 NAIP canopy here reads as conifer in brightness, NIR, NDVI and green/red alike (north-facing, long shadows). The nearest NAIP aspen is 300 m north-east. Fixing this spot needs another source, for example leaf-off imagery.

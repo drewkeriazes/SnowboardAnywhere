@@ -44,12 +44,13 @@ def test_hash_is_stable_and_uniform():
 
 
 def run(n=40000, elev=3000.0, group=spc.G_SPRUCE_FIR, chm=15.0, northeast=0.0, wet=0.0, ridge=False, aspen_frac=0.0,
-        alpine=False, aspen_like=False, have_evt=True):
+        alpine=False, aspen_like=False, have_evt=True, naip=None):
     rng = np.random.default_rng(1)
     x, y = rng.uniform(0, 3000, n), rng.uniform(0, 3000, n)
     f = lambda v, dt=np.float64: np.full(n, v, dt)
     return spc.assign_species(x, y, f(elev), f(chm), f(group, np.int8), f(aspen_frac), f(alpine, bool), f(aspen_like, bool),
-                              f(northeast), f(wet), f(ridge, bool), rng.uniform(0, 1, n), have_evt)
+                              f(northeast), f(wet), f(ridge, bool), rng.uniform(0, 1, n), have_evt,
+                              None if naip is None else f(naip, bool))
 
 
 def share(sp, k):
@@ -168,3 +169,96 @@ def test_classify_montana_classes():
     assert c("Rocky Mountain Subalpine Mesic-Wet Spruce-Fir Forest and Woodland", "Tree")["group"] == spc.G_SPRUCE_FIR
     assert c("Rocky Mountain Poor-Site Lodgepole Pine Forest", "Tree")["group"] == spc.G_LODGEPOLE
     assert c("Northern Rocky Mountain Avalanche Chute Shrubland", "Shrub")["open"]
+
+
+# ------------------------------------------------------------------ DATA-015: built classes and the NAIP aspen fit
+TABLE = [{"VALUE": "1", "EVT_NAME": "Rocky Mountain Lodgepole Pine Forest", "EVT_LF": "Tree"},
+         {"VALUE": "2", "EVT_NAME": "Rocky Mountain Subalpine Dry-Mesic Spruce-Fir Forest and Woodland", "EVT_LF": "Tree"},
+         {"VALUE": "3", "EVT_NAME": "Western Cool Temperate Urban Evergreen Forest", "EVT_LF": "Tree"},
+         {"VALUE": "4", "EVT_NAME": "Developed-Low Intensity", "EVT_LF": "Developed"},
+         {"VALUE": "5", "EVT_NAME": "Western Cool Temperate Urban Deciduous Forest", "EVT_LF": "Tree"},
+         {"VALUE": "6", "EVT_NAME": "Rocky Mountain Subalpine-Montane Mesic Meadow", "EVT_LF": "Herb"}]
+
+
+def test_built_flag():
+    c = spc.classify_evt
+    assert c("Western Cool Temperate Urban Evergreen Forest", "Tree")["built"]
+    assert c("Developed-Roads", "Developed")["built"] and c("Western Cool Temperate Urban Herbaceous", "Herb")["built"]
+    assert not c("Western Cool Temperate Urban Deciduous Forest", "Tree")["built"]      # deciduous: aspen already
+    assert not c("Rocky Mountain Lodgepole Pine Forest", "Tree")["built"]
+    assert not c("Rocky Mountain Subalpine-Montane Mesic Meadow", "Herb")["built"]
+
+
+def test_natural_evt_fills_built_from_the_stands_around():
+    lut = spc.evt_luts(TABLE, 7)
+    img = np.full((60, 60), 6, np.int32)                  # meadow
+    img[:, :30] = 1                                       # lodgepole west
+    img[:, 30:] = 2                                       # spruce-fir east
+    img[20:40, 5:15] = 3                                  # urban evergreen inside the lodgepole
+    img[20:40, 45:55] = 4                                 # developed inside the spruce-fir
+    img[0:4, 28:32] = 5                                   # urban deciduous stays
+    out, filled, lp_share = spc.natural_evt(img, lut)
+    assert (out[20:40, 5:15] == 1).mean() > 0.95 and (out[20:40, 45:55] == 2).mean() > 0.95
+    assert filled[20:40, 5:15].all() and not filled[0:4, 28:32].any()
+    assert (out[0:4, 28:32] == 5).all() and (out[img < 3] == img[img < 3]).all()
+    assert lp_share[30, 10] > 0.95 and lp_share[30, 50] < 0.05 and 0.3 < lp_share[30, 30] < 0.7
+    assert np.array_equal(out, spc.natural_evt(img, lut)[0])                     # stable between builds
+    # on the boundary the draw is a mix of both sides
+    img2 = img.copy(); img2[:, 27:33] = 3
+    mid = spc.natural_evt(img2, lut)[0][:, 27:33]
+    assert 0.2 < (mid == 1).mean() < 0.8 and set(np.unique(mid)) <= {1, 2}
+    # no natural forest near: the built class stays
+    far = np.full((80, 80), 6, np.int32); far[:, :3] = 1; far[30:50, 60:75] = 4
+    o, f, _ = spc.natural_evt(far, lut)
+    assert (o[30:50, 60:75] == 4).all() and not f[30:50, 60:75].any()
+
+
+def test_fit_aspen_and_canopy_mean():
+    rng = np.random.default_rng(2)
+    canopy = np.ones((200, 200), bool); canopy[::3] = False
+    a = np.where(canopy, 100.0, 0.0)
+    assert np.allclose(spc.canopy_mean(a, canopy)[5:-5, 5:-5], 100.0, atol=0.5)   # gaps don't darken the stand
+    asp = np.zeros((300, 300), bool); asp[:, :150] = True
+    con = ~asp
+    bright = np.where(asp, rng.normal(70, 5, asp.shape), rng.normal(50, 5, asp.shape)).astype(np.float32)
+    nir = np.where(asp, rng.normal(157, 15, asp.shape), rng.normal(110, 15, asp.shape)).astype(np.float32)
+    tb, tn, info = spc.fit_aspen(bright, nir, asp, con)
+    assert info["fitted"] and 55 < tb < 65 and 120 < tn < 145
+    assert info["hit"] > 0.8 and info["false"] < 0.05
+    tb, tn, info = spc.fit_aspen(bright, nir, asp & (np.arange(300) < 10)[:, None] & (np.arange(300) < 10)[None], con)
+    assert not info["fitted"] and (tb, tn) == spc.ASPEN_DEFAULT
+
+
+def test_naip_decides_aspen_on_built_classes():
+    # a built pixel in an aspen-class neighbourhood: NAIP says no aspen canopy -> conifer
+    assert share(run(elev=2900, group=spc.G_ASPEN, aspen_frac=0.85, naip=True), spc.ASPEN) == 0.0
+    # NAIP sees aspen canopy -> the aspen class's share, whatever the filled group
+    s = run(elev=2900, group=spc.G_LODGEPOLE, aspen_like=True, naip=True)
+    assert abs(share(s, spc.ASPEN) - spc.NAIP_ASPEN_SHARE) < 0.02 and share(s, spc.LODGEPOLE) > 0.1
+    assert share(run(elev=3350, aspen_like=True, naip=True), spc.ASPEN) == 0.0   # not above the aspen line
+    # natural classes keep the LANDFIRE share
+    assert abs(share(run(elev=2900, group=spc.G_ASPEN, aspen_frac=0.85, naip=False), spc.ASPEN) - 0.85) < 0.02
+
+
+def test_naip_conifer_group():
+    g = np.array([spc.G_SPRUCE_FIR, spc.G_LODGEPOLE, spc.G_SPRUCE_FIR, spc.G_SPRUCE_FIR, spc.G_ASPEN, spc.G_LODGEPOLE])
+    lp = np.array([0.5, 0.5, 0.5, 0.02, 0.5, 0.5])
+    like = np.array([True, False, True, True, True, True])
+    nd = np.array([True, True, False, True, True, True])
+    out = spc.naip_conifer_group(g, lp, like, nd)
+    # NAIP picks on built classes with lodgepole around; natural classes, no lodgepole nearby and aspen keep theirs
+    assert list(out) == [spc.G_LODGEPOLE, spc.G_SPRUCE_FIR, spc.G_SPRUCE_FIR, spc.G_SPRUCE_FIR, spc.G_ASPEN, spc.G_LODGEPOLE]
+    rng = np.random.default_rng(3)
+    lpc = np.zeros((300, 300), bool); lpc[:, :150] = True
+    ndvi = np.where(lpc, rng.normal(0.44, 0.03, lpc.shape), rng.normal(0.53, 0.03, lpc.shape)).astype(np.float32)
+    t, info = spc.fit_lodgepole(ndvi, lpc, ~lpc)
+    assert info["fitted"] and 0.46 < t < 0.51 and info["hit"] > 0.8
+    assert spc.fit_lodgepole(ndvi, lpc & False, ~lpc)[0] is None
+    # imagery with no NDVI split (Big Sky): no threshold, and the groups stay as drawn
+    flat = rng.normal(0.5, 0.03, lpc.shape).astype(np.float32)
+    t, info = spc.fit_lodgepole(flat, lpc, ~lpc)
+    assert t is None and info["weak"]
+    assert list(spc.naip_conifer_group(g, lp, None, nd)) == list(g)
+    # the same guard on the aspen fit falls back to Vail's thresholds
+    tb, tn, info = spc.fit_aspen(flat * 100, flat * 200, lpc, ~lpc)
+    assert (tb, tn) == spc.ASPEN_DEFAULT and info["weak"] and not info["fitted"]

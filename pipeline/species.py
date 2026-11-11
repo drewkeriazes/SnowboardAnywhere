@@ -41,11 +41,15 @@ def classify_evt(name, lifeform):
     the only classes the fill trees are kept out of. The `Developed-*` life form (low to high intensity,
     roads) and the urban or developed herb and shrub classes are neither: unknown, so the lidar canopy and
     NAIP decide there. Developed tree classes still get a group, so a lidar tree in a village keeps a
-    plausible species."""
+    plausible species.
+    `built` (DATA-015): the class names no species (urban evergreen forest, developed, urban herb and shrub), so
+    natural_evt() takes the tree group from the natural forest around it and NAIP alone decides aspen. Urban
+    deciduous forest is not `built`: "deciduous" already is the aspen answer."""
     tree = lifeform == "Tree"
     built = lifeform == "Developed" or "Urban" in name or "Developed" in name
     c = {"group": G_NONE, "aspen": 0.0, "forest": tree, "open": not tree and not built and lifeform != "",
-         "alpine": "Alpine" in name, "riparian": "Riparian" in name, "sage": "Sagebrush" in name, "oak": "Gambel Oak" in name}
+         "alpine": "Alpine" in name, "riparian": "Riparian" in name, "sage": "Sagebrush" in name, "oak": "Gambel Oak" in name,
+         "built": built and not (tree and "Deciduous" in name)}
     if not tree:
         return c
     if "Aspen-Mixed" in name:
@@ -74,7 +78,7 @@ def classify_evt(name, lifeform):
 def evt_luts(table, n):
     """per-value lookup arrays (length n) from the .vat.dbf rows"""
     lut = {k: np.zeros(n, dt) for k, dt in (("group", np.int8), ("aspen", np.float32), ("forest", bool), ("open", bool), ("alpine", bool),
-                                            ("riparian", bool), ("sage", bool), ("oak", bool))}
+                                            ("riparian", bool), ("sage", bool), ("oak", bool), ("built", bool))}
     for r in table:
         v = int(float(r.get("VALUE", "0") or 0))
         if 0 <= v < n:
@@ -82,6 +86,128 @@ def evt_luts(table, n):
             for k in lut:
                 lut[k][v] = c[k]
     return lut
+
+
+# natural_evt: the neighbourhood (Gaussian sigma, 30 m pixels) a built pixel takes its class mix from, and the
+# least natural forest weight there (a share of the neighbourhood) to take one at all
+NATURAL_SIGMA_PX = 5.0
+NATURAL_MIN_WEIGHT = 0.02
+
+
+def natural_evt(img, lut, sigma=NATURAL_SIGMA_PX, min_weight=NATURAL_MIN_WEIGHT):
+    """DATA-015: the EVT raster with every `built` pixel replaced by a natural forest class, drawn from the mix
+    of natural forest classes around it (Gaussian weights, `sigma` pixels), so Vail's in-resort `Urban Evergreen
+    Forest` and `Developed-*` ground get the lodgepole, spruce-fir or aspen stands they sit in. The draw is a
+    hash of the pixel, so rebuilds agree. A built pixel with less than `min_weight` of natural forest nearby (a
+    town centre) keeps its class and the no-group fallback. Returns the new raster, the filled mask and the
+    lodgepole share of the natural forest around each pixel (for naip_conifer_group)."""
+    img = np.asarray(img)
+    v = np.clip(img, 0, len(lut["built"]) - 1)
+    built = lut["built"][v]
+    natural = lut["forest"][v] & ~built & (lut["group"][v] != G_NONE)
+    out = img.copy()
+    if not built.any() or not natural.any():
+        return out, np.zeros(img.shape, bool), np.zeros(img.shape, np.float32)
+    classes = np.unique(img[natural])
+    w = np.stack([ndimage.gaussian_filter((img == c).astype(np.float32) * natural, sigma, mode="constant") for c in classes])
+    total = w.sum(0)
+    lp = np.isin(classes, np.flatnonzero(lut["group"] == G_LODGEPOLE))
+    lp_share = np.where(total > 0, w[lp].sum(0) / np.maximum(total, 1e-9), 0).astype(np.float32)
+    fill = built & (total >= min_weight)
+    r, c = np.nonzero(fill)
+    u = hash01(c.astype(np.float64), r.astype(np.float64), 11) * total[r, c]
+    pick = (np.cumsum(w[:, r, c], axis=0) < u[None]).sum(0)
+    out[r, c] = classes[np.minimum(pick, len(classes) - 1)]
+    return out, fill, lp_share
+
+
+# NAIP aspen (DATA-015): canopy brightness and NIR averaged over this Gaussian sigma (2 m cells), so a stand
+# reads as one colour through its crown shadows; the Vail 2023 fit, used when a pack has too few labelled cells
+ASPEN_SIGMA = 4.0
+# the canopy cells the colours are averaged over: leafy crowns, not the cured grass between them (NDVI < 0.30)
+LEAF_NDVI = 0.35
+ASPEN_DEFAULT = (60.0, 134.0)
+ASPEN_MIN_LABELS = 20000
+# a fit is used only when it separates the two classes: hit rate minus false rate at least this (balanced
+# accuracy 0.65); otherwise another resort's imagery has no such split (Big Sky's lodgepole is not lower in NDVI)
+MIN_SEPARATION = 0.3
+# aspen share where NAIP sees aspen canopy on a built class: the aspen class's own share (classify_evt)
+NAIP_ASPEN_SHARE = 0.85
+
+
+def canopy_mean(a, canopy, sigma=ASPEN_SIGMA):
+    """`a` averaged over the canopy cells within `sigma` cells (float32; 0 where no canopy is near)"""
+    m = canopy.astype(np.float32)
+    w = ndimage.gaussian_filter(m, sigma)
+    s = ndimage.gaussian_filter(np.asarray(a, np.float32) * m, sigma)
+    return np.where(w > 1e-3, s / np.maximum(w, 1e-3), 0).astype(np.float32)
+
+
+def best_threshold(pos, neg):
+    """the threshold t (over the pooled 2nd..98th percentiles) for `x > t` with the best balanced accuracy on
+    positives `pos` and negatives `neg`; returns t, hit rate on pos, false rate on neg"""
+    ts = np.percentile(np.concatenate([pos, neg]), np.arange(2, 99))
+    hit = (pos[None, :] > ts[:, None]).mean(1); false = (neg[None, :] > ts[:, None]).mean(1)
+    i = int(np.argmax(hit - false))
+    return float(ts[i]), float(hit[i]), float(false[i])
+
+
+def fit_aspen(bright_s, nir_s, aspen_cells, conifer_cells, rng=None, n=200000):
+    """DATA-015: fit the NAIP aspen thresholds on a pack's own imagery: canopy-mean brightness and NIR under the
+    natural aspen class against natural spruce-fir and lodgepole. Leaf-on aspen is brighter in both (and lower
+    in NDVI, which is why the old NDVI > 0.5 rule found 7 % of Vail's aspen). Returns (bright_t, nir_t, info);
+    the Vail defaults when either side has fewer than ASPEN_MIN_LABELS cells or the fit doesn't separate them
+    (info["weak"])."""
+    ia, ic = np.flatnonzero(aspen_cells), np.flatnonzero(conifer_cells)
+    if min(len(ia), len(ic)) < ASPEN_MIN_LABELS:
+        return ASPEN_DEFAULT + ({"fitted": False, "aspen": len(ia), "conifer": len(ic)},)
+    rng = rng or np.random.default_rng(5)
+    ia = rng.choice(ia, min(n, len(ia)), replace=False); ic = rng.choice(ic, min(n, len(ic)), replace=False)
+    b, nr = bright_s.ravel(), nir_s.ravel()
+    tb = best_threshold(b[ia], b[ic])[0]
+    tn = best_threshold(nr[ia], nr[ic])[0]
+    hit = float(np.mean((b[ia] > tb) & (nr[ia] > tn))); false = float(np.mean((b[ic] > tb) & (nr[ic] > tn)))
+    info = {"aspen": int(aspen_cells.sum()), "conifer": int(conifer_cells.sum()), "hit": hit, "false": false}
+    if hit - false < MIN_SEPARATION:
+        return ASPEN_DEFAULT + (dict(info, fitted=False, weak=True),)
+    return tb, tn, dict(info, fitted=True)
+
+
+# NAIP lodgepole (DATA-015): lodgepole canopy reads lower in NDVI than spruce-fir (Vail 2023 cores: median 0.44
+# against 0.53, about 75 % right on Vail), weaker than the aspen split, so it only breaks the tie on a built
+# class where the natural forest around has at least LODGEPOLE_MIN_SHARE lodgepole. No default: an NDVI split
+# doesn't carry from one resort's imagery to another's, so without a usable fit there is no tie-breaker.
+LODGEPOLE_MIN_SHARE = 0.1
+
+
+def fit_lodgepole(ndvi_s, lodgepole_cells, spruce_fir_cells, rng=None, n=200000):
+    """the canopy-mean NDVI under which a conifer reads as lodgepole, fitted on the natural lodgepole and
+    spruce-fir classes; returns (t, info), t None when either side has too few cells or the fit doesn't
+    separate them (info["weak"])"""
+    il, isf = np.flatnonzero(lodgepole_cells), np.flatnonzero(spruce_fir_cells)
+    if min(len(il), len(isf)) < ASPEN_MIN_LABELS:
+        return None, {"fitted": False, "lodgepole": len(il), "spruce_fir": len(isf)}
+    rng = rng or np.random.default_rng(6)
+    il = rng.choice(il, min(n, len(il)), replace=False); isf = rng.choice(isf, min(n, len(isf)), replace=False)
+    x = ndvi_s.ravel()
+    t, hit, false = best_threshold(-x[il], -x[isf])
+    info = {"lodgepole": int(lodgepole_cells.sum()), "spruce_fir": int(spruce_fir_cells.sum()), "hit": hit, "false": false}
+    if hit - false < MIN_SEPARATION:
+        return None, dict(info, fitted=False, weak=True)
+    return -t, dict(info, fitted=True)
+
+
+def naip_conifer_group(group, lp_share, lodgepole_like, naip_decides, min_share=LODGEPOLE_MIN_SHARE):
+    """DATA-015: on a built class (`naip_decides`) whose filled group is spruce-fir or lodgepole and whose natural
+    forest around holds at least `min_share` lodgepole, NAIP picks between the two: lodgepole where the canopy
+    reads lodgepole (`lodgepole_like`), spruce-fir elsewhere. Other trees keep their group, and all do when
+    `lodgepole_like` is None (no usable fit)."""
+    g = np.asarray(group).copy()
+    if lodgepole_like is None:
+        return g
+    m = (np.asarray(naip_decides, bool) & np.isin(g, (G_SPRUCE_FIR, G_LODGEPOLE)) & (np.asarray(lp_share) >= min_share))
+    g[m] = np.where(np.asarray(lodgepole_like, bool)[m], G_LODGEPOLE, G_SPRUCE_FIR)
+    return g
 
 
 _LF_NUM = re.compile(r"(\d+(?:\.\d+)?)")
@@ -144,13 +270,16 @@ def lodgepole_share_no_evt(elev, dry):
     return np.clip(0.65 * smoothstep(3250, 2950, elev) * (1 + 0.3 * np.asarray(dry)), 0, 0.9)
 
 
-def assign_species(x, y, elev, chm_at, group, aspen_frac, alpine, aspen_like, northeast, wet, ridge, aspen_roll, have_evt):
+def assign_species(x, y, elev, chm_at, group, aspen_frac, alpine, aspen_like, northeast, wet, ridge, aspen_roll, have_evt,
+                   naip_decides=None):
     """species id per tree (int8 array). Inputs are per-tree arrays:
     x, y        local metres (hash seed)
     elev        ground height (m); chm_at measured lidar canopy height (0 in gaps)
     group       LANDFIRE group (G_*); aspen_frac the class's aspen share; alpine an alpine class
-    aspen_like  NAIP bright-green crown; northeast -1..1 (north + east aspect); wet 0..1 near water
+    aspen_like  NAIP aspen canopy (fit_aspen); northeast -1..1 (north + east aspect); wet 0..1 near water
     ridge       exposed crest; aspen_roll uniform 0..1 (the existing seeded draw); have_evt False = no LANDFIRE
+    naip_decides  (DATA-015) the tree stands on a `built` class: its group came from natural_evt and NAIP alone
+                decides aspen, at the aspen class's share where NAIP sees aspen canopy and never elsewhere
     """
     n = len(x)
     u = hash01(x, y, 1)       # spruce / fir
@@ -164,6 +293,10 @@ def assign_species(x, y, elev, chm_at, group, aspen_frac, alpine, aspen_like, no
         none = group == G_NONE
         sp[none & (v < lodgepole_share_no_evt(elev, -northeast))] = LODGEPOLE
         is_aspen = ((aspen_roll < aspen_frac) | (aspen_like & (aspen_roll < 0.5))) & (elev < 3300)
+        if naip_decides is not None:
+            nd = np.asarray(naip_decides, bool)
+            al, ar, el = np.asarray(aspen_like, bool), np.asarray(aspen_roll), np.asarray(elev)
+            is_aspen[nd] = al[nd] & (ar[nd] < NAIP_ASPEN_SHARE) & (el[nd] < 3300)
     else:
         sp[v < lodgepole_share_no_evt(elev, -northeast)] = LODGEPOLE
         is_aspen = aspen_like & (elev < 3150)
