@@ -216,7 +216,7 @@ Flow: `resorts/<slug>.json` -> `gen_manifest.py` -> `manifests/<slug>.json` -> `
 - `gen_manifest.py` writes `manifests/<slug>.json`, the download list (needs `pip install pyproj`).
 - `fetch.ps1` resumable Windows downloader (about 1.4 GB for Vail; `-RawDir` picks the destination), launched by `fetch_vail.cmd` in the repo root. Run one fetch at a time.
 - `fetch_static.ps1` (launcher `fetch_static.cmd`) Geofabrik Colorado OSM extract and USGS GNIS names into `raw/static/`.
-- `fetch_landfire.mjs <slug> <email>` (launcher `fetch_landfire.cmd`) LANDFIRE EVT clip via the LFPS job service into `raw/<slug>/landfire/`.
+- `fetch_landfire.mjs <slug> <email> [EVT|EVC|EVH] [--raw <raw_root>] [--force]` (launcher `fetch_landfire.cmd [raw_root]`, which fetches all three) LANDFIRE clips via the LFPS job service: vegetation type (EVT) into `raw/<slug>/landfire/`, cover (EVC) and height (EVH, DATA-010) into `landfire/evc/` and `landfire/evh/`. A product already on disk is skipped unless `--force`.
 - `fetch_grooming.py <slug> <raw_dir>` the resort's real grooming history (Vail's nightly reports, from Internet Archive snapshots of its terrain status page) into `raw/<slug>/grooming/`. Groomed runs in the pack come only from these reports and OSM `piste:grooming` tags.
 - `extract_osm.py` cuts `osm/*.json` and `names/gnis.json` out of the static files (needs `pip install osmium`), the Overpass-free route for future resorts.
 - `build_pack.py <slug> <raw_dir> <out_dir>` raw inputs to a resort pack (`pip install -r pipeline/requirements.txt`), about 4 minutes and 234 MB for Vail.
