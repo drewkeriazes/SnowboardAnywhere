@@ -27,3 +27,6 @@ Real: Street View, Jan 2019 (link in spot.json; not stored here). Game: `game-ea
 `eye-east.jpg` and `eye-northwest.jpg`: 1.7 m above the converted Street View position (-620, 94), headings corrected to grid north, Street View pitch and FOV. These replace the hand-framed shots above for future comparisons; re-shoot with `cd game && node tools/shoot_spots.mjs vail back-bowls-campbells --gpu`.
 - **North-west:** at the photo's 15 degrees up, the game slope rises gently to a crest well away from the camera, with about 15 small trees on it. Confirms the two findings above (slope too gentle at this point, stand edge far too thin). -> BUG-023
 - **East:** a large solid black pyramid right of centre is a krummholz instance 12 m from the camera (one dark 6-sided cone, 4.5 m tall). Up close it reads as a black tent, not a shrub. -> FEAT-070
+
+## Re-shot for BUG-023 (2026-11-11)
+Eye shots re-taken on a pack built from main plus BUG-023 (crown heights from the tallest lidar return, not the blurred CHM). North-west: the crest now carries a continuous band of tall spruce and fir (since BUG-027 / BUG-028 / FEAT-074), which is what the photo shows. East: lone trees on the bowl faces, close to the photo. Within 200 m the lidar finds about one crown per tree shadow in the 2023 NAIP; LANDFIRE calls 92 % of this disc open, so only those crowns stand there, no generated stems.

@@ -13,3 +13,6 @@ Real: Street View, Feb 2014 (links in spot.json; not stored here). Game: `game-e
 `eye-east.jpg` and `eye-south.jpg`: 1.7 m above the converted Street View position (2866, -2968), headings corrected to grid north, Street View pitch and FOV. Re-shoot with `cd game && node tools/shoot_spots.mjs vail blue-sky-hornsilver --gpu`.
 - **Same finding, clearer:** looking east the game is an open snowfield rising to a line of small cones and the lift; the real spot is a glade with forest close on all sides. -> BUG-023
 - **Black pyramids up close:** the large solid black cones at the right edge (east) and the left (south) are krummholz instances (4.5 m tall; the nearest is 16 m from the camera), each a single flat-shaded cone. -> FEAT-070
+
+## Re-shot for BUG-023 (2026-11-11)
+Eye shots re-taken on a pack built from main plus BUG-023 (crown heights from the tallest lidar return, not the blurred CHM). East and south: a glade with forest close round it, as in the photo. About 420 trees and stems per hectare within 300 m.
