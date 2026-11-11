@@ -6,8 +6,16 @@ Reads pipeline/resorts/<slug>.json and, for the `lidar` source and each entry of
 ept-hierarchy on the public bucket and keeps every node with points that intersects the box: down to
 `max_depth_resort` where the node touches the ski area (`lonlat_bbox`), `max_depth_outside` in the rest of the
 buffered box (`utm_bbox`, in the config's `crs`). An extra source may carry its own `utm_bbox` to clip it to the
-part the main dataset misses. Writes each source's `nodes_file` next to the config (not with --dry)."""
-import json, os, sys, urllib.request
+part the main dataset misses. Writes each source's `nodes_file` next to the config (not with --dry).
+
+    python pipeline/ept_select.py <slug> --deep [--dry]
+
+DATA-011: the deep tier. Selects the main source's nodes deeper than `max_depth_resort`, down to
+`max_depth_deep`, that touch a disc of `deep_spots_m` round each compare spot named in `deep_spots`
+(`docs/compare/<slug>/<name>/spot.json`) and sit under a node of `nodes_file` (EPT levels add points, so a deep node
+is only worth having under its fetched parent), and writes them to `deep_nodes_file`; `gen_manifest.py` adds them to `ept/` beside the main nodes, and
+`build_pack.py` reads every `ept/*.laz`, so the denser points merge into the DSM with no other change."""
+import glob, json, os, sys, urllib.request
 from pyproj import Transformer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -30,10 +38,44 @@ def sources(cfg):
     return [main] + list(cfg["lidar"].get("extra", []))
 
 
+def walk(base, fetch_json, keep):
+    """every node with points that `keep(key, depth)` accepts, as (key, count); children are only visited
+    under an accepted node, and sub-hierarchies are fetched on the way down"""
+    cache = {}
+
+    def hier(key):
+        if key not in cache: cache[key] = fetch_json(f"{base}ept-hierarchy/{key}.json")
+        return cache[key]
+
+    counts = dict(hier("0-0-0-0"))
+    out, stack = [], ["0-0-0-0"]
+    while stack:
+        key = stack.pop()
+        c = counts.get(key)
+        if c is None: continue
+        if c == -1:
+            counts.update(hier(key)); c = counts[key]
+        if c <= 0: continue
+        d, x, y, z = map(int, key.split("-"))
+        if not keep(key, d): continue
+        out.append((key, c))
+        for dx in (0, 1):
+            for dy in (0, 1):
+                for dz in (0, 1):
+                    stack.append(f"{d+1}-{2*x+dx}-{2*y+dy}-{2*z+dz}")
+    return out
+
+
+def _base(src): return src["ept"] if src["ept"].endswith("/") else src["ept"] + "/"
+
+
+def _json(url): return json.load(urllib.request.urlopen(url, timeout=60))
+
+
 def select(cfg, src, fetch_json=None):
     """Node keys to download for one source, plus the point count over the ski area."""
-    fetch_json = fetch_json or (lambda url: json.load(urllib.request.urlopen(url, timeout=60)))
-    base = src["ept"] if src["ept"].endswith("/") else src["ept"] + "/"
+    fetch_json = fetch_json or _json
+    base = _base(src)
     ept = fetch_json(base + "ept.json")
     b = ept["bounds"]; srs = ept["srs"].get("horizontal", "3857")
     utm_to = Transformer.from_crs(cfg["crs"], f"EPSG:{srs}", always_xy=True)
@@ -48,32 +90,48 @@ def select(cfg, src, fetch_json=None):
         out = clip(out, box(utm_to, *src["utm_bbox"]))
     inner = clip(box(ll_to, *cfg["lonlat_bbox"]), out)    # ski area
     deep, shallow = int(src["max_depth_resort"]), int(src["max_depth_outside"])
-    cache = {}
 
-    def hier(key):
-        if key not in cache: cache[key] = fetch_json(f"{base}ept-hierarchy/{key}.json")
-        return cache[key]
+    def keep(key, d):
+        r = node_box(b, key)
+        return hit(r, out) and d <= (deep if hit(r, inner) else shallow)
 
-    counts = dict(hier("0-0-0-0"))
-    sel, pts_in = [], 0
-    stack = ["0-0-0-0"]
-    while stack:
-        key = stack.pop()
-        c = counts.get(key)
-        if c is None: continue
-        if c == -1:
-            counts.update(hier(key)); c = counts[key]
-        if c <= 0: continue
-        r = node_box(b, key); d, x, y, z = map(int, key.split("-"))
-        lim = deep if hit(r, inner) else shallow
-        if not hit(r, out) or d > lim: continue
-        sel.append(key)
-        if hit(r, inner): pts_in += c
-        for dx in (0, 1):
-            for dy in (0, 1):
-                for dz in (0, 1):
-                    stack.append(f"{d+1}-{2*x+dx}-{2*y+dy}-{2*z+dz}")
-    return sel, pts_in
+    sel = walk(base, fetch_json, keep)
+    return [k for k, _ in sel], sum(c for k, c in sel if hit(node_box(b, k), inner))
+
+
+def deep_select(cfg, src, spots, have=None, fetch_json=None):
+    """DATA-011: node keys deeper than `max_depth_resort`, to `max_depth_deep`, whose box touches a disc of
+    `deep_spots_m` round any of `spots` (local metres, x east, y north of cfg["origin"]) and, with `have` (the
+    fetched node keys), whose `max_depth_resort` ancestor is one of them; plus their point count"""
+    fetch_json = fetch_json or _json
+    base = _base(src)
+    ept = fetch_json(base + "ept.json")
+    b = ept["bounds"]; srs = ept["srs"].get("horizontal", "3857")
+    to_local = Transformer.from_crs(f"EPSG:{srs}", cfg["crs"], always_xy=True)
+    ox, oy = cfg["origin"]
+    top, bottom, rad = int(src["max_depth_resort"]), int(src["max_depth_deep"]), float(src["deep_spots_m"])
+
+    def keep(key, d):
+        if d > bottom or (have is not None and d == top and key not in have): return False
+        r = node_box(b, key)
+        xs, ys = to_local.transform([r[0], r[2], r[0], r[2]], [r[1], r[1], r[3], r[3]])
+        x0, x1, y0, y1 = min(xs) - ox, max(xs) - ox, min(ys) - oy, max(ys) - oy
+        # disc against the node's box in local metres (the box of the projected corners, a few metres generous)
+        return any((min(max(sx, x0), x1) - sx) ** 2 + (min(max(sy, y0), y1) - sy) ** 2 <= rad * rad
+                   for sx, sy in spots)
+
+    sel = [(k, c) for k, c in walk(base, fetch_json, keep) if int(k.split("-")[0]) > top]
+    return [k for k, _ in sel], sum(c for _, c in sel)
+
+
+def load_spots(slug):
+    """{name: (x, y)} game positions (local metres) of the compare spots, docs/compare/<slug>/<name>/spot.json"""
+    repo = os.path.dirname(HERE); out = {}
+    for p in sorted(glob.glob(os.path.join(repo, "docs", "compare", slug, "*", "spot.json"))):
+        with open(p, encoding="utf-8") as f:
+            g = json.load(f)["game"]
+        out[os.path.basename(os.path.dirname(p))] = (float(g["x"]), float(g["y"]))
+    return out
 
 
 def main(argv):
@@ -81,6 +139,25 @@ def main(argv):
         print(__doc__); return 2
     slug, dry = argv[0], "--dry" in argv
     cfg = json.load(open(os.path.join(HERE, "resorts", f"{slug}.json"), encoding="utf-8"))
+    if "--deep" in argv:
+        src = sources(cfg)[0]
+        if "deep_nodes_file" not in src:
+            print(f"{slug}.json lidar has no deep tier (max_depth_deep, deep_spots, deep_spots_m, deep_nodes_file)")
+            return 2
+        known = load_spots(slug)
+        missing = [n for n in src["deep_spots"] if n not in known]
+        if missing:
+            print("no docs/compare spot for", ", ".join(missing)); return 2
+        spots = [known[n] for n in src["deep_spots"]]
+        with open(os.path.join(HERE, "resorts", src["nodes_file"])) as f:
+            have = set(f.read().split())
+        sel, pts = deep_select(cfg, src, spots, have)
+        print(src["dataset"], "deep nodes", len(sel), "points", pts, "round", len(spots), "spots, depths",
+              src["max_depth_resort"] + 1, "to", src["max_depth_deep"])
+        if not dry:
+            with open(os.path.join(HERE, "resorts", src["deep_nodes_file"]), "w") as f:
+                f.write(" ".join(sel))
+        return 0
     for src in sources(cfg):
         sel, pts_in = select(cfg, src)
         print(src["dataset"], "nodes", len(sel), "points in ski box", pts_in,

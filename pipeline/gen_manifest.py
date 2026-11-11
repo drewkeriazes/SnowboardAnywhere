@@ -102,6 +102,10 @@ for k_src, src in enumerate([cfg["lidar"]] + list(cfg["lidar"].get("extra", []))
     ept = src["ept"]; sub = "ept" if k_src == 0 else f"ept/{src['dataset']}"
     add(ept + "ept.json", f"{sub}/ept.json")
     nodes = open(os.path.join(HERE, "resorts", src["nodes_file"])).read().split()
+    # DATA-011: the deep tier (ept_select.py --deep), deeper nodes round chosen spots, beside the main ones
+    deep = os.path.join(HERE, "resorts", src.get("deep_nodes_file", ""))
+    if src.get("deep_nodes_file") and os.path.exists(deep):
+        nodes += open(deep).read().split()
     for k in nodes:
         add(f"{ept}ept-data/{k}.laz", f"{sub}/{k}.laz")
 
