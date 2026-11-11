@@ -1,6 +1,6 @@
 # RPG-style rider stats (EPIC-13, #465)
 
-Researched 2026-11-10, refined the same day against `main` at 30a335a. Drew is not sure about this epic, so it is built to answer one question cheaply: **is a rider report card fun?** Two small cards answer it. Everything else waits on that answer.
+Researched 2026-11-10, refined the same day against `main` at 30a335a. This replaces the first draft (a8c62e8, four approaches A to D); v1 is approach A. Drew is not sure about this epic, so it is built to answer one question cheaply: **is a rider report card fun?** Two small cards answer it. Everything else waits on that answer.
 
 ## 1. The rule
 
@@ -40,7 +40,7 @@ Nothing new is needed in the physics. Only three callbacks and a scoring file.
 ## 4. v1: the report card (two cards)
 
 ### 4.1 Events (FEAT-203, #475)
-Three new events, emitted only at the end of a thing (never per frame):
+Three new events, emitted only at the end of a thing (never per frame). FEAT-189 trick scoring reads the same events:
 
 ```ts
 | { type: 'turnEnd'; time: number; carve: number; edgePeak: number; speed: number;
