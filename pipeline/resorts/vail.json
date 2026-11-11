@@ -117,12 +117,7 @@
     "dataset": "USGS_LPC_CO_Central_Western_2016_LAS_2018",
     "max_depth_resort": 9,
     "max_depth_outside": 8,
-    "nodes_file": "vail_ept_nodes.txt",
-    "max_depth_deep": 11,
-    "deep_spots_m": 150,
-    "deep_spots": ["born-free", "mid-vail-wildwood", "prima-browns-face", "blue-sky-the-divide",
-                   "mongolia-bowl", "china-bowl-north-rim", "back-bowls-campbells"],
-    "deep_nodes_file": "vail_ept_deep_nodes.txt"
+    "nodes_file": "vail_ept_nodes.txt"
   },
   "attribution": [
     "Elevation: USGS 3DEP (CO_Central_Western_2016 1 m lidar DEM), public domain",
