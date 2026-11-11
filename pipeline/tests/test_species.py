@@ -18,7 +18,15 @@ def test_classify_vail_classes():
     rip = c("Rocky Mountain Subalpine-Montane Riparian Woodland", "Tree")
     assert rip["group"] == spc.G_SPRUCE_FIR and rip["riparian"] and rip["forest"]
     urb = c("Western Cool Temperate Urban Evergreen Forest", "Tree")
-    assert urb["group"] == spc.G_SPRUCE_FIR and not urb["forest"]     # a species for village trees, no fill trees
+    assert urb["group"] == spc.G_SPRUCE_FIR and urb["forest"] and not urb["open"]   # BUG-027: in-resort forest gets fill
+    for nm, lf in (("Developed-Low Intensity", "Developed"), ("Developed-Medium Intensity", "Developed"), ("Developed-Roads", "Developed"),
+                   ("Western Cool Temperate Urban Herbaceous", "Herb"), ("Western Cool Temperate Developed Shrubland", "Shrub")):
+        d = c(nm, lf)
+        assert not d["forest"] and not d["open"], nm        # unknown: the lidar canopy and NAIP decide
+    for nm, lf in (("Rocky Mountain Subalpine-Montane Mesic Meadow", "Herb"), ("Inter-Mountain Basins Montane Sagebrush Steppe", "Shrub"),
+                   ("Rocky Mountain Alpine Bedrock and Scree", "Sparse"), ("Open Water", "Water"),
+                   ("Southern Rocky Mountain Montane-Subalpine Grassland", "Herb")):
+        assert c(nm, lf)["open"], nm                         # truly open: no fill trees
     assert c("Inter-Mountain Basins Montane Sagebrush Steppe", "Shrub")["sage"]
     assert c("Rocky Mountain Gambel Oak-Mixed Montane Shrubland", "Shrub")["oak"]
     meadow = c("Rocky Mountain Subalpine-Montane Mesic Meadow", "Herb")
@@ -131,3 +139,19 @@ def test_band_report_and_debug_png(tmp_path):
     p = tmp_path / "s.png"
     spc.debug_png(str(p), np.array([5.0, 95.0]), np.array([95.0, 5.0]), np.array([0, 4]), np.ones((50, 50), np.int8), 0.0, 100.0, 100, 100)
     assert p.exists()
+
+
+def test_lf_cover_and_height_from_class_names():
+    """DATA-010: LANDFIRE EVC and EVH values come from the class names (LF 2024 has 1 % and 1 m classes)."""
+    assert abs(spc.lf_tree_cover("Tree Cover = 45%") - 0.45) < 1e-6
+    assert abs(spc.lf_tree_cover("Tree Cover >= 10 and < 20%") - 0.15) < 1e-6     # older range classes: the midpoint
+    for nm in ("Shrub Cover = 40%", "Herb Cover = 20%", "Developed-Upland Evergreen Forest", "Open Water", "Sparse Vegetation Canopy"):
+        assert np.isnan(spc.lf_tree_cover(nm)), nm
+    assert spc.lf_tree_height("Tree Height = 17 meters") == 17
+    assert spc.lf_tree_height("Tree Height = 1 meter") == 1
+    assert spc.lf_tree_height("Tree Height >= 25 meters") == 25
+    assert np.isnan(spc.lf_tree_height("Shrub Height = 1.5 meters"))
+    table = [{"VALUE": "145", "CLASSNAMES": "Tree Cover = 45%"}, {"VALUE": "14", "CLASSNAMES": "Developed-Upland Evergreen Forest"},
+             {"VALUE": "999", "CLASSNAMES": "Tree Cover = 99%"}]          # out of range: ignored
+    lut = spc.lf_value_lut(table, 200, spc.lf_tree_cover)
+    assert lut.dtype == np.float32 and abs(lut[145] - 0.45) < 1e-6 and np.isnan(lut[14]) and np.isnan(lut[0])
