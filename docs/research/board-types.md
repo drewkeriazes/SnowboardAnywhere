@@ -1,6 +1,6 @@
 # Board types with stats that change the ride (EPIC-12, #464)
 
-Designed 2026-11-10, refined the same day against `main` at 30a335a. Cards: #467 to #474.
+Designed 2026-11-10, refined the same day against `main` at 30a335a. This replaces the first draft (last at cfaf6ec). Cards: #467 to #474 (section 6).
 
 Idea from Drew: pick a board (a real model) and it rides differently. KISS: a board is a small stat table that scales the feel constants the rider already has. No new physics.
 
@@ -69,6 +69,21 @@ Values are design values until filled from the maker's page. Verified (boardom.c
 
 ## 6. Order
 #467 core, #468 catalog and picker, #469 mesh, #470 bindings, #471 wax, #472 alpine, #474 skis, #473 splitboard.
+
+| Card | What |
+|---|---|
+| FEAT-195 (#467) | Board stats drive the feel (`Boards.ts`, `boardFeel`, default unchanged) |
+| FEAT-196 (#468) | Catalog with checked specs and a picker |
+| FEAT-197 (#469) | Board mesh follows the board (length, width, shape, invented topsheets) |
+| FEAT-198 (#470) | Stance setup: width, angles, setback |
+| FEAT-199 (#471) | Wax and tune: glide from wax vs snow temperature, edge sharpness for ice |
+| FEAT-200 (#472) | Alpine hardboot, own poses |
+| FEAT-201 (#473) | Splitboard: split, skin uphill, transition |
+| FEAT-202 (#474) | Ski types on the same system |
+
+Researched ranges for #470 and #472:
+- Stance angles (Jones stance guide), front / back: all-mountain +15 to +18 / 0; duck +15 to +21 / -3 to -12; freeride +18 to +24 / 0 to +9; carving +24 to +30 / +9 to +15. Width within 2 cm of the board's reference stance; powder setback 2 to 5 cm.
+- Alpine (alpinecarving.com): angles about 45 to 60 deg, front 3 to 5 deg above rear.
 
 ## Sources
 - [Ride Warpig 2025-2026 specs (boardom.co)](https://boardom.co/library/snowboards/ride/warpig/2025-2026)
