@@ -482,6 +482,19 @@ export class Vegetation {
     cell.col = col;
   }
 
+  /** the cell keys over cx0..cx1 x cy0..cy1, row by row; rebuilt only when the range changes, so the per-frame lookups allocate nothing */
+  private nearKeys(cx0: number, cx1: number, cy0: number, cy1: number): string[] {
+    const r = this.keyRange;
+    if (r[0] !== cx0 || r[1] !== cx1 || r[2] !== cy0 || r[3] !== cy1) {
+      r[0] = cx0; r[1] = cx1; r[2] = cy0; r[3] = cy1;
+      this.keyCache.length = 0;
+      for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) this.keyCache.push(`${cx}_${cy}`);
+    }
+    return this.keyCache;
+  }
+  private readonly keyCache: string[] = [];
+  private readonly keyRange = [NaN, NaN, NaN, NaN];
+
   /**
    * FEAT-217: the needled crown (of the trees drawn) a rider at (x, y, z) (the board, pack metres) is
    * deepest in, into `out`; false when the body touches none (`TreeBrush.ts`, `crownOverlap`).
@@ -493,8 +506,9 @@ export class Vegetation {
     let best = 0;
     const cx0 = Math.floor((x - reach - inst.minX) / cs), cx1 = Math.floor((x + reach - inst.minX) / cs);
     const cy0 = Math.floor((y - reach - inst.minY) / cs), cy1 = Math.floor((y + reach - inst.minY) / cs);
-    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
-      const cell = this.cells.get(`${cx}_${cy}`);
+    const keys = this.nearKeys(cx0, cx1, cy0, cy1);
+    for (let cy = cy0, k = 0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++, k++) {
+      const cell = this.cells.get(keys[k]);
       if (!cell || !cell.order || z > cell.zMax || z + 2 < cell.zMin) continue;
       const d = cell.data!, cr = cell.cr!, sp = cell.sp!, minX = inst.minX + cx * cs, minY = inst.minY + cy * cs;
       const tx0 = Math.max(0, Math.floor((x - reach - minX) / ts)), tx1 = Math.min(TILES - 1, Math.floor((x + reach - minX) / ts));
@@ -527,8 +541,9 @@ export class Vegetation {
     let best = Infinity;
     const cx0 = Math.floor((x - R - inst.minX) / cs), cx1 = Math.floor((x + R - inst.minX) / cs);
     const cy0 = Math.floor((y - R - inst.minY) / cs), cy1 = Math.floor((y + R - inst.minY) / cs);
-    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
-      const cell = this.cells.get(`${cx}_${cy}`);
+    const keys = this.nearKeys(cx0, cx1, cy0, cy1);
+    for (let cy = cy0, k = 0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++, k++) {
+      const cell = this.cells.get(keys[k]);
       if (!cell || !cell.order || z > cell.zMax || z + 2 < cell.zMin) continue;
       const d = cell.data!, minX = inst.minX + cx * cs, minY = inst.minY + cy * cs;
       const tx0 = Math.max(0, Math.floor((x - R - minX) / ts)), tx1 = Math.min(TILES - 1, Math.floor((x + R - minX) / ts));
