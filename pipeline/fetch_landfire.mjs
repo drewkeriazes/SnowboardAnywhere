@@ -1,22 +1,35 @@
 #!/usr/bin/env node
-// Downloads a LANDFIRE Existing Vegetation Type (EVT) clip for a resort via the LANDFIRE Product
-// Service (LFPS) v2 REST API (the old ArcGIS GPServer submitJob endpoint now returns the web page).
+// Downloads a LANDFIRE clip for a resort via the LANDFIRE Product Service (LFPS) v2 REST API (the old
+// ArcGIS GPServer submitJob endpoint now returns the web page). Products: EVT (existing vegetation type,
+// species and forest extent), EVC (existing vegetation cover, canopy fraction) and EVH (existing vegetation
+// height), DATA-010.
 //   GET /api/job/submit?Email&Layer_List&Area_of_Interest[&Output_Projection&Resample_Resolution] -> { jobId, status }
 //   GET /api/job/status?JobId=...  -> { jobId, status, queuePosition, messages, outputFile }  (poll until Succeeded)
-//   download outputFile (zip: .tif, .tfw, .tif.aux.xml, metadata xml), unzip next to it
+//   download outputFile (zip: .tif, .tfw, .tif.aux.xml, .tif.vat.dbf, metadata xml), unzip next to it
 // Source: LFPS user guide https://lfps.usgs.gov/LFProductsServiceUserGuide.pdf and the rlandfire
 // client (R/checkStatus.R reads resp$outputFile). Runs on Drew's PC (Node 18+, no installs).
 //
-// Usage: node pipeline/fetch_landfire.mjs <slug> <email> [layer]
-// Layer names are "LF<year>_EVT". With no layer given it tries the newest first and falls back.
-// Output: raw/<slug>/landfire/<layer>.zip and the unzipped files.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+// Usage: node pipeline/fetch_landfire.mjs <slug> <email> [EVT|EVC|EVH|<layer>] [--raw <raw_root>] [--force]
+// A product (EVT, the default, EVC or EVH) tries the newest year first and falls back; a full layer name
+// ("LF2024_EVC") asks for that one. --raw is the folder holding <slug>/ (default: raw/ in the repo).
+// Output: EVT into <raw_root>/<slug>/landfire/, EVC and EVH into landfire/evc/ and landfire/evh/ (build_pack.py
+// reads the EVT GeoTIFF from landfire/*.tif, so the other products keep out of that folder). A product whose
+// folder already holds a .tif is skipped unless --force is given.
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 
-const [slug, email, layerArg] = process.argv.slice(2);
-if (!slug || !email) {
-  console.error('Usage: node pipeline/fetch_landfire.mjs <slug> <email> [layer, e.g. LF2023_EVT]');
+const argv = process.argv.slice(2);
+const fi = argv.indexOf('--force');
+const force = fi >= 0;
+if (force) argv.splice(fi, 1);
+const ri = argv.indexOf('--raw');
+const rawArg = ri >= 0 ? argv[ri + 1] : undefined;
+const rawRoot = rawArg ? path.resolve(rawArg) : null;
+if (ri >= 0) argv.splice(ri, 2);
+const [slug, email, layerArg = 'EVT'] = argv;
+if (!slug || !email || (ri >= 0 && !rawArg)) {
+  console.error('Usage: node pipeline/fetch_landfire.mjs <slug> <email> [EVT|EVC|EVH|<layer, e.g. LF2023_EVC>] [--raw <raw_root>] [--force]');
   process.exit(1);
 }
 const root = path.resolve(import.meta.dirname, '..');
@@ -26,9 +39,16 @@ const pad = 0.02;
 const aoi = `${(w - pad).toFixed(5)} ${(s - pad).toFixed(5)} ${(e + pad).toFixed(5)} ${(n + pad).toFixed(5)}`; // W S E N, WGS84
 const epsg = Number(cfg.crs.split(':')[1]);
 const API = 'https://lfps.usgs.gov/api/job';
-const out = path.join(root, 'raw', slug, 'landfire');
+const isProduct = /^(EVT|EVC|EVH)$/i.test(layerArg);
+const product = (isProduct ? layerArg : layerArg.split('_').pop()).toUpperCase();
+const layers = isProduct ? ['LF2024', 'LF2023', 'LF2022'].map((y) => `${y}_${product}`) : [layerArg];
+const out = path.join(rawRoot ?? path.join(root, 'raw'), slug, 'landfire', ...(product === 'EVT' ? [] : [product.toLowerCase()]));
 await mkdir(out, { recursive: true });
-const layers = layerArg ? [layerArg] : ['LF2024_EVT', 'LF2023_EVT', 'LF2022_EVT'];
+const have = (await readdir(out)).filter((f) => f.toLowerCase().endsWith('.tif'));
+if (have.length && !force) {
+  console.log(`${product}: ${path.join(out, have[0])} is already there; skipping (--force fetches it again)`);
+  process.exit(0);
+}
 
 /** fetch JSON, with a readable error when the server returns HTML or an error body */
 async function getJson(url) {
@@ -83,9 +103,11 @@ await writeFile(zipPath, buf);
 console.log(`saved ${zipPath} (${(buf.length / 1e6).toFixed(1)} MB)`);
 // unzip in place: tar.exe ships with Windows 10+ and reads zip files
 try {
-  execFileSync('tar', ['-xf', zipPath, '-C', out], { stdio: 'inherit' });
+  // Windows' own bsdtar by full path: a GNU tar earlier on PATH (Git Bash) reads "C:" as a remote host
+  const tar = process.platform === 'win32' ? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
+  execFileSync(tar, ['-xf', zipPath, '-C', out], { stdio: 'inherit' });
   console.log('unzipped into', out);
 } catch {
   console.log('Could not unzip automatically; right-click the zip > Extract All.');
 }
-console.log(`The GeoTIFF is the EVT raster (${layer}) in EPSG:${epsg} at 30 m.`);
+console.log(`The GeoTIFF is the ${product} raster (${layer}) in EPSG:${epsg} at 30 m.`);
