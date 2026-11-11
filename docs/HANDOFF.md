@@ -16,7 +16,7 @@ Read this first when picking the project up in Claude Code / VS Code. Current wo
   - Rider physics: carve / skid edge model, tuck, brake, hold-release jump, air spin, landing penalties, surface types, tree and rock collisions (`src/sim/`).
   - Instanced trees per 1 km cell with near / far geometry, rocks, lifts with towers, catenary cables and moving chairs, piste overlay, sky, sun shadows, chase and free-fly cameras, HUD (`src/world/`).
   - Headless check: `node tools/shoot.mjs synth` (Playwright is a devDependency of `game/`; run `npx playwright install chromium` once per machine; the cloud falls back to `/opt/npm-tools`. Add `--headed` for a visible window on the real GPU). Use `?lowgfx` in software-rendered environments; a full-density scene takes ~9 s per frame under SwiftShader, which is what made the earlier run look hung. The first screenshot (snow, forest with trail cuts, rider) rendered correctly.
-- `pipeline/`: downloader proven on Vail; `build_pack.py` runs end to end on the real Vail data in about 4 minutes on Drew's PC (see "First Vail build" below) and has been rebuilt several times since (for example the AO and rock-mask rebuild for FEAT-047). Breckenridge has fetch and build launchers (`fetch_breckenridge.cmd`, `build_breckenridge.cmd`).
+- `pipeline/`: downloader proven on Vail; `build_pack.py` runs end to end on the real Vail data in about 4 minutes on Drew's PC (see "First Vail build" below) and has been rebuilt several times since (for example the AO and rock-mask rebuild for FEAT-047). Every resort builds with `build_resort.cmd <slug>` (`pipeline/build_resort.py`, FEAT-175 step 3), which replaced the per-resort fetch and build launchers.
 
 ## Next steps, in order
 

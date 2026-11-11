@@ -12,7 +12,7 @@ Decided 2026-11-05. Drew runs more than one Claude session on this project. This
 ## Layout
 ```
 SnowboardAnywhere/
-  fetch_vail.cmd, fetch_static.cmd   # double-click launchers (Windows)
+  build_resort.cmd, fetch_static.cmd # double-click launchers (Windows)
   pipeline/
     fetch.ps1, fetch_static.ps1      # downloaders (run on Drew's PC; data hosts are blocked from the sandbox)
     gen_manifest.py                  # resorts/<slug>.json -> manifests/<slug>.json
