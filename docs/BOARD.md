@@ -1,7 +1,11 @@
 # SnowboardAnywhere board
 
 The kanban lives in GitHub Projects: https://github.com/users/drewkeriazes/projects/2
-(also under the repo's Projects tab). One issue per card: https://github.com/drewkeriazes/SnowboardAnywhere/issues
+(also under the repo's Projects tab). One issue per card. The board pulls issues from **two repos** (EPIC-15, #516):
+- https://github.com/drewkeriazes/SnowboardAnywhere/issues: game, pipeline code, docs.
+- https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere/issues: resort configs, `catalog.json`, published packs and reports.
+
+A card goes in the repo whose PR closes it. A PR here that finishes a MapPacker card says `Fixes drewkeriazes/MapPacker-SnowboardAnywhere#<n>`. Card ids (`FEAT-222`) are one sequence across both repos, so the issue number alone is ambiguous: write `MapPacker-SnowboardAnywhere#<n>` for the other repo.
 
 ## How it works
 
@@ -34,6 +38,6 @@ Several sessions run at once, so each one keeps its hands off the others' files:
 - **Two cards that change the same lines**: base the second PR on the first card's branch instead of `main` and say so at the top of the PR ("stacked on #N, merge that first"). GitHub retargets it to `main` when the first merges. Until then the second card is not linked (links need a PR to `main`), so comment the PR on its issue.
 - **Card ids**: `python tools/card_id.py` before and after creating a card (see above).
 
-New issues reach the board only through the project's **Auto-add to project** workflow (project menu > Workflows, filter `is:issue,pr is:open`, repo drewkeriazes/SnowboardAnywhere); without it, add them with **+ Add item** and `#<number>`. Closed cards carry no `status:` label.
+New issues reach the board only through the project's **Auto-add to project** workflow (project menu > Workflows, filter `is:issue,pr is:open`), one per repo: drewkeriazes/SnowboardAnywhere and drewkeriazes/MapPacker-SnowboardAnywhere. Without it, add them with **+ Add item** and `<repo>#<number>`. Closed cards carry no `status:` label.
 
-From the cloud sandbox, issues and labels work through `gh api repos/drewkeriazes/SnowboardAnywhere/issues` (REST). The project board itself is GraphQL only, which the sandbox cannot reach, so column moves beyond open/close happen in the browser or by Drew; closing an issue is what moves it to Done.
+From the cloud sandbox, issues and labels work through `gh api repos/drewkeriazes/<repo>/issues` (REST), for each repo the session has attached. The project board itself is GraphQL only, which the sandbox cannot reach, so column moves beyond open/close happen in the browser or by Drew; closing an issue is what moves it to Done.
