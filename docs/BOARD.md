@@ -38,6 +38,11 @@ Several sessions run at once, so each one keeps its hands off the others' files:
 - **Two cards that change the same lines**: base the second PR on the first card's branch instead of `main` and say so at the top of the PR ("stacked on #N, merge that first"). GitHub retargets it to `main` when the first merges. Until then the second card is not linked (links need a PR to `main`), so comment the PR on its issue.
 - **Card ids**: `python tools/card_id.py` before and after creating a card (see above).
 
-New issues reach the board only through the project's **Auto-add to project** workflow (project menu > Workflows, filter `is:issue,pr is:open`), one per repo: drewkeriazes/SnowboardAnywhere and drewkeriazes/MapPacker-SnowboardAnywhere. Without it, add them with **+ Add item** and `<repo>#<number>`. Closed cards carry no `status:` label.
+New issues reach the board on their own, by a different route per repo (FEAT-226):
+- **SnowboardAnywhere**: the project's **Auto-add to project** workflow (project menu > Workflows, filter `is:issue,pr is:open`, repo drewkeriazes/SnowboardAnywhere). The Free plan allows one Auto-add workflow, and this repo has it.
+- **MapPacker**: the Action `.github/workflows/add-to-project.yml` in MapPacker-SnowboardAnywhere (`actions/add-to-project`) adds each issue when it is opened, reopened or transferred in. It signs in with the repo secret `ADD_TO_PROJECT_PAT`, a classic token named `mappacker-add-to-project` with only the `project` scope, made 2026-11-11, **expires 2027-11-11**. A dead token shows as MapPacker issues no longer reaching the board and the Action run failing with 401: make a new token the same way and replace the secret.
+- **Fallback** for either repo: make the issue a sub-issue of an epic that is on the board, or add it by hand with **+ Add item** and `<repo>#<number>`.
+
+Closed cards carry no `status:` label.
 
 From the cloud sandbox, issues and labels work through `gh api repos/drewkeriazes/<repo>/issues` (REST), for each repo the session has attached. The project board itself is GraphQL only, which the sandbox cannot reach, so column moves beyond open/close happen in the browser or by Drew; closing an issue is what moves it to Done.
