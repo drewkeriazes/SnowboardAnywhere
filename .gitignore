@@ -57,3 +57,6 @@ npm-debug.log*
 game/shots*/
 
 # Music: the shipped CC BY set in game/public/music is committed (28 MB); keep additions small
+
+# Firebase Admin SDK keys (FEAT-273): never committed
+*firebase-adminsdk*.json

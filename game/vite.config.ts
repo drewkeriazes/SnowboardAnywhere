@@ -1,7 +1,9 @@
-import { defineConfig, type Connect, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Connect, type Plugin } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { handleShotPost, handleTakePost } from './tools/attract_files.mjs';
+import { accountRoute } from './tools/accounts/gate.mjs';
+import { devVerifier } from './tools/accounts/verifier.mjs';
 import { refuseForeignOrigin } from './tools/same_origin.mjs';
 import { packDownloads, packFiles } from './tools/pack_routes.mjs';
 
@@ -110,9 +112,29 @@ function saveAttractTakes(): Plugin {
   };
 }
 
+/**
+ * FEAT-273, dev server only (configureServer; no configurePreviewServer): GET /api/account answers who the player's
+ * Firebase ID token says they are, verified with the Admin SDK (tools/accounts/gate.mjs, verifier.mjs). So
+ * `npm run host` (vite preview) and the launcher have no account routes. FEAT-246 mounts /api/resorts/build here
+ * through requireAccount(devVerifier(), ..., { role: 'maintainer' }).
+ */
+function accountRoutes(): Plugin {
+  return {
+    name: 'account-routes',
+    configureServer(server) {
+      // SBA_FIREBASE_ADMIN_KEY lives in game/.env.local (gitignored); Vite only exposes VITE_ names to the page, so read
+      // the SBA_ ones here for the server. A variable already in the environment wins.
+      for (const [k, v] of Object.entries(loadEnv(server.config.mode, server.config.envDir || server.config.root, 'SBA_'))) {
+        if (process.env[k] === undefined) process.env[k] = v;
+      }
+      server.middlewares.use(accountRoute(devVerifier()));
+    },
+  };
+}
+
 export default defineConfig({
   base: './',
-  plugins: [packRoutes(), saveCompareShots(), saveAttractTakes()],
+  plugins: [packRoutes(), saveCompareShots(), saveAttractTakes(), accountRoutes()],
   // FEAT-128: a saved take (public/attract) must not reload the page you are recording in
   server: { host: 'localhost', port: 5173, watch: { ignored: ['**/public/attract/**'] } },
   build: { target: 'es2022', sourcemap: false, chunkSizeWarningLimit: 1500 },

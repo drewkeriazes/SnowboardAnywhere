@@ -7,6 +7,8 @@ import { renderHints, type Hint } from './HintBar';
 import { fillResortPicker } from './ResortPicker';
 import { optsOf, rowById, type Row } from './SettingsRows';
 import { fmtDistance, fmtHeight } from './Units';
+import type { AccountService } from '../account/Account';
+import { mountAccountLine } from './AccountLine';
 import type { PauseCourse, PauseMode } from './PauseMenu';
 
 /**
@@ -39,6 +41,8 @@ export interface MainMenuOpts {
   audio: GameAudio;
   settings: Settings;
   credits: () => Credit[];
+  /** FEAT-273: the corner line (Playing as guest / Sign in with GitHub, or the name); never gates RIDE */
+  account: AccountService;
 }
 
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -71,6 +75,7 @@ export class MainMenu {
   private readonly hintEl: HTMLElement;
   private readonly pop: HTMLElement;
   private popKind: 'trial' | 'outrun' | 'resort' | null = null;
+  private readonly unmountAccount: () => void;
 
   constructor(private readonly o: MainMenuOpts) {
     const s = o.settings;
@@ -94,7 +99,7 @@ export class MainMenu {
         <div class="start"><span class="where"></span><button class="link" data-reset hidden>reset to resort start</button></div>
         <div class="ds-connect" style="display:none"><button data-ds-connect class="link">Turn on DualSense rumble and lightbar</button><div class="hint ds-status">Click it with the mouse and pick the controller (once: it reconnects by itself after that).</div></div>
       </section>
-      <nav class="corner"><button data-a="settings" class="link">Settings</button><button data-a="controls" class="link">Controls</button><button data-a="credits" class="link">Credits</button></nav>
+      <nav class="corner"><div class="account" hidden></div><button data-a="settings" class="link">Settings</button><button data-a="controls" class="link">Controls</button><button data-a="credits" class="link">Credits</button></nav>
       <div class="cards">
         <div class="card resort" data-card="resort">
           <div class="cname">${esc(o.resortName)}</div>
@@ -153,6 +158,7 @@ export class MainMenu {
       },
       onInputKind: () => this.hints(),
     });
+    this.unmountAccount = mountAccountLine(this.el.querySelector<HTMLElement>('.corner .account')!, o.account);
     this.syncDiscipline();
     this.drawModes();
   }
@@ -321,7 +327,7 @@ export class MainMenu {
   }
 
   /** Close everything (the page is leaving). */
-  destroy(): void { this.hide(); this.el.remove(); }
+  destroy(): void { this.hide(); this.unmountAccount(); this.el.remove(); }
   /** the Settings screen is open over the menu */
   get settingsUp(): boolean { return settingsOpen(); }
 }
