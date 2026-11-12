@@ -67,8 +67,13 @@ def main():
         return 0
     print("next: " + ", ".join(f"{t}-{n:03d}" for t, n in nxt.items()))
     # BUG-097: a twin pair (the same card copied into each repo with the same title, like FEAT-222 to FEAT-225 when
-    # the pipeline moved to MapPacker) is one card, not a clash. Only ids that name different titles are reported.
-    dups = {k: v for k, v in seen.items() if len({i["title"].strip() for i in v}) > 1}
+    # the pipeline moved to MapPacker) is one card, not a clash. Only a pair with one card in each repo and the same
+    # title is skipped; two cards in the same repo sharing an id are still reported.
+    def is_twin(v):
+        return (len(v) == 2
+                and v[0]["ref"].startswith("#") != v[1]["ref"].startswith("#")
+                and v[0]["title"].strip() == v[1]["title"].strip())
+    dups = {k: v for k, v in seen.items() if len(v) > 1 and not is_twin(v)}
     for (t, n), v in sorted(dups.items()):
         print(f"duplicate {t}-{n:03d}: " + ", ".join(f"{i['ref']} ({i['state']}) {i['title'][:60]}" for i in v))
     return 1 if dups else 0
