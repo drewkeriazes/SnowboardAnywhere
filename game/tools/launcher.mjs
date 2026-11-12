@@ -19,6 +19,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { pipeline } from 'node:stream';
 import { DIST, LAUNCHER, PACKS } from './paths.mjs';
 import { getPack, localPacks, PACK_FORMAT } from './get_pack.mjs';
 import { packDownloads, packFiles } from './pack_routes.mjs';
@@ -60,7 +61,7 @@ function gameFiles(dir) {
     }
     res.setHeader('content-length', end - start + 1);
     if (req.method === 'HEAD') { res.end(); return; }
-    fs.createReadStream(file, { start, end }).pipe(res);
+    pipeline(fs.createReadStream(file, { start, end }), res, () => {}); // a dropped request closes the file (BUG-095)
   };
 }
 

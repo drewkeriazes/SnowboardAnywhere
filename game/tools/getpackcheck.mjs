@@ -12,7 +12,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { copyPack, getPack, localPacks, PACK_FORMAT, readCatalog } from './get_pack.mjs';
-import { packDownloads } from './pack_routes.mjs';
+import http from 'node:http';
+import { packDownloads, packFiles } from './pack_routes.mjs';
 
 const F = PACK_FORMAT;
 const t = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-'));
@@ -204,6 +205,26 @@ ok(/fresh-v2\.zip/.test(j.error ?? ''), 'it uses the cached catalog');
 h = packDownloads(packs, { readCatalog: reader });
 const refused = await call(h, 'POST', '/__packs/get', { slug: 'fresh' });
 ok(refused.code === 400 && /offline/.test(refused.body.error) && (await call(h, 'GET', '/__packs/job?slug=fresh')).code === 404, 'no catalog at all: 400, and no job is left behind');
+// BUG-095: a pack file request the browser drops mid-file must not leave the file open in the server. Windows then
+// refuses to rename the pack folder, and the picker's Update over it fails with EPERM until the server stops (on
+// Linux, CI, the rename works either way; the check bites on Windows)
+{
+  const lp = path.join(t, 'locks');
+  fs.mkdirSync(path.join(lp, 'big', 'cover'), { recursive: true });
+  fs.writeFileSync(path.join(lp, 'big', 'cover', 'mid.png'), Buffer.alloc(8 << 20, 1));
+  const files = packFiles(lp);
+  const srv = http.createServer((req, res) => files(req, res, () => { res.statusCode = 404; res.end(); }));
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  await new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${srv.address().port}/packs/big/cover/mid.png`, (res) => { res.once('data', () => req.destroy()); });
+    req.on('close', resolve); req.on('error', () => {});
+  });
+  await new Promise((r) => setTimeout(r, 300));
+  let moved = false;
+  try { fs.renameSync(path.join(lp, 'big'), path.join(lp, '.big.old')); moved = true; } catch (e) { moved = e.code; }
+  ok(moved === true, `packFiles: a request dropped mid-file leaves the pack folder free to rename (${moved})`);
+  srv.close();
+}
 fs.rmSync(t, { recursive: true, force: true });
 console.log(fails ? `getpackcheck: ${fails} failed` : 'getpackcheck: all passed');
 process.exitCode = fails ? 1 : 0;

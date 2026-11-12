@@ -3,6 +3,7 @@
 // and of their checks. Each is a Connect-style handler, (req, res, next), that calls next() for a URL it doesn't own.
 import fs from 'node:fs';
 import path from 'node:path';
+import { pipeline } from 'node:stream';
 import * as gp from './get_pack.mjs';
 import { PACKS } from './paths.mjs';
 
@@ -19,7 +20,10 @@ export function packFiles(packsDir = PACKS) {
     if (!file.startsWith(packsDir + path.sep) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.statusCode = 404; res.end(); return; }
     res.setHeader('content-type', TYPES[path.extname(file)] ?? 'application/octet-stream');
     res.setHeader('cache-control', 'no-cache');
-    fs.createReadStream(file).pipe(res);
+    // pipeline, not pipe: a request the browser drops mid-file (a page left while a cover image streams) closes the
+    // file too. With pipe it stayed open, and Windows then refused to rename the pack folder, so the picker's
+    // Update or Download over it failed with EPERM until the server stopped (BUG-095)
+    pipeline(fs.createReadStream(file), res, () => {});
   };
 }
 

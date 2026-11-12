@@ -138,7 +138,12 @@ export async function renameRetry(a, b, { rename = fs.renameSync, waits = RENAME
  * old pack is put back. Every rename goes through renameRetry; `swap` is its options ({ rename, waits, onWait }).
  */
 async function swapIn(incoming, dest, old, swap) {
-  if (fs.existsSync(dest)) await renameRetry(dest, old, swap);
+  if (fs.existsSync(dest)) {
+    try { await renameRetry(dest, old, swap); } catch (e) {
+      if (LOCKED.has(e.code)) e.message += `: still locked after ${(swap?.waits ?? RENAME_WAITS).length + 1} tries, nothing was changed; close the game or stop its server and run it again`;
+      throw e;
+    }
+  }
   try { await renameRetry(incoming, dest, swap); } catch (e) {
     if (fs.existsSync(old)) await renameRetry(old, dest, swap);
     if (LOCKED.has(e.code)) e.message += `: still locked after ${(swap?.waits ?? RENAME_WAITS).length + 1} tries, the old pack is back in place; run it again in a minute`;
