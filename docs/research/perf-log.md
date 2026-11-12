@@ -61,3 +61,15 @@ Look (headed, `--shots`, the three modes on the same frames after a restart at t
 
 The cause was the synchronous `readPixels` in `decodeRGBA`: on its own (no game rendering) a tile reads back in about 1.3 ms, but while the game renders it waits for the frame's GPU work, and whichever readback runs first pays it. Moving the greyscale sets (ao, dir, moguls) to the 2D canvas, which is exact for them (byte-identical on 40 tiles each; it is not for the mask, whose alpha would wipe RGB), handed the whole wait to the mask, so the mask reads back into a GPU buffer and copies out once a fence passes. All 212 resident mask, dir, ao and moguls tiles are byte-identical to the old decode, and the ride covers the same 1,154.9 m. Settled 15.0 to 15.3 s (16.1 before), ride frame time median 9.1 to 9.8 ms, p95 11.4 to 12.4 (10.1 / 12.8 before). Not changed: `CoverSet` and the stand images (`Vegetation`) still use the synchronous `decodeRGBA`; the cover loads once at the start and Vail has no stand images.
 
+## FEAT-086: the full scene in real play (2026-11-11)
+
+`node tools/playperf.mjs vail --gpu [--vsync | --headed] [--ablate] [--at -3256,2723]` on 23245d6 (main), quality high, auto quality off, 1920 x 1080. Stand = 6 s after a restart at the spot (the rider slides to about 10 km/h); tuck = 10 s with ArrowUp. Frame ms median / p95 / max, frames over 33 ms; main thread median. Report: `docs/research/perf-pass-2026-11.md`.
+
+| browser, mode | place | stand | tuck | calls / tris | heap |
+|---|---|---|---|---|---|
+| Chrome, DevTools window, vsync | start | 9.9 / 13.0 / 20.3, 0 | 10.3 / 17.7 / 45.0, 5 | 712 to 745 / 3.30 to 3.47 M | 1.09 to 1.13 GB |
+| Playwright Chromium, headed, vsync | start | 22.4 / 26.5 / 105, 3; main 10.1 | 19.9 / 22.8 / 30.0, 0; main 8.2 | 687 to 705 / 3.2 M | 1.1 GB |
+| Playwright Chromium, headless, vsync off (2 runs) | start | 18.9 to 19.2 / 29 to 32 / 343, 9 to 10 | 12.2 to 13.0 / 80 to 105 / 177, 56 to 66 | 686 to 703 / 3.15 to 3.23 M | 1.08 to 1.14 GB |
+| Playwright Chromium, headless, vsync off (2 runs) | Born Free | 14.0 to 14.8 / 53 to 55 / 115, 28 to 37 | 13.4 to 14.5 / 55 to 62 / 140, 55 to 58 | 929 to 938 / 3.23 to 3.30 M | 1.30 GB |
+
+Vsync off queues frames and stalls them (100 to 370 ms, headed or not, with the main thread idle or blocked in WebGL); it is right for medians and `--ablate`, not for stutter. Ablation (eye camera, vsync off): start 18.1 ms, terrain 10.3, sun 4.6, shadow pass 1.8, hemisphere light 1.3, clouds 1.3; Born Free 11.8 ms, terrain 3.1, shadow pass 2.9, bridges 2.5 (180 calls), roads 1.7, lifts 1.5, trees 1.3. Cards: FEAT-236 (#556) terrain, FEAT-237 (#557) shadows, BUG-090 (#558) heap.
