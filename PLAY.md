@@ -37,7 +37,7 @@ Copy and paste these, one line at a time:
 cd %USERPROFILE%
 git clone https://github.com/drewkeriazes/SnowboardAnywhere.git
 cd SnowboardAnywhere\game
-npm install
+npm ci
 ```
 
 On a Mac, use these instead of the first and third lines:
@@ -47,7 +47,7 @@ cd ~
 cd SnowboardAnywhere/game
 ```
 
-`npm install` takes a minute or two. Warnings in yellow are normal.
+`npm ci` takes a minute or two. Warnings in yellow are normal.
 
 ## Step 4: Download a mountain (one time per resort)
 
@@ -90,7 +90,7 @@ Open a terminal and run:
 ```
 cd %USERPROFILE%\SnowboardAnywhere\game
 git pull
-npm install
+npm ci
 npm run dev
 ```
 
@@ -98,11 +98,13 @@ npm run dev
 
 `git pull` grabs the newest version of the game. Then open http://localhost:5173/?pack=vail again.
 
-If the game says your resort **needs rebuild**, get the new version of it:
+If the game says your resort **needs rebuild**, download it again. It swaps in the new version on its own:
 
 ```
-npm run get vail -- --force
+npm run get vail
 ```
+
+If it says **needs a newer game**, you skipped `git pull`. Run it, then start again.
 
 ---
 
@@ -139,7 +141,6 @@ The full list of controls is in the main [README](README.md#controls).
 | Terminal says a different address, like `localhost:5174` | Something else is using the port. Use the address the terminal shows. |
 | Menu loads but no mountain, or "pack not found" | Download it: `npm run get vail`. |
 | Download stops partway | Run the same `npm run get` line again. |
-| `git pull` says "Your local changes would be overwritten" | Run `git checkout .` then `git pull` again. |
 | Game is choppy | Esc > Settings > Graphics > pick **Low** or **Medium**. Close other tabs. |
 | No sound | Click the page once. Browsers wait for a click before playing sound. |
 | Controller not working | Press a button while the game tab is in front. Use Chrome or Edge. |
