@@ -203,13 +203,16 @@ export function copyPack(slug, from, { packsDir = PACKS, force = false } = {}) {
     throw new Error(`${src} is format ${f}, this game reads ${PACK_FORMAT}: ${f < PACK_FORMAT ? 'rebuild it in MapPacker' : 'update the game (git pull)'}`);
   }
   const dest = path.join(packsDir, slug);
-  if (fs.existsSync(dest) && fs.realpathSync(src) === fs.realpathSync(dest)) throw new Error(`${src} is this checkout's own packs/${slug}`);
-  const prior = readJson(path.join(dest, FROM_MARKER));
+  // packs/<slug> may be a link (an old junction to the MapPacker build, say): it is replaced by a copy of what src
+  // points at, even when that is the link's own target or src is the link itself, so resolve src before the link goes
+  const linked = isLink(dest);
+  if (linked) src = fs.realpathSync(src);
+  else if (fs.existsSync(dest) && fs.realpathSync(src) === fs.realpathSync(dest)) throw new Error(`${src} is this checkout's own packs/${slug}`);
+  const prior = linked ? null : readJson(path.join(dest, FROM_MARKER));
   if (!force && prior?.from === src && meta.build && prior.build === meta.build) return { slug, from: src, already: true };
   const old = path.join(packsDir, `.${slug}.old`);
   const incoming = path.join(packsDir, `.${slug}.incoming`);
-  if (isLink(dest)) removeLink(dest);
-  else if (fs.existsSync(dest) && !prior && !readJson(path.join(dest, MARKER)) && !force) {
+  if (!linked && fs.existsSync(dest) && !prior && !readJson(path.join(dest, MARKER)) && !force) {
     throw new Error(`packs/${slug} is a pack built on this PC, not one from the catalog: --force replaces it with the copy (it is deleted)`);
   }
   fs.mkdirSync(packsDir, { recursive: true });
@@ -217,7 +220,8 @@ export function copyPack(slug, from, { packsDir = PACKS, force = false } = {}) {
   try {
     fs.cpSync(src, incoming, { recursive: true, filter: (s) => s === src || !unpublished(path.relative(src, s)) });
     fs.writeFileSync(path.join(incoming, FROM_MARKER), JSON.stringify({ from: src, build: meta.build ?? null, copied: new Date().toISOString() }, null, 1));
-    if (fs.existsSync(dest)) fs.renameSync(dest, old);
+    if (linked) removeLink(dest); // only the link goes, never what it points at
+    else if (fs.existsSync(dest)) fs.renameSync(dest, old);
     try { fs.renameSync(incoming, dest); } catch (e) { if (fs.existsSync(old)) fs.renameSync(old, dest); throw e; }
     fs.rmSync(old, { recursive: true, force: true });
   } finally {

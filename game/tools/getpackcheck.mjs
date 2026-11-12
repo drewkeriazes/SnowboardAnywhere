@@ -55,6 +55,15 @@ fs.symlinkSync(other, path.join(packs, 'lk'), process.platform === 'win32' ? 'ju
 copyPack('lk', mp, { packsDir: packs });
 ok(isCopy('lk') && fs.existsSync(path.join(other, 'fine', '0_0.png')), 'a link is replaced by a copy; its target is intact');
 
+// a link to the source itself (an old junction to the MapPacker build) is replaced too, from the folder or the link
+const lnk = process.platform === 'win32' ? 'junction' : 'dir';
+for (const [s, from, m] of [['js', () => path.join(mp, 'js'), '--from <the link target>'], ['jl', () => path.join(packs, 'jl'), '--from packs/<slug>, the link itself']]) {
+  mk(path.join(mp, s), { slug: s, formatVersion: F, build: 'x' });
+  fs.symlinkSync(path.join(mp, s), path.join(packs, s), lnk);
+  copyPack(s, from(), { packsDir: packs });
+  ok(isCopy(s) && fs.existsSync(path.join(mp, s, 'debug', 'species.png')), `a link to the source is replaced by a copy (${m}); the source is intact`);
+}
+
 // getPack refuses a --from copy without --force
 const catalog = { resorts: [{ slug: 'vail', name: 'Vail', status: 'ok', pack: { formatVersion: F, version: 1, sha256: 'bad', url: path.join(t, 'nope.zip'), bytes: 1 } }] };
 try { await getPack('vail', { packsDir: packs, catalog }); ok(false, 'getPack refuses a copy'); } catch (e) { ok(/is a copy of/.test(e.message), 'getPack refuses a copy: ' + e.message); }
