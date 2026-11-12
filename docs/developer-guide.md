@@ -225,6 +225,8 @@ One-time setup: Settings > Actions > General > Workflow permissions > tick "Allo
 
 ## Pipeline scripts (`pipeline/`)
 
+Moving to [MapPacker-SnowboardAnywhere](https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere) under EPIC-16 ([#9](https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere/issues/9), plan in its [`docs/pipeline-move.md`](https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere/blob/main/docs/pipeline-move.md)). Until FEAT-238 lands, everything below still runs from this repo.
+
 Flow: `resort.py resolve` and `plan` -> `resorts/<slug>.json` -> `gen_manifest.py` -> `manifests/<slug>.json` -> `fetch.ps1` -> `raw/<slug>/` -> `build_pack.py` -> `packs/<slug>/`.
 
 - `resort.py resolve "<name>" [--id <id>] [--with <name or id>] [--alone] [--slug <slug>]` (FEAT-223, EPIC-15) finds the ski area in OpenSkiData by name (case and accent insensitive; exact names first, a match without lifts drops out when another has them). Several matches: prints them and stops, `--id` picks. A neighbour with lifts that reaches into the box (closer than the buffer plus 500 m: Snowbird and Alta, Big Sky and the Yellowstone Club) or is sold with it (same website within 3 km: Boston Mills and Brandywine): stops and asks for `--with <name>` (one pack over both, named "Boston Mills / Brandywine") or `--alone` (the neighbour's runs and lifts go into `exclude` by OSM id). No match: the closest names. Writes `resorts/<slug>.json` with the identity fields, `lonlat_bbox` (the area's polygon, lifts and runs) and an `openskidata` block; a hand-written config (no `openskidata`) is refused without `--force`.
