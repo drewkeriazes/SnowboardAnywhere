@@ -1,0 +1,28 @@
+#!/bin/sh
+# BUG-086: refuse a push that would put the local-only spotify-private branch (FEAT-142) on GitHub.
+# Reads pre-push input on stdin (<local ref> <local sha> <remote ref> <remote sha> per line) and exits 1 when
+# a ref being pushed is spotify-private (either side), or its tree holds in-game Spotify code (the patterns
+# in tools/ci/public_guards.py, built from pieces so this file does not match itself). Called by
+# .githooks/pre-push; on a clone without core.hooksPath, copy it to .git/hooks/pre-push. Skip: --no-verify.
+a='sdk\.scdn'; a="$a"'\.co'
+b='onSpotify'; b="$b"'WebPlaybackSDKReady'
+c='VITE_SPOTIFY'; c="$c"'_CLIENT_ID'
+d='accounts\.spotify'; d="$d"'\.com'
+e='api\.spotify'; e="$e"'\.com'
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "$local_sha" ] || continue
+  case "$local_sha" in *[!0]*) ;; *) continue ;; esac  # all zeros: a branch deletion
+  if [ "$local_ref" = refs/heads/spotify-private ] || [ "$remote_ref" = refs/heads/spotify-private ]; then
+    echo "private-guard: refusing to push spotify-private ($local_ref -> $remote_ref). It is local only (CLAUDE.md, FEAT-142, BUG-086)." >&2
+    status=1
+    continue
+  fi
+  hits=$(git grep -I -i -l -E "$a|$b|$c|$d|$e" "$local_sha" -- 2>/dev/null | sed "s/^$local_sha://")
+  if [ -n "$hits" ]; then
+    echo "private-guard: refusing to push $local_ref -> $remote_ref: it carries in-game Spotify code, which stays on the local spotify-private branch (FEAT-142, BUG-086):" >&2
+    printf '  %s\n' $hits >&2
+    status=1
+  fi
+done
+exit $status

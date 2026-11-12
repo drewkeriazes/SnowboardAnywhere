@@ -5,6 +5,10 @@
 # render-budgets on the GPU before the push. That part never blocks the push. Skip: --no-verify or
 # SA_SKIP_GPU_BUDGETS=1.
 input=$(cat)
+# BUG-086: refuse a push of spotify-private or of Spotify code. Unlike the GPU part, this blocks.
+if [ -f .githooks/private-guard ]; then
+  printf '%s\n' "$input" | sh .githooks/private-guard || exit 1
+fi
 local_hook="$(git rev-parse --git-common-dir)/hooks/pre-push"
 if [ -x "$local_hook" ]; then
   printf '%s\n' "$input" | "$local_hook" "$@" || exit $?
