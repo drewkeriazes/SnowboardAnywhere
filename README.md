@@ -239,13 +239,14 @@ the card to dismiss it; it hides itself after 10 s.
 A Python pipeline downloads public data for a resort (USGS 1 m lidar, NAIP imagery, LANDFIRE
 vegetation, OpenStreetMap) and turns it into a "pack" of height tiles, masks, trees and features.
 The game streams that pack. Fetching runs on Windows with PowerShell; building runs anywhere. One
-command does every step for a resort and skips the ones already done (`build_resort.cmd` on Windows):
+command takes a resort's name to a published pack and skips the steps already done (`add_resort.cmd` on
+Windows, which stops once after the plan so you can read it before the download):
 
 ```
-python pipeline/resort.py resolve "Boston Mills" --with Brandywine   # a new resort: name to config
-python pipeline/resort.py plan boston-mills                          # data plan to read before the fetch
-python pipeline/build_resort.py vail <raw_dir> packs/vail            # fetch, build, report
-python pipeline/publish_pack.py packs/vail     # optional: publish it for npm run get (needs push access)
+python pipeline/resort.py add "Boston Mills" --with Brandywine --stop-after plan   # name to config and data plan
+python pipeline/resort.py add "Boston Mills" --with Brandywine                     # fetch, build, report, ride, publish
+python pipeline/build_resort.py vail <raw_dir> packs/vail      # an existing resort: fetch, build, report
+python pipeline/publish_pack.py packs/vail     # publish a pack for npm run get (needs push access)
 ```
 
 ## More
