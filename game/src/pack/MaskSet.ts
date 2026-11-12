@@ -1,7 +1,10 @@
 import type { MaskMeta } from './types';
 import { TileStats } from './tileStats';
 
-/** Surface class mask: R rock, G scree, B groomed piste, A canopy cover. Values 0..1. */
+/**
+ * Surface class mask: R rock, G scree, B groomed piste, A canopy cover. Values 0..1. Also the
+ * single-channel sets on the same grid (ao, dir, moguls), built with `opaque`.
+ */
 export class MaskSet {
   readonly meta: MaskMeta;
   readonly size: number;
@@ -14,11 +17,17 @@ export class MaskSet {
   /** FEAT-229: bytes fetched and decode time (tools/tileperf.mjs) */
   readonly stats = new TileStats();
   onTileLoaded: ((tx: number, ty: number) => void) | null = null;
+  /**
+   * BUG-087: the tiles carry no alpha (the greyscale ao, dir and moguls sets), so the 2D canvas reads them
+   * exactly and the WebGL readback, which stalls the main thread on the frame's GPU work, is not needed.
+   */
+  private readonly opaque: boolean;
 
-  constructor(baseUrl: string, meta: MaskMeta) {
+  constructor(baseUrl: string, meta: MaskMeta, opts: { opaque?: boolean } = {}) {
     this.baseUrl = baseUrl;
     this.meta = meta;
     this.size = meta.res * meta.tileSize;
+    this.opaque = opts.opaque ?? false;
   }
 
   private key(tx: number, ty: number): number {
@@ -61,10 +70,13 @@ export class MaskSet {
       const t1 = performance.now();
       const bmp = await createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
       const t2 = performance.now();
-      this.tiles.set(k, decodeRGBA(bmp, this.meta.tileSize));
+      // main-thread time only: the async readback's fence wait is idle
+      const timing = { mainMs: 0 };
+      if (this.opaque) { this.tiles.set(k, decodeOpaque(bmp, this.meta.tileSize)); timing.mainMs = performance.now() - t2; }
+      else this.tiles.set(k, await decodeRGBAAsync(bmp, this.meta.tileSize, this.meta.tileSize, timing));
       bmp.close();
       const t3 = performance.now();
-      this.stats.add({ tx, ty, t: t3, bytes: blob.size, fetchMs: t1 - t0, bitmapMs: t2 - t1, decodeMs: t3 - t2 });
+      this.stats.add({ tx, ty, t: t3, bytes: blob.size, fetchMs: t1 - t0, bitmapMs: t2 - t1, decodeMs: timing.mainMs });
       this.onTileLoaded?.(tx, ty);
     } catch (e) {
       this.missing.add(k);
@@ -125,8 +137,12 @@ export class MaskSet {
  * groomed on all open ground. WebGL with premultiplication off returns the bytes unchanged.
  */
 let gl: WebGL2RenderingContext | null | undefined;
-export function decodeRGBA(bmp: ImageBitmap, n: number, h = n): Uint8ClampedArray {
+function decoderGL(): WebGL2RenderingContext | null {
   if (gl === undefined) gl = new OffscreenCanvas(1, 1).getContext('webgl2', { premultipliedAlpha: false, antialias: false });
+  return gl;
+}
+export function decodeRGBA(bmp: ImageBitmap, n: number, h = n): Uint8ClampedArray {
+  const gl = decoderGL();
   if (gl) {
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -146,6 +162,58 @@ export function decodeRGBA(bmp: ImageBitmap, n: number, h = n): Uint8ClampedArra
     return out;
   }
   // fallback: 2D canvas (loses RGB where alpha is 0)
+  return decodeOpaque(bmp, n, h);
+}
+
+/**
+ * BUG-087: decodeRGBA without the stall, for tiles that stream in while riding. The pixels are read into a
+ * buffer on the GPU and copied out once a fence says the copy is done, polled between tasks, so the main
+ * thread never waits on the frame's GPU work. Same bytes as decodeRGBA.
+ */
+export async function decodeRGBAAsync(bmp: ImageBitmap, n: number, h = n, timing?: { mainMs: number }): Promise<Uint8ClampedArray> {
+  let t = performance.now();
+  const gl = decoderGL();
+  if (!gl) { const out = decodeOpaque(bmp, n, h); if (timing) timing.mainMs += performance.now() - t; return out; }
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buf);
+  gl.bufferData(gl.PIXEL_PACK_BUFFER, n * h * 4, gl.STREAM_READ);
+  gl.readPixels(0, 0, n, h, gl.RGBA, gl.UNSIGNED_BYTE, 0); // into the buffer: returns at once
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.deleteFramebuffer(fb); gl.deleteTexture(tex);
+  const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+  gl.flush();
+  // WebGL only allows a zero timeout, so poll; WAIT_FAILED (context lost) falls through to the read
+  while (sync && gl.clientWaitSync(sync, 0, 0) === gl.TIMEOUT_EXPIRED) {
+    if (timing) timing.mainMs += performance.now() - t;
+    await new Promise((r) => setTimeout(r, 4));
+    t = performance.now();
+  }
+  if (sync) gl.deleteSync(sync);
+  const px = new Uint8Array(n * h * 4);
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buf);
+  gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, px);
+  gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+  gl.deleteBuffer(buf);
+  if (timing) timing.mainMs += performance.now() - t;
+  return new Uint8ClampedArray(px.buffer);
+}
+
+/**
+ * BUG-087: an image without transparency (greyscale, or alpha 255 everywhere) through a 2D canvas: exact,
+ * since premultiplication changes nothing at full alpha, and no GPU readback. The WebGL path above takes
+ * about 1 ms on its own but 25 to 60 ms while the game renders, as `readPixels` waits for the frame's GPU work.
+ */
+export function decodeOpaque(bmp: ImageBitmap, n: number, h = n): Uint8ClampedArray {
   const canvas = new OffscreenCanvas(n, h);
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   ctx.drawImage(bmp, 0, 0);

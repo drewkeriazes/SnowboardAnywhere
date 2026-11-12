@@ -45,9 +45,10 @@ export class Pack {
     this.mid = meta.terrain.mid ? new HeightSet(`${baseUrl}/mid`, meta.terrain.mid) : null;
     this.far = meta.terrain.far ? new HeightSet(`${baseUrl}/far`, meta.terrain.far) : null;
     this.mask = meta.mask ? new MaskSet(`${baseUrl}/mask`, meta.mask) : null;
-    this.ao = meta.ao ? new MaskSet(`${baseUrl}/ao`, meta.ao) : null;
-    this.dir = meta.dir ? new MaskSet(`${baseUrl}/dir`, meta.dir) : null;
-    this.moguls = meta.moguls ? new MaskSet(`${baseUrl}/moguls`, meta.moguls) : null;
+    // BUG-087: the greyscale sets decode without the WebGL readback
+    this.ao = meta.ao ? new MaskSet(`${baseUrl}/ao`, meta.ao, { opaque: true }) : null;
+    this.dir = meta.dir ? new MaskSet(`${baseUrl}/dir`, meta.dir, { opaque: true }) : null;
+    this.moguls = meta.moguls ? new MaskSet(`${baseUrl}/moguls`, meta.moguls, { opaque: true }) : null;
     this.cover = meta.cover && meta.cover.levels.length ? new CoverSet(baseUrl, meta.cover) : null;
   }
 
