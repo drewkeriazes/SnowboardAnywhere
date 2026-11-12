@@ -8,7 +8,8 @@
 // built here (no marker) is only replaced with --force. SA_CATALOG overrides the catalog URL (tests).
 // FEAT-241: the catalog's `test` list holds test packs the picker never shows (the synthetic pack CI runs on,
 // `npm run get synth`), one entry per pack format: findEntry picks the one this game reads. `--sha256` prints the
-// sha256 of the zip it would install, for CI's cache key.
+// sha256 of the zip it would install, for CI's cache key. BUG-109: `--save-catalog <file>` writes the catalog it
+// reads to a file and installs nothing, so CI's jobs read it once (contents API first) for the key and the download.
 // FEAT-242 `npm run get [<slug>] -- --from <pack dir>`: copy a pack built in the MapPacker checkout (its
 // packs/<slug>, or that packs/ folder) into packs/<slug>, to ride a fresh build before it is published. Run it again
 // after a rebuild there. Like a pack built here, get <slug> replaces the copy with the published pack only with --force.
@@ -50,9 +51,11 @@ const isUrl = (s) => /^https?:\/\//.test(s);
  * BUG-096: by default through CATALOG_API, so a pack publish_pack.py released a minute ago is in it: the raw URL is
  * cached by GitHub's CDN (max-age=300) and can name the previous release for up to 5 minutes. Any API failure (the
  * 60 an hour unauthenticated limit answers 403 or 429, offline, an answer that is not a catalog) falls back to the
- * raw URL with a warning, so nothing is worse than before. `api`, `raw`, `fetch` and `warn` are for getpackcheck.
+ * raw URL with a warning, so nothing is worse than before. BUG-109: with GITHUB_TOKEN set (CI's jobs) the API call
+ * sends it, so a shared runner's IP never meets the unauthenticated limit; it goes to the API only, never to the raw
+ * URL or a src. `api`, `raw`, `fetch`, `warn` and `token` are for getpackcheck.
  */
-export async function readCatalog(src = process.env.SA_CATALOG, { api = CATALOG_API, raw = CATALOG_URL, fetch: get = fetch, warn = console.warn } = {}) {
+export async function readCatalog(src = process.env.SA_CATALOG, { api = CATALOG_API, raw = CATALOG_URL, fetch: get = fetch, warn = console.warn, token = process.env.GITHUB_TOKEN } = {}) {
   if (src && !isUrl(src)) return JSON.parse(fs.readFileSync(src, 'utf8'));
   const read = async (url, headers = {}) => {
     const r = await get(url, { headers: { 'user-agent': 'SnowboardAnywhere-get_pack', ...headers }, cache: 'no-store', signal: AbortSignal.timeout(10000) });
@@ -61,7 +64,7 @@ export async function readCatalog(src = process.env.SA_CATALOG, { api = CATALOG_
   };
   if (src) return read(src);
   try {
-    const c = await read(api, { accept: 'application/vnd.github.raw', 'x-github-api-version': '2022-11-28' });
+    const c = await read(api, { accept: 'application/vnd.github.raw', 'x-github-api-version': '2022-11-28', ...(token ? { authorization: `Bearer ${token}` } : {}) });
     if (!Array.isArray(c?.resorts)) throw new Error(`catalog: ${api} did not answer a catalog`);
     return c;
   } catch (e) {
@@ -350,6 +353,7 @@ async function cli(args) {
   const catalogSrc = flag('--catalog');
   const packsArg = flag('--packs');
   const from = flag('--from');
+  const saveCatalog = flag('--save-catalog');
   const force = args.includes('--force');
   const list = args.includes('--list');
   const sha256 = args.includes('--sha256');
@@ -360,6 +364,12 @@ async function cli(args) {
     const rel = path.relative(process.cwd(), path.join(packsDir, res.slug)) || '.';
     console.log(res.already ? `${rel} is already that build of ${res.from} (--force copies it again)`
       : `${res.from} copied to ${rel}: cd game && npm run dev, then open /?pack=${res.slug}`);
+    return;
+  }
+  if (saveCatalog) {
+    // BUG-109: CI's one read of the catalog (the synth-pack job, local_render_budgets.mjs), the same read as `get`
+    fs.writeFileSync(saveCatalog, `${JSON.stringify(await readCatalog(catalogSrc), null, 2)}
+`);
     return;
   }
   if (!slug && !list) {
