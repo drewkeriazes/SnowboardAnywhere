@@ -3,6 +3,7 @@
 // and of their checks. Each is a Connect-style handler, (req, res, next), that calls next() for a URL it doesn't own.
 import fs from 'node:fs';
 import path from 'node:path';
+import { pipeline } from 'node:stream';
 import * as gp from './get_pack.mjs';
 import { PACKS } from './paths.mjs';
 
@@ -19,7 +20,10 @@ export function packFiles(packsDir = PACKS) {
     if (!file.startsWith(packsDir + path.sep) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.statusCode = 404; res.end(); return; }
     res.setHeader('content-type', TYPES[path.extname(file)] ?? 'application/octet-stream');
     res.setHeader('cache-control', 'no-cache');
-    fs.createReadStream(file).pipe(res);
+    // pipeline, not pipe: a request the browser drops mid-file (a page left while a cover image streams) closes the
+    // file too. With pipe it stayed open, and Windows then refused to rename the pack folder, so the picker's
+    // Update or Download over it failed with EPERM until the server stopped (BUG-095)
+    pipeline(fs.createReadStream(file), res, () => {});
   };
 }
 
@@ -29,16 +33,21 @@ export function packFiles(packsDir = PACKS) {
  *   GET  /__packs/catalog      { formatVersion, catalog | null, error?, local: { slug: { formatVersion, build, version? } }, jobs }
  *   POST /__packs/get {slug}   starts the download; 202, or 400 with the reason
  *   GET  /__packs/job?slug=    { phase: 'download' | 'unzip' | 'done' | 'error', received, total, error? }
- * The catalog is cached for 5 minutes; a failed read (offline) answers catalog: null and the picker shows local packs.
+ * The listing's catalog is cached for 5 minutes, so opening the picker again and again spends no more than 12 of the
+ * 60 an hour GitHub API calls readCatalog makes; a failed read (offline) answers catalog: null and the picker shows
+ * local packs. A Download reads it afresh (BUG-096), so it installs the release published a minute ago, not the one
+ * the cached listing names; if that read fails it uses the cached one. `readCatalog` is for getpackcheck.
  */
-export function packDownloads(packsDir = PACKS) {
+export function packDownloads(packsDir = PACKS, { readCatalog = gp.readCatalog } = {}) {
   const jobs = new Map();
   let cached = null;
   const send = (res, code, body) => {
     res.statusCode = code; res.setHeader('content-type', 'application/json'); res.setHeader('cache-control', 'no-store'); res.end(JSON.stringify(body));
   };
-  const catalog = async () => {
-    if (!cached || Date.now() - cached.at > 5 * 60_000) cached = { at: Date.now(), catalog: await gp.readCatalog() };
+  const catalog = async (fresh = false) => {
+    if (fresh || !cached || Date.now() - cached.at > 5 * 60_000) {
+      try { cached = { at: Date.now(), catalog: await readCatalog() }; } catch (e) { if (!fresh || !cached) throw e; }
+    }
     return cached.catalog;
   };
   const route = async (req, res, next) => {
@@ -66,10 +75,14 @@ export function packDownloads(packsDir = PACKS) {
       if (!gp.SLUG.test(slug)) return send(res, 400, { error: 'bad slug' });
       const running = jobs.get(slug);
       if (running && running.phase !== 'done' && running.phase !== 'error') return send(res, 202, running);
-      let cat;
-      try { cat = await catalog(); } catch (e) { return send(res, 400, { error: String(e.message ?? e) }); }
+      // the job is in place before the catalog read, so a second click meanwhile joins it instead of starting another
       const job = { phase: 'download', received: 0, total: 0 };
       jobs.set(slug, job);
+      let cat;
+      try { cat = await catalog(true); } catch (e) {
+        if (running) jobs.set(slug, running); else jobs.delete(slug);
+        return send(res, 400, { error: String(e.message ?? e) });
+      }
       // a pack built on this PC (no catalog marker) is never replaced from the menu: getPack refuses without force
       gp.getPack(slug, { packsDir, catalog: cat, onProgress: (p) => Object.assign(job, p) })
         .then(() => { job.phase = 'done'; console.log(`[packs] ${slug} installed from the catalog`); })

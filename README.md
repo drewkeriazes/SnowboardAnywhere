@@ -28,7 +28,8 @@ npm run dev
 ```
 
 Open http://localhost:5173/?pack=vail. Use `?pack=synth` for a synthetic test mountain if you have
-no resort pack yet.
+no resort pack yet. With no pack in `packs/` at all (a fresh clone), http://localhost:5173/ opens a
+"No resorts yet" screen with the resort list: pick one to download it (below).
 
 ### Getting a resort
 
@@ -43,8 +44,12 @@ npm run get synth         # the synthetic test mountain the CI checks run on (no
 ```
 
 Or open **Change resort** on the main menu: a published resort you don't have shows "Download (size)";
-pick it and the game downloads it and loads it. A pack in an older format than the game reads shows
-"needs rebuild". `npm run get` won't replace a pack you built yourself unless you add `-- --force` (it
+pick it and the game downloads it and loads it. The same list shows on the "No resorts yet" screen
+when `packs/` is empty, and under the error when `?pack=` names a pack that isn't there. Where the
+server can't download (a plain static host, or offline) the list is empty and the screen says to run
+`npm run get vail`. A resort you downloaded shows "Update (size)" when a newer
+release is out, also when yours is an older format than the game reads. An older-format pack with no current
+release, or one you built or copied in yourself, shows "needs rebuild". `npm run get` won't replace a pack you built yourself unless you add `-- --force` (it
 deletes the old one). To ride a pack you built in MapPacker before it is published, copy it in:
 
 ```
@@ -65,7 +70,9 @@ npm run host
 
 It builds the game, serves it on port 5173 and prints the address to open on the other computer,
 e.g. `http://192.168.1.42:5173/?pack=vail`. The packs stream from the PC, and the main menu shows
-"Hosted from <PC name>" with the address so it is easy to read off. Ctrl+C stops it.
+"Hosted from <PC name>" with the address so it is easy to read off. Ctrl+C stops it. With no resort in
+`packs/` yet it starts anyway and says so: get one with `npm run get vail`, or from Change resort > Download
+on the main menu, which works through the host too.
 
 - **Controllers:** some browsers (Firefox, and Chrome as it phases in the rule) only let a page see a
   gamepad over https. If a controller on the other computer is not seen, run `npm run host -- --https`
