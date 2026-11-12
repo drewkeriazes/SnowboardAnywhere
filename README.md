@@ -28,7 +28,8 @@ npm run dev
 ```
 
 Open http://localhost:5173/?pack=vail. Use `?pack=synth` for a synthetic test mountain if you have
-no resort pack yet.
+no resort pack yet. With no pack in `packs/` at all (a fresh clone), http://localhost:5173/ opens a
+"No resorts yet" screen with the resort list: pick one to download it (below).
 
 ### Getting a resort
 
@@ -43,7 +44,10 @@ npm run get synth         # the synthetic test mountain the CI checks run on (no
 ```
 
 Or open **Change resort** on the main menu: a published resort you don't have shows "Download (size)";
-pick it and the game downloads it and loads it. A pack in an older format than the game reads shows
+pick it and the game downloads it and loads it. The same list shows on the "No resorts yet" screen
+when `packs/` is empty, and under the error when `?pack=` names a pack that isn't there. Where the
+server can't download (a plain static host, or offline) the list is empty and the screen says to run
+`npm run get vail`. A pack in an older format than the game reads shows
 "needs rebuild". `npm run get` won't replace a pack you built yourself unless you add `-- --force` (it
 deletes the old one). To ride a pack you built in MapPacker before it is published, copy it in:
 

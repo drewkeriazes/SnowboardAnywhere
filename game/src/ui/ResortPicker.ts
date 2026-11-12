@@ -45,8 +45,12 @@ function rows(current: string, built: { slug: string; name: string }[], reply: C
   return out;
 }
 
-/** Fill the panel, then add the catalog's resorts when the server answers. `go(slug)` loads a built resort. */
-export function fillResortPicker(host: HTMLElement, current: string, built: { slug: string; name: string }[], go: (slug: string) => void, close: () => void): void {
+/**
+ * Fill the panel, then add the catalog's resorts when the server answers. `go(slug)` loads a built resort.
+ * `settled` runs once the catalog has been drawn or has failed (no download routes, offline), so a caller can
+ * say what the list means (BUG-105's first-run screen).
+ */
+export function fillResortPicker(host: HTMLElement, current: string, built: { slug: string; name: string }[], go: (slug: string) => void, close: () => void, settled?: () => void): void {
   const list = () => host.querySelector<HTMLElement>('.courses')!;
   let reply: CatalogReply | null = null;
   const token = String(Date.now() + Math.random());
@@ -87,5 +91,6 @@ export function fillResortPicker(host: HTMLElement, current: string, built: { sl
   fetch(api('catalog'), { cache: 'no-store' })
     .then((r) => (r.ok && (r.headers.get('content-type') ?? '').includes('json') ? r.json() as Promise<CatalogReply> : null))
     .then((j) => { if (j && host.dataset.picker === token && !host.hidden && list()) { reply = j; draw(); } })
-    .catch(() => { /* no download endpoint here (a static host) or offline: built packs only */ });
+    .catch(() => { /* no download endpoint here (a static host) or offline: built packs only */ })
+    .then(() => settled?.());
 }

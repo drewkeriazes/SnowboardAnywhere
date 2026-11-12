@@ -7,6 +7,7 @@ import { LENSES, type LensSetting } from '../world/Lens';
 import { attractShot, loadAttractManifest, loadAttractShots, resortNumbers, shippedStill } from '../world/AttractShots';
 import { cachedMenuStill } from '../ui/MenuStill';
 import { MainMenu } from '../ui/MainMenu';
+import { showFirstRun } from '../ui/FirstRun';
 import { LoadingScreen } from '../ui/Loading';
 import { applyUiScale, loadSettings } from '../ui/Settings';
 import { startPadNav } from '../ui/PadNav';
@@ -32,10 +33,23 @@ export class Game {
     if (!packSlug) {
       let last = ''; try { last = localStorage.getItem('lastPack') ?? ''; } catch { /* ignore */ }
       packSlug = resorts.find((r) => r.slug === last)?.slug ?? resorts.find((r) => r.slug !== 'synth')?.slug ?? 'synth';
+      // BUG-105: nothing built (a fresh clone): the first-run screen with the resort picker, not a synth 404
+      if (!resorts.length && !headless) { startPadNav(); showFirstRun({ resorts }); return; }
+    }
+    status.textContent = `Loading ${packSlug}...`;
+    let pack: Pack;
+    try {
+      pack = await Pack.load(`${import.meta.env.BASE_URL}packs/${packSlug}`);
+    } catch (e) {
+      if (headless) throw e; // the test tools keep the plain error in #status (main.ts)
+      // BUG-105: a ?pack= that isn't there keeps its error, on the first-run screen with the picker
+      console.error(e);
+      status.textContent = '';
+      startPadNav();
+      showFirstRun({ resorts, error: { slug: packSlug, message: String((e as Error).message ?? e) } });
+      return;
     }
     try { localStorage.setItem('lastPack', packSlug); } catch { /* ignore */ }
-    status.textContent = `Loading ${packSlug}...`;
-    const pack = await Pack.load(`${import.meta.env.BASE_URL}packs/${packSlug}`);
     document.title = `${pack.meta.name} - snowboard sim`;
     const audio = new GameAudio();
     const settings = loadSettings();
