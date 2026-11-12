@@ -2,6 +2,8 @@
 node_modules/
 dist/
 dist-host/
+# npm run package: the Windows zip, its staged folder and the SEA bundle (FEAT-261)
+game/release/
 __pycache__/
 *.py[cod]
 .venv/
