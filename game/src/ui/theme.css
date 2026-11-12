@@ -144,6 +144,12 @@
 #menu .pop button.primary { width: 100%; min-height: var(--row-h); margin-top: var(--sp-3); border: 0; border-radius: var(--r-md); font: 800 var(--fs-lg) var(--font-display); text-transform: uppercase; letter-spacing: .05em; }
 #menu .dim { color: var(--dim); }
 body.settings-open #menu > :not(.still):not(.shade) { visibility: hidden; }
+/* BUG-105: the first-run screen (ui/FirstRun.ts), no resort to load: the title, then the resort list in the panel's look */
+#menu.first-run .facts { max-width: 64ch; line-height: 1.4; overflow-wrap: anywhere; }
+#menu.first-run .pop { position: static; grid-area: go; align-self: start; max-height: 60vh; }
+#menu.first-run .pop .courses:empty { display: none; }
+#menu.first-run .pop code { font-size: inherit; color: var(--text); }
+#menu.first-run .pop button.link { padding: 0; }
 /* behind the menu: the rider, the HUD and the touch controls are away (body.eye-mode hides the rest) */
 body.attract #touch, body.attract #run-card, body.attract #outrun-card, body.attract #replay { display: none !important; }
 @media (max-width: 820px) {

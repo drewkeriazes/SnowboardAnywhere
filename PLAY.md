@@ -168,6 +168,7 @@ The full list of controls is in the main [README](README.md#controls).
 | Page says "This site can't be reached" | The game isn't running. Run `npm run dev` and keep that window open. |
 | Terminal says a different address, like `localhost:5174` | Something else is using the port. Use the address the terminal shows. |
 | Menu loads but no mountain, or "pack not found" | Download it: `npm run get vail`. |
+| Game opens on **No resorts yet** | You have no resort yet. Pick one in the list to download it, or run `npm run get vail` and reload. |
 | Download stops partway | Run the same `npm run get` line again. |
 | Game is choppy | Esc > Settings > Graphics > pick **Low** or **Medium**. Close other tabs. |
 | No sound | Click the page once. Browsers wait for a click before playing sound. |
