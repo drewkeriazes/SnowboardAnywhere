@@ -7,6 +7,7 @@ import { LENSES, type LensSetting } from '../world/Lens';
 import { attractShot, loadAttractManifest, loadAttractShots, resortNumbers, shippedStill } from '../world/AttractShots';
 import { cachedMenuStill } from '../ui/MenuStill';
 import { createAccount } from '../account/createAccount';
+import { serverAccount } from '../account/serverAccount';
 import { MainMenu } from '../ui/MainMenu';
 import { showFirstRun } from '../ui/FirstRun';
 import { LoadingScreen } from '../ui/Loading';
@@ -86,6 +87,8 @@ export class Game {
     const still = headless || skipMenu ? '' : (await cachedMenuStill(pack, shot, settings)) || shippedStill(import.meta.env.BASE_URL, attractFiles, pack, shot.id);
     // FEAT-273: not awaited: the line starts hidden and fills in when the account settles
     const account = createAccount({ env: import.meta.env, fake: params.account, hosted: params.hosted, headless });
+    // dev build only: the account as the page sees it and as the dev server verifies it (Drew's setup check)
+    if (import.meta.env.DEV) (window as any).__account = { state: () => account.state(), server: () => serverAccount(account) };
     const menu = headless ? null : new MainMenu({
       slug: pack.meta.slug, resortName: pack.meta.name, shot, numbers: resortNumbers(pack),
       still, resorts, audio, settings, credits: () => audio.credits, account,
