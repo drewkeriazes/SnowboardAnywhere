@@ -6,6 +6,7 @@ import path from 'node:path';
 import { pipeline } from 'node:stream';
 import * as gp from './get_pack.mjs';
 import { PACKS } from './paths.mjs';
+import { refuseForeignOrigin } from './same_origin.mjs';
 
 const TYPES = { '.png': 'image/png', '.json': 'application/json', '.bin': 'application/octet-stream', '.webp': 'image/webp' };
 
@@ -63,11 +64,9 @@ export function packDownloads(packsDir = PACKS, { readCatalog = gp.readCatalog }
     }
     if (req.method === 'POST' && url.pathname === '/__packs/get') {
       // the game's own page only: a JSON body forces a CORS preflight this server never answers, and a browser's
-      // Origin must be this host (the server listens on the LAN, so another site must not start a 2 GB download)
-      const origin = req.headers.origin;
-      let sameOrigin = !origin;
-      try { sameOrigin ||= new URL(origin).host === req.headers.host; } catch { /* "null" or junk: refused */ }
-      if (!(req.headers['content-type'] ?? '').startsWith('application/json') || !sameOrigin) return send(res, 403, { error: 'same-origin JSON only' });
+      // Origin must be this host (BUG-110: another site must not start a 2 GB download)
+      if (refuseForeignOrigin(req, res)) return;
+      if (!(req.headers['content-type'] ?? '').startsWith('application/json')) return send(res, 403, { error: 'same-origin JSON only' });
       const chunks = [];
       for await (const c of req) chunks.push(c);
       let slug = '';

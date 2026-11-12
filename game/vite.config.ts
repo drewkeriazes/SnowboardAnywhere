@@ -2,6 +2,7 @@ import { defineConfig, type Connect, type Plugin } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { handleShotPost, handleTakePost } from './tools/attract_files.mjs';
+import { refuseForeignOrigin } from './tools/same_origin.mjs';
 import { packDownloads, packFiles } from './tools/pack_routes.mjs';
 
 /**
@@ -33,6 +34,7 @@ function saveCompareShots(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         if (req.url !== '/__compare/save' || req.method !== 'POST') return next();
+        if (refuseForeignOrigin(req, res)) return;
         const chunks: Buffer[] = [];
         req.on('data', (c: Buffer) => chunks.push(c));
         req.on('end', () => {
@@ -112,7 +114,7 @@ export default defineConfig({
   base: './',
   plugins: [packRoutes(), saveCompareShots(), saveAttractTakes()],
   // FEAT-128: a saved take (public/attract) must not reload the page you are recording in
-  server: { host: true, port: 5173, watch: { ignored: ['**/public/attract/**'] } },
+  server: { host: 'localhost', port: 5173, watch: { ignored: ['**/public/attract/**'] } },
   build: { target: 'es2022', sourcemap: false, chunkSizeWarningLimit: 1500 },
   // FEAT-177: a new id each build, so the main menu's kept still (ui/MenuStill.ts) never outlives the build that drew it
   define: { 'import.meta.env.VITE_BUILD_ID': JSON.stringify(Date.now().toString(36)) },

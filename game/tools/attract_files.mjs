@@ -6,6 +6,7 @@
 //   <pack>/take-<n>.json  a recorded take; <shot>-<line>-<i>.json  a generated one
 import fs from 'node:fs';
 import path from 'node:path';
+import { refuseForeignOrigin } from './same_origin.mjs';
 
 export const SLUG = /^[a-z0-9][a-z0-9_-]*$/;
 
@@ -103,10 +104,10 @@ export function saveShot(dir, pack, posted) {
   return { file: `game/public/attract/${pack}/shots.json`, shot, removed };
 }
 
-/** read a JSON POST body (the dev server listens on the home network: the game's own page, JSON, a few MB) */
+/** read a JSON POST body (the game's own page only (BUG-110), JSON, a few MB) */
 export function readJsonPost(req, res, max, cb) {
-  const origin = req.headers.origin, host = req.headers.host;
-  if (!String(req.headers['content-type'] ?? '').startsWith('application/json') || (origin && host && new URL(origin).host !== host)) { res.statusCode = 403; res.end('forbidden'); return; }
+  if (refuseForeignOrigin(req, res)) return;
+  if (!String(req.headers['content-type'] ?? '').startsWith('application/json')) { res.statusCode = 403; res.end('forbidden'); return; }
   const chunks = [];
   let size = 0;
   req.on('data', (c) => { size += c.length; if (size > max) { res.statusCode = 413; res.end('too big'); req.destroy(); return; } chunks.push(c); });
