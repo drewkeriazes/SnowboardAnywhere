@@ -359,8 +359,9 @@ export async function overlay({ url, lines, rides, box }) {
  * The menu as it plays, at `times` (s): with the takes `before` loaded, then with `after` added. Returns a frame
  * (with everything) and the draw calls with and without the added takes at each time.
  */
-export async function preview({ before, after, times }) {
+export async function preview({ before, after, times, dir }) {
   const S = window.__sim, cam = S.cam.camera, g = S.ghosts, info = S.renderer.info;
+  dir ??= `./attract/${S.pack.meta.slug}/`; // the takes' folder (FEAT-175: tools/auto_attract.mjs passes the pack's attract/)
   const p0 = S.shotPose(0);
   g.setVisible(true);
   info.autoReset = false;
@@ -372,9 +373,9 @@ export async function preview({ before, after, times }) {
     g.update(t); g.update(0);
     info.reset(); const png = window.__shot(); return { calls: info.render.calls, png };
   };
-  await g.load('./', before);
+  await g.load(dir, before);
   const without = times.map((t) => frame(t).calls);
-  await g.load('./', after);
+  await g.load(dir, after);
   const res = times.map((t, i) => { const f = frame(t); return { t, calls: f.calls, callsBefore: without[i], png: f.png }; });
   info.autoReset = true;
   g.setVisible(false);
@@ -382,14 +383,14 @@ export async function preview({ before, after, times }) {
 }
 
 /** Takes as positions over time (for the gap check across every pair): [{ file, build, pts: [[x, y, in frame] or null per 0.1 s of menu time] }] (in the frame where the menu goes live). */
-export async function takePaths({ files, horizon = 120 }) {
+export async function takePaths({ files, horizon = 120, dir }) {
   const S = window.__sim, cam = S.cam.camera, V = cam.position.constructor;
   const p0 = S.shotPose(0); S.eyeAt(p0.x, p0.y, p0.h, p0.pitch, p0.fov, p0.eye); window.__step(1, 0); cam.updateMatrixWorld();
   const inFrame = (x, y, z) => { const v = new V(x, z + 1, -y).project(cam); return v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1; };
   const out = [];
   for (const f of files) {
     try {
-      const r = await fetch(`./attract/${window.__sim.pack.meta.slug}/${f}`);
+      const r = await fetch(`${dir ?? `./attract/${window.__sim.pack.meta.slug}/`}${f}`);
       if (!r.ok) continue;
       const tk = await r.json(), s = tk.samples, t0 = s[0].t, pts = [], dur = s[s.length - 1].t - t0;
       // menu time (every take starts with the menu, after its delay, again every `every` seconds), null while it isn't out

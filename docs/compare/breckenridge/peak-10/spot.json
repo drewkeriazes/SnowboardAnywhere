@@ -1,0 +1,38 @@
+{
+  "name": "Peak 10",
+  "proposed": "FEAT-175 tools/propose_spots.py: a peak spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot peak-10/<view> --add",
+  "latlon": [
+    39.4433096,
+    -106.1027334
+  ],
+  "maps": "https://www.google.com/maps/@39.4433096,-106.1027334,17z",
+  "game": {
+    "x": -1840,
+    "y": -3497
+  },
+  "views": [
+    {
+      "id": "resort",
+      "heading": 31.4,
+      "pitch": -6.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -1840.0,
+      "y": -3496.8,
+      "h": 32.1,
+      "game": "http://localhost:5173/?pack=breckenridge&x=-1840.0&y=-3496.8&h=32.1&pitch=-6.0&fov=75.0&cam=eye&spot=peak-10/resort"
+    },
+    {
+      "id": "away",
+      "heading": 211.4,
+      "pitch": -3.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -1840.0,
+      "y": -3496.8,
+      "h": 212.1,
+      "game": "http://localhost:5173/?pack=breckenridge&x=-1840.0&y=-3496.8&h=212.1&pitch=-3.0&fov=75.0&cam=eye&spot=peak-10/away"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

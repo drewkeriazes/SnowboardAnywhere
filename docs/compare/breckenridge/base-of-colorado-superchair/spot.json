@@ -1,0 +1,38 @@
+{
+  "name": "Base of Colorado SuperChair",
+  "proposed": "FEAT-175 tools/propose_spots.py: a base spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot base-of-colorado-superchair/<view> --add",
+  "latlon": [
+    39.4803214,
+    -106.0673523
+  ],
+  "maps": "https://www.google.com/maps/@39.4803214,-106.0673523,17z",
+  "game": {
+    "x": 1253,
+    "y": 574
+  },
+  "views": [
+    {
+      "id": "up",
+      "heading": 235.7,
+      "pitch": 6.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": 1253.2,
+      "y": 574.2,
+      "h": 236.4,
+      "game": "http://localhost:5173/?pack=breckenridge&x=1253.2&y=574.2&h=236.4&pitch=6.0&fov=75.0&cam=eye&spot=base-of-colorado-superchair/up"
+    },
+    {
+      "id": "across",
+      "heading": 325.7,
+      "pitch": 0.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": 1253.2,
+      "y": 574.2,
+      "h": 326.4,
+      "game": "http://localhost:5173/?pack=breckenridge&x=1253.2&y=574.2&h=326.4&pitch=0.0&fov=75.0&cam=eye&spot=base-of-colorado-superchair/across"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

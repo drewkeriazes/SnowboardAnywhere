@@ -1,0 +1,38 @@
+{
+  "name": "Base of QuickSilver SuperChair",
+  "proposed": "FEAT-175 tools/propose_spots.py: a base spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot base-of-quicksilver-superchair/<view> --add",
+  "latlon": [
+    39.4747707,
+    -106.0482491
+  ],
+  "maps": "https://www.google.com/maps/@39.4747707,-106.0482491,17z",
+  "game": {
+    "x": 2889,
+    "y": -61
+  },
+  "views": [
+    {
+      "id": "up",
+      "heading": 219.3,
+      "pitch": 6.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": 2889.0,
+      "y": -61.1,
+      "h": 220.0,
+      "game": "http://localhost:5173/?pack=breckenridge&x=2889.0&y=-61.1&h=220.0&pitch=6.0&fov=75.0&cam=eye&spot=base-of-quicksilver-superchair/up"
+    },
+    {
+      "id": "across",
+      "heading": 309.3,
+      "pitch": 0.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": 2889.0,
+      "y": -61.1,
+      "h": 310.0,
+      "game": "http://localhost:5173/?pack=breckenridge&x=2889.0&y=-61.1&h=310.0&pitch=0.0&fov=75.0&cam=eye&spot=base-of-quicksilver-superchair/across"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

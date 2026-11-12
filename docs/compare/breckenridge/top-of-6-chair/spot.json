@@ -1,0 +1,38 @@
+{
+  "name": "Top of 6-Chair",
+  "proposed": "FEAT-175 tools/propose_spots.py: a lift spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot top-of-6-chair/<view> --add",
+  "latlon": [
+    39.468671,
+    -106.0946099
+  ],
+  "maps": "https://www.google.com/maps/@39.4686710,-106.0946099,17z",
+  "game": {
+    "x": -1107,
+    "y": -691
+  },
+  "views": [
+    {
+      "id": "down",
+      "heading": 110.0,
+      "pitch": -8.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -1106.8,
+      "y": -690.6,
+      "h": 110.7,
+      "game": "http://localhost:5173/?pack=breckenridge&x=-1106.8&y=-690.6&h=110.7&pitch=-8.0&fov=75.0&cam=eye&spot=top-of-6-chair/down"
+    },
+    {
+      "id": "across",
+      "heading": 200.0,
+      "pitch": -4.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -1106.8,
+      "y": -690.6,
+      "h": 200.7,
+      "game": "http://localhost:5173/?pack=breckenridge&x=-1106.8&y=-690.6&h=200.7&pitch=-4.0&fov=75.0&cam=eye&spot=top-of-6-chair/across"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

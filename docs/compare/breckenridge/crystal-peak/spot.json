@@ -1,0 +1,38 @@
+{
+  "name": "Crystal Peak",
+  "proposed": "FEAT-175 tools/propose_spots.py: a peak spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot crystal-peak/<view> --add",
+  "latlon": [
+    39.434618,
+    -106.1143943
+  ],
+  "maps": "https://www.google.com/maps/@39.4346180,-106.1143943,17z",
+  "game": {
+    "x": -2855,
+    "y": -4449
+  },
+  "views": [
+    {
+      "id": "resort",
+      "heading": 35.2,
+      "pitch": -6.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -2855.4,
+      "y": -4449.1,
+      "h": 35.9,
+      "game": "http://localhost:5173/?pack=breckenridge&x=-2855.4&y=-4449.1&h=35.9&pitch=-6.0&fov=75.0&cam=eye&spot=crystal-peak/resort"
+    },
+    {
+      "id": "away",
+      "heading": 215.2,
+      "pitch": -3.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -2855.4,
+      "y": -4449.1,
+      "h": 215.9,
+      "game": "http://localhost:5173/?pack=breckenridge&x=-2855.4&y=-4449.1&h=215.9&pitch=-3.0&fov=75.0&cam=eye&spot=crystal-peak/away"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}
