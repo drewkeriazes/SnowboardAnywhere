@@ -67,14 +67,15 @@ jobs:
           VER: ${{ steps.v.outputs.ver }}
         run: |
           set -uo pipefail
-          git ls-remote --exit-code --tags origin "refs/tags/$VER" > /dev/null
-          rc=$?
-          if [ "$rc" -eq 0 ]; then
+          if git ls-remote --exit-code --tags origin "refs/tags/$VER" > /dev/null; then
             echo "::error::Tag $VER already exists, and a release is never overwritten. Delete the tag by hand if it is a leftover, or bump minor or major."
             exit 1
-          elif [ "$rc" -ne 2 ]; then
-            echo "::error::Could not list the tags (git ls-remote exit $rc)."
-            exit 1
+          else
+            rc=$?
+            if [ "$rc" -ne 2 ]; then
+              echo "::error::Could not list the tags (git ls-remote exit $rc)."
+              exit 1
+            fi
           fi
           if out=$(gh release view "$VER" --json tagName 2>&1); then
             echo "::error::A release named $VER already exists (a draft?): delete it or bump minor or major."
