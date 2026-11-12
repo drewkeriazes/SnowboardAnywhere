@@ -154,11 +154,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # one read of the catalog (CATALOG_URL in get_pack.mjs) for the key and the download, so both name the same release
+      # one read of the catalog for the key and the download, so both name the same release. BUG-109: readCatalog in
+      # get_pack.mjs, the contents API (current right after a publish; the token keeps it off the unauthenticated
+      # limit) with the CDN-cached raw URL as the fallback
       - id: key
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          curl -sSfL --retry 3 -o "$RUNNER_TEMP/catalog.json" \
-            https://raw.githubusercontent.com/drewkeriazes/MapPacker-SnowboardAnywhere/main/catalog.json
+          node game/tools/get_pack.mjs --save-catalog "$RUNNER_TEMP/catalog.json"
           sha=$(node game/tools/get_pack.mjs synth --sha256 --catalog "$RUNNER_TEMP/catalog.json")
           echo "key=synth-sha-${sha:0:16}" | tee -a "$GITHUB_OUTPUT"
       - uses: actions/cache@v4

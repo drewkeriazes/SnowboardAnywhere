@@ -4,13 +4,16 @@
 // catalog pack but not an older local build. BUG-095: the swap of both (--from and a getPack install from a small
 // zip) tries a locked rename again and, locked for good, puts the old pack back. BUG-096: readCatalog's contents
 // API read and its raw URL fallback (stub fetch), and that the servers' Download reads the catalog afresh while the
-// listing is cached. Node only (no pack, no browser, no network); exits 1 on a failure.
+// listing is cached. BUG-109: the API read sends GITHUB_TOKEN (the API only), and `--save-catalog` writes the
+// catalog CI's jobs read. Node only (no pack, no browser, no network); exits 1 on a failure.
 //   node tools/getpackcheck.mjs
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { Readable } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 import { copyPack, getPack, localPacks, PACK_FORMAT, readCatalog } from './get_pack.mjs';
 import http from 'node:http';
 import { packDownloads, packFiles } from './pack_routes.mjs';
@@ -154,11 +157,11 @@ const cat = (v) => ({ resorts: [{ slug: 'vail', pack: { version: v } }] });
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const stub = (answers) => {
   const calls = [];
-  const fetch = async (url, init) => { calls.push({ url, accept: init?.headers?.accept }); const a = answers[url]; if (a instanceof Error) throw a; return a(); };
+  const fetch = async (url, init) => { calls.push({ url, accept: init?.headers?.accept, auth: init?.headers?.authorization }); const a = answers[url]; if (a instanceof Error) throw a; return a(); };
   return { calls, fetch };
 };
 const warns = [];
-const opts = (s) => ({ api: API, raw: RAW, fetch: s.fetch, warn: (m) => warns.push(m) });
+const opts = (s, token = '') => ({ api: API, raw: RAW, fetch: s.fetch, warn: (m) => warns.push(m), token });
 delete process.env.SA_CATALOG;
 let s = stub({ [API]: () => json(cat(2)), [RAW]: () => json(cat(1)) });
 let c = await readCatalog(undefined, opts(s));
@@ -177,6 +180,19 @@ ok((await readCatalog(undefined, opts(s))).resorts[0].pack.version === 7 && !s.c
 delete process.env.SA_CATALOG;
 s = stub({ 'https://mirror.test/c.json': () => json(cat(5)) });
 ok((await readCatalog('https://mirror.test/c.json', opts(s))).resorts[0].pack.version === 5 && s.calls.length === 1, 'a src URL (--catalog): read as is, no API');
+// BUG-109: a token (GITHUB_TOKEN in CI) goes to the API only: not to the raw fallback, not to a src URL
+ok(!s.calls[0].auth, 'no token: no authorization header');
+s = stub({ [API]: () => json({}, 403), [RAW]: () => json(cat(1)) });
+await readCatalog(undefined, opts(s, 'tkn'));
+ok(s.calls[0].auth === 'Bearer tkn' && s.calls[1].url === RAW && !s.calls[1].auth, 'token: sent to the API, not to the raw URL fallback');
+s = stub({ 'https://mirror.test/c.json': () => json(cat(5)) });
+await readCatalog('https://mirror.test/c.json', opts(s, 'tkn'));
+ok(!s.calls[0].auth, 'token: not sent to a src URL');
+// BUG-109 `--save-catalog <file>`: the catalog it read, written for CI's jobs (SA_CATALOG file here, so no network)
+const saved = path.join(t, 'saved.json');
+const run = spawnSync(process.execPath, [fileURLToPath(new URL('./get_pack.mjs', import.meta.url)), '--save-catalog', saved],
+  { encoding: 'utf8', env: { ...process.env, SA_CATALOG: catFile } });
+ok(run.status === 0 && !run.stdout && JSON.parse(fs.readFileSync(saved, 'utf8')).resorts[0].pack.version === 7, `--save-catalog writes the catalog and prints nothing (exit ${run.status}${run.stderr ? `: ${run.stderr.trim()}` : ''})`);
 
 // BUG-096 packDownloads: the listing's catalog is cached, a Download reads it afresh (falling back to the cached one)
 const call = (h, method, url, body) => new Promise((resolve) => {

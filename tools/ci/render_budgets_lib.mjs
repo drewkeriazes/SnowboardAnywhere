@@ -175,10 +175,8 @@ export function runCheck(ctx) {
     const tool = path.join(repo, 'game', 'tools', 'get_pack.mjs');
     const catalog = path.join(cache, 'catalog.json');
     fs.mkdirSync(cache, { recursive: true });
-    const fetchCatalog = "fetch(process.argv[1], { cache: 'no-store' }).then((r) => r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))).then((t) => process.stdout.write(t))";
-    const text = tryOut(process.execPath, ['-e', fetchCatalog, CATALOG_URL]);
-    if (!text) die(`could not read the catalog ${CATALOG_URL}`);
-    fs.writeFileSync(catalog, text);
+    // BUG-109: get_pack.mjs's readCatalog, as the synth-pack job reads it: the contents API, then the raw URL
+    if (tryOut(process.execPath, [tool, '--save-catalog', catalog]) === null) die(`could not read the catalog ${CATALOG_URL}`);
     const sha = tryOut(process.execPath, [tool, 'synth', '--sha256', '--catalog', catalog]);
     if (!sha) die(`no synthetic pack for this game's pack format in ${CATALOG_URL} (MapPacker: publish_pack.py --synth)`);
     const key = `synth-sha-${sha.slice(0, 16)}`;
