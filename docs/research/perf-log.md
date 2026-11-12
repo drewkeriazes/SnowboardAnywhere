@@ -25,3 +25,25 @@ One row per measurement (the `perf-check` skill). Tree rows come from `cd game &
 Frame times on this GPU vary by 1 to 3 ms between runs of the same build; the call and triangle counts are repeatable.
 
 Riding (FEAT-158, a 20 s tuck with carves alternating every 1.5 s from the Vail spawn, chase camera): `Vegetation.update` + `cull` median 0.10 ms, p95 0.20 ms, max 1.5 ms per frame; 62 near-set and 1 far repack.
+
+## FEAT-229 step 1: fine, mask and dir tiles at the Born Free start (2026-11-11)
+
+`cd game && npx vite build && node tools/tileperf.mjs vail 60 --gpu --straight [--emulate-coarse]` on Drew's PC (RTX 2070 SUPER, ANGLE D3D11, headless, 1920 x 1080, local server), branch `issue-537-tile-measure` on 4db2efe. Load: frames back to back with the warm-up budgets from session ready until nothing is in flight or building ("settled"). Ride: a 60 s straight tuck from the Vail start (Born Free), 1,305 m, top 123 km/h. `--emulate-coarse` drops the fine requests of 4 and 8 m chunks, which then build from mid: the most a 4 m set could save, since its own few tiles are not fetched. Two runs of each, interleaved; ranges are over both. Decode is main-thread time (copy and conversion after `createImageBitmap`); the PNG decode itself runs off the main thread.
+
+| | today | 4 and 8 m chunks without fine (emulated) |
+|---|---|---|
+| session ready / its first frame done | 1.8 s / 8.1 to 8.3 s | 1.7 to 1.8 s / 8.0 to 8.1 s |
+| last fine tile in | 12.2 s | 1.7 s (spawn box only) |
+| last mask and dir tile in | 12.1 to 12.2 s | 12.1 to 12.2 s |
+| settled | 14.8 to 15.0 s | 14.6 to 14.7 s |
+| fine tiles at load: fetched, MB, decode | 46, 12.0 MB, 69 to 70 ms (1.5 ms a tile, max 5.1) | 12, 3.1 MB, 18 to 25 ms |
+| fine resident at the start | 46: 6 for 1 and 2 m chunks, **40 only for 4 and 8 m chunks** | 12 |
+| fine resident at the ride's end | 58 to 62: 6 for 1 and 2 m chunks, 39 to 42 only for 4 and 8 m, 13 to 14 kept but unused | 19 to 22 |
+| fine over the whole run: fetched, MB, decode | 58 to 62, 15.0 to 16.2 MB, 86 to 89 ms; 4 and 8 m only: 39 to 40 tiles, 10.1 to 10.5 MB (65 to 67%), 56 to 57 ms (63 to 66%) | 19 to 22, 4.9 to 5.7 MB, 34 to 37 ms |
+| ride frame ms (15-frame means): median / p95 | 8.6 to 8.8 / 11.1 to 11.2 | 8.5 to 8.8 / 11.1 to 11.4 |
+
+Mask and dir (2 m, 1 km tiles; the card leaves them as they are): 15 each at the start, 11 of them only for 4 and 8 m chunks; 18 to 20 over the run, 13 to 14 only for 4 and 8 m. Dir tiles take 27 to 35 ms each on the main thread while riding (max 51 to 63 ms), 82 to 96% of it for 4 and 8 m chunks: BUG-087 (#542). Mask tiles take 1.2 to 1.5 ms while riding.
+
+**Verdict: not worth building for load or decode time.** The 4 and 8 m only tiles are two thirds of the fine tiles fetched and of fine decode, but that decode is under 60 ms of main-thread time in a whole run, and the load does not settle sooner without them (14.6 to 14.7 s against 14.8 to 15.0 s, within run-to-run noise). The first frame (6.3 s: shader compile and the first chunk builds) and the mask and dir tiles set the load; responses wait for the main thread while that frame runs (fetch wall time about 6 s a tile). What a 4 m set would still buy: about 40 MB less JS heap (40 fewer 1 MB Float32 tiles resident) and about 10 MB less to download per session, which counts on a hosted build over a slow link, not locally (first-download size is FEAT-230, #538). Caveats: headless with a local server, so no network time; one run of each mode crashed about 15 s in at the same spot (1,181 m) and the tile counts held.
+
+Look (headed, `--shots`, the three modes on the same frames after a restart at the spawn): on mid (`--emulate-coarse`) the 4 and 8 m ring goes visibly softer, its small rolls smoothed out; built from a 4 m box average (`--look4`, how the set would look) it cannot be told from today. The ride is the same in all three (physics and prefetch keep reading fine). So the set changes nothing a player sees or feels, and on its own buys only the heap and the download. In a boot zip (FEAT-230, #538) it is what lets the ring look finished with only the fine tiles round the start; the findings are on that card.
