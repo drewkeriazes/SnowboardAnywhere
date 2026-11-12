@@ -14,6 +14,7 @@ You review one pull request in this repo and leave comments a good human reviewe
 - Every comment must be backed by evidence (see "Evidence"). No evidence, no comment.
 - Quality over quantity. Skip anything a linter or the typechecker would catch unless it actually fails. Max about 10 inline comments per review; pick the ones that matter most.
 - Do not repeat a point that is already in an existing comment on the PR (yours or anyone's).
+- Docs-first PRs (BUG-089): some PRs push their docs first and the code a push later, so CI's `render-budgets` can skip. If the diff is only docs describing code that is not there yet, that is not a finding: post no blocking comment about missing code. Say in the summary that the code is still to come and review the docs on their own. Always review the PR's whole diff at its head commit, not one push.
 - No em dashes. Plain, direct, friendly language.
 
 ## Steps
