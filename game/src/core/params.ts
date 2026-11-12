@@ -11,6 +11,8 @@ export interface Params {
   /** FEAT-138: `npm run host` builds for other computers on the home network, FEAT-261 `npm run package` for the
    *  Windows launcher; dev-only tools stay off on both */
   hosted: boolean;
+  /** FEAT-273 ?account=guest|player|maintainer|unconfigured: a fake account for the tools; null on a hosted build */
+  account: string | null;
   /** ?debug, ?debug=moguls, ?debug=pad: the value, '' when bare, null when absent */
   debug: string | null;
   /** BUG-053: the extra HUD lines and tuning panels (?debug, not on a hosted build) */
@@ -60,6 +62,7 @@ export function parseParams(search: string, hosted = !!(import.meta.env.VITE_HOS
     headless: p.has('headless'),
     menuframe: p.has('menuframe'),
     hosted,
+    account: hosted ? null : p.get('account'),
     debug,
     debugHud: debug !== null && !hosted,
     rider: rider === 'ski' || rider === 'board' ? rider : null,
