@@ -9,6 +9,8 @@ Modes: free ride, time trials and Outrun, picked on the main menu's cards or in 
 
 ## Play
 
+**Just want to ride?** Follow [PLAY.md](PLAY.md): install, download and start the game in five copy-paste steps, plus fixes for the common problems. The rest of this section is the developer version.
+
 ```
 cd game
 npm install
