@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import { GAME, PACKS } from './paths.mjs';
@@ -95,8 +96,42 @@ export function findEntry(catalog, slug) {
   return all.find((r) => r.pack.formatVersion === PACK_FORMAT) ?? all[0];
 }
 
-/** Install `slug` from the catalog. onProgress({ phase: 'download' | 'unzip' | 'done', received, total }). */
-export async function getPack(slug, { packsDir = PACKS, catalog, force = false, onProgress = () => {} } = {}) {
+// BUG-095: Windows refuses a rename for a while when something holds a file in the folder (Defender scanning the
+// thousands of tiles just unzipped, the dev server reading the old pack): EPERM, EBUSY or EACCES. The swap waits and
+// tries again, 6 tries over about 10 s, before it puts the old pack back.
+const LOCKED = new Set(['EPERM', 'EBUSY', 'EACCES']);
+export const RENAME_WAITS = [500, 1000, 2000, 3000, 3500];
+
+/** rename(a, b), tried again after each wait in `waits` (ms) while Windows says a file is locked; onWait(message) before each wait. */
+export async function renameRetry(a, b, { rename = fs.renameSync, waits = RENAME_WAITS, onWait = () => {} } = {}) {
+  for (let i = 0; ; i++) {
+    try { return rename(a, b); } catch (e) {
+      if (i >= waits.length || !LOCKED.has(e.code)) throw e;
+      onWait(`${e.code} moving ${path.basename(a)} to ${path.basename(b)} (a virus scan or another program has a file open?): try ${i + 2} of ${waits.length + 1} in ${waits[i] / 1000} s`);
+      await delay(waits[i]);
+    }
+  }
+}
+
+/**
+ * Swap `incoming` in as `dest`: dest (if any) to `old`, incoming to dest, old removed. If incoming can't go in, the
+ * old pack is put back. Every rename goes through renameRetry; `swap` is its options ({ rename, waits, onWait }).
+ */
+async function swapIn(incoming, dest, old, swap) {
+  if (fs.existsSync(dest)) await renameRetry(dest, old, swap);
+  try { await renameRetry(incoming, dest, swap); } catch (e) {
+    if (fs.existsSync(old)) await renameRetry(old, dest, swap);
+    if (LOCKED.has(e.code)) e.message += `: still locked after ${(swap?.waits ?? RENAME_WAITS).length + 1} tries, the old pack is back in place; run it again in a minute`;
+    throw e;
+  }
+  fs.rmSync(old, { recursive: true, force: true });
+}
+
+/**
+ * Install `slug` from the catalog. onProgress({ phase: 'download' | 'unzip' | 'done', received, total }); while the
+ * swap waits on a locked file (BUG-095) it is { phase: 'unzip', wait: message }. `rename` and `waits` are for tests.
+ */
+export async function getPack(slug, { packsDir = PACKS, catalog, force = false, onProgress = () => {}, rename, waits } = {}) {
   if (!SLUG.test(slug)) throw new Error(`not a resort slug: ${slug}`);
   catalog ??= await readCatalog();
   const entry = findEntry(catalog, slug);
@@ -164,10 +199,7 @@ export async function getPack(slug, { packsDir = PACKS, catalog, force = false, 
     fs.writeFileSync(path.join(incoming, MARKER), JSON.stringify({
       version: entry.pack.version, sha256: sha, build: meta.build ?? null, url, installed: new Date().toISOString(),
     }, null, 1));
-    if (fs.existsSync(dest)) fs.renameSync(dest, old);
-    // a failed second rename (Windows EPERM / EBUSY: antivirus, the dev server reading a file) puts the old pack back
-    try { fs.renameSync(incoming, dest); } catch (e) { if (fs.existsSync(old)) fs.renameSync(old, dest); throw e; }
-    fs.rmSync(old, { recursive: true, force: true });
+    await swapIn(incoming, dest, old, { rename, waits, onWait: (wait) => onProgress({ phase: 'unzip', received, total, wait }) });
     writePackIndex(packsDir);
     onProgress({ phase: 'done', received, total });
     return { slug, version: entry.pack.version, bytes: received };
@@ -192,9 +224,10 @@ const unpublished = (rel) => { const top = rel.split(/[\\/]/)[0]; return top ===
  * packsDir/<slug>, as the zip would carry it, with a FROM_MARKER naming where it came from. slug defaults to the
  * pack's own meta.json slug. It replaces a link, a catalog download or an earlier --from copy; a pack built in this
  * checkout only with force (it is deleted). A copy, not a link: `git worktree remove` follows a junction under the
- * ignored packs/ and empties the folder it points at, which would be the MapPacker build.
+ * ignored packs/ and empties the folder it points at, which would be the MapPacker build. Async for the swap's
+ * waits on a locked file (BUG-095): onWait(message) before each; `rename` and `waits` are for tests.
  */
-export function copyPack(slug, from, { packsDir = PACKS, force = false } = {}) {
+export async function copyPack(slug, from, { packsDir = PACKS, force = false, rename, waits, onWait } = {}) {
   let src = path.resolve(from);
   if (!fs.existsSync(path.join(src, 'meta.json')) && slug && fs.existsSync(path.join(src, slug, 'meta.json'))) src = path.join(src, slug);
   const meta = readJson(path.join(src, 'meta.json'));
@@ -225,9 +258,7 @@ export function copyPack(slug, from, { packsDir = PACKS, force = false } = {}) {
     fs.cpSync(src, incoming, { recursive: true, filter: (s) => s === src || !unpublished(path.relative(src, s)) });
     fs.writeFileSync(path.join(incoming, FROM_MARKER), JSON.stringify({ from: src, build: meta.build ?? null, copied: new Date().toISOString() }, null, 1));
     if (linked) removeLink(dest); // only the link goes, never what it points at
-    else if (fs.existsSync(dest)) fs.renameSync(dest, old);
-    try { fs.renameSync(incoming, dest); } catch (e) { if (fs.existsSync(old)) fs.renameSync(old, dest); throw e; }
-    fs.rmSync(old, { recursive: true, force: true });
+    await swapIn(incoming, dest, old, { rename, waits, onWait });
   } finally {
     fs.rmSync(incoming, { recursive: true, force: true });
   }
@@ -300,7 +331,7 @@ async function cli(args) {
   const slug = args.find((a) => !a.startsWith('--'));
   const packsDir = packsArg ? path.resolve(packsArg) : PACKS;
   if (from) {
-    const res = copyPack(slug, from, { packsDir, force });
+    const res = await copyPack(slug, from, { packsDir, force, onWait: (w) => console.log(`  ${w}`) });
     const rel = path.relative(process.cwd(), path.join(packsDir, res.slug)) || '.';
     console.log(res.already ? `${rel} is already that build of ${res.from} (--force copies it again)`
       : `${res.from} copied to ${rel}: cd game && npm run dev, then open /?pack=${res.slug}`);
@@ -331,7 +362,8 @@ async function cli(args) {
   }
   let shown = -1;
   const res = await getPack(slug, {
-    packsDir, catalog, force, onProgress: ({ phase, received, total, already }) => {
+    packsDir, catalog, force, onProgress: ({ phase, received, total, already, wait }) => {
+      if (wait) console.log(`  ${wait}`);
       if (already || phase !== 'download' || !total) return;
       const pct = Math.floor((received / total) * 100);
       if (pct >= shown + 10 || received === total) { shown = pct; console.log(`  ${pct}% of ${mb(total)}`); }
