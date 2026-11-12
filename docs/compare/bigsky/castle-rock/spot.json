@@ -1,0 +1,38 @@
+{
+  "name": "Castle Rock",
+  "proposed": "FEAT-175 tools/propose_spots.py: a peak spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot castle-rock/<view> --add",
+  "latlon": [
+    45.283682,
+    -111.4462768
+  ],
+  "maps": "https://www.google.com/maps/@45.2836820,-111.4462768,17z",
+  "game": {
+    "x": -2799,
+    "y": 12
+  },
+  "views": [
+    {
+      "id": "resort",
+      "heading": 95.0,
+      "pitch": -6.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -2799.4,
+      "y": 11.5,
+      "h": 95.3,
+      "game": "http://localhost:5173/?pack=bigsky&x=-2799.4&y=11.5&h=95.3&pitch=-6.0&fov=75.0&cam=eye&spot=castle-rock/resort"
+    },
+    {
+      "id": "away",
+      "heading": 275.0,
+      "pitch": -3.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -2799.4,
+      "y": 11.5,
+      "h": 275.3,
+      "game": "http://localhost:5173/?pack=bigsky&x=-2799.4&y=11.5&h=275.3&pitch=-3.0&fov=75.0&cam=eye&spot=castle-rock/away"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

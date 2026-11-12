@@ -1,0 +1,38 @@
+{
+  "name": "Top of Dakota 3",
+  "proposed": "FEAT-175 tools/propose_spots.py: a lift spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot top-of-dakota-3/<view> --add",
+  "latlon": [
+    45.270617,
+    -111.4539383
+  ],
+  "maps": "https://www.google.com/maps/@45.2706170,-111.4539383,17z",
+  "game": {
+    "x": -3408,
+    "y": -1437
+  },
+  "views": [
+    {
+      "id": "down",
+      "heading": 183.1,
+      "pitch": -8.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -3408.5,
+      "y": -1436.6,
+      "h": 183.5,
+      "game": "http://localhost:5173/?pack=bigsky&x=-3408.5&y=-1436.6&h=183.5&pitch=-8.0&fov=75.0&cam=eye&spot=top-of-dakota-3/down"
+    },
+    {
+      "id": "across",
+      "heading": 273.1,
+      "pitch": -4.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -3408.5,
+      "y": -1436.6,
+      "h": 273.5,
+      "game": "http://localhost:5173/?pack=bigsky&x=-3408.5&y=-1436.6&h=273.5&pitch=-4.0&fov=75.0&cam=eye&spot=top-of-dakota-3/across"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

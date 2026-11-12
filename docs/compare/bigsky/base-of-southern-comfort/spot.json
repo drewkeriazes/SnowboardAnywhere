@@ -1,0 +1,38 @@
+{
+  "name": "Base of Southern Comfort",
+  "proposed": "FEAT-175 tools/propose_spots.py: a base spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot base-of-southern-comfort/<view> --add",
+  "latlon": [
+    45.2646278,
+    -111.3777178
+  ],
+  "maps": "https://www.google.com/maps/@45.2646278,-111.3777178,17z",
+  "game": {
+    "x": 2567,
+    "y": -2133
+  },
+  "views": [
+    {
+      "id": "up",
+      "heading": 291.8,
+      "pitch": 6.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": 2567.4,
+      "y": -2132.7,
+      "h": 292.1,
+      "game": "http://localhost:5173/?pack=bigsky&x=2567.4&y=-2132.7&h=292.1&pitch=6.0&fov=75.0&cam=eye&spot=base-of-southern-comfort/up"
+    },
+    {
+      "id": "across",
+      "heading": 21.8,
+      "pitch": 0.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": 2567.4,
+      "y": -2132.7,
+      "h": 22.1,
+      "game": "http://localhost:5173/?pack=bigsky&x=2567.4&y=-2132.7&h=22.1&pitch=0.0&fov=75.0&cam=eye&spot=base-of-southern-comfort/across"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

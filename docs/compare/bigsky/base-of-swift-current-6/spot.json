@@ -1,0 +1,38 @@
+{
+  "name": "Base of Swift Current 6",
+  "proposed": "FEAT-175 tools/propose_spots.py: a base spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot base-of-swift-current-6/<view> --add",
+  "latlon": [
+    45.2830774,
+    -111.4016104
+  ],
+  "maps": "https://www.google.com/maps/@45.2830774,-111.4016104,17z",
+  "game": {
+    "x": 703,
+    "y": -74
+  },
+  "views": [
+    {
+      "id": "up",
+      "heading": 249.9,
+      "pitch": 6.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": 703.2,
+      "y": -74.1,
+      "h": 250.1,
+      "game": "http://localhost:5173/?pack=bigsky&x=703.2&y=-74.1&h=250.1&pitch=6.0&fov=75.0&cam=eye&spot=base-of-swift-current-6/up"
+    },
+    {
+      "id": "across",
+      "heading": 339.9,
+      "pitch": 0.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": 703.2,
+      "y": -74.1,
+      "h": 340.1,
+      "game": "http://localhost:5173/?pack=bigsky&x=703.2&y=-74.1&h=340.1&pitch=0.0&fov=75.0&cam=eye&spot=base-of-swift-current-6/across"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

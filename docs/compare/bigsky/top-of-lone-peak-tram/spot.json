@@ -1,0 +1,38 @@
+{
+  "name": "Top of Lone Peak Tram",
+  "proposed": "FEAT-175 tools/propose_spots.py: a lift spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot top-of-lone-peak-tram/<view> --add",
+  "latlon": [
+    45.278101,
+    -111.4503082
+  ],
+  "maps": "https://www.google.com/maps/@45.2781010,-111.4503082,17z",
+  "game": {
+    "x": -3119,
+    "y": -607
+  },
+  "views": [
+    {
+      "id": "down",
+      "heading": 90.7,
+      "pitch": -8.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -3119.1,
+      "y": -606.7,
+      "h": 91.0,
+      "game": "http://localhost:5173/?pack=bigsky&x=-3119.1&y=-606.7&h=91.0&pitch=-8.0&fov=75.0&cam=eye&spot=top-of-lone-peak-tram/down"
+    },
+    {
+      "id": "across",
+      "heading": 180.7,
+      "pitch": -4.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -3119.1,
+      "y": -606.7,
+      "h": 181.0,
+      "game": "http://localhost:5173/?pack=bigsky&x=-3119.1&y=-606.7&h=181.0&pitch=-4.0&fov=75.0&cam=eye&spot=top-of-lone-peak-tram/across"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

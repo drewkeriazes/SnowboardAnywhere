@@ -1,0 +1,38 @@
+{
+  "name": "Top of Shedhorn 4 - High Speed",
+  "proposed": "FEAT-175 tools/propose_spots.py: a lift spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot top-of-shedhorn-4-high-speed/<view> --add",
+  "latlon": [
+    45.2725545,
+    -111.4440198
+  ],
+  "maps": "https://www.google.com/maps/@45.2725545,-111.4440198,17z",
+  "game": {
+    "x": -2629,
+    "y": -1226
+  },
+  "views": [
+    {
+      "id": "down",
+      "heading": 157.5,
+      "pitch": -8.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -2629.2,
+      "y": -1225.6,
+      "h": 157.8,
+      "game": "http://localhost:5173/?pack=bigsky&x=-2629.2&y=-1225.6&h=157.8&pitch=-8.0&fov=75.0&cam=eye&spot=top-of-shedhorn-4-high-speed/down"
+    },
+    {
+      "id": "across",
+      "heading": 247.5,
+      "pitch": -4.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -2629.2,
+      "y": -1225.6,
+      "h": 247.8,
+      "game": "http://localhost:5173/?pack=bigsky&x=-2629.2&y=-1225.6&h=247.8&pitch=-4.0&fov=75.0&cam=eye&spot=top-of-shedhorn-4-high-speed/across"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

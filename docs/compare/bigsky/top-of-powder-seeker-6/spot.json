@@ -1,0 +1,38 @@
+{
+  "name": "Top of Powder Seeker 6",
+  "proposed": "FEAT-175 tools/propose_spots.py: a lift spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot top-of-powder-seeker-6/<view> --add",
+  "latlon": [
+    45.2800724,
+    -111.4435096
+  ],
+  "maps": "https://www.google.com/maps/@45.2800724,-111.4435096,17z",
+  "game": {
+    "x": -2585,
+    "y": -391
+  },
+  "views": [
+    {
+      "id": "down",
+      "heading": 101.6,
+      "pitch": -8.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -2584.6,
+      "y": -390.7,
+      "h": 101.9,
+      "game": "http://localhost:5173/?pack=bigsky&x=-2584.6&y=-390.7&h=101.9&pitch=-8.0&fov=75.0&cam=eye&spot=top-of-powder-seeker-6/down"
+    },
+    {
+      "id": "across",
+      "heading": 191.6,
+      "pitch": -4.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -2584.6,
+      "y": -390.7,
+      "h": 191.9,
+      "game": "http://localhost:5173/?pack=bigsky&x=-2584.6&y=-390.7&h=191.9&pitch=-4.0&fov=75.0&cam=eye&spot=top-of-powder-seeker-6/across"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}
