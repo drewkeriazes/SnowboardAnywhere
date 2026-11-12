@@ -61,8 +61,8 @@ export interface BrushRider {
 const BODY = [0.3, 0.9, 1.6], HALF_W = 0.35;
 /** this far inside the crown's edge counts as fully in (m) */
 const CONTACT_DEEP = 0.8;
-/** the species that hold snow (aspen and snags have no needles) */
-const HOLDS = SPECIES.map((s) => s.form !== 'aspen' && s.form !== 'snag');
+/** the species that hold snow (aspen, bare hardwood and snags have no needles) */
+const HOLDS = SPECIES.map((s) => s.form !== 'aspen' && s.form !== 'snag' && s.form !== 'hardwood');
 /** no puff below this load (a spring day's 0.1), full from LOAD_FULL */
 const LOAD_FROM = 0.15, LOAD_FULL = 0.75;
 /** the share of the near side's snow the first touch drops (at full overlap and speed), and the share a second riding on through it */

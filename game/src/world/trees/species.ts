@@ -1,11 +1,12 @@
 /**
- * FEAT-156: the tree species the kit builds, ids as in the pack's tree records (DATA-020). Every tree is
+ * FEAT-156: the tree species the kit builds, ids as in the pack's tree records (DATA-020; 8 and 9 FEAT-233, packs
+ * with `treeSpecies` 3). Every tree is
  * built at unit height; `radius` is the natural crown radius as a share of the height (the card's
  * "width" is the diameter). Colours are sRGB hex; the kit varies them by up to about 6% per variant
  * and per instance.
  */
 
-export type TreeForm = 'spruce' | 'fir' | 'lodgepole' | 'douglas' | 'limber' | 'krummholz' | 'aspen' | 'snag';
+export type TreeForm = 'spruce' | 'fir' | 'lodgepole' | 'douglas' | 'limber' | 'krummholz' | 'aspen' | 'snag' | 'hardwood' | 'hemlock';
 
 export interface Species {
   id: number;
@@ -51,6 +52,10 @@ export const SPECIES: Species[] = [
   { id: 5, name: 'Douglas-fir', form: 'douglas', radius: 0.17, needles: [0x34503e, 0x3f5c48], bark: 0x5d4637, cells: [CELL.douglasA, CELL.douglasB], barkSwatch: 4, trunk: 0.016, whorls: [9, 11], cards: [7, 8], crownBase: 0.04, pitch: 0.18, droop: -0.12, weights: [0.25, 0.25, 0.25, 0.25] },
   { id: 6, name: 'limber pine', form: 'limber', radius: 0.35, needles: [0x4a5a3a, 0x556644], bark: 0x8a8278, cells: [CELL.limber, CELL.limber], barkSwatch: 5, trunk: 0.03, whorls: [3, 5], cards: [9, 10], crownBase: 0.35, pitch: 0, droop: 0, weights: [0.25, 0.25, 0.25, 0.25] },
   { id: 7, name: 'snag', form: 'snag', radius: 0.05, needles: [0x8f8a83, 0x9a958d], bark: 0x8f8a83, cells: [CELL.dead, CELL.dead], barkSwatch: 6, trunk: 0.013, whorls: [0, 6], cards: [1, 1], crownBase: 0.3, pitch: 0.2, droop: 0.1, weights: [0.25, 0.25, 0.25, 0.25] },
+  // FEAT-233: the eastern forest in winter. Bare hardwood (oak, beech, maple): a grey-brown twig crown on limbs that hold
+  // snow at the forks (`needles` is the twig colour). Eastern hemlock: darker and softer than spruce, drooping sprays.
+  { id: 8, name: 'bare hardwood', form: 'hardwood', radius: 0.26, needles: [0x6b6056, 0x83776a], bark: 0x6a6159, cells: [CELL.aspenA, CELL.aspenB], barkSwatch: 4, trunk: 0.016, whorls: [3, 4], cards: [2, 2], crownBase: 0.36, pitch: 0, droop: 0, weights: [0.25, 0.25, 0.25, 0.25] },
+  { id: 9, name: 'eastern hemlock', form: 'hemlock', radius: 0.16, needles: [0x22362a, 0x2b4133], bark: 0x5b463a, cells: [CELL.douglasA, CELL.douglasB], barkSwatch: 4, trunk: 0.016, whorls: [12, 14], cards: [7, 8], crownBase: 0.05, pitch: 0.1, droop: 0.2, weights: [0.25, 0.25, 0.25, 0.25] },
 ];
 
 export const SPECIES_COUNT = SPECIES.length;
@@ -66,7 +71,8 @@ export function hash01(x: number, y: number, salt = 0): number {
 
 /**
  * The kit species for a pack record. Packs from before DATA-020 (no `treeSpecies` in the meta) have
- * only 0 conifer, 1 aspen and 2 krummholz: their conifers split 60/40 into spruce and subalpine fir.
+ * only 0 conifer, 1 aspen and 2 krummholz: their conifers split 60/40 into spruce and subalpine fir. An id past the
+ * table (a pack from a newer pipeline) draws as spruce, so an older client still loads a newer pack.
  */
 export function speciesFor(packId: number, x: number, y: number, legacy: boolean): number {
   const s = Math.round(packId);

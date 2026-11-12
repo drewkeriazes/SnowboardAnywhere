@@ -3,7 +3,7 @@ import * as THREE from 'three';
 /**
  * FEAT-156: the tree atlas, drawn in code at load. One 1024 x 1024 RGBA texture holds every branch
  * card and bark swatch, in grey: the geometry's vertex colours give each species its colour, so one
- * atlas (and one material per LOD) serves all eight species.
+ * atlas (and one material per LOD) serves every species.
  *
  *   top 768 px: 4 x 3 cells of 256 px, the branch sprays (CELL in species.ts); a spray runs from the
  *               trunk end (u = 0) to its tip (u = 1), centred across (v = 0.5)
