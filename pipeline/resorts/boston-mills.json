@@ -1,0 +1,115 @@
+{
+  "slug": "boston-mills",
+  "name": "Boston Mills / Brandywine",
+  "country": "US",
+  "region": "Ohio",
+  "osm_ski_area_way": 452323654,
+  "crs": "EPSG:26917",
+  "utm_zone": "17N",
+  "lonlat_bbox": [
+    -81.5695512,
+    41.2608829,
+    -81.5482085,
+    41.2880709
+  ],
+  "buffer_m": 1000,
+  "utm_bbox": [
+    451200,
+    4566800,
+    455100,
+    4571900
+  ],
+  "origin": [
+    453150,
+    4569350
+  ],
+  "elevation_range_m": [
+    150,
+    350
+  ],
+  "mid_ring": {
+    "size_m": 40000,
+    "res_m": 10
+  },
+  "far_ring": {
+    "size_m": 200000,
+    "mapterhorn_zoom": 11
+  },
+  "dem": {
+    "source": "3DEP ImageServer",
+    "res_m": 1,
+    "chunk_px": 1500
+  },
+  "naip": {
+    "source": "Planetary Computer naip 2023 30cm (1 quarter quad from 2021 where 2023 has none)",
+    "res_m": 1,
+    "max_px": 4000,
+    "items": [
+      "oh_m_4108144_se_17_030_20230526_20231018",
+      "oh_m_4108144_sw_17_030_20230526_20231018",
+      "oh_m_4108152_ne_17_060_20210605"
+    ],
+    "item_bboxes_ll": {
+      "oh_m_4108144_se_17_030_20230526_20231018": [
+        -81.564,
+        41.249,
+        -81.498,
+        41.314
+      ],
+      "oh_m_4108144_sw_17_030_20230526_20231018": [
+        -81.627,
+        41.249,
+        -81.561,
+        41.314
+      ],
+      "oh_m_4108152_ne_17_060_20210605": [
+        -81.565,
+        41.185,
+        -81.497,
+        41.252
+      ]
+    }
+  },
+  "lidar": {
+    "ept": "https://s3-us-west-2.amazonaws.com/usgs-lidar-public/OH_Statewide_Phase1_1_2019/",
+    "dataset": "OH_Statewide_Phase1_1_2019",
+    "max_depth_resort": 10,
+    "max_depth_outside": 9,
+    "nodes_file": "boston-mills_ept_nodes.txt",
+    "far": {
+      "pad_m": 5000,
+      "max_depth": 9,
+      "nodes_file": "boston-mills_ept_far_nodes.txt"
+    }
+  },
+  "attribution": [
+    "Elevation: USGS 3DEP 1 m lidar DEM (OH_Statewide_Phase1_2019_B19), public domain",
+    "Canopy: USGS 3DEP lidar point cloud OH_Statewide_Phase1_1_2019 via AWS usgs-lidar-public, public domain",
+    "Imagery: USDA NAIP 2023 (2021 where 2023 has none) via Microsoft Planetary Computer, public domain",
+    "Background terrain: Mapterhorn (mapterhorn.com)",
+    "Runs, lifts, buildings, roads, names: OpenStreetMap contributors (ODbL)"
+  ],
+  "start_run": null,
+  "osm": {
+    "geofabrik": "us/ohio",
+    "pbf": "https://download.geofabrik.de/north-america/us/ohio-latest.osm.pbf"
+  },
+  "openskidata": {
+    "ids": [
+      "cd7f28de9a4b85aff0761e9af449c5e6c9626168",
+      "abc97db78f6238663faf95a23b1bce2f4f6bf1c6"
+    ],
+    "names": [
+      "Boston Mills Ski Resort",
+      "Brandywine Ski Resort"
+    ],
+    "iso3166_2": "US-OH",
+    "websites": [
+      "https://www.bmbw.com/",
+      "https://www.bmbw.com/"
+    ],
+    "lifts": 16,
+    "runs": 20
+  },
+  "tier": "gold"
+}

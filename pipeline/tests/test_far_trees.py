@@ -68,3 +68,12 @@ def test_crown_grid_shares_and_heights():
     share, hs, n = cover.crown_grid(recs, 16.0, 0.0, 16.0, 2, 1)
     assert np.isclose(share[0, 0], np.pi * 2.6 ** 2 / 256, rtol=1e-3) and share[0, 1] == 0
     assert hs[0, 0] == 20 and n[0, 0] == 1
+
+
+def test_height_floor_follows_the_pack():
+    # DATA-023: Boston Mills' ground is 192 to 311 m, under the old fixed 1,000 m floor
+    import far_trees as ft
+    assert ft.z0_for({"zRange": [100.0, 400.0]}) == -900.0
+    assert ft.z0_for({"zRange": [2300.0, 3700.0]}) == 1300.0
+    lo = ft.z0_for({"zRange": [100.0, 400.0]})
+    assert lo + 65534 / ft.DM > 5000                # 6.5 km of range above the floor: any summit in view fits
