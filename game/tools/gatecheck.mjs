@@ -4,6 +4,7 @@
 // bundled the way tools/package.mjs bundles it, must hold no Admin SDK and no account routes. Exits 1 on a failure.
 //   node tools/gatecheck.mjs
 import { build } from 'esbuild';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -11,6 +12,7 @@ import path from 'node:path';
 import { accountRoute, bearerToken, requireAccount } from './accounts/gate.mjs';
 import { KEY_PATH_DEFAULT, accountFromClaims, fakeVerifier, firebaseVerifier, keyPath } from './accounts/verifier.mjs';
 import { GAME } from './paths.mjs';
+import { claimsFor, needsRevoke, parseRoleArgs } from './set_role.mjs';
 
 let fails = 0;
 const ok = (c, m) => { if (!c) { fails++; console.error('FAIL', m); } else console.log('ok  ', m); };
@@ -94,6 +96,19 @@ try {
 } finally {
   server.close();
   fs.rmSync(tmp, { recursive: true, force: true });
+}
+// set_role.mjs: the pure parts, then the run with no key file (exit 2 naming the path and SBA_FIREBASE_ADMIN_KEY)
+ok(JSON.stringify(parseRoleArgs(['--email', 'a@b.c', '--role', 'maintainer', '--player', '1'])) === JSON.stringify({ email: 'a@b.c', role: 'maintainer', player: 1 }), 'parseRoleArgs: email, role, player');
+ok('error' in parseRoleArgs(['--uid', 'x', '--role', 'admin']), 'an unknown role is refused');
+ok('error' in parseRoleArgs(['--role', 'maintainer']), 'no --uid or --email is refused');
+ok(['-1', '1.5', 'one'].every((n) => 'error' in parseRoleArgs(['--uid', 'x', '--player', n])), 'a player number must be an integer 0 or more');
+ok(parseRoleArgs(['--uid', 'x', '--player', '0']).player === 0, 'player 0 is allowed');
+ok(JSON.stringify(claimsFor({ foo: 1 }, { role: 'maintainer', player: 1 })) === '{"foo":1,"role":"maintainer","player":1}', 'claimsFor keeps other claims');
+ok(JSON.stringify(claimsFor({ role: 'maintainer', player: 1 }, { role: 'player' })) === '{"player":1}', 'demotion drops the role, keeps the number');
+ok(needsRevoke({ role: 'maintainer' }, { player: 1 }) && !needsRevoke({}, { role: 'maintainer' }) && !needsRevoke({ role: 'maintainer' }, { role: 'maintainer' }), 'needsRevoke only on a demotion');
+{
+  const r = spawnSync(process.execPath, [path.join(GAME, 'tools', 'set_role.mjs'), '--check'], { encoding: 'utf8', env: { ...process.env, SBA_FIREBASE_ADMIN_KEY: missingKey } });
+  ok(r.status === 2 && r.stderr.includes(missingKey) && r.stderr.includes('SBA_FIREBASE_ADMIN_KEY'), 'set_role --check with no key file exits 2 naming the path and SBA_FIREBASE_ADMIN_KEY');
 }
 if (fails) { console.error(`${fails} gatecheck failure(s)`); process.exit(1); }
 console.log('gatecheck: all ok');
