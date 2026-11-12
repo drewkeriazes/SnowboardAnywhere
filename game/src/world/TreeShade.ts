@@ -28,8 +28,8 @@ const REACH = 400;
 /** the ground slope under each tree comes from heights on this grid (m) */
 const SLOPE_STEP = 20;
 
-/** how much of the direct sun a species' shadow takes (bare aspen and snags let most of it through) */
-const DARK = SPECIES.map((s) => (s.form === 'aspen' ? 0.35 : s.form === 'snag' ? 0.3 : s.form === 'lodgepole' ? 0.85 : s.form === 'limber' ? 0.8 : 1));
+/** how much of the direct sun a species' shadow takes (bare aspen, bare hardwood and snags let most of it through) */
+const DARK = SPECIES.map((s) => (s.form === 'aspen' ? 0.35 : s.form === 'hardwood' ? 0.4 : s.form === 'snag' ? 0.3 : s.form === 'lodgepole' ? 0.85 : s.form === 'limber' ? 0.8 : 1));
 
 interface ShadeCell { mesh: THREE.Mesh; minX: number; minY: number; maxX: number; maxY: number }
 interface Layer { half: number; texel: number; cx: number; cy: number; drawn: boolean; dirty: boolean }

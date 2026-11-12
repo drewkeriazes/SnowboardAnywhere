@@ -88,8 +88,11 @@ const TUBE_HOLD = 0.2;
 /** the share of the hold a branch card keeps at its tip (it is full at the base) */
 const TIP_HOLD = 0.4;
 
-/** a tapered tube along a polyline; each segment maps the bark swatch once (it tiles up the trunk) */
-export function tube(b: Builder, path: Pt[], sides: number, uv: UvRect, c: THREE.Color, ao: (y: number) => number, _segs = 1, close = false): void {
+/**
+ * a tapered tube along a polyline; each segment maps the bark swatch once (it tiles up the trunk). `hold` (FEAT-233)
+ * gives the snow hold per path point (0 at the start .. 1 at the end) where a limb carries more than bark's thin line.
+ */
+export function tube(b: Builder, path: Pt[], sides: number, uv: UvRect, c: THREE.Color, ao: (y: number) => number, _segs = 1, close = false, hold?: (t: number) => number): void {
   for (let s = 0; s < path.length - 1; s++) {
     const p0 = path[s], p1 = path[s + 1];
     const ax = p1.x - p0.x, ay = p1.y - p0.y, az = p1.z - p0.z, al = Math.hypot(ax, ay, az) || 1;
@@ -102,11 +105,11 @@ export function tube(b: Builder, path: Pt[], sides: number, uv: UvRect, c: THREE
     const qx = dy * pz - dz * py, qy = dz * px - dx * pz, qz = dx * py - dy * px; // d x p
     const base = b.pos.length / 3;
     for (let ring = 0; ring < 2; ring++) {
-      const p = ring ? p1 : p0;
+      const p = ring ? p1 : p0, hd = hold ? hold((s + ring) / (path.length - 1)) : TUBE_HOLD;
       for (let i = 0; i <= sides; i++) {
         const a = (i / sides) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a);
         const nx = px * ca + qx * sa, ny = py * ca + qy * sa, nz = pz * ca + qz * sa;
-        b.vert(p.x + nx * p.r, p.y + ny * p.r, p.z + nz * p.r, nx, ny, nz, lerp(uv.u0, uv.u1, i / sides), ring ? uv.v1 : uv.v0, c, ao(p.y), TUBE_HOLD);
+        b.vert(p.x + nx * p.r, p.y + ny * p.r, p.z + nz * p.r, nx, ny, nz, lerp(uv.u0, uv.u1, i / sides), ring ? uv.v1 : uv.v0, c, ao(p.y), hd);
       }
     }
     for (let i = 0; i < sides; i++) {
@@ -220,6 +223,8 @@ function tints(sp: Species, variant: number, cellMean: number[], barkMean: numbe
 interface Whorl { y: number; r: number; rot: number; cards: number }
 interface Clump { x: number; y: number; z: number; r: number }
 interface Stem { pts: Pt[] }
+/** FEAT-233: a bare hardwood's limb (a tube), the forks off it and where its twigs spray from */
+interface Limb { pts: Pt[]; tips: Pt[] }
 interface Plan {
   sp: Species;
   variant: number;
@@ -231,8 +236,15 @@ interface Plan {
   crownTop: number; trunkTop: number;
   top: 'leader' | 'double' | 'broken' | 'none';
   stubs: { y: number; az: number; len: number }[];
+  /** FEAT-233: the hardwood's fork height, limbs and the twig sprays filling its crown */
+  fork: number;
+  limbs: Limb[];
+  sprays: { x: number; y: number; z: number; az: number; up: number; len: number }[];
   seed: number;
 }
+
+/** FEAT-233: conifer forms built from whorls of branch cards */
+const isConifer = (f: Species['form']): boolean => f === 'spruce' || f === 'fir' || f === 'douglas' || f === 'lodgepole' || f === 'hemlock';
 
 /** the crown radius profile (share of the max) at t = 0 (crown base) .. 1 (top); FEAT-217 measures crown contact with it */
 export function crownProfile(form: Species['form'], t: number): number {
@@ -241,17 +253,61 @@ export function crownProfile(form: Species['form'], t: number): number {
     case 'fir': return t < 0.06 ? 0.9 + 0.1 * t / 0.06 : Math.pow(1 - (t - 0.06) / 0.94, 1.12);
     case 'douglas': return t < 0.12 ? 0.85 + 0.15 * t / 0.12 : Math.pow(1 - (t - 0.12) / 0.88, 0.8);
     case 'lodgepole': return Math.pow(Math.sin(Math.PI * Math.min(1, 0.12 + t * 0.95)), 0.7);
+    case 'hemlock': return t < 0.1 ? 0.88 + 0.12 * t / 0.1 : Math.pow(1 - (t - 0.1) / 0.9, 0.85);
+    case 'hardwood': return Math.sqrt(Math.max(0, Math.sin(Math.PI * Math.min(1, 0.25 + 0.75 * t)))); // a rounded dome over the fork
     default: return 1 - t;
   }
+}
+
+/**
+ * FEAT-233: a forest-grown oak, beech or maple in winter: a straight bole to the fork (a third to half the height), three
+ * or four limbs rising at 25 to 50 degrees and curving up, two forks off each, and twig sprays at every tip and
+ * along the limbs, so the bare crown reads as a rounded grey-brown dome of twigs. Variants 2 and 3 keep a central
+ * leader (maple), 0 and 1 spread (oak).
+ */
+function hardwoodPlan(plan: Plan, r: () => number): void {
+  const sp = plan.sp, R = sp.radius, v = plan.variant;
+  plan.fork = 0.32 + 0.08 * (v % 2) + 0.06 * r();
+  plan.trunkTop = plan.fork;
+  const nL = 3 + (v % 2) + (r() < 0.3 ? 1 : 0), leader = v >= 2;
+  const fy = plan.fork - 0.02, rb = sp.trunk * 0.62;
+  for (let i = 0; i < nL; i++) {
+    const az = (i / nL) * Math.PI * 2 + r() * 0.6;
+    const isLeader = leader && i === 0;
+    const re = isLeader ? R * 0.08 : R * (0.5 + 0.2 * r()), ye = isLeader ? 0.9 + 0.04 * r() : lerp(0.7, 0.86, r());
+    const ca = Math.cos(az), sa = Math.sin(az);
+    // the limb leaves the fork steeply, bows out and turns up toward its end
+    const mid: Pt = { x: ca * re * 0.72, y: fy + (ye - fy) * 0.38, z: sa * re * 0.72, r: rb * 0.62 };
+    const end: Pt = { x: ca * re, y: ye, z: sa * re, r: rb * 0.25 };
+    const limb: Limb = { pts: [{ x: ca * sp.trunk * 0.3, y: fy, z: sa * sp.trunk * 0.3, r: rb }, mid, end], tips: [end] };
+    plan.limbs.push(limb);
+    const forks: Pt[] = [];
+    // two forks off the middle of the limb, spreading either side and up
+    for (const side of [-1, 1]) {
+      const fa = az + side * (0.6 + 0.4 * r()), fr = R * (0.6 + 0.15 * r()), fyE = Math.min(0.9, mid.y + lerp(0.14, 0.3, r()));
+      const tip: Pt = { x: Math.cos(fa) * fr, y: fyE, z: Math.sin(fa) * fr, r: rb * 0.1 };
+      plan.limbs.push({ pts: [{ ...mid, r: mid.r * 0.6 }, tip], tips: [tip] });
+      limb.tips.push(tip);
+      forks.push({ x: (mid.x + tip.x) / 2, y: (mid.y + tip.y) / 2, z: (mid.z + tip.z) / 2, r: 0 });
+    }
+    // twig sprays (each drawn as a crossed pair): a long one off the limb's bow out over its end, one off each fork's
+    // middle past its tip, and one up from the limb's end; big cards, so the twigs read at the same scale as LOD1's
+    // crown cards and the crown stays a haze of twigs rather than specks
+    plan.sprays.push({ x: mid.x, y: mid.y, z: mid.z, az: az + (r() - 0.5) * 0.4, up: 0.55 + 0.35 * r(), len: R * (0.85 + 0.2 * r()) });
+    for (const f of forks) plan.sprays.push({ x: f.x, y: f.y, z: f.z, az: Math.atan2(f.z, f.x) + (r() - 0.5) * 0.5, up: 0.45 + 0.4 * r(), len: R * (0.6 + 0.15 * r()) });
+    if (!isLeader) plan.sprays.push({ x: end.x * 0.9, y: end.y - 0.04, z: end.z * 0.9, az: az + (r() - 0.5) * 0.6, up: 0.9 + 0.4 * r(), len: R * (0.6 + 0.15 * r()) });
+  }
+  // the top, so the dome closes
+  for (let k = 0; k < 2; k++) plan.sprays.push({ x: (r() - 0.5) * R * 0.3, y: 0.76 + 0.06 * r(), z: (r() - 0.5) * R * 0.3, az: r() * Math.PI * 2, up: 1.1 + 0.3 * r(), len: R * (0.7 + 0.15 * r()) });
 }
 
 function makePlan(sp: Species, variant: number): Plan {
   const seed = sp.id * 1000 + variant * 17 + 5;
   const r = rng(seed);
-  const plan: Plan = { sp, variant, lean: (r() * 4) * Math.PI / 180, leanAz: r() * Math.PI * 2, whorls: [], clumps: [], stems: [], crownTop: 0.97, trunkTop: 0.97, top: 'none', stubs: [], seed };
+  const plan: Plan = { sp, variant, lean: (r() * 4) * Math.PI / 180, leanAz: r() * Math.PI * 2, whorls: [], clumps: [], stems: [], crownTop: 0.97, trunkTop: 0.97, top: 'none', stubs: [], fork: 0, limbs: [], sprays: [], seed };
   const R = sp.radius;
   const form = sp.form;
-  if (form === 'spruce' || form === 'fir' || form === 'douglas' || form === 'lodgepole') {
+  if (isConifer(form)) {
     plan.top = 'leader';
     if (variant === 3 && (form === 'spruce' || form === 'fir')) plan.top = r() < 0.5 ? 'double' : 'broken';
     if (plan.top === 'broken') { plan.crownTop = 0.86; plan.trunkTop = 0.9; }
@@ -298,6 +354,8 @@ function makePlan(sp: Species, variant: number): Plan {
     plan.trunkTop = 0.95;
     const n = Math.round(lerp(sp.whorls[0], sp.whorls[1], r()));
     for (let i = 0; i < n; i++) plan.whorls.push({ y: lerp(sp.crownBase, 0.9, (i + r() * 0.6) / n), r: R * (0.75 + 0.3 * r()) * (1 - 0.35 * i / n), rot: i * 2.4 + r(), cards: Math.round(lerp(sp.cards[0], sp.cards[1], r())) });
+  } else if (form === 'hardwood') {
+    hardwoodPlan(plan, r);
   } else if (form === 'snag') {
     plan.top = variant % 2 === 1 ? 'broken' : 'none';
     plan.trunkTop = plan.top === 'broken' ? 0.72 + 0.15 * r() : 1;
@@ -330,16 +388,16 @@ function lod0(plan: Plan, cellMean: number[], barkMean: number[]): Builder {
   const r = rng(plan.seed + 1);
   const tn = tints(sp, plan.variant, cellMean, barkMean, r);
   const b = new Builder();
-  b.normR = R; b.normY = form === 'krummholz' ? 0.3 : form === 'limber' || form === 'aspen' || form === 'lodgepole' ? 0.75 : 0.45;
+  b.normR = R; b.normY = form === 'krummholz' ? 0.3 : form === 'limber' || form === 'aspen' || form === 'lodgepole' ? 0.75 : form === 'hardwood' ? 0.7 : 0.45;
   const bark = barkRect(sp.barkSwatch);
-  const trunkAo = (y: number): number => form === 'aspen' || form === 'snag' || form === 'lodgepole' ? 0.85 + 0.15 * y : 0.4 + 0.2 * y;
+  const trunkAo = (y: number): number => form === 'aspen' || form === 'snag' || form === 'lodgepole' ? 0.85 + 0.15 * y : form === 'hardwood' ? 0.7 + 0.3 * y : 0.4 + 0.2 * y;
   const cardAo = (rLocal: number) => (x: number, y: number, z: number, t: number): number => {
     const out = clamp01(Math.hypot(x, z) / Math.max(1e-3, rLocal));
     return (0.5 + 0.5 * out) * (0.78 + 0.22 * clamp01(y)) * (0.9 + 0.1 * t);
   };
   const tmpO = new THREE.Vector3(), tmpD = new THREE.Vector3();
 
-  if (form === 'spruce' || form === 'fir' || form === 'douglas' || form === 'lodgepole') {
+  if (isConifer(form)) {
     tube(b, trunkPath(plan, 4), 7, bark, tn.bark, trunkAo, 2);
     plan.whorls.forEach((w, wi) => {
       const t = clamp01((w.y - sp.crownBase) / Math.max(0.1, plan.crownTop - sp.crownBase));
@@ -350,6 +408,7 @@ function lod0(plan: Plan, cellMean: number[], barkMean: number[]): Builder {
         if (form === 'spruce') { pitch += 0.3 * (1 - t); bend += 0.2 * (1 - t); }
         if (form === 'fir' && t > 0.75) { pitch = -0.35 * (t - 0.6) * 2.5; bend = -0.2; } // upright tips near the spire
         if (form === 'douglas') bend -= 0.1 * t;
+        if (form === 'hemlock') { pitch -= 0.08 * t; bend += 0.28 * (1 - 0.5 * t); } // FEAT-233: level boughs whose soft tips droop
         const len = w.r * (0.9 + 0.2 * r());
         const trunkR = sp.trunk * (1 - w.y * 0.85);
         tmpD.set(Math.cos(az) * Math.cos(pitch), -Math.sin(pitch), Math.sin(az) * Math.cos(pitch));
@@ -373,7 +432,15 @@ function lod0(plan: Plan, cellMean: number[], barkMean: number[]): Builder {
     }
     // the leader (one or two), or a dead stub for a broken top
     const leaderCell = cellRect(sp.cells[0]);
-    if (plan.top === 'leader' || plan.top === 'double') {
+    if (form === 'hemlock') {
+      // FEAT-233: the hemlock's nodding leader: a soft spray that bends over to one side
+      for (let k = 0; k < 2; k++) {
+        tmpO.set(0, plan.crownTop - 0.08, 0); tmpD.set(0.15, 1, 0.05);
+        b.holdK = 0.5;
+        card(b, tmpO, tmpD, 0.08, R * 0.35, k * Math.PI / 2 + 0.3, 1.1, leaderCell, tn.needle, () => 1);
+        b.holdK = 1;
+      }
+    } else if (plan.top === 'leader' || plan.top === 'double') {
       const tops = plan.top === 'double' ? [-1, 1] : [0];
       for (const s of tops) {
         const lx = s * R * 0.12, lean = s * 0.25;
@@ -437,6 +504,25 @@ function lod0(plan: Plan, cellMean: number[], barkMean: number[]): Builder {
     }
     // the top twigs
     for (let k = 0; k < 3; k++) { tmpO.set(0, plan.trunkTop - 0.1, 0); tmpD.set((r() - 0.5) * 0.4, 1, (r() - 0.5) * 0.4); card(b, tmpO, tmpD, 0.12, 0.1, k * 1.05, 0, twig[k % 2], twigC, () => 1, true); }
+  } else if (form === 'hardwood') {
+    // FEAT-233: a clear bole to the fork, limbs that hold snow on their upper side (most at the fork), and sprays of
+    // bare twigs at their tips and along them
+    tube(b, trunkPath(plan, 3, plan.fork + 0.03, 0.6), 7, bark, tn.bark, trunkAo, 2);
+    plan.limbs.forEach((l) => {
+      const main = l.pts.length === 3;
+      tube(b, l.pts, main ? 5 : 3, bark, tn.bark, trunkAo, 1, false, main ? (t) => 0.8 - 0.45 * t : (t) => 0.55 - 0.35 * t);
+    });
+    const twig = [cellRect(sp.cells[0]), cellRect(sp.cells[1])];
+    b.holdK = 0.45; // fine twigs catch a little snow
+    plan.sprays.forEach((sp2, k) => {
+      tmpD.set(Math.cos(sp2.az) * Math.cos(sp2.up), Math.sin(sp2.up), Math.sin(sp2.az) * Math.cos(sp2.up));
+      const roll = r() * 0.6;
+      for (let j = 0; j < 2; j++) {
+        tmpO.set(sp2.x, sp2.y, sp2.z);
+        card(b, tmpO, tmpD, sp2.len, sp2.len * 0.85, roll + j * Math.PI / 2, -0.1, twig[(k + j) % 2], tn.needle, (x, y, z) => 0.8 + 0.2 * clamp01(Math.hypot(x, z) / R));
+      }
+    });
+    b.holdK = 1;
   } else if (form === 'snag') {
     tube(b, trunkPath(plan, 3, plan.trunkTop, plan.top === 'broken' ? 0.5 : 0.05), 6, bark, tn.bark, () => 0.85, 2, true);
     for (const st of plan.stubs) {
@@ -460,11 +546,11 @@ function lod1(plan: Plan, cellMean: number[], barkMean: number[]): Builder {
   const r = rng(plan.seed + 1);
   const tn = tints(sp, plan.variant, cellMean, barkMean, r);
   const b = new Builder();
-  b.normR = R; b.normY = form === 'krummholz' ? 0.3 : form === 'limber' || form === 'aspen' || form === 'lodgepole' ? 0.75 : 0.45;
+  b.normR = R; b.normY = form === 'krummholz' ? 0.3 : form === 'limber' || form === 'aspen' || form === 'lodgepole' ? 0.75 : form === 'hardwood' ? 0.7 : 0.45;
   const bark = barkRect(sp.barkSwatch), dense = cellRect(CELL.dense);
   // seen from 80 m and more, the cards' inner shade and gaps read as a darker mass than the bent-normal shell
   const c = tn.needleDense.clone().multiplyScalar(0.82);
-  if (form === 'spruce' || form === 'fir' || form === 'douglas' || form === 'lodgepole') {
+  if (isConifer(form)) {
     const lodge = form === 'lodgepole';
     tube(b, trunkPath(plan, 1, lodge ? sp.crownBase + 0.1 : 0.3, 0.6), 5, bark, tn.bark, () => 0.7);
     const tiers = lodge ? 2 : 4;
@@ -478,7 +564,7 @@ function lod1(plan: Plan, cellMean: number[], barkMean: number[]): Builder {
       for (const w of ws) if (w.y >= ya - 0.02 && w.y < yb + 0.02) rr = Math.max(rr, w.r);
       if (rr === 0) rr = R * crownProfile(form, ta);
       const top = k === tiers - 1 ? (plan.top === 'broken' ? y1 : 1) : lerp(y0, y1, Math.min(1, tb + 0.18));
-      const droop = form === 'spruce' ? 0.35 : form === 'fir' ? 0.12 : lodge ? 0 : 0.15;
+      const droop = form === 'spruce' ? 0.35 : form === 'fir' ? 0.12 : lodge ? 0 : form === 'hemlock' ? 0.3 : 0.15;
       starCone(b, ya - (form === 'spruce' ? 0.03 : 0.015), top, rr * (lodge ? 0.9 : 0.86), 5, r() * 6.28, droop, dense, c, 0.6, 0, 0, lodge && k === 0 ? 0.1 : 0.25);
     }
   } else if (form === 'limber') {
@@ -494,6 +580,17 @@ function lod1(plan: Plan, cellMean: number[], barkMean: number[]): Builder {
       const az = k * Math.PI / 3 + 0.2;
       const o = new THREE.Vector3(0, sp.crownBase - 0.02, 0), d = new THREE.Vector3(0, 1, 0);
       card(b, o, d, 1 - sp.crownBase, R * 2.0, az, 0, twig, tn.needle, () => 0.9, true, true);
+    }
+  } else if (form === 'hardwood') {
+    // FEAT-233: the bole, each main limb as one straight tube, and four crossed twig cards for the dome
+    tube(b, trunkPath(plan, 1, plan.fork + 0.03, 0.6), 5, bark, tn.bark, () => 0.85);
+    for (const l of plan.limbs.filter((l) => l.pts.length === 3)) tube(b, [l.pts[0], l.pts[2]], 4, bark, tn.bark, () => 0.85, 1, false, (t) => 0.7 - 0.4 * t);
+    const twig = cellRect(sp.cells[0]), base = plan.fork - 0.04;
+    for (let k = 0; k < 4; k++) {
+      const o = new THREE.Vector3(0, base, 0), d = new THREE.Vector3(0, 1, 0);
+      b.holdK = 0.45;
+      card(b, o, d, 1 - base, R * 2.1, k * Math.PI / 4 + 0.2, 0, twig, tn.needle, () => 0.9, true, true);
+      b.holdK = 1;
     }
   } else if (form === 'snag') {
     tube(b, trunkPath(plan, 2, plan.trunkTop, plan.top === 'broken' ? 0.5 : 0.05), 5, bark, tn.bark, () => 0.85, 2, true);

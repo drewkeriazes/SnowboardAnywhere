@@ -21,7 +21,8 @@ export { generateStems, type StandGrid } from './stands';
  *   each edge a dither crossfade `fade(edge)` metres wide.
  */
 
-const ANGLES = 8, TILE = 128, ROWS = 8;
+/** FEAT-233: one impostor row per species (10: the atlases are 1024 x 1280) */
+const ANGLES = 8, TILE = 128, ROWS = SPECIES.length;
 /**
  * FEAT-157: LOD1's cones show their whole upper side, where the cards they stand in for show the tops of
  * only some of their boughs; this share of the snow amount matches the two (treeshot's snow table).
