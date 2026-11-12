@@ -86,6 +86,12 @@
 #menu h1 { margin: var(--sp-1) 0 var(--sp-2); font: 800 calc(104px * var(--ui-scale)) / .88 var(--font-display); text-transform: uppercase; letter-spacing: .01em; overflow-wrap: anywhere; }
 #menu .facts { font: 500 var(--fs-md) var(--font-body); color: rgba(255, 255, 255, .88); }
 #menu .corner { grid-area: corner; display: flex; gap: var(--sp-1); align-self: start; }
+#menu .corner { align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+#menu .corner .account { display: flex; align-items: center; gap: var(--sp-1); margin-right: var(--sp-3); font: 600 var(--fs-sm) var(--font-body); color: rgba(255, 255, 255, .9); text-shadow: 0 1px 8px rgba(0, 0, 0, .6); }
+#menu .corner .account[hidden], #menu .corner .account [hidden] { display: none; }
+#menu .corner .account button.link { text-transform: none; letter-spacing: 0; font: 600 var(--fs-sm) var(--font-body); text-decoration: underline; padding: 0 var(--sp-2); }
+#menu .corner .account button.link:disabled { opacity: .55; cursor: default; }
+#menu .corner .account .note { flex-basis: 100%; font-size: var(--fs-xs); color: rgba(255, 255, 255, .75); }
 #menu .go { grid-area: go; }
 #menu .ride-row { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
 #menu button.ride { min-width: calc(250px * var(--ui-scale)); min-height: calc(68px * var(--ui-scale)); padding: var(--sp-2) var(--sp-6); border: 0; border-radius: var(--r-md); font: 800 calc(34px * var(--ui-scale)) / 1 var(--font-display); text-transform: uppercase; letter-spacing: .06em; text-align: center; transition: box-shadow var(--t-focus), filter var(--t-focus); }

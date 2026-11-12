@@ -145,5 +145,17 @@ ok(createAccount({ env: {}, fake: 'maintainer', hosted: true, headless: false, l
 ok(isMaintainer(await createAccount({ env: {}, fake: 'maintainer', hosted: false, headless: false, loadPort }).ready()), '?account=maintainer gives the fake maintainer');
 createAccount({ env: full, fake: null, hosted: false, headless: false, loadPort }); ok(loads === 1, 'full config: the port loads once');
 
+// FEAT-273 Task 4: the account line's view table
+const { accountLineView } = await load('ui/AccountLine.ts', 'accountline');
+let v = accountLineView({ kind: 'guest' }, true, '');
+ok(v.who === 'Playing as guest' && v.action === 'sign-in' && v.label === 'Sign in with GitHub' && !v.disabled, 'guest, sign-in set up: an enabled Sign in with GitHub');
+v = accountLineView({ kind: 'guest' }, false, 'Sign-in is not set up in this build.');
+ok(v.disabled && v.note === 'Sign-in is not set up in this build.', 'guest, not set up: disabled, the reason as the note');
+ok(accountLineView({ kind: 'signed-in', player: FAKE_PLAYER }, true, '').who === 'Test <i>player</i> · player 0', 'player 0 reads "· player 0"');
+ok(accountLineView({ kind: 'signed-in', player: { ...FAKE_PLAYER, playerNumber: null } }, true, '').who === 'Test <i>player</i>', 'no number: just the name');
+ok(accountLineView({ kind: 'signed-in', player: FAKE_MAINTAINER }, true, '').who === 'Test maintainer · player 1 · maintainer', 'maintainer: "· maintainer"');
+ok(accountLineView({ kind: 'pending' }, true, '').action === null, 'pending: hidden');
+ok(accountLineView({ kind: 'signed-in', player: FAKE_PLAYER }, true, '').action === 'sign-out', 'signed in: Sign out');
+
 fs.rmSync(dir, { recursive: true, force: true });
 process.exit(fails ? 1 : 0);
