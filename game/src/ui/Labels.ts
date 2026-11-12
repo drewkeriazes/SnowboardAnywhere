@@ -11,6 +11,7 @@ interface Item { name: string; kind: 'peak' | 'town'; x: number; y: number; z: n
 
 const MAX_PEAKS = 10;
 const MAX_TOWNS = 4;
+const OUTSIDE_PEAKS = 120;
 const PEAK_RANGE = 90000;
 const TOWN_RANGE = 60000;
 
@@ -29,9 +30,10 @@ export class Labels {
     document.body.appendChild(this.el);
     const b = pack.meta.bounds;
     const inResort = (x: number, y: number) => x > b.minX && x < b.maxX && y > b.minY && y < b.maxY;
-    // keep the notable peaks: everything inside the resort, plus the tallest elsewhere
+    // keep the notable peaks: everything inside the resort, plus the tallest elsewhere. The tallest by rank, not
+    // over a fixed height (FEAT-235): 3,900 m kept Colorado's high peaks and dropped every peak in Ohio or Montana.
     const peaks = [...pack.features.peaks].filter((p) => p.name).sort((p, q) => q.z - p.z);
-    const kept = peaks.filter((p) => inResort(p.x, p.y) || p.z > 3900).slice(0, 120);
+    const kept = [...peaks.filter((p) => inResort(p.x, p.y)), ...peaks.filter((p) => !inResort(p.x, p.y)).slice(0, OUTSIDE_PEAKS)];
     for (const p of kept) this.items.push(this.make(p.name, 'peak', p.x, p.y, p.z, p.z));
     for (const l of pack.features.labels) {
       if (!l.name || (l.kind !== 'town' && l.kind !== 'village' && l.kind !== 'city')) continue;
