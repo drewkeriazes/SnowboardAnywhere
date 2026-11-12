@@ -5,8 +5,9 @@ Read this first when picking the project up in Claude Code / VS Code. Current wo
 ## Where things are
 
 - Repo: `C:\Users\Drew\git\SnowboardAnywhere` (origin github.com/drewkeriazes/SnowboardAnywhere). Everything below is committed on `main`.
-- Raw Vail data (1.4 GB, complete): `C:\Users\Drew\Documents\snowboard-sim\raw\vail\` (64 DEM chunks, 4 mid-ring chunks, 16 NAIP crops, 388 lidar nodes, 210 Mapterhorn tiles, 4 OSM extracts). Not in git. `docs/` in the claude.ai Project has the full inventory (`vail-raw-data-inventory.md`).
-- Synthetic test pack: `cd game && npm run get synth` downloads the copy MapPacker publishes (release `synth-v<N>`, FEAT-241); `python pipeline/synth_pack.py packs/synth` still builds one here (about 3 min, 39 MB) until FEAT-242. The client runs against it with `?pack=synth`.
+- The pipeline (fetch, build, report, publish) is not here since EPIC-16: it lives in the sibling clone `C:\Users\Drew\git\MapPacker-SnowboardAnywhere` (github.com/drewkeriazes/MapPacker-SnowboardAnywhere), with its history. Pipeline work, resort data and packs are MapPacker cards and PRs. The dated notes below that name `pipeline/<file>` or `.cmd` launchers mean those files in MapPacker now.
+- Raw data (Vail 1.4 GB, and the other resorts) sits in this checkout's `raw\` (gitignored), which MapPacker reads through `SBA_RAW_ROOT` until it moves there. Not in git.
+- Packs: `cd game && npm run get <slug>` downloads a published one; `npm run get -- --from ..\..\MapPacker-SnowboardAnywhere\packs\<slug>` copies in one built in MapPacker, to ride it before it is published (FEAT-242). Synthetic test pack: `npm run get synth`, the copy MapPacker publishes (release `synth-v<N>`, FEAT-241); the client runs against it with `?pack=synth`.
 
 ## What works
 
@@ -16,7 +17,7 @@ Read this first when picking the project up in Claude Code / VS Code. Current wo
   - Rider physics: carve / skid edge model, tuck, brake, hold-release jump, air spin, landing penalties, surface types, tree and rock collisions (`src/sim/`).
   - Instanced trees per 1 km cell with near / far geometry, rocks, lifts with towers, catenary cables and moving chairs, piste overlay, sky, sun shadows, chase and free-fly cameras, HUD (`src/world/`).
   - Headless check: `node tools/shoot.mjs synth` (Playwright is a devDependency of `game/`; run `npx playwright install chromium` once per machine; the cloud falls back to `/opt/npm-tools`. Add `--headed` for a visible window on the real GPU). Use `?lowgfx` in software-rendered environments; a full-density scene takes ~9 s per frame under SwiftShader, which is what made the earlier run look hung. The first screenshot (snow, forest with trail cuts, rider) rendered correctly.
-- `pipeline/`: downloader proven on Vail; `build_pack.py` runs end to end on the real Vail data in about 4 minutes on Drew's PC (see "First Vail build" below) and has been rebuilt several times since (for example the AO and rock-mask rebuild for FEAT-047). Every resort builds with `build_resort.cmd <slug>` (`pipeline/build_resort.py`, FEAT-175 step 3), which replaced the per-resort fetch and build launchers.
+- The pipeline (in MapPacker since EPIC-16; this line is its state when it moved): downloader proven on Vail; `build_pack.py` runs end to end on the real Vail data in about 4 minutes on Drew's PC (see "First Vail build" below) and has been rebuilt several times since (for example the AO and rock-mask rebuild for FEAT-047). Every resort builds with `build_resort.cmd <slug>` (`pipeline/build_resort.py`, FEAT-175 step 3), which replaced the per-resort fetch and build launchers.
 
 ## Next steps, in order
 
@@ -46,7 +47,7 @@ Also: raw data on this PC is at `C:\Users\Drew\Documents\snowboard-sim\raw\`, no
 
 ## 2026-11-06: snow lighting, terrain AO, rock (FEAT-047, FEAT-020, DATA-005)
 
-Packs need a rebuild from 20526bf or later: `ao/` tiles (baked sky visibility, `pipeline/terrain_ao.py`) and a mask whose R channel is imagery rock only (slope and ridge rock come from the renderer now). Vail on Drew's PC is rebuilt; features.json came out identical. Rock and talus textures are CC0 ambientCG sets in `game/public/textures/` (regenerate with `pipeline/prep_textures.py`). For look checks use `cd game && node tools/views.mjs <pack> <outDir> tools/views-rock.json --gpu` (fixed free-camera stills, headless on the real GPU); `tools/shoot.mjs` takes `--gpu` too. Reference renders: `docs/renders/2026-11-06-feat020-*.jpg`.
+Packs need a rebuild from 20526bf or later: `ao/` tiles (baked sky visibility, `pipeline/terrain_ao.py`) and a mask whose R channel is imagery rock only (slope and ridge rock come from the renderer now). Vail on Drew's PC is rebuilt; features.json came out identical. Rock and talus textures are CC0 ambientCG sets in `game/public/textures/` (regenerate with `game/tools/prep_textures.py`; it was `pipeline/prep_textures.py` until FEAT-242). For look checks use `cd game && node tools/views.mjs <pack> <outDir> tools/views-rock.json --gpu` (fixed free-camera stills, headless on the real GPU); `tools/shoot.mjs` takes `--gpu` too. Reference renders: `docs/renders/2026-11-06-feat020-*.jpg`.
 
 ## 2026-11-06: real vs game photo pairs (DATA-008)
 
@@ -110,4 +111,4 @@ Previous status: `aaa8454` moved `meta.start` to Born Free (15 m below its top, 
 
 - Pack coordinates: x east, y north, z up, metres from `meta.origin` (UTM 13N 384300, 4384250 for Vail). three.js: x east, y up, z = -north.
 - Pack format is MapPacker's [`docs/pack-format.md`](https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere/blob/main/docs/pack-format.md) (FEAT-239). Its Contract section lists the values `src/pack/`, `species.ts` and `treeline.ts` share with the pipeline; a format change lands here first or together with MapPacker's.
-- Fetch lessons (USGS 500s above 1500 px, Overpass flakiness, PowerShell quirks) are in the Project doc `vail-raw-data-inventory.md`.
+- Fetch lessons (USGS 500s above 1500 px, Overpass flakiness, PowerShell quirks) are in `docs/data/vail-raw-data-inventory.md`, written when the pipeline lived here.

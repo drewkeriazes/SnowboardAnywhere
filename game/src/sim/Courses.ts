@@ -9,8 +9,9 @@ import type { Difficulty } from '../pack/types';
  *
  * FEAT-232: how long and steep a course must be scales with the resort. A mountain (any named run with
  * 120 m of drop or more) keeps 300 m and 60 m; a small hill takes half its biggest drop, at least 20 m,
- * and five times that in length (Boston Mills: 60 m at most, so 30 m and 150 m). pipeline/pack_report.py
- * `course_thresholds` is the same rule (tests/test_pack_report.py reads these constants).
+ * and five times that in length (Boston Mills: 60 m at most, so 30 m and 150 m).
+ * MapPacker-SnowboardAnywhere/pipeline/pack_report.py `course_thresholds` is the same rule (its tests/test_pack_report.py reads these
+ * constants from this file).
  */
 export interface Course {
   id: string;

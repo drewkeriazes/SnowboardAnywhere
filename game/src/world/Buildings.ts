@@ -47,7 +47,7 @@ function canopyPosts(pts: number[][]): number[][] {
   return even.length >= 3 ? even : pts;
 }
 /** BUG-024: named buildings bigger than this (m^2) with no height in OSM get a lodge height */
-const BIG_LODGE_M2 = 1500; // keep in step with BIG_LODGE_M2 in pipeline/build_pack.py (old packs only)
+const BIG_LODGE_M2 = 1500; // keep in step with BIG_LODGE_M2 in MapPacker-SnowboardAnywhere/pipeline/build_pack.py (old packs only)
 /** twice the signed shoelace area: positive for a counter-clockwise footprint */
 function signedArea2(pts: number[][]): number {
   let a = 0;
@@ -122,7 +122,7 @@ export class Buildings {
     const style = styleOf(b, area, this.valleyFloor);
     let height = Math.max(3, b.height || 5);
     // older packs: a big named lodge with only the 5.5 m default is 3 to 4 storeys (Eagle's Nest)
-    // packs with zMax already apply this rule in build_pack.py only when OSM has no height, so skip it there
+    // packs with zMax already apply this rule in MapPacker's build_pack.py only when OSM has no height, so skip it there
     if (b.zMax === undefined && b.name && height <= 5.5 && area > BIG_LODGE_M2) height = 12;
     // FEAT-071: the pipeline's untagged defaults (5.5 m, or 9 m for hotels and shops) become a height
     // by class and size; heights from building:levels or height tags are kept

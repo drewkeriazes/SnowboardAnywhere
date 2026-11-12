@@ -10,7 +10,7 @@ export const RESORTS: { slug: string; name: string }[] = [
   { slug: 'synth', name: 'Test mountain (synthetic)' },
 ];
 
-/** packs/index.json, as pipeline/packwriter.py index_packs and tools/get_pack.mjs write it */
+/** packs/index.json, as MapPacker-SnowboardAnywhere/pipeline/packwriter.py index_packs and tools/get_pack.mjs write it */
 interface PackIndex { packs: string[]; names?: Record<string, string> }
 
 /** The built packs in menu order: the known resorts first, then the rest by name, the synthetic mountain last. */

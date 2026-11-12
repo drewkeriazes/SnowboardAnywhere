@@ -2,8 +2,8 @@
 
 The kanban lives in GitHub Projects: https://github.com/users/drewkeriazes/projects/2
 (also under the repo's Projects tab). One issue per card. The board pulls issues from **two repos** (EPIC-15, #516):
-- https://github.com/drewkeriazes/SnowboardAnywhere/issues: game, pipeline code, docs.
-- https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere/issues: resort configs, `catalog.json`, published packs and reports.
+- https://github.com/drewkeriazes/SnowboardAnywhere/issues: the game (client, `npm run get`, the resort picker), its CI and docs.
+- https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere/issues: the pipeline (since EPIC-16), resort configs, `catalog.json`, published packs and reports.
 
 A card goes in the repo whose PR closes it. A PR here that finishes a MapPacker card says `Fixes drewkeriazes/MapPacker-SnowboardAnywhere#<n>`. Card ids (`FEAT-222`) are one sequence across both repos, so the issue number alone is ambiguous: write `MapPacker-SnowboardAnywhere#<n>` for the other repo.
 
@@ -13,7 +13,7 @@ A card goes in the repo whose PR closes it. A PR here that finishes a MapPacker 
 - Two numbers per card: the card id (`FEAT-067`) counts per type (FEAT / BUG / DATA), while the GitHub issue number (`#101`) is one shared sequence for every issue in the repo, so they never line up. Both point at the same card.
 - Columns: **Backlog** (idea) -> **Ready** (specced, data available) -> **In Progress** -> **Done**.
 - Labels: `type: feature | bug | data`, `milestone`. `status: ready` / `status: backlog` mirror the column for issue-list filtering.
-- `type: data` cards are pipeline or raw-data work that runs on Drew's PC; they are Done only when the pack is rebuilt.
+- `type: data` cards are pipeline or raw-data work that runs on Drew's PC, so they go in MapPacker; they are Done only when the pack is rebuilt.
 - Ids never get reused. There is no stored "next id". Run `python tools/card_id.py` right before creating a card: it reads every issue (all pages, open and closed, pull requests skipped) and prints the next FEAT / BUG / DATA id plus any id two issues share. Run it again after creating the card, because a parallel session may have taken the same id; on a clash the newer issue gets a new id. Do not commit a counter to this file; every bump conflicted with open PRs.
 - Pull requests carry the card id in their title too (`FEAT-097 to FEAT-101: Outrun mode`). That is not a duplicate card; the checker ignores PRs.
 

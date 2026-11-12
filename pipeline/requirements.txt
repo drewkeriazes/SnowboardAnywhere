@@ -1,8 +1,0 @@
-numpy
-scipy
-pillow
-tifffile
-imagecodecs
-pyproj
-shapely
-laspy[lazrs]
