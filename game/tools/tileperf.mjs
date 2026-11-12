@@ -1,7 +1,7 @@
 // FEAT-229 step 1: the fine (1 m height), mask and dir (2 m) tiles from load to riding at the start, and over
-// a ride. node tools/tileperf.mjs [pack] [seconds] [--straight] [--track] [--emulate-coarse] [--headed | --gpu | --cpu]   (after `npx vite build`)
+// a ride. node tools/tileperf.mjs [pack] [seconds] [--straight] [--track] [--emulate-coarse | --look4] [--shots <dir>] [--headed | --gpu | --cpu]   (after `npx vite build`)
 // Load: frames stepped back to back with the warm-up's budgets (warmUp.ts) until nothing is in flight or
-// building. Ride: ArrowUp held with carves alternating every 1.5 s (--straight: none; --track prints the
+// building, then a restart at the spawn (R held). Ride: ArrowUp held with carves alternating every 1.5 s (--straight: none; --track prints the
 // rider every second), stepped at 1/60 s in real-time batches.
 // Reports per set: tiles resident, fetched, bytes, and decode times (TileStats: createImageBitmap wall time,
 // main-thread copy and conversion). Every request() is attributed to who made it: a terrain chunk (by its
@@ -9,6 +9,9 @@
 // were never asked for by anything but 4 and 8 m chunks: the ones a 4 m height set would take off fine.
 // --emulate-coarse drops the 4 and 8 m chunks' fine requests (they build from mid instead): the most a 4 m set
 // could save in load time, as its own few tiles are not fetched.
+// --look4 keeps today's loading but builds 4 and 8 m chunks from a 4 m box average of the fine tiles (bilinear
+// between 4 m cell means): how the ring would look with the set. --shots <dir> saves the frame when the load
+// settles and every 10 s of the ride (start.png, t10.png, ...), the same moments in every mode.
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -16,7 +19,14 @@ import path from 'node:path';
 import { DIST, PACKS } from './paths.mjs';
 
 const args = process.argv.slice(2);
-const positional = args.filter((a) => !a.startsWith('--'));
+const shotsDir = args.includes('--shots') ? path.resolve(args[args.indexOf('--shots') + 1]) : null;
+const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--shots');
+const shoot = async (name) => {
+  if (!shotsDir) return;
+  const url = await page.evaluate(() => window.__shot());
+  fs.mkdirSync(shotsDir, { recursive: true });
+  fs.writeFileSync(path.join(shotsDir, `${name}.png`), Buffer.from(url.split(',')[1], 'base64'));
+};
 const pack = positional[0] ?? 'vail';
 const seconds = Number(positional[1] ?? 60);
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.webp': 'image/webp', '.bin': 'application/octet-stream', '.css': 'text/css', '.jpg': 'image/jpeg' };
@@ -37,7 +47,7 @@ page.on('pageerror', (e) => warnings.push(`pageerror: ${e.message}`));
 // attribution: every request() rectangle on fine / mask / dir, by requester. Installed the moment the game
 // assigns __step (GameLoop.start, after __sim and before the first headless frame, whose terrain.update
 // already asks for every chunk's tiles).
-await page.addInitScript((emulate) => {
+await page.addInitScript(({ emulate, look4 }) => {
   let stepFn;
   Object.defineProperty(window, '__step', { configurable: true, get: () => stepFn, set: (v) => { stepFn = v; if (!window.__hooked) { window.__hooked = true; window.__readyMs = performance.now(); install(); queueMicrotask(() => { window.__firstFrameMs = performance.now(); }); } } });
   function install() {
@@ -67,6 +77,24 @@ await page.addInitScript((emulate) => {
       note(name, set, label, x0, y0, x1, y1);
       if (emulate && name === 'fine' && (label === 'c4' || label === 'c8')) return false;
       return orig(x0, y0, x1, y1);
+    };
+  }
+  if (look4 && p.fine) {
+    // the 4 m set's look: cell means of 4 x 4 fine samples, bilinear between cell centres
+    const f = p.fine, C = 4, x0 = f.meta.minX, y0 = f.meta.minY, orig = p.height.bind(p);
+    const NX = Math.ceil(f.meta.tilesX * f.size / C), NY = Math.ceil(f.meta.tilesY * f.size / C), cache = new Float32Array(NX * NY).fill(NaN);
+    const cell = (i, j) => {
+      if (i < 0 || j < 0 || i >= NX || j >= NY) return NaN;
+      const c = cache[j * NX + i]; if (!Number.isNaN(c)) return c;
+      let a = 0; for (let v = 0; v < C; v++) for (let u = 0; u < C; u++) { const h = f.sampleNearest(x0 + i * C + u + 0.5, y0 + j * C + v + 0.5); if (Number.isNaN(h)) return NaN; a += h; }
+      return (cache[j * NX + i] = a / (C * C));
+    };
+    p.height = (x, y, res, bumps = true) => {
+      if (res < 4 || res > 8 || !f.contains(x, y)) return orig(x, y, res, bumps);
+      const fx = (x - x0) / C - 0.5, fy = (y - y0) / C - 0.5, i = Math.floor(fx), j = Math.floor(fy), ax = fx - i, ay = fy - j;
+      const h00 = cell(i, j), h10 = cell(i + 1, j), h01 = cell(i, j + 1), h11 = cell(i + 1, j + 1);
+      if ([h00, h10, h01, h11].some(Number.isNaN)) return orig(x, y, res, bumps);
+      return (h00 * (1 - ax) + h10 * ax) * (1 - ay) + (h01 * (1 - ax) + h11 * ax) * ay;
     };
   }
   const t = s.terrain, upd = t.update.bind(t);
@@ -104,7 +132,7 @@ await page.addInitScript((emulate) => {
   };
   w.__resetWin = () => { for (const name of Object.keys(w.__win)) w.__win[name] = new Map(); };
   }
-}, args.includes('--emulate-coarse'));
+}, { emulate: args.includes('--emulate-coarse'), look4: args.includes('--look4') });
 await page.goto(`http://localhost:${server.address().port}/index.html?pack=${pack}&headless${process.env.SHOT_QUERY ?? ''}`);
 await page.waitForFunction(() => window.__step && window.__hooked, null, { timeout: 120000 });
 page.setDefaultTimeout(600000);
@@ -128,8 +156,20 @@ const load = await page.evaluate(async () => {
   t.budgetMs = 4; t.maxBuilds = 10; s.veg.budgetMs = 3;
   return { t0, first, settled: performance.now(), frames, timedOut: quiet < 3 };
 });
+// the rider rode on during the load frames, whose number varies: restart at the spawn now everything is in
+// (hold R, as ridecheck.mjs), so every run and mode starts from the same frame on the same data
+await page.evaluate(() => window.__step(1, 1 / 60));
+await page.keyboard.down('KeyR');
+const restarted = await page.evaluate(() => {
+  const s = window.__sim; let prev = s.rider.steps;
+  for (let i = 1; i <= 120; i++) { window.__step(1, 1 / 60); if (s.rider.steps < prev) return true; prev = s.rider.steps; }
+  return false;
+});
+await page.keyboard.up('KeyR');
+if (!restarted) console.log('WARNING: holding R never restarted the run; the start is wherever the rider got to during the load');
 // steady state at the start: one second of frames for the window
 await page.evaluate(() => { window.__resetWin(); window.__step(60, 1 / 60); });
+await shoot('start');
 const startSnap = await page.evaluate(() => window.__snap());
 const startClass = await page.evaluate(() => window.__classify());
 const startLog = await page.evaluate(() => Object.fromEntries(Object.entries(window.__sets).filter(([, s]) => s).map(([n, s]) => [n, s.stats.log.slice()])));
@@ -150,6 +190,7 @@ for (let b = 0; b < batches; b++) {
     return { x: r.x, y: r.y, z: r.z, speed: r.speed, crashed: r.crashed, state: s.states?.current ?? '', ms, fine: w.__resident(f), fineFlight: f.inFlight, mask: w.__resident(s.pack.mask), dir: s.pack.dir ? w.__resident(s.pack.dir) : 0 };
   });
   track.push(st);
+  if ((b + 1) % 40 === 0) await shoot(`t${(b + 1) / 4}`);
   await page.waitForTimeout(Math.max(0, 250 - st.ms));
 }
 if (carve) await page.keyboard.up(carve);
@@ -162,7 +203,7 @@ const allLog = await page.evaluate(() => Object.fromEntries(Object.entries(windo
 
 // ---- report
 const f1 = (v) => v.toFixed(1), mb = (b) => (b / 1048576).toFixed(1);
-console.log(`pack ${pack}, ${seconds} s ride${args.includes('--emulate-coarse') ? ', EMULATED: no fine tiles for 4 and 8 m chunks' : ''}`);
+console.log(`pack ${pack}, ${seconds} s ride${args.includes('--emulate-coarse') ? ', EMULATED: no fine tiles for 4 and 8 m chunks' : ''}${args.includes('--look4') ? ', LOOK4: 4 and 8 m chunks from a 4 m box average' : ''}`);
 console.log(`page load to session ready (__step) ${f1(readyMs)} ms, its first frame done ${f1(firstFrameMs)} ms, tool's first frame ${f1(load.first)} ms, settled ${f1(load.settled)} ms after ${load.frames} frames${load.timedOut ? ' (TIMED OUT at 30 s)' : ''}`);
 const d = (a, b, k) => (a?.[k] ?? 0) - (b?.[k] ?? 0);
 const setLine = (name, log, from, to) => {
