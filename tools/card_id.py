@@ -1,7 +1,8 @@
 """Card ids for the board: print the next free FEAT / BUG / DATA id and any id used by two issues.
 
 Reads every issue (open and closed, all pages) in every repo the board pulls from (EPIC-15:
-this repo and MapPacker-SnowboardAnywhere) through the GitHub REST API with `gh`. Ids are one
+this repo and MapPacker-SnowboardAnywhere) through the GitHub REST API with `gh`. Twin cards (the same title in
+both repos, one card copied across) share an id on purpose and are not reported. Ids are one
 sequence across both repos, so a repo `gh` cannot read (on any page) is a failure: the script
 warns, prints no id and exits 2, since the result could miss ids and hand out a duplicate.
 Pull requests are skipped: a PR titled with its card id is not a second card.
@@ -65,7 +66,9 @@ def main():
         print(f"{args[0].upper()}-{nxt[args[0].upper()]:03d}")
         return 0
     print("next: " + ", ".join(f"{t}-{n:03d}" for t, n in nxt.items()))
-    dups = {k: v for k, v in seen.items() if len(v) > 1}
+    # BUG-097: a twin pair (the same card copied into each repo with the same title, like FEAT-222 to FEAT-225 when
+    # the pipeline moved to MapPacker) is one card, not a clash. Only ids that name different titles are reported.
+    dups = {k: v for k, v in seen.items() if len({i["title"].strip() for i in v}) > 1}
     for (t, n), v in sorted(dups.items()):
         print(f"duplicate {t}-{n:03d}: " + ", ".join(f"{i['ref']} ({i['state']}) {i['title'][:60]}" for i in v))
     return 1 if dups else 0
