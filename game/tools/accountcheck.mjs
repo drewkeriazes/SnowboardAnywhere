@@ -65,5 +65,66 @@ ok(!n.available && n.unavailableReason === 'Sign-in is not set up in this build.
 ok(FakeAccount.fromParam('bogus') === null, 'an unknown ?account value is no fake');
 ok(FAKE_PLAYER.playerNumber === 0 && FAKE_PLAYER.displayName === 'Test <i>player</i>', 'the fake player is number 0 with markup in its name');
 
+// FirebaseAccount and createAccount on a stub port: the SDK is never imported (./firebasePort stays external and unused).
+async function loadExt(rel, name) {
+  const out = path.join(dir, name + '.mjs');
+  await build({ entryPoints: [path.join(GAME, 'src', rel)], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error', external: ['./firebasePort'] });
+  return import(pathToFileURL(out).href);
+}
+const { FirebaseAccount } = await loadExt('account/firebaseAccount.ts', 'fbaccount');
+const { createAccount } = await loadExt('account/createAccount.ts', 'create');
+const drew = { uid: 'u-drew', displayName: 'Drew', providerIds: ['github.com'] };
+function stubPort({ claims = {}, claimsFail = false, fail = null } = {}) {
+  const calls = { signIn: 0, claims: [] };
+  let cb = null; let pending; let has = false; let failLeft = fail;
+  const port = {
+    onUser(f) { cb = f; if (has) f(pending); },
+    async signInGithub() {
+      calls.signIn++;
+      await new Promise((r) => setTimeout(r, 5));
+      if (failLeft) { const code = failLeft; failLeft = null; throw Object.assign(new Error(code), { code }); }
+      return drew;
+    },
+    async signOut() {},
+    async claims(u, refresh) { calls.claims.push(refresh); if (claimsFail) throw new Error('offline'); return claims; },
+    async token(u) { return `tok-${u.uid}`; },
+  };
+  return { port, calls, fire(u) { if (cb) cb(u); else { pending = u; has = true; } } };
+}
+let s = stubPort({ claims: { role: 'maintainer', player: 1 } });
+let a = new FirebaseAccount(Promise.resolve(s.port));
+ok(a.state().kind === 'pending', 'pending until the first auth state');
+s.fire(null); ok((await a.ready()).kind === 'guest', 'then guest');
+s = stubPort({ claims: { role: 'maintainer', player: 1 } }); a = new FirebaseAccount(Promise.resolve(s.port)); s.fire(drew);
+ok(isMaintainer(await a.ready()) && s.calls.claims[0] === false, 'a restored maintainer session is a maintainer');
+s = stubPort({ claims: { role: 'maintainer', player: 1 } }); a = new FirebaseAccount(Promise.resolve(s.port)); s.fire(null); await a.ready();
+const changes = []; a.onChange((x) => changes.push(x.kind));
+const [r1, r2] = await Promise.all([a.signIn({ method: 'github' }), a.signIn({ method: 'github' })]);
+ok(r1.ok && r2.ok && s.calls.signIn === 1, 'two signIn clicks open one popup');
+s.fire(drew); await new Promise((r) => setTimeout(r, 5));
+ok(s.calls.claims.at(-1) === true && a.state().kind === 'signed-in' && changes.join() === 'signed-in', 'signIn refreshes claims, one change (the SDK echo adds none)');
+ok((await a.idToken()) === 'tok-u-drew', 'idToken is the port token when signed in');
+await a.signOut(); ok(a.state().kind === 'guest' && (await a.idToken()) === null, 'signOut: guest, no token');
+for (const [code, want] of [['auth/popup-closed-by-user', 'cancelled'], ['auth/popup-blocked', 'popup-blocked'], ['auth/account-exists-with-different-credential', 'email-in-use']]) {
+  s = stubPort({ fail: code }); a = new FirebaseAccount(Promise.resolve(s.port)); s.fire(null); await a.ready();
+  let fired = 0; a.onChange(() => fired++);
+  const r = await a.signIn({ method: 'github' });
+  ok(!r.ok && r.code === want && a.state().kind === 'guest' && fired === 0, `${code}: ${want}, still guest`);
+}
+s = stubPort({ fail: 'auth/popup-blocked' }); a = new FirebaseAccount(Promise.resolve(s.port)); s.fire(null); await a.ready();
+await a.signIn({ method: 'github' }); ok((await a.signIn({ method: 'github' })).ok && s.calls.signIn === 2, 'popup blocked: button free again (a second try opens a popup)');
+s = stubPort({ claimsFail: true }); a = new FirebaseAccount(Promise.resolve(s.port)); s.fire(drew);
+ok((await a.ready()).player?.role === 'player', 'claims unreadable: role player');
+a = new FirebaseAccount(Promise.reject(Object.assign(new Error('bad key'), { code: 'auth/invalid-api-key' })));
+ok((await a.ready()).kind === 'guest' && !a.available && a.unavailableReason === 'Sign-in could not start (auth/invalid-api-key).', 'port fails to start: unavailable with the code, guest');
+ok(!(await a.signIn({ method: 'github' })).ok, 'port failed to start: signIn is refused');
+
+let loads = 0; const loadPort = () => { loads++; return Promise.resolve(stubPort({}).port); };
+ok(!createAccount({ env: {}, fake: null, hosted: false, headless: false, loadPort }).available && loads === 0, 'no env: unavailable, no SDK load');
+ok(!createAccount({ env: full, fake: null, hosted: false, headless: true, loadPort }).available && loads === 0, 'headless never starts Firebase');
+ok(createAccount({ env: {}, fake: 'maintainer', hosted: true, headless: false, loadPort }).available === false, '?account= is ignored on a hosted build');
+ok(isMaintainer(await createAccount({ env: {}, fake: 'maintainer', hosted: false, headless: false, loadPort }).ready()), '?account=maintainer gives the fake maintainer');
+createAccount({ env: full, fake: null, hosted: false, headless: false, loadPort }); ok(loads === 1, 'full config: the port loads once');
+
 fs.rmSync(dir, { recursive: true, force: true });
 process.exit(fails ? 1 : 0);
