@@ -1,0 +1,38 @@
+{
+  "name": "Base of Madison 8",
+  "proposed": "FEAT-175 tools/propose_spots.py: a base spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot base-of-madison-8/<view> --add",
+  "latlon": [
+    45.3120988,
+    -111.4369318
+  ],
+  "maps": "https://www.google.com/maps/@45.3120988,-111.4369318,17z",
+  "game": {
+    "x": -2049,
+    "y": 3164
+  },
+  "views": [
+    {
+      "id": "up",
+      "heading": 177.5,
+      "pitch": 6.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -2049.4,
+      "y": 3164.4,
+      "h": 177.8,
+      "game": "http://localhost:5173/?pack=bigsky&x=-2049.4&y=3164.4&h=177.8&pitch=6.0&fov=75.0&cam=eye&spot=base-of-madison-8/up"
+    },
+    {
+      "id": "across",
+      "heading": 267.5,
+      "pitch": 0.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -2049.4,
+      "y": 3164.4,
+      "h": 267.8,
+      "game": "http://localhost:5173/?pack=bigsky&x=-2049.4&y=3164.4&h=267.8&pitch=0.0&fov=75.0&cam=eye&spot=base-of-madison-8/across"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

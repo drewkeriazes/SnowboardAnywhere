@@ -91,11 +91,11 @@ export class AttractGhosts {
 
   constructor(private readonly pack: Pack) { this.group.name = 'attract ghosts'; }
 
-  /** Load the resort's takes, `files` from the attract manifest (none is fine: the backdrop rides empty). */
-  load(base: string, ghosts: string[]): Promise<number> { return (this.loaded = this.fetchTakes(base, ghosts)); }
-  private async fetchTakes(base: string, ghosts: string[]): Promise<number> {
+  /** Load the resort's takes, `ghosts` from the attract manifest, from `dir` (AttractShots.ts attractDir; none is fine: the backdrop rides empty). */
+  load(dir: string, ghosts: string[]): Promise<number> { return (this.loaded = this.fetchTakes(dir, ghosts)); }
+  private async fetchTakes(dir: string, ghosts: string[]): Promise<number> {
     try {
-      const takes = await Promise.all(ghosts.map(async (f) => { try { const r = await fetch(`${base}attract/${this.pack.meta.slug}/${f}`); return r.ok ? await r.json() as AttractTake : null; } catch { return null; } }));
+      const takes = await Promise.all(ghosts.map(async (f) => { try { const r = await fetch(`${dir}${f}`); return r.ok ? await r.json() as AttractTake : null; } catch { return null; } }));
       for (const t of takes) if (t) this.add(t);
     } catch { /* no takes yet */ }
     return this.ghosts.length;

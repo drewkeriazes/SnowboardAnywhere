@@ -1,0 +1,38 @@
+{
+  "name": "Top of Kensho SuperChair",
+  "proposed": "FEAT-175 tools/propose_spots.py: a lift spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot top-of-kensho-superchair/<view> --add",
+  "latlon": [
+    39.4943034,
+    -106.1081221
+  ],
+  "maps": "https://www.google.com/maps/@39.4943034,-106.1081221,17z",
+  "game": {
+    "x": -2234,
+    "y": 2168
+  },
+  "views": [
+    {
+      "id": "down",
+      "heading": 96.2,
+      "pitch": -8.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -2234.2,
+      "y": 2168.4,
+      "h": 96.9,
+      "game": "http://localhost:5173/?pack=breckenridge&x=-2234.2&y=2168.4&h=96.9&pitch=-8.0&fov=75.0&cam=eye&spot=top-of-kensho-superchair/down"
+    },
+    {
+      "id": "across",
+      "heading": 186.2,
+      "pitch": -4.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -2234.2,
+      "y": 2168.4,
+      "h": 186.9,
+      "game": "http://localhost:5173/?pack=breckenridge&x=-2234.2&y=2168.4&h=186.9&pitch=-4.0&fov=75.0&cam=eye&spot=top-of-kensho-superchair/across"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

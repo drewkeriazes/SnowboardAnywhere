@@ -1,0 +1,38 @@
+{
+  "name": "Mount Chipperfield",
+  "proposed": "FEAT-175 tools/propose_spots.py: a peak spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot mount-chipperfield/<view> --add",
+  "latlon": [
+    45.3271507,
+    -111.3544027
+  ],
+  "maps": "https://www.google.com/maps/@45.3271507,-111.3544027,17z",
+  "game": {
+    "x": 4427,
+    "y": 4805
+  },
+  "views": [
+    {
+      "id": "resort",
+      "heading": 220.6,
+      "pitch": -6.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": 4427.1,
+      "y": 4804.8,
+      "h": 220.9,
+      "game": "http://localhost:5173/?pack=bigsky&x=4427.1&y=4804.8&h=220.9&pitch=-6.0&fov=75.0&cam=eye&spot=mount-chipperfield/resort"
+    },
+    {
+      "id": "away",
+      "heading": 40.6,
+      "pitch": -3.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": 4427.1,
+      "y": 4804.8,
+      "h": 40.9,
+      "game": "http://localhost:5173/?pack=bigsky&x=4427.1&y=4804.8&h=40.9&pitch=-3.0&fov=75.0&cam=eye&spot=mount-chipperfield/away"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

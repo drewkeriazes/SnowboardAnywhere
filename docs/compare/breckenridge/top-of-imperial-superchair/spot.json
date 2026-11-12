@@ -1,0 +1,38 @@
+{
+  "name": "Top of Imperial SuperChair",
+  "proposed": "FEAT-175 tools/propose_spots.py: a lift spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot top-of-imperial-superchair/<view> --add",
+  "latlon": [
+    39.4724874,
+    -106.1012077
+  ],
+  "maps": "https://www.google.com/maps/@39.4724874,-106.1012077,17z",
+  "game": {
+    "x": -1669,
+    "y": -260
+  },
+  "views": [
+    {
+      "id": "down",
+      "heading": 120.0,
+      "pitch": -8.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -1669.2,
+      "y": -260.2,
+      "h": 120.7,
+      "game": "http://localhost:5173/?pack=breckenridge&x=-1669.2&y=-260.2&h=120.7&pitch=-8.0&fov=75.0&cam=eye&spot=top-of-imperial-superchair/down"
+    },
+    {
+      "id": "across",
+      "heading": 210.0,
+      "pitch": -4.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -1669.2,
+      "y": -260.2,
+      "h": 210.7,
+      "game": "http://localhost:5173/?pack=breckenridge&x=-1669.2&y=-260.2&h=210.7&pitch=-4.0&fov=75.0&cam=eye&spot=top-of-imperial-superchair/across"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

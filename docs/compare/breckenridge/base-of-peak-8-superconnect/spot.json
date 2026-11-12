@@ -1,0 +1,38 @@
+{
+  "name": "Base of Peak 8 SuperConnect",
+  "proposed": "FEAT-175 tools/propose_spots.py: a base spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot base-of-peak-8-superconnect/<view> --add",
+  "latlon": [
+    39.4701938,
+    -106.054986
+  ],
+  "maps": "https://www.google.com/maps/@39.4701938,-106.0549860,17z",
+  "game": {
+    "x": 2304,
+    "y": -562
+  },
+  "views": [
+    {
+      "id": "up",
+      "heading": 268.5,
+      "pitch": 6.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": 2303.6,
+      "y": -562.3,
+      "h": 269.1,
+      "game": "http://localhost:5173/?pack=breckenridge&x=2303.6&y=-562.3&h=269.1&pitch=6.0&fov=75.0&cam=eye&spot=base-of-peak-8-superconnect/up"
+    },
+    {
+      "id": "across",
+      "heading": 358.5,
+      "pitch": 0.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": 2303.6,
+      "y": -562.3,
+      "h": 359.1,
+      "game": "http://localhost:5173/?pack=breckenridge&x=2303.6&y=-562.3&h=359.1&pitch=0.0&fov=75.0&cam=eye&spot=base-of-peak-8-superconnect/across"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

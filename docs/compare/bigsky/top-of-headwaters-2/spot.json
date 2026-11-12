@@ -1,0 +1,38 @@
+{
+  "name": "Top of Headwaters 2",
+  "proposed": "FEAT-175 tools/propose_spots.py: a lift spot from OSM; find a Street View photo near latlon (the maps link) and add it to a view with tools/gmaps2game.py --spot top-of-headwaters-2/<view> --add",
+  "latlon": [
+    45.2846279,
+    -111.4357662
+  ],
+  "maps": "https://www.google.com/maps/@45.2846279,-111.4357662,17z",
+  "game": {
+    "x": -1975,
+    "y": 112
+  },
+  "views": [
+    {
+      "id": "down",
+      "heading": 342.1,
+      "pitch": -8.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -1974.6,
+      "y": 112.1,
+      "h": 342.4,
+      "game": "http://localhost:5173/?pack=bigsky&x=-1974.6&y=112.1&h=342.4&pitch=-8.0&fov=75.0&cam=eye&spot=top-of-headwaters-2/down"
+    },
+    {
+      "id": "across",
+      "heading": 252.1,
+      "pitch": -4.0,
+      "fov": 75.0,
+      "streetview": "",
+      "x": -1974.6,
+      "y": 112.1,
+      "h": 252.4,
+      "game": "http://localhost:5173/?pack=bigsky&x=-1974.6&y=112.1&h=252.4&pitch=-4.0&fov=75.0&cam=eye&spot=top-of-headwaters-2/across"
+    }
+  ],
+  "streetview_capture": "TODO: month year, contributor (shown at the bottom of the Street View)"
+}

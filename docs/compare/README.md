@@ -2,6 +2,16 @@
 
 A Street View photo and the same view in the game, side by side, at spots across each resort. Each pair shows what is off (terrain, rock, trees, snow, built things, far view, sky) and feeds concrete cards on the board. Card: [DATA-008 (#107)](https://github.com/drewkeriazes/SnowboardAnywhere/issues/107).
 
+## A new resort: proposed spots (FEAT-175)
+
+`python tools/propose_spots.py <pack> --shoot` (MapPacker's `build_resort.py` runs it once per resort) picks 10 spots
+from the pack's OSM features (lift tops, base areas, named peaks), writes each `<pack>/<spot>/spot.json` with two
+views, a `"proposed"` note, the spot's `latlon` and a Google Maps link, and renders the game stills. All that is left
+is the photo: open the maps link, find a Street View near the spot looking the way a view does, and add it to that
+view with step 2 below (`--spot <spot>/<view> --add` updates the proposed view in place). The game shot was taken at
+the proposed pose, so re-shoot it after adding the link (step 3 or `shoot_spots.mjs`). A spot with no Street View
+nearby can be deleted.
+
 ## Workflow for one spot
 
 1. **Find a Street View spot** in Google Maps (Vail has a lot of trekker imagery on runs and at lift tops). Frame the view, then copy the full URL from the address bar. It carries `@lat,lon,3a,<fov>y,<heading>h,<tilt>t`. Note the capture date and contributor shown at the bottom of the Street View.

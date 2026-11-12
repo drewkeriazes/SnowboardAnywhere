@@ -19,7 +19,7 @@ import { ResortMap } from '../ui/ResortMap';
 import { LiftRide } from '../sim/LiftRide';
 import { Prefetch } from '../sim/Prefetch';
 import { MainMenu, type MenuChoice } from '../ui/MainMenu';
-import { attractShot, shotPose, CONDITION_FIELDS, type AttractManifest, type AttractShot, type ShotConditions } from '../world/AttractShots';
+import { attractDir, attractShot, shotPose, CONDITION_FIELDS, type AttractManifest, type AttractShot, type ShotConditions } from '../world/AttractShots';
 import { AttractGhosts } from '../world/AttractGhosts';
 import { LoadingScreen } from '../ui/Loading';
 import { PauseMenu, type PauseInfo } from '../ui/PauseMenu';
@@ -313,7 +313,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     const ghosts = new AttractGhosts(pack);
     ghosts.group.name = 'attract ghosts'; scene.add(ghosts.group);
     ghosts.setVisible(false);
-    void ghosts.load(import.meta.env.BASE_URL, opts.attractFiles[pack.meta.slug]?.ghosts ?? []);
+    void ghosts.load(attractDir(import.meta.env.BASE_URL, pack.meta.slug, opts.attractFiles), opts.attractFiles[pack.meta.slug]?.ghosts ?? []);
     /** FEAT-177: the menu draws its shot's conditions (on), or hands the player's back (off) */
     const holdShotConditions = (on: boolean): void => {
       if (on === !!shotCond) return;
@@ -323,7 +323,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     };
     /** FEAT-177: the shot from its start (the moment the still shows): the clouds where the still has them */
     const shotFromStart = (): void => { clouds.setTime(shot.conditions.cloudTime); };
-    const startLabel = () => { const lm = landmarkStart(pack.meta.slug); return lm ? lm.label : pack.meta.start.run ? `Starts on ${pack.meta.start.run}` : 'Starts at the resort start'; };
+    const startLabel = () => { const lm = landmarkStart(pack.meta.slug); return lm ? lm.label : pack.meta.start.label ?? (pack.meta.start.run ? `Starts on ${pack.meta.start.run}` : 'Starts at the resort start'); };
     /** RIDE: the mode it starts (BUG-037's start when it is not a course) */
     const leaveAttract = (c: MenuChoice) => {
       states.go('riding');

@@ -107,7 +107,13 @@ export interface PackMeta {
   treeSpecies?: number;
   /** FEAT-074: stand density per 4 m cell (stands/<cx>_<cy>.png per tree cell); absent in older packs */
   stands?: StandsMeta;
-  start: { x: number; y: number; heading: number; run?: string };
+  /**
+   * the default drop-in. FEAT-175: MapPacker's gen_content.py writes it (`source: "generated"`) at the top of the
+   * highest lift, on the run (`run`) below it, with the lift's name and the menu's line (`label`)
+   */
+  start: { x: number; y: number; heading: number; run?: string; lift?: string; label?: string; source?: string };
+  /** FEAT-175: the pack has its own main menu content, `attract/index.json` (generated: gen_content.py); absent = none */
+  attract?: { generated?: boolean };
   /** DATA-021: the resort's treeline (m), measured from its canopy by elevation; absent in older packs and where the box had no
    * forest to measure (pack/treeline.ts falls back to Colorado's); null where the box is forest to the top (FEAT-234: no treeline) */
   treeline?: number | null;

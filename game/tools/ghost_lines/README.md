@@ -8,6 +8,10 @@ in `docs/research/ghost-lines-prototype/README.md` (Learnings at the end), the r
 All commands run from `game/` on Drew's PC (they need the GPU and `packs/<pack>`). Rebuild first and after any
 change under `game/src`: `npx vite build` (the tool serves `game/dist`). Each step takes 20 s to 3 min.
 
+A resort that has no hand-made menu yet already has a generated one in its pack (FEAT-175): MapPacker's
+`gen_content.py` picks the shots and `node tools/auto_attract.mjs <pack>` renders the still and rides the start run
+with this tool's bot (`page.mjs` `ride`). The recipe below is for the hand-made menu that replaces it.
+
 ## The recipe for a new resort (what worked on Breckenridge, 2026-11-10)
 
 1. **Start a dev server for Drew** on the worktree (`npx vite --port <free> --strictPort`, CLAUDE.md "Dev servers on

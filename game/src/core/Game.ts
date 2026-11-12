@@ -62,7 +62,7 @@ export class Game {
     const skipMenu = params.cam === 'eye';
     // FEAT-181: the shots are data (attract/<slug>/shots.json, when the manifest lists them), headless too
     // (tools/shoot_attract.mjs renders the shot); headless loads no ghosts or stills (attractFiles stays empty)
-    const manifest = await loadAttractManifest(import.meta.env.BASE_URL);
+    const manifest = await loadAttractManifest(import.meta.env.BASE_URL, pack); // FEAT-175: and the pack's own menu
     const shots = await loadAttractShots(import.meta.env.BASE_URL, pack.meta.slug, manifest);
     const shot = attractShot(pack, landmarkStart(pack.meta.slug) ?? pack.meta.start, shots);
     const attractFiles = headless ? {} : manifest;
