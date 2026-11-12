@@ -12,7 +12,7 @@ import path from 'node:path';
 import { accountRoute, bearerToken, requireAccount } from './accounts/gate.mjs';
 import { KEY_PATH_DEFAULT, accountFromClaims, fakeVerifier, firebaseVerifier, keyPath } from './accounts/verifier.mjs';
 import { GAME } from './paths.mjs';
-import { claimsFor, databaseUrl, needsRevoke, parseRoleArgs } from './set_role.mjs';
+import { applyRole, claimsFor, databaseUrl, needsRevoke, parseRoleArgs } from './set_role.mjs';
 
 let fails = 0;
 const ok = (c, m) => { if (!c) { fails++; console.error('FAIL', m); } else console.log('ok  ', m); };
@@ -114,6 +114,22 @@ ok(databaseUrl('snowboardanywhere', {}) === 'https://snowboardanywhere-default-r
   const r0 = spawnSync(process.execPath, ['-e', `process.loadEnvFile(${JSON.stringify(envFile)}); import(${JSON.stringify(new URL('./accounts/verifier.mjs', import.meta.url).href)}).then((m) => console.log(m.keyPath()))`], { encoding: 'utf8', env: Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'SBA_FIREBASE_ADMIN_KEY')) });
   ok(r0.stdout.trim() === path.join(tmp, 'from-env-file.json'), 'keyPath honours SBA_FIREBASE_ADMIN_KEY from a loaded env file');
   fs.rmSync(tmp2, { recursive: true, force: true });
+}
+{
+  const calls = [];
+  const auth = { setCustomUserClaims: async () => { calls.push('claims'); }, revokeRefreshTokens: async () => { calls.push('revoke'); } };
+  const db = { update: async () => { calls.push('db'); throw new Error('db down (expected)'); } };
+  await applyRole(auth, db, 'u1', { role: 'maintainer' }, { player: 1 }, {}).catch(() => {});
+  ok(calls.join(',') === 'claims,revoke,db', 'a demotion calls setCustomUserClaims, revoke, then the database (revoke done even when the write fails)');
+  calls.length = 0;
+  await applyRole(auth, { update: async () => { calls.push('db'); } }, 'u1', {}, { role: 'maintainer' }, {});
+  ok(calls.join(',') === 'claims,db', 'a promotion does not revoke');
+  const tmp3 = fs.mkdtempSync(path.join(os.tmpdir(), 'gatecheck-key-'));
+  const kf = path.join(tmp3, 'corrupt-key.json');
+  fs.writeFileSync(kf, '{"private_key": "SECRETSNIPPET" oops');
+  const rc = spawnSync(process.execPath, [path.join(GAME, 'tools', 'set_role.mjs'), '--check'], { encoding: 'utf8', env: { ...process.env, SBA_FIREBASE_ADMIN_KEY: kf } });
+  ok(rc.status === 2 && rc.stderr.trim() === `Could not parse the key file at ${kf}` && !rc.stderr.includes('SECRETSNIPPET'), 'a corrupt key file prints only its path');
+  fs.rmSync(tmp3, { recursive: true, force: true });
 }
 {
   const r = spawnSync(process.execPath, [path.join(GAME, 'tools', 'set_role.mjs'), '--check'], { encoding: 'utf8', env: { ...process.env, SBA_FIREBASE_ADMIN_KEY: missingKey } });

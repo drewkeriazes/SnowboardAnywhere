@@ -44,11 +44,21 @@ async function open(query) {
   return { page, text, btn, click, requests };
 }
 
-{ // no query (CI's unconfigured build)
+// A build with the four Firebase values (game/.env.local) is a configured build: the unconfigured lines do not apply.
+const envLocal = path.join(path.dirname(DIST), '.env.local');
+const envHas = (txt, n) => txt.split(String.fromCharCode(10)).some((l) => l.trim().startsWith(n + '=') && l.trim().length > n.length + 1);
+const configured = fs.existsSync(envLocal) && ['API_KEY', 'AUTH_DOMAIN', 'PROJECT_ID', 'APP_ID'].every((n) => envHas(fs.readFileSync(envLocal, 'utf8'), `VITE_FIREBASE_${n}`));
+{ // no query (CI's unconfigured build, or a configured one)
   const c = await open('');
-  check('unconfigured: guest line', (await c.text()).includes('Playing as guest'));
-  check('unconfigured: Sign in disabled with its reason', await c.btn.isDisabled() && (await c.text()).includes('Sign-in is not set up in this build.'));
-  check('unconfigured: no Firebase chunk requested', !c.requests.some((u) => /firebasePort-/.test(u)));
+  check('a firebasePort chunk exists in dist/assets', fs.readdirSync(path.join(DIST, 'assets')).some((f) => /^firebasePort-.*\.js$/.test(f)));
+  check('guest line', (await c.text()).includes('Playing as guest'));
+  if (configured) {
+    console.log('ok   configured build: unconfigured checks skipped');
+    check('configured: Sign in with GitHub is enabled', !(await c.page.locator('#menu .account button', { hasText: 'Sign in with GitHub' }).isDisabled()));
+  } else {
+    check('unconfigured: Sign in disabled with its reason', await c.btn.isDisabled() && (await c.text()).includes('Sign-in is not set up in this build.'));
+    check('unconfigured: no Firebase chunk requested', !c.requests.some((u) => /firebasePort-/.test(u)));
+  }
   check('menu paints, RIDE is there without the account', await c.page.evaluate(() => !!document.querySelector('#menu button.ride')));
   await c.page.close();
 }

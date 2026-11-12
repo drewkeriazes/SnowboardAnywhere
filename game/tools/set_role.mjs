@@ -62,6 +62,16 @@ export function databaseUrl(projectId, env = process.env) {
   return u && u.trim() !== '' ? u.trim() : `https://${projectId}-default-rtdb.firebaseio.com`;
 }
 
+/** The admin calls of an update, in their order: claims, then (on a demotion) the revoke, then the database. The revoke
+ *  comes before the database write so a failed write never leaves the claim changed with the old token still valid.
+ *  @param {{ setCustomUserClaims(uid: string, c: object): Promise<void>; revokeRefreshTokens(uid: string): Promise<void> }} auth
+ *  @param {{ update(path: string, v: object): Promise<void> }} db */
+export async function applyRole(auth, db, uid, existing, next, record) {
+  await auth.setCustomUserClaims(uid, next);
+  if (needsRevoke(existing, next)) await auth.revokeRefreshTokens(uid);
+  await db.update(`players/${uid}`, record);
+}
+
 /** @param {NonNullable<ReturnType<typeof parseRoleArgs>>} args @returns {Promise<number>} the exit code */
 async function run(args) {
   const envFile = path.join(GAME, '.env.local');
@@ -74,7 +84,8 @@ async function run(args) {
   const { cert, initializeApp } = await import('firebase-admin/app');
   const { getAuth } = await import('firebase-admin/auth');
   const { getDatabase } = await import('firebase-admin/database');
-  const key = JSON.parse(fs.readFileSync(file, 'utf8'));
+  let key;
+  try { key = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { console.error(`Could not parse the key file at ${file}`); return 2; }
   const app = initializeApp({ credential: cert(key), databaseURL: databaseUrl(key.project_id) }, 'sba-set-role');
   const auth = getAuth(app);
 
@@ -105,16 +116,14 @@ async function run(args) {
   }
   const existing = user.customClaims ?? {};
   const next = claimsFor(existing, args);
-  await auth.setCustomUserClaims(user.uid, next);
   const role = next.role === 'maintainer' ? 'maintainer' : 'player';
   const player = typeof next.player === 'number' ? next.player : null;
-  await db.ref(`players/${user.uid}`).update({
+  await applyRole(auth, { update: (p, v) => db.ref(p).update(v) }, user.uid, existing, next, {
     player,
     displayName: args.name ?? user.displayName ?? null,
     role,
     updatedAt: Date.now(),
   });
-  if (needsRevoke(existing, next)) await auth.revokeRefreshTokens(user.uid);
   console.log(`uid ${user.uid}: role ${role}, player ${player ?? 'none'}. Sign out and back in to pick it up.`);
   return 0;
 }

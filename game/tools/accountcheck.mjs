@@ -46,6 +46,14 @@ ok(playerFromUser(u(null), {}).displayName === 'Player' && playerFromUser(u('  '
 ok(!isMaintainer({ kind: 'pending' }) && !isMaintainer({ kind: 'guest' }) && !isMaintainer({ kind: 'signed-in', player: FAKE_PLAYER }) && isMaintainer({ kind: 'signed-in', player: FAKE_MAINTAINER }), 'isMaintainer only for the maintainer role');
 for (const [fb, code] of [['auth/popup-closed-by-user', 'cancelled'], ['auth/cancelled-popup-request', 'cancelled'], ['auth/popup-blocked', 'popup-blocked'], ['auth/account-exists-with-different-credential', 'email-in-use'], ['auth/unauthorized-domain', 'unauthorized-domain'], ['auth/network-request-failed', 'network'], ['auth/operation-not-allowed', 'not-enabled']])
   ok(signInFailure(fb).code === code, `${fb} maps to ${code}`);
+{
+  const M = 'Sign-in works only at http://localhost:5173 on this PC. Here you can play as a guest.';
+  const a = signInFailure('auth/requests-from-referer-http://192.168.1.5:5173-are-blocked.');
+  ok(a.code === 'unauthorized-domain' && a.message === M, 'auth/requests-from-referer-<origin>-are-blocked. maps to unauthorized-domain with the localhost message');
+  ok(signInFailure('auth/unauthorized-domain').message === M, 'auth/unauthorized-domain uses the same message');
+  const k = signInFailure('auth/api-key-not-valid.-please-pass-a-valid-api-key.');
+  ok(k.code === 'unavailable' && k.message === 'Sign-in is not set up correctly in this build.', 'auth/api-key-not-valid... maps to unavailable with its message');
+}
 ok(signInFailure('auth/zzz').code === 'unknown' && signInFailure('auth/zzz').message.includes('auth/zzz'), 'an unknown code is named in the message');
 ok(signInFailure('auth/popup-closed-by-user').message === '', 'a closed popup says nothing');
 
