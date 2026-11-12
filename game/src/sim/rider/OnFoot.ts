@@ -2,7 +2,7 @@
 import type { Rider } from '../Rider';
 import type { SnowState } from '../SnowConditions';
 import type { Input } from './types';
-import { BACK, BODY_L, CLIMB_MAX, CLIMB_UP, CRAWL, CRAWL_MAX, D2R, G, JOG, MANTLE_PROBE, MANTLE_TIME, SPRINT, STAMINA, STAMINA_RESUME, STEP_TIME, STEP_UP, STRAP_TIME, UNSTRAP_TIME, WALK } from './tuning';
+import { BACK, BODY_L, CLIMB_MAX, CLIMB_MIN_PACE, CLIMB_UP, CRAWL, CRAWL_FLOOR, CRAWL_MAX, CRAWL_SINK, CRAWL_SPRINT, D2R, SINK_FLOOR, SINK_SLOW, G, JOG, MANTLE_PROBE, MANTLE_TIME, SPRINT, STAMINA, STAMINA_RESUME, STEP_TIME, STEP_UP, STRAP_TIME, UNSTRAP_TIME, WALK } from './tuning';
 import { groundAt, collide } from './Collision';
 
 /**
@@ -106,29 +106,37 @@ export function walkStep(r: Rider, dt: number, input: Input, n: [number, number,
   r.heading += input.steer * (r.sprinting ? 2.0 : 2.6) * dt;
   const hx = Math.sin(r.heading), hy = Math.cos(r.heading);
   const fwd = input.tuck ? 1 : input.brake ? -1 : 0;
-  // stamina: a few seconds of sprint, then a run until it comes back
-  const wantSprint = input.grab && fwd > 0;
-  if (r.stamina <= 0) r.tired = true;
-  if (r.tired && r.stamina >= STAMINA_RESUME) r.tired = false;
-  r.sprinting = wantSprint && !r.tired && r.speed > 0.5;
-  if (r.sprinting) r.stamina = Math.max(0, r.stamina - dt);
-  else r.stamina = Math.min(STAMINA, r.stamina + dt * (fwd === 0 ? 0.8 : 0.45));
-  let base = fwd > 0 ? (wantSprint ? (r.tired ? JOG : SPRINT) : WALK) : fwd < 0 ? -BACK : 0;
-  base *= 1 - 0.6 * r.squat; // hunkered down (FEAT-111): a slow duck walk
   // grade along the way you are walking, at body scale: rise per metre over BODY_L (+ = uphill)
-  const pack = r.pack, dir = base < 0 ? -1 : 1, hl = BODY_L / 2;
+  const pack = r.pack, dir = fwd < 0 ? -1 : 1, hl = BODY_L / 2;
   const rise = pack.groundHeight(r.x + hx * hl * dir, r.y + hy * hl * dir) - pack.groundHeight(r.x - hx * hl * dir, r.y - hy * hl * dir);
   const grade = Number.isNaN(rise) ? 0 : rise / BODY_L;
   const steep = Math.atan(Math.max(0, grade)) / D2R;
   r.walkSlopeDeg = Math.atan(grade) / D2R;
-  // uphill: about 70% pace up a 20 degree pitch, half pace at 30; downhill a little careful.
-  // Past CLIMB_MAX you scramble on all fours, slower as it steepens toward CRAWL_MAX.
-  const slopeF = grade > 0 ? Math.max(0.4, 1 - 0.8 * grade) : Math.max(0.7, 1 + 0.6 * grade);
+  // past CLIMB_MAX you scramble on all fours, slower as it steepens toward CRAWL_MAX
   r.crawling = fwd > 0 && steep >= CLIMB_MAX && steep < CRAWL_MAX;
-  if (r.crawling) { base = CRAWL * Math.max(0.3, Math.min(1, (CRAWL_MAX - steep) / 8)); r.sprinting = false; }
-  else base *= slopeF;
+  // stamina: a few seconds of sprint, then a run until it comes back. BUG-112: sprint works while
+  // scrambling too, which is slower than the 0.5 m/s a sprint has to get going from on the flat
+  const wantSprint = input.grab && fwd > 0;
+  if (r.stamina <= 0) r.tired = true;
+  if (r.tired && r.stamina >= STAMINA_RESUME) r.tired = false;
+  r.sprinting = wantSprint && !r.tired && r.speed > (r.crawling ? 0.15 : 0.5);
+  if (r.sprinting) r.stamina = Math.max(0, r.stamina - dt);
+  else r.stamina = Math.min(STAMINA, r.stamina + dt * (fwd === 0 ? 0.8 : 0.45));
+  const sprintF = wantSprint && !r.tired ? CRAWL_SPRINT : 1;
+  let base: number;
+  if (r.crawling) {
+    // BUG-112: the boot sink counts for less on all fours (CRAWL_SINK), so the two do not multiply to nothing
+    base = CRAWL * sprintF * Math.max(CRAWL_FLOOR, Math.min(1, (CRAWL_MAX - steep) / 8)) * Math.max(SINK_FLOOR, 1 - CRAWL_SINK * SINK_SLOW * r.sink);
+  } else {
+    // uphill: about 70% pace up a 20 degree pitch, half pace at 30; downhill a little careful
+    const slopeF = grade > 0 ? Math.max(0.4, 1 - 0.8 * grade) : Math.max(0.7, 1 + 0.6 * grade);
+    base = fwd > 0 ? (wantSprint ? (r.tired ? JOG : SPRINT) : WALK) : fwd < 0 ? -BACK : 0;
+    base *= slopeF * Math.max(SINK_FLOOR, 1 - SINK_SLOW * r.sink);
+  }
+  // BUG-112: pushing up anything climbable keeps a pace you can see on the altimeter
+  if (fwd > 0 && grade > 0 && steep < CRAWL_MAX) base = Math.max(base, CLIMB_MIN_PACE * sprintF);
+  base *= 1 - 0.6 * r.squat; // hunkered down (FEAT-111): a slow duck walk
   const climbingTooSteep = fwd !== 0 && steep >= CRAWL_MAX;
-  base *= Math.max(0.4, 1 - 2.2 * r.sink);
   // a slip: the feet go and you slide back down for a moment, not pushing uphill, before you can
   // try again (otherwise you just hover at the CRAWL_MAX line)
   if (climbingTooSteep && r.slipT <= 0) r.slipT = 0.7;

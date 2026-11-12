@@ -50,7 +50,15 @@ export const STAMINA_RESUME = 1.5;
  * at CRAWL m/s; steeper than CRAWL_MAX you cannot get up and slip back, and standing on more than
  * CRAWL_MAX you slip whatever you do.
  */
-export const CLIMB_MAX = 35, CRAWL_MAX = 45, CRAWL = 0.45, BODY_L = 2.5;
+export const CLIMB_MAX = 35, CRAWL_MAX = 45, CRAWL = 0.6, BODY_L = 2.5;
+/**
+ * BUG-112: the uphill slowdowns on foot must not stack to a standstill. The scramble slows toward
+ * CRAWL_MAX down to CRAWL_FLOOR of CRAWL; sprint (Shift) scrambles CRAWL_SPRINT times faster and
+ * drains stamina. Boot sink slows walking by SINK_SLOW per metre of sink, to at least SINK_FLOOR of
+ * the pace, and the scramble by CRAWL_SINK of that. Pushing up a climbable slope never goes slower
+ * than CLIMB_MIN_PACE m/s (times CRAWL_SPRINT when sprinting).
+ */
+export const CRAWL_FLOOR = 0.6, CRAWL_SPRINT = 1.5, SINK_SLOW = 2.2, SINK_FLOOR = 0.4, CRAWL_SINK = 0.5, CLIMB_MIN_PACE = 0.4;
 
 // ---- snow conditions: powder, presses in powder, chop (FEAT-053, FEAT-152)
 /** FEAT-053 powder: speed (m/s) by which the board planes and the speed-scaled drag stops growing,
