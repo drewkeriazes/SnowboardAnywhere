@@ -81,11 +81,11 @@ export class FirebaseAccount implements AccountService {
     const mine = ++this.seq;
     let claims: Record<string, unknown> = {};
     try { claims = await port.claims(u, true); } catch { /* unreadable: a player */ }
+    // A sign-out seen while the claims were read wins: report no sign-in rather than one that is not there.
+    if (mine !== this.seq) return { ok: false, code: 'cancelled', message: '' };
     const player = playerFromUser(u, claims);
-    if (mine === this.seq) {
-      this.user = u;
-      this.set({ kind: 'signed-in', player });
-    }
+    this.user = u;
+    this.set({ kind: 'signed-in', player });
     return { ok: true, player };
   }
 
@@ -106,13 +106,13 @@ export class FirebaseAccount implements AccountService {
   }
 
   private async onUser(u: PortUser | null): Promise<void> {
+    if (u && this.inFlight) return; // a sign-in in progress owns the transition, with fresh claims
     const mine = ++this.seq;
     if (!u) {
       this.user = null;
       this.set({ kind: 'guest' });
       return;
     }
-    if (this.inFlight) return; // a sign-in in progress sets the state itself, with fresh claims
     if (this.user?.uid === u.uid && this.current.kind === 'signed-in') return;
     let claims: Record<string, unknown> = {};
     try { claims = await this.port!.claims(u, false); } catch { /* offline restore: a player */ }

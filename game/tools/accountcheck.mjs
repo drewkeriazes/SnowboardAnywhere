@@ -74,8 +74,9 @@ async function loadExt(rel, name) {
 const { FirebaseAccount } = await loadExt('account/firebaseAccount.ts', 'fbaccount');
 const { createAccount } = await loadExt('account/createAccount.ts', 'create');
 const drew = { uid: 'u-drew', displayName: 'Drew', providerIds: ['github.com'] };
-function stubPort({ claims = {}, claimsFail = false, fail = null } = {}) {
+function stubPort({ claims = {}, claimsFail = false, fail = null, hold = false } = {}) {
   const calls = { signIn: 0, claims: [] };
+  let release = () => {}; const gate = new Promise((r) => { release = r; });
   let cb = null; let pending; let has = false; let failLeft = fail;
   const port = {
     onUser(f) { cb = f; if (has) f(pending); },
@@ -86,10 +87,10 @@ function stubPort({ claims = {}, claimsFail = false, fail = null } = {}) {
       return drew;
     },
     async signOut() {},
-    async claims(u, refresh) { calls.claims.push(refresh); if (claimsFail) throw new Error('offline'); return claims; },
+    async claims(u, refresh) { calls.claims.push(refresh); if (hold && refresh) await gate; if (claimsFail) throw new Error('offline'); return claims; },
     async token(u) { return `tok-${u.uid}`; },
   };
-  return { port, calls, fire(u) { if (cb) cb(u); else { pending = u; has = true; } } };
+  return { port, calls, release: () => release(), fire(u) { if (cb) cb(u); else { pending = u; has = true; } } };
 }
 let s = stubPort({ claims: { role: 'maintainer', player: 1 } });
 let a = new FirebaseAccount(Promise.resolve(s.port));
@@ -118,6 +119,24 @@ ok((await a.ready()).player?.role === 'player', 'claims unreadable: role player'
 a = new FirebaseAccount(Promise.reject(Object.assign(new Error('bad key'), { code: 'auth/invalid-api-key' })));
 ok((await a.ready()).kind === 'guest' && !a.available && a.unavailableReason === 'Sign-in could not start (auth/invalid-api-key).', 'port fails to start: unavailable with the code, guest');
 ok(!(await a.signIn({ method: 'github' })).ok, 'port failed to start: signIn is refused');
+
+// An auth-state echo during a sign-in must not drop the signed-in state.
+const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms));
+for (const [when, wait] of [['after the popup resolved, before claims', 20], ['before the popup resolved', 1]]) {
+  s = stubPort({ claims: { role: 'maintainer', player: 1 }, hold: true }); a = new FirebaseAccount(Promise.resolve(s.port)); s.fire(null); await a.ready();
+  const ch = []; a.onChange((x) => ch.push(x.kind));
+  const pr = a.signIn({ method: 'github' });
+  await tick(wait); s.fire(drew); await tick(); s.release();
+  const rr = await pr; await tick();
+  ok(rr.ok && isMaintainer(a.state()) && (await a.idToken()) === 'tok-u-drew' && ch.join() === 'signed-in', `echo ${when}: signed in, token, one change`);
+}
+s = stubPort({ claims: { role: 'maintainer', player: 1 }, hold: true }); a = new FirebaseAccount(Promise.resolve(s.port)); s.fire(null); await a.ready();
+{
+  const pr = a.signIn({ method: 'github' });
+  await tick(20); s.fire(null); await tick(); s.release();
+  const rr = await pr;
+  ok(a.state().kind === 'guest' && !rr.ok && rr.code === 'cancelled' && (await a.idToken()) === null, 'sign-out elsewhere during a sign-in: guest wins, signIn reports cancelled');
+}
 
 let loads = 0; const loadPort = () => { loads++; return Promise.resolve(stubPort({}).port); };
 ok(!createAccount({ env: {}, fake: null, hosted: false, headless: false, loadPort }).available && loads === 0, 'no env: unavailable, no SDK load');
