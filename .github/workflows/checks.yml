@@ -3,9 +3,8 @@
 #
 #   typecheck-build   tsc --noEmit and vite build                                  game/ changed
 #   physics-checks    the Node-only check tools (Rider physics on exact planes,     game/ changed
-#                     no pack, no browser)
+#                     get_pack.mjs --from; no pack, no browser)
 #   browser-checks    headless check tools on the synthetic pack, SwiftShader       game/ changed
-#   pipeline-tests    pytest pipeline/tests                                         pipeline/ changed
 #   render-budgets    main and the PR on the synthetic pack (cishot.mjs): shader    PRs, game/ changed
 #                     compile, scene budget counts (fails on a count more than 10%
 #                     over main), bundle size; render-budgets-comment posts them.
@@ -14,7 +13,7 @@
 #                     Skipped (still green) when tools/ci/local_render_budgets.mjs
 #                     passed on Drew's GPU for the same commit (FEAT-176)
 #   The synthetic pack is downloaded, not built (FEAT-241): MapPacker publishes it as release synth-v<N>
-#   (`publish_pack.py --synth` there), so a pipeline change here changes neither it nor these checks.
+#   (`publish_pack.py --synth` there). The pipeline itself lives in MapPacker (EPIC-16) and runs its own checks.
 #   repo-rules        no em dashes in added Markdown, plain commit messages,         always
 #                     docs-travel warning, stale main menu still warning (FEAT-177)
 #   public-guards     no Spotify code, no .env files, images <= 1 MB in the right    always
@@ -61,7 +60,7 @@ env:
   PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
   BASE_REF: ${{ github.base_ref || 'main' }}
   # Node-only check tools: exit 1 on a failed check, need neither a pack nor a browser
-  PHYSICS_CHECKS: brakecheck carvecheck conditionscheck fakiecheck fallcheck hardcarvecheck mogulcheck presscheck shrubcheck standcheck treepuffcheck
+  PHYSICS_CHECKS: brakecheck carvecheck conditionscheck fakiecheck fallcheck getpackcheck hardcarvecheck mogulcheck presscheck shrubcheck standcheck treepuffcheck
   # Browser check tools that pass on the synthetic pack under SwiftShader within a few minutes
   BROWSER_CHECKS: switchcheck glancecheck hardposecheck padcheck
   # BROWSER_LOCAL (timed on a runner for FEAT-172: they draw every frame, and SwiftShader takes minutes per check):
@@ -75,7 +74,6 @@ jobs:
       pull-requests: read
     outputs:
       game: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.f.outputs.game }}
-      pipeline: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.f.outputs.pipeline }}
       attract: ${{ steps.f.outputs.attract }}
     steps:
       - uses: actions/checkout@v6
@@ -89,9 +87,6 @@ jobs:
             game:
               - *ci
               - 'game/**'
-            pipeline:
-              - *ci
-              - 'pipeline/**'
             attract:
               - 'game/src/ui/**'
               - 'game/src/world/AttractShots.ts'
@@ -143,23 +138,6 @@ jobs:
             echo "::endgroup::"
           done
           if [ -n "$failed" ]; then echo "::error::failed:$failed"; exit 1; fi
-
-  pipeline-tests:
-    needs: changes
-    if: needs.changes.outputs.pipeline == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
-          cache-dependency-path: pipeline/requirements.txt
-      - run: pip install -r pipeline/requirements.txt pytest
-      - name: pytest
-        working-directory: pipeline
-        run: python -m pytest tests -v
 
   # The synthetic pack (FEAT-241): MapPacker's release synth-v<N>, the catalog's `test` entry at this game's
   # PACK_FORMAT, downloaded by game/tools/get_pack.mjs (sha256 checked) and cached on that sha256. Jobs that need

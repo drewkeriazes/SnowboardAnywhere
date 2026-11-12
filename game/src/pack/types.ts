@@ -42,7 +42,7 @@ export interface CoverMeta {
   levels: CoverLevelMeta[];
 }
 
-/** FEAT-074: the stand images (pipeline/stands.py) */
+/** FEAT-074: the stand images (MapPacker-SnowboardAnywhere/pipeline/stands.py) */
 export interface StandsMeta {
   /** 4 m cells, `size` per tree cell side */
   res: number;
@@ -71,7 +71,7 @@ export interface InstancesMeta {
   /** DATA-020: shrubs/<cx>_<cy>.bin, Float32 records x, y, z, height, radius, kind; absent in older packs */
   shrubCount?: number;
   shrubCells?: string[];
-  /** BUG-081: farTrees/<cx>_<cy>.bin (pipeline/far_trees.py), the lidar crowns outside the pack bounds in the same
+  /** BUG-081: farTrees/<cx>_<cy>.bin (MapPacker-SnowboardAnywhere/pipeline/far_trees.py), the lidar crowns outside the pack bounds in the same
    * record as trees/, on the same grid but running `treeRing` cells past it on every side (cx, cy may be negative) */
   treeRing?: number;
   farTreeCount?: number;

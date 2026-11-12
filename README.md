@@ -33,7 +33,14 @@ npm run get synth         # the synthetic test mountain the CI checks run on (no
 Or open **Change resort** on the main menu: a published resort you don't have shows "Download (size)";
 pick it and the game downloads it and loads it. A pack in an older format than the game reads shows
 "needs rebuild". `npm run get` won't replace a pack you built yourself unless you add `-- --force` (it
-deletes the old one). To build a pack from the raw data instead, see "How a resort gets built" below.
+deletes the old one). To ride a pack you built in MapPacker before it is published, copy it in:
+
+```
+npm run get -- --from ../../MapPacker-SnowboardAnywhere/packs/vail   # copies that build into packs/vail
+```
+
+Run it again after a rebuild there. `npm run get vail -- --force` swaps the copy back for the published
+pack. How packs are built: "How a resort gets built" below.
 
 ### Play on another computer
 
@@ -237,22 +244,17 @@ the card to dismiss it; it hides itself after 10 s.
 
 ## How a resort gets built
 
-A Python pipeline downloads public data for a resort (USGS 1 m lidar, NAIP imagery, LANDFIRE
-vegetation, OpenStreetMap) and turns it into a "pack" of height tiles, masks, trees and features.
-The game streams that pack. Fetching runs on Windows with PowerShell; building runs anywhere. One
-command takes a resort's name to a published pack and skips the steps already done (`add_resort.cmd` on
-Windows, which stops once after the plan so you can read it before the download):
-
-```
-python pipeline/resort.py add "Boston Mills" --with Brandywine --stop-after plan   # name to config and data plan
-python pipeline/resort.py add "Boston Mills" --with Brandywine                     # fetch, build, report, ride, publish
-python pipeline/build_resort.py vail <raw_dir> packs/vail      # an existing resort: fetch, build, report
-python pipeline/publish_pack.py packs/vail     # publish a pack for npm run get (needs push access)
-```
+Not in this repo. A Python pipeline in
+[MapPacker-SnowboardAnywhere](https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere) downloads
+public data for a resort (USGS 1 m lidar, NAIP imagery, LANDFIRE vegetation, OpenStreetMap), turns it
+into a "pack" of height tiles, masks, trees and features, and publishes it; the game downloads the pack
+and streams it. One command there takes a resort's name to a published pack (`add_resort.cmd "<name>"`);
+its README has the rest. The pack layout both repos follow is MapPacker's
+[`docs/pack-format.md`](https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere/blob/main/docs/pack-format.md).
 
 ## More
 
-- [docs/developer-guide.md](docs/developer-guide.md): full feature list, code layout, tools, pipeline scripts, URL parameters, milestones
+- [docs/developer-guide.md](docs/developer-guide.md): full feature list, code layout, tools, URL parameters, milestones
 - [docs/HANDOFF.md](docs/HANDOFF.md): current state and next steps
 - [Project board](https://github.com/users/drewkeriazes/projects/2): open work, one issue per card ([how it works](docs/BOARD.md))
 - [docs/README.md](docs/README.md): index of plans, research and data notes

@@ -1,6 +1,6 @@
 // FEAT-222 `npm run get <slug>` (node tools/get_pack.mjs <slug> [--force] [--sha256] [--catalog <url|file>] | --list):
 // download a published resort pack into packs/<slug>. Reads catalog.json from the resorts repo
-// (drewkeriazes/MapPacker-SnowboardAnywhere, written by pipeline/publish_pack.py), downloads the release zip in
+// (drewkeriazes/MapPacker-SnowboardAnywhere, written by MapPacker-SnowboardAnywhere/pipeline/publish_pack.py), downloads the release zip in
 // Node (GitHub release assets send no CORS headers, so the page can't), checks its sha256 and pack format against
 // this game's, unzips it next to packs/<slug> and swaps it in, then rewrites packs/index.json.
 // The dev and host servers (vite.config.ts /__packs/*) call getPack() for the resort picker's Download button.
@@ -9,6 +9,9 @@
 // FEAT-241: the catalog's `test` list holds test packs the picker never shows (the synthetic pack CI runs on,
 // `npm run get synth`), one entry per pack format: findEntry picks the one this game reads. `--sha256` prints the
 // sha256 of the zip it would install, for CI's cache key.
+// FEAT-242 `npm run get [<slug>] -- --from <pack dir>`: copy a pack built in the MapPacker checkout (its
+// packs/<slug>, or that packs/ folder) into packs/<slug>, to ride a fresh build before it is published. Run it again
+// after a rebuild there. Like a pack built here, get <slug> replaces the copy with the published pack only with --force.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,6 +25,7 @@ export const RESORTS_REPO = 'drewkeriazes/MapPacker-SnowboardAnywhere';
 export const CATALOG_URL = `https://raw.githubusercontent.com/${RESORTS_REPO}/main/catalog.json`;
 export const SLUG = /^[a-z0-9][a-z0-9_-]*$/;
 const MARKER = '.catalog.json';
+const FROM_MARKER = '.from.json'; // FEAT-242: a pack copied in with --from: { from, build, copied }
 const STALL_MS = 60_000;
 
 /** The pack format this checkout's client reads (PACK_FORMAT in src/pack/format.ts). */
@@ -58,7 +62,7 @@ export function localPacks(packsDir = PACKS) {
   return out;
 }
 
-/** packs/index.json, as packwriter.index_packs writes it. */
+/** packs/index.json, as packwriter.index_packs (MapPacker-SnowboardAnywhere/pipeline/packwriter.py) writes it. */
 export function writePackIndex(packsDir = PACKS) {
   const local = localPacks(packsDir);
   const packs = Object.keys(local).sort();
@@ -105,6 +109,8 @@ export async function getPack(slug, { packsDir = PACKS, catalog, force = false, 
       onProgress({ phase: 'done', received: 0, total: 0, already: true });
       return { slug, version: entry.pack.version, already: true };
     }
+    const copied = readJson(path.join(dest, FROM_MARKER));
+    if (copied && !force) throw new Error(`packs/${slug} is a copy of ${copied.from} (get --from): --force replaces it with the published pack`);
     if (!mark && !force) throw new Error(`packs/${slug} is a pack built on this PC, not one from the catalog: --force replaces it (it is deleted)`);
   }
 
@@ -167,7 +173,61 @@ export async function getPack(slug, { packsDir = PACKS, catalog, force = false, 
   }
 }
 
-/** Unpack a zip (stored or deflated, no zip64: publish_pack.py refuses packs over 1.9 GiB) into dir. */
+const isLink = (p) => { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } };
+
+/** Remove a symlink or junction, never what it points at (rmdirSync is not recursive, so it can't empty the target). */
+function removeLink(p) {
+  try { fs.unlinkSync(p); } catch { fs.rmdirSync(p); }
+}
+
+/** What publish_pack.py leaves out of a pack's zip: debug/ and dot files at the top. A --from copy leaves them out too. */
+const unpublished = (rel) => { const top = rel.split(/[\\/]/)[0]; return top === 'debug' || top.startsWith('.'); };
+
+/**
+ * FEAT-242: copy the pack in `from` (a pack folder with meta.json, or a packs/ folder holding <slug>/) into
+ * packsDir/<slug>, as the zip would carry it, with a FROM_MARKER naming where it came from. slug defaults to the
+ * pack's own meta.json slug. It replaces a link, a catalog download or an earlier --from copy; a pack built in this
+ * checkout only with force (it is deleted). A copy, not a link: `git worktree remove` follows a junction under the
+ * ignored packs/ and empties the folder it points at, which would be the MapPacker build.
+ */
+export function copyPack(slug, from, { packsDir = PACKS, force = false } = {}) {
+  let src = path.resolve(from);
+  if (!fs.existsSync(path.join(src, 'meta.json')) && slug && fs.existsSync(path.join(src, slug, 'meta.json'))) src = path.join(src, slug);
+  const meta = readJson(path.join(src, 'meta.json'));
+  if (!meta) throw new Error(`${src} is not a pack (no meta.json)${slug ? ` and has no ${slug}/meta.json` : ''}`);
+  slug ??= meta.slug;
+  if (!SLUG.test(slug ?? '')) throw new Error(`not a resort slug: ${slug}`);
+  if (meta.slug !== slug) throw new Error(`${src} is the ${meta.slug} pack, not ${slug}`);
+  const f = meta.formatVersion ?? 0;
+  if (f !== PACK_FORMAT) {
+    throw new Error(`${src} is format ${f}, this game reads ${PACK_FORMAT}: ${f < PACK_FORMAT ? 'rebuild it in MapPacker' : 'update the game (git pull)'}`);
+  }
+  const dest = path.join(packsDir, slug);
+  if (fs.existsSync(dest) && fs.realpathSync(src) === fs.realpathSync(dest)) throw new Error(`${src} is this checkout's own packs/${slug}`);
+  const prior = readJson(path.join(dest, FROM_MARKER));
+  if (!force && prior?.from === src && meta.build && prior.build === meta.build) return { slug, from: src, already: true };
+  const old = path.join(packsDir, `.${slug}.old`);
+  const incoming = path.join(packsDir, `.${slug}.incoming`);
+  if (isLink(dest)) removeLink(dest);
+  else if (fs.existsSync(dest) && !prior && !readJson(path.join(dest, MARKER)) && !force) {
+    throw new Error(`packs/${slug} is a pack built on this PC, not one from the catalog: --force replaces it with the copy (it is deleted)`);
+  }
+  fs.mkdirSync(packsDir, { recursive: true });
+  for (const p of [incoming, old]) fs.rmSync(p, { recursive: true, force: true });
+  try {
+    fs.cpSync(src, incoming, { recursive: true, filter: (s) => s === src || !unpublished(path.relative(src, s)) });
+    fs.writeFileSync(path.join(incoming, FROM_MARKER), JSON.stringify({ from: src, build: meta.build ?? null, copied: new Date().toISOString() }, null, 1));
+    if (fs.existsSync(dest)) fs.renameSync(dest, old);
+    try { fs.renameSync(incoming, dest); } catch (e) { if (fs.existsSync(old)) fs.renameSync(old, dest); throw e; }
+    fs.rmSync(old, { recursive: true, force: true });
+  } finally {
+    fs.rmSync(incoming, { recursive: true, force: true });
+  }
+  writePackIndex(packsDir);
+  return { slug, from: src };
+}
+
+/** Unpack a zip (stored or deflated, no zip64: MapPacker's publish_pack.py refuses packs over 1.9 GiB) into dir. */
 export function unzip(zipFile, dir) {
   const fd = fs.openSync(zipFile, 'r');
   try {
@@ -225,13 +285,22 @@ async function cli(args) {
   const flag = (f) => { const i = args.indexOf(f); if (i < 0) return undefined; const v = args[i + 1]; args.splice(i, 2); return v; };
   const catalogSrc = flag('--catalog');
   const packsArg = flag('--packs');
+  const from = flag('--from');
   const force = args.includes('--force');
   const list = args.includes('--list');
   const sha256 = args.includes('--sha256');
   const slug = args.find((a) => !a.startsWith('--'));
   const packsDir = packsArg ? path.resolve(packsArg) : PACKS;
+  if (from) {
+    const res = copyPack(slug, from, { packsDir, force });
+    const rel = path.relative(process.cwd(), path.join(packsDir, res.slug)) || '.';
+    console.log(res.already ? `${rel} is already that build of ${res.from} (--force copies it again)`
+      : `${res.from} copied to ${rel}: cd game && npm run dev, then open /?pack=${res.slug}`);
+    return;
+  }
   if (!slug && !list) {
-    console.log('usage: npm run get <slug> [-- --force]   (npm run get -- --list shows the published resorts)');
+    console.log('usage: npm run get <slug> [-- --force]   (npm run get -- --list shows the published resorts;');
+    console.log('       npm run get [<slug>] -- --from <MapPacker pack dir> copies in a pack built there)');
     process.exit(2);
   }
   const catalog = await readCatalog(catalogSrc);
@@ -246,7 +315,8 @@ async function cli(args) {
     const local = localPacks(packsDir);
     for (const r of catalog.resorts ?? []) {
       const here = local[r.slug];
-      const note = formatProblem(r) ?? (here ? (here.version === r.pack.version ? 'installed' : here.version ? `installed v${here.version}, v${r.pack.version} out` : 'built on this PC') : '');
+      const copied = here && readJson(path.join(packsDir, r.slug, FROM_MARKER));
+      const note = formatProblem(r) ?? (copied ? `copy of ${copied.from}` : null) ?? (here ? (here.version === r.pack.version ? 'installed' : here.version ? `installed v${here.version}, v${r.pack.version} out` : 'built on this PC') : '');
       console.log(`${r.slug.padEnd(16)} ${r.name.padEnd(24)} v${r.pack.version}  ${mb(r.pack.bytes).padStart(7)}  ${r.status.padEnd(8)} ${note}`);
     }
     return;

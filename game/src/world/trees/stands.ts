@@ -3,7 +3,7 @@ import { hash01 } from './species';
 /**
  * FEAT-074: the stems a tree cell's stand density asks for, generated when the cell loads near the camera.
  * The pack keeps the detected crowns (trees/) and, per 1 km cell, stands/<cx>_<cy>.png
- * (pipeline/stands.py): per 4 m cell the chance of one stem (R), the stand height (G) and species (B), and
+ * (MapPacker-SnowboardAnywhere/pipeline/stands.py): per 4 m cell the chance of one stem (R), the stand height (G) and species (B), and
  * in the lower half the ground height (R high byte, G low). Every draw is a hash of the 4 m cell's centre,
  * so a cell generates the same stems every time, and a lower density keeps a subset of a higher one.
  */

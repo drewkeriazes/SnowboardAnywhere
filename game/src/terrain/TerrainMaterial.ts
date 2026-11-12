@@ -272,7 +272,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         // FEAT-168: shadows of the drawn trees on the snow past the shadow map (which reaches about 260 m
         // around the rider): the snow down-sun of a tree darkens, found by stepping toward the sun through
         // the map of where trees stand (4 m cells). TREE_SHADOW_H is the tree height the length stands for
-        // (as cover.py SHADOW_H), capped at TREE_SHADOW_MAX m of shadow so the steps stay a texel or so apart.
+        // (as SHADOW_H in MapPacker-SnowboardAnywhere/pipeline/cover.py), capped at TREE_SHADOW_MAX m of shadow so the steps stay a texel or so apart.
         uniform sampler2D uTreeMap;
         uniform vec4 uTreeMapRect;
         #define TREE_SHADOW_H 12.0

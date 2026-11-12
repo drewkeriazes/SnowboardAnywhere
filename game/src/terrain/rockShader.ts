@@ -4,7 +4,7 @@ import * as THREE from 'three';
  * Shared rock and talus shading (FEAT-020) for the terrain and the instanced rocks, so outcrop
  * meshes and the rock patches on the ground read as one material.
  *
- * Textures: CC0 ambientCG sets prepared by pipeline/prep_textures.py (DATA-005). Albedo is
+ * Textures: CC0 ambientCG sets prepared by game/tools/prep_textures.py (DATA-005). Albedo is
  * normalised to a mean linear luminance of TEX_MEAN, so `tint / TEX_MEAN` sets the final tone;
  * `_nrm` packs the OpenGL normal x, y in R, G and roughness in B.
  *

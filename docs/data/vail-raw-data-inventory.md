@@ -2,6 +2,8 @@
 
 Last updated 2026-11-06. Status: fetch COMPLETE for Vail.
 
+> Since EPIC-16 the pipeline that fetches and reads this data is in [MapPacker-SnowboardAnywhere](https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere); the `pipeline/` paths below name the same files there. The raw data itself still sits in this checkout's `raw/`, which MapPacker reads through `SBA_RAW_ROOT` until it moves.
+
 Location: `raw/` at the repo root (gitignored). On Drew's PC that is `C:\Users\Drew\git\SnowboardAnywhere\raw\`. Stage files from there into a cloud session with the remote-devices tools; the data hosts are not reachable from the sandbox.
 
 ## raw/vail/ (691 manifest items, all downloaded)

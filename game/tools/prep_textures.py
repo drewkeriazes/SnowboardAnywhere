@@ -1,8 +1,10 @@
 """Fetch the CC0 rock and talus PBR sets (ambientCG) and write the game's surface textures.
 
-    python pipeline/prep_textures.py [work_dir]
+    python game/tools/prep_textures.py [work_dir]
 
-Outputs in game/public/textures/ (1024 px, tileable):
+Outputs in game/public/textures/ (1024 px, tileable). These are the game's own textures, not a pack's, so this
+script stayed in the game when EPIC-16 moved the pipeline to MapPacker-SnowboardAnywhere (FEAT-242). It needs
+numpy and Pillow.
   <name>_albedo.jpg   sRGB colour, desaturated toward cool grey and normalised to a mean linear
                       luminance of ALBEDO_MEAN, so the shader sets the final tone with one tint
   <name>_nrm.jpg      R, G = OpenGL tangent-space normal x, y (z is rebuilt in the shader);
@@ -29,8 +31,9 @@ ALBEDO_MEAN = 0.35  # linear luminance after normalisation
 SIZE = 1024
 UA = "SnowboardAnywhere-texture-prep/1.0"
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(REPO, "game", "public", "textures")
+GAME = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO = os.path.dirname(GAME)
+OUT = os.path.join(GAME, "public", "textures")
 
 
 def srgb_to_linear(c):

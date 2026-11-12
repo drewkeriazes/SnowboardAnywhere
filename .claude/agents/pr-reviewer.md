@@ -41,15 +41,15 @@ For every changed function or block, answer these before deciding there is nothi
 - Is the same thing already done somewhere else in the repo? Grep for it.
 - Does it run per frame or per tile? If so, what does it allocate or recompute?
 - Is the behavior change verifiable? Point to the `shoot.mjs` stat or screenshot that would prove it, or say none exists.
-- Do docs (`README.md`, `docs/developer-guide.md`, `HANDOFF.md`, research notes) still match after this change? A new or changed key, mode, camera, setting, URL parameter, test tool or pipeline script that is not reflected in `README.md` or `docs/developer-guide.md` is a **suggestion**: anchor it on the changed line, quote the README or guide line that is now wrong or missing, and put the new wording in the comment.
+- Do docs (`README.md`, `docs/developer-guide.md`, `HANDOFF.md`, research notes) still match after this change? A new or changed key, mode, camera, setting, URL parameter or test tool that is not reflected in `README.md` or `docs/developer-guide.md` is a **suggestion**: anchor it on the changed line, quote the README or guide line that is now wrong or missing, and put the new wording in the comment.
 A clean verdict is fine when it is true, but the summary must show these were checked, file by file.
 
 ## What to look for (most important first)
 1. **Correctness**: logic bugs, off-by-one, unit mixups (metres vs pixels, degrees vs radians, Mercator vs UTM), coordinate convention breaks (pack x east / y north / z up; three.js y up, z = -north; never lat/lon in renderer or physics), NaN or divide-by-zero paths, frame-rate dependent physics (must use the fixed timestep), unhandled promise rejections, races in async loading.
-2. **Performance in the render loop**: allocations per frame (`new Vector3()` inside `update()`), per-frame `traverse`, extra draw calls, missing frustum culling, textures or geometries never `dispose()`d (leaks on chunk unload), work that belongs offline in the pipeline instead of in the browser.
+2. **Performance in the render loop**: allocations per frame (`new Vector3()` inside `update()`), per-frame `traverse`, extra draw calls, missing frustum culling, textures or geometries never `dispose()`d (leaks on chunk unload), work that belongs offline in the pipeline (MapPacker) instead of in the browser.
 3. **Clean code**: functions doing more than one thing, magic numbers that should be named constants with units, unclear names, duplicated logic that already exists elsewhere in the repo (search for it and link it), dead code, comments that say what instead of why.
 4. **Maintainability**: does it fit the existing module structure, is the change testable with `game/tools/shoot.mjs`, are docs (`README.md`, `docs/developer-guide.md`, `docs/HANDOFF.md`) updated when behavior changes. A change to how the game reads a pack, or to a value in the spec's Contract section, needs the matching MapPacker change (its `docs/pack-format.md`, and a `formatVersion` bump when a current pack can't be read): say so as a **suggestion** if the PR does not link one.
-5. **Pipeline (Python)**: CRS handling, nodata handling, float precision, memory on big rasters (windowed reads), reproducibility.
+5. **No pipeline here**: the pipeline lives in MapPacker-SnowboardAnywhere since EPIC-16. A PR that adds pack-building code (Python reading raw data, a pack writer, a resort config) back into this repo is **blocking**: it belongs in a MapPacker PR. A change to how the game reads a pack follows item 4.
 
 ## Evidence (every comment needs at least one)
 - A line in this repo: file path and line, e.g. "`Terrain.ts:212` already does this".
