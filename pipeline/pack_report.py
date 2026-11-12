@@ -201,17 +201,28 @@ def steepest_pitch(pts, window=PITCH_M):
     return float(np.degrees(np.arctan2(dz, d[j[ok]] - d[i])).max()) if len(i) else 0.0
 
 
-def course_candidates(runs, min_length=300.0, min_drop=60.0):
-    """named line runs long and steep enough for a time trial on their own (sim/Courses.ts MIN_LENGTH, MIN_DROP;
-    the client also chains segments of one name, so this is a lower bound)"""
-    out = []
+COURSE_MIN_LENGTH, COURSE_MIN_DROP, COURSE_MIN_DROP_FLOOR = 300.0, 60.0, 20.0   # sim/Courses.ts
+
+
+def course_thresholds(max_drop):
+    """(min length, min drop) m for a resort whose biggest named run drops `max_drop` m: sim/Courses.ts
+    courseThresholds (FEAT-232). A mountain keeps 300 m and 60 m; a small hill takes half its biggest drop, at
+    least 20 m, and five times that in length"""
+    drop = min(COURSE_MIN_DROP, max(COURSE_MIN_DROP_FLOOR, max_drop / 2.0))
+    return drop * COURSE_MIN_LENGTH / COURSE_MIN_DROP, drop
+
+
+def course_candidates(runs, thresholds=None):
+    """named line runs long and steep enough for a time trial on their own, by the game's rule (the client also
+    chains segments of one name, so this is a lower bound). -> (names, (min length, min drop))"""
+    lines = []
     for r in runs:
         if not r.get("name") or r.get("area") or len(r["points"]) < 2:
             continue
         zs = [q[2] for q in r["points"]]
-        if polyline_length(r["points"]) >= min_length and max(zs) - min(zs) >= min_drop:
-            out.append(r["name"])
-    return sorted(set(out))
+        lines.append((r["name"], polyline_length(r["points"]), max(zs) - min(zs)))
+    min_length, min_drop = thresholds or course_thresholds(max((d for _, _, d in lines), default=0.0))
+    return sorted({n for n, l, d in lines if l >= min_length and d >= min_drop}), (min_length, min_drop)
 
 
 def density_by_band(z_area, cell_km2, crowns_z, stems_z, stems_w, band=BAND_M, min_km2=MIN_BAND_KM2):
@@ -603,8 +614,8 @@ class Report:
         self.line("11", "In the resort picker", st, ", ".join(where) or "no packs/index.json next to the pack, not in the catalog")
 
         # 12 courses
-        c = course_candidates(self.runs)
-        self.line("12", "Time trial courses", PASS if c else FAIL, f"{len(c)} runs of 300 m and 60 m drop or more")
+        c, (ml, md) = course_candidates(self.runs)
+        self.line("12", "Time trial courses", PASS if c else FAIL, f"{len(c)} runs of {ml:.0f} m and {md:.0f} m drop or more")
 
         # 13 attribution
         want = []
