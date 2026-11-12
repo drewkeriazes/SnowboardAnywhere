@@ -29,17 +29,20 @@ if (https) {
 }
 const server = await preview({ root: GAME, configFile, plugins, build: { outDir }, preview: { host: true, port, strictPort: true } });
 
-// the pack the link opens: vail if it is built, else the first built one
+// the pack the link opens: vail if it is there, else the first resort, else the synthetic test pack
 let built = [];
 try { built = JSON.parse(fs.readFileSync(path.join(packsDir, 'index.json'), 'utf8')).packs ?? []; } catch {
   try { built = fs.readdirSync(packsDir).filter((d) => fs.existsSync(path.join(packsDir, d, 'meta.json'))); } catch { /* no packs */ }
 }
-const pack = built.includes('vail') ? 'vail' : built[0];
+const resorts = built.filter((slug) => slug !== 'synth'); // the synthetic test pack isn't a resort (as in launcher.mjs)
+const pack = resorts.includes('vail') ? 'vail' : resorts[0] ?? built[0];
 const query = pack ? `?pack=${pack}` : '';
 
 const urls = server.resolvedUrls ?? { local: [], network: [] };
 console.log(`\nSnowboardAnywhere is hosted from ${os.hostname()}${https ? ' over https' : ''}.`);
-if (!pack) console.log('No resort pack found in packs/: build one first (see README > How a resort gets built).');
+// BUG-104: start anyway; the preview server mounts the /__packs/* routes (vite.config.ts), so the game's own
+// Change resort > Download works through this server
+if (!resorts.length) console.log('No resort in packs/ yet: npm run get vail (or Change resort > Download on the main menu).');
 console.log('On another computer on this network, open:');
 for (const u of urls.network) console.log(`  ${u}${query}`);
 if (!urls.network.length) console.log('  (no network address found: is this PC connected to the home network?)');
