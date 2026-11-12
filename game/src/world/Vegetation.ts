@@ -241,6 +241,8 @@ export class Vegetation {
     // packs from before DATA-020 have 0 conifer, 1 aspen, 2 krummholz only
     this.legacy = pack.meta.treeSpecies === undefined;
     this.standCells = new Set(pack.meta.stands?.cells ?? []);
+    // FEAT-230: cells (and stand images) a partial pack had not got yet load again once its rest is in
+    pack.onComplete(() => { for (const c of this.cells.values()) { if (c.missing && !c.loading) c.missing = false; if (c.standState === 3) c.standState = 0; } });
   }
 
   /** Bake the LOD2 / impostor atlases (needs the renderer). `on` false: no billboards, LOD2 runs to the far edge. */
@@ -449,6 +451,8 @@ export class Vegetation {
     const inGrid = !!ins && cell.cx >= 0 && cell.cy >= 0 && cell.cx < ins.cellsX && cell.cy < ins.cellsY;
     const ownListed = inGrid && (!listed || listed.includes(cell.key));
     if (!ownListed && !farListed) { empty(); cell.loading = false; return; } // empty cell, no request
+    // FEAT-230: a partial pack without this cell's trees yet (its stand image comes with them): nothing until the rest
+    if ((ownListed && !this.pack.has('trees', cell.key)) || (farListed && !this.pack.has('farTrees', cell.key))) { cell.missing = true; cell.loading = false; return; }
     try {
       const get = async (dir: string, want: boolean): Promise<Float32Array | null> => {
         if (!want) return null;
@@ -480,7 +484,7 @@ export class Vegetation {
   /** FEAT-074: fetch and decode a cell's stand image */
   private async loadStand(cell: Cell, st: StandsMeta): Promise<void> {
     cell.standState = 1;
-    if (!this.standCells.has(cell.key)) { cell.standState = 3; return; }
+    if (!this.standCells.has(cell.key) || !this.pack.has('stands', cell.key)) { cell.standState = 3; return; }
     try {
       const resp = await fetch(`${this.pack.baseUrl}/stands/${cell.key}.png`);
       if (!resp.ok) { cell.standState = 3; return; }

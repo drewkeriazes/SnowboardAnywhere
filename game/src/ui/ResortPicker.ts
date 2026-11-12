@@ -7,9 +7,10 @@ import { PACK_FORMAT } from '../pack/format';
  * tools/get_pack.mjs); on a server without them (or offline) the list is just the built packs.
  */
 interface CatalogEntry { slug: string; name: string; status: string; pack: { version: number; formatVersion: number; bytes: number } }
-interface LocalPack { name: string; formatVersion: number; version?: number }
-interface CatalogReply { formatVersion: number; catalog: { resorts?: CatalogEntry[] } | null; local: Record<string, LocalPack> }
-interface Job { phase: 'download' | 'unzip' | 'done' | 'error'; received: number; total: number; error?: string }
+interface LocalPack { name: string; formatVersion: number; version?: number; partial?: boolean }
+interface CatalogReply { formatVersion: number; catalog: { resorts?: CatalogEntry[] } | null; local: Record<string, LocalPack>; jobs?: Jobs }
+interface Job { phase: 'download' | 'unzip' | 'rest' | 'done' | 'error'; received: number; total: number; error?: string }
+type Jobs = Record<string, Job>;
 
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const mb = (b: number) => `${Math.max(1, Math.round(b / 1e6))} MB`;
@@ -29,6 +30,11 @@ function rows(current: string, built: { slug: string; name: string }[], reply: C
   const localNote = (slug: string): Pick<Row, 'note' | 'act'> => {
     const l = local[slug], c = bySlug.get(slug);
     if (slug === current) return { note: 'here now', act: 'load' };
+    // FEAT-230: the boot zip is in (it plays); with no download running the rest needs another Download
+    if (l?.partial) {
+      const j = reply?.jobs?.[slug];
+      return j && (j.phase === 'rest' || j.phase === 'download' || j.phase === 'unzip') ? { note: 'rest downloading', act: 'load' } : { note: 'Finish download', act: 'get' };
+    }
     if (l && l.formatVersion < PACK_FORMAT) return { note: 'needs rebuild', act: 'load' };
     if (l?.version && c && c.pack.formatVersion === PACK_FORMAT && c.pack.version > l.version) return { note: `Update (${mb(c.pack.bytes)})`, act: 'get' };
     return { note: '', act: 'load' };
@@ -78,7 +84,8 @@ export function fillResortPicker(host: HTMLElement, current: string, built: { sl
         const j = await jr.json().catch(() => ({})) as Job;
         if (!jr.ok) { fail(j.error ?? `HTTP ${jr.status}`); return; } // 404: the server restarted and lost the job
         if (j.phase === 'error') { fail(j.error ?? 'unknown error'); return; }
-        if (j.phase === 'done') { note.textContent = 'Ready'; go(slug); return; }
+        // FEAT-230: 'rest' = the boot zip is in: play now, the server fetches the rest behind it
+        if (j.phase === 'done' || j.phase === 'rest') { note.textContent = 'Ready'; go(slug); return; }
         note.textContent = j.phase === 'unzip' ? 'Unpacking...' : j.total ? `Downloading ${Math.floor((j.received / j.total) * 100)}%` : 'Downloading...';
       }
     } catch (e) { fail(String((e as Error).message ?? e)); }

@@ -12,12 +12,18 @@
 // FEAT-242 `npm run get [<slug>] -- --from <pack dir>`: copy a pack built in the MapPacker checkout (its
 // packs/<slug>, or that packs/ folder) into packs/<slug>, to ride a fresh build before it is published. Run it again
 // after a rebuild there. Like a pack built here, get <slug> replaces the copy with the published pack only with --force.
+// FEAT-230: a catalog entry with `pack.boot` and `pack.rest` (MapPacker's boot_split.py) is installed in two steps:
+// the boot zip (everything to ride from the start) goes in first and the pack is listed as `partial` in
+// packs/index.json, so the game can load it; the rest zip follows and its files move into the pack one by one, then
+// `partial` clears and the game asks again for what it skipped. `--full` takes the one full zip instead. A run
+// stopped between the two leaves a partial pack; get <slug> again fetches only the rest.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
+import { isMainThread, Worker } from 'node:worker_threads';
 import zlib from 'node:zlib';
 import { GAME, PACKS } from './paths.mjs';
 
@@ -26,6 +32,7 @@ export const CATALOG_URL = `https://raw.githubusercontent.com/${RESORTS_REPO}/ma
 export const SLUG = /^[a-z0-9][a-z0-9_-]*$/;
 const MARKER = '.catalog.json';
 const FROM_MARKER = '.from.json'; // FEAT-242: a pack copied in with --from: { from, build, copied }
+const PARTIAL = '.partial.json'; // FEAT-230: the boot zip is in, the rest is not: { version, rest: { url, bytes, sha256 } }
 const STALL_MS = 60_000;
 
 /** The pack format this checkout's client reads (PACK_FORMAT in src/pack/format.ts). */
@@ -57,17 +64,26 @@ export function localPacks(packsDir = PACKS) {
     const meta = readJson(path.join(packsDir, n, 'meta.json'));
     if (!meta) continue;
     const mark = readJson(path.join(packsDir, n, MARKER));
-    out[n] = { name: meta.name ?? n, formatVersion: meta.formatVersion ?? 0, build: meta.build ?? null, ...(mark ? { version: mark.version } : {}) };
+    const partial = fs.existsSync(path.join(packsDir, n, PARTIAL));
+    out[n] = { name: meta.name ?? n, formatVersion: meta.formatVersion ?? 0, build: meta.build ?? null, ...(mark ? { version: mark.version } : {}), ...(partial ? { partial: true } : {}) };
   }
   return out;
 }
 
-/** packs/index.json, as packwriter.index_packs (MapPacker-SnowboardAnywhere/pipeline/packwriter.py) writes it. */
+/**
+ * packs/index.json, as packwriter.index_packs (MapPacker-SnowboardAnywhere/pipeline/packwriter.py) writes it, plus
+ * FEAT-230 `partial`: the packs whose rest has not arrived yet (only when there is one). Written to a temp file and
+ * renamed, as the game polls it while a rest downloads.
+ */
 export function writePackIndex(packsDir = PACKS) {
   const local = localPacks(packsDir);
   const packs = Object.keys(local).sort();
   const names = Object.fromEntries(packs.map((p) => [p, local[p].name]));
-  fs.writeFileSync(path.join(packsDir, 'index.json'), JSON.stringify({ packs, names }, null, 1));
+  const partial = packs.filter((p) => local[p].partial);
+  const f = path.join(packsDir, 'index.json'), tmp = path.join(packsDir, '.index.json.tmp');
+  const body = JSON.stringify({ packs, names, ...(partial.length ? { partial } : {}) }, null, 1);
+  fs.writeFileSync(tmp, body);
+  try { fs.renameSync(tmp, f); } catch { fs.rmSync(tmp, { force: true }); fs.writeFileSync(f, body); } // Windows: the file held open
 }
 
 /** Why a catalog pack can't be installed by this game, or null. */
@@ -91,23 +107,80 @@ export function findEntry(catalog, slug) {
   return all.find((r) => r.pack.formatVersion === PACK_FORMAT) ?? all[0];
 }
 
-/** Install `slug` from the catalog. onProgress({ phase: 'download' | 'unzip' | 'done', received, total }). */
-export async function getPack(slug, { packsDir = PACKS, catalog, force = false, onProgress = () => {} } = {}) {
+/**
+ * Download url (http(s) or a local path) to file, checking its sha256. A stalled connection fails after STALL_MS
+ * with no bytes instead of leaving the job running forever. onBytes(received) every 250 ms and at the end.
+ */
+async function download(url, sha256, file, onBytes) {
+  const hash = crypto.createHash('sha256');
+  let received = 0, last = 0;
+  const stall = new AbortController();
+  let timer = setTimeout(() => stall.abort(new Error(`download: no data for ${STALL_MS / 1000} s`)), STALL_MS);
+  const alive = () => { clearTimeout(timer); timer = setTimeout(() => stall.abort(new Error(`download: no data for ${STALL_MS / 1000} s`)), STALL_MS); };
+  const count = async function* (src) {
+    for await (const c of src) {
+      alive();
+      hash.update(c); received += c.length;
+      const now = Date.now();
+      if (now - last > 250) { last = now; onBytes(received); }
+      yield c;
+    }
+  };
+  let body;
+  try {
+    if (isUrl(url)) {
+      const r = await fetch(url, { signal: stall.signal });
+      if (!r.ok || !r.body) throw new Error(`download: HTTP ${r.status} from ${url}`);
+      body = Readable.fromWeb(r.body);
+    } else body = fs.createReadStream(url);
+    await pipeline(body, count, fs.createWriteStream(file), { signal: stall.signal });
+  } catch (e) {
+    throw stall.signal.aborted ? stall.signal.reason : e;
+  } finally { clearTimeout(timer); }
+  onBytes(received);
+  const sha = hash.digest('hex');
+  if (sha !== sha256) throw new Error(`download: sha256 ${sha} does not match the catalog's ${sha256}`);
+  return received;
+}
+
+/** FEAT-230: move every file under src into dest (same volume: a rename each, so a server never serves half a file). */
+function moveInto(src, dest) {
+  let n = 0;
+  for (const e of fs.readdirSync(src, { withFileTypes: true })) {
+    const a = path.join(src, e.name), b = path.join(dest, e.name);
+    if (e.isDirectory()) { fs.mkdirSync(b, { recursive: true }); n += moveInto(a, b); } else { fs.rmSync(b, { force: true }); fs.renameSync(a, b); n++; }
+  }
+  return n;
+}
+
+/**
+ * Install `slug` from the catalog. onProgress({ phase, received, total }), phase 'download' | 'unzip' | 'rest' |
+ * 'done'. With a boot and a rest zip in the catalog (FEAT-230) the boot zip is 'download' and 'unzip'; 'rest' means
+ * the pack is in packs/<slug> and playable while the rest downloads (received / total are the rest's bytes). The
+ * promise resolves when the whole pack is in. `full` takes the one full zip even when there is a boot zip.
+ */
+export async function getPack(slug, { packsDir = PACKS, catalog, force = false, full = false, onProgress = () => {} } = {}) {
   if (!SLUG.test(slug)) throw new Error(`not a resort slug: ${slug}`);
   catalog ??= await readCatalog();
   const entry = findEntry(catalog, slug);
   const problem = formatProblem(entry);
   if (problem) throw new Error(problem);
+  const split = !full && entry.pack.boot?.url && entry.pack.rest?.url ? entry.pack : null;
   const dest = path.join(packsDir, slug);
   const old = path.join(packsDir, `.${slug}.old`);
   // a run killed between the two renames of the swap left the pack only as .<slug>.old: put it back first
   if (fs.existsSync(old) && !fs.existsSync(dest)) fs.renameSync(old, dest);
   const mark = readJson(path.join(dest, MARKER));
+  const partial = readJson(path.join(dest, PARTIAL));
   if (fs.existsSync(dest)) {
     if (fs.lstatSync(dest).isSymbolicLink()) throw new Error(`packs/${slug} is a link to ${fs.realpathSync(dest)}: run get there, or remove the link`);
     if (mark?.sha256 === entry.pack.sha256 && fs.existsSync(path.join(dest, 'meta.json'))) {
-      onProgress({ phase: 'done', received: 0, total: 0, already: true });
-      return { slug, version: entry.pack.version, already: true };
+      // FEAT-230: this release's boot zip is in and its rest is not: fetch only the rest (also with --full)
+      if (partial && entry.pack.rest?.url) return await getRest(slug, entry, packsDir, onProgress, true);
+      if (!partial) {
+        onProgress({ phase: 'done', received: 0, total: 0, already: true });
+        return { slug, version: entry.pack.version, already: true };
+      }
     }
     const copied = readJson(path.join(dest, FROM_MARKER));
     if (copied && !force) throw new Error(`packs/${slug} is a copy of ${copied.from} (get --from): --force replaces it with the published pack`);
@@ -118,55 +191,54 @@ export async function getPack(slug, { packsDir = PACKS, catalog, force = false, 
   const zipFile = path.join(packsDir, `.${slug}.download.zip`);
   const incoming = path.join(packsDir, `.${slug}.incoming`);
   for (const p of [incoming, old]) fs.rmSync(p, { recursive: true, force: true });
+  const first = split ? split.boot : entry.pack;
+  let received = 0;
   try {
-    const total = entry.pack.bytes ?? 0;
-    const hash = crypto.createHash('sha256');
-    let received = 0, last = 0;
-    // a stalled connection fails after STALL_MS with no bytes instead of leaving the job running forever
-    const stall = new AbortController();
-    let timer = setTimeout(() => stall.abort(new Error(`download: no data for ${STALL_MS / 1000} s`)), STALL_MS);
-    const alive = () => { clearTimeout(timer); timer = setTimeout(() => stall.abort(new Error(`download: no data for ${STALL_MS / 1000} s`)), STALL_MS); };
-    const count = async function* (src) {
-      for await (const c of src) {
-        alive();
-        hash.update(c); received += c.length;
-        const now = Date.now();
-        if (now - last > 250) { last = now; onProgress({ phase: 'download', received, total }); }
-        yield c;
-      }
-    };
-    const url = entry.pack.url;
-    let body;
-    try {
-      if (isUrl(url)) {
-        const r = await fetch(url, { signal: stall.signal });
-        if (!r.ok || !r.body) throw new Error(`download: HTTP ${r.status} from ${url}`);
-        body = Readable.fromWeb(r.body);
-      } else body = fs.createReadStream(url);
-      await pipeline(body, count, fs.createWriteStream(zipFile), { signal: stall.signal });
-    } catch (e) {
-      throw stall.signal.aborted ? stall.signal.reason : e;
-    } finally { clearTimeout(timer); }
-    onProgress({ phase: 'download', received, total });
-    const sha = hash.digest('hex');
-    if (sha !== entry.pack.sha256) throw new Error(`download: sha256 ${sha} does not match the catalog's ${entry.pack.sha256}`);
-
+    const total = first.bytes ?? 0;
+    received = await download(first.url, first.sha256, zipFile, (n) => onProgress({ phase: 'download', received: n, total }));
     onProgress({ phase: 'unzip', received, total });
-    unzip(zipFile, incoming);
+    await unzipOff(zipFile, incoming);
     const meta = readJson(path.join(incoming, 'meta.json'));
     if (!meta) throw new Error('the zip has no meta.json');
     if (meta.slug !== slug) throw new Error(`the zip is the ${meta.slug} pack, not ${slug}`);
     if ((meta.formatVersion ?? 0) !== PACK_FORMAT) throw new Error(`the zip's meta.json is format ${meta.formatVersion ?? 0}, this game reads ${PACK_FORMAT}`);
+    if (split && !fs.existsSync(path.join(incoming, 'boot.json'))) throw new Error('the boot zip has no boot.json');
     fs.writeFileSync(path.join(incoming, MARKER), JSON.stringify({
-      version: entry.pack.version, sha256: sha, build: meta.build ?? null, url, installed: new Date().toISOString(),
+      version: entry.pack.version, sha256: entry.pack.sha256, build: meta.build ?? null, url: entry.pack.url, installed: new Date().toISOString(),
+      ...(split ? { boot: split.boot.sha256 } : {}),
     }, null, 1));
+    if (split) fs.writeFileSync(path.join(incoming, PARTIAL), JSON.stringify({ version: entry.pack.version, rest: split.rest }, null, 1));
     if (fs.existsSync(dest)) fs.renameSync(dest, old);
     // a failed second rename (Windows EPERM / EBUSY: antivirus, the dev server reading a file) puts the old pack back
     try { fs.renameSync(incoming, dest); } catch (e) { if (fs.existsSync(old)) fs.renameSync(old, dest); throw e; }
     fs.rmSync(old, { recursive: true, force: true });
     writePackIndex(packsDir);
-    onProgress({ phase: 'done', received, total });
-    return { slug, version: entry.pack.version, bytes: received };
+  } finally {
+    fs.rmSync(zipFile, { force: true });
+    fs.rmSync(incoming, { recursive: true, force: true });
+  }
+  if (split) return await getRest(slug, entry, packsDir, onProgress, false, received);
+  onProgress({ phase: 'done', received, total: received });
+  return { slug, version: entry.pack.version, bytes: received };
+}
+
+/** FEAT-230: the rest zip into a partial packs/<slug>, then clear `partial`. The pack stays playable throughout. */
+async function getRest(slug, entry, packsDir, onProgress, resumed, bootBytes = 0) {
+  const rest = entry.pack.rest, total = rest.bytes ?? 0;
+  const dest = path.join(packsDir, slug);
+  const zipFile = path.join(packsDir, `.${slug}.rest.zip`), incoming = path.join(packsDir, `.${slug}.rest`);
+  fs.rmSync(incoming, { recursive: true, force: true });
+  onProgress({ phase: 'rest', received: 0, total, boot: bootBytes });
+  try {
+    const received = await download(rest.url, rest.sha256, zipFile, (n) => onProgress({ phase: 'rest', received: n, total, boot: bootBytes }));
+    await unzipOff(zipFile, incoming);
+    if (fs.existsSync(path.join(incoming, 'meta.json'))) throw new Error('the rest zip holds a meta.json: it is a whole pack, not a rest zip');
+    if (!fs.existsSync(path.join(dest, 'meta.json'))) throw new Error(`packs/${slug} went away while its rest downloaded`);
+    moveInto(incoming, dest);
+    fs.rmSync(path.join(dest, PARTIAL), { force: true });
+    writePackIndex(packsDir);
+    onProgress({ phase: 'done', received, total, boot: bootBytes });
+    return { slug, version: entry.pack.version, bytes: bootBytes + received, boot: bootBytes, rest: received, resumed };
   } finally {
     fs.rmSync(zipFile, { force: true });
     fs.rmSync(incoming, { recursive: true, force: true });
@@ -231,6 +303,20 @@ export function copyPack(slug, from, { packsDir = PACKS, force = false } = {}) {
   return { slug, from: src };
 }
 
+/**
+ * FEAT-230: unzip() on a worker thread. The dev server unpacks a rest zip while the game it serves is riding the
+ * boot part; done on its own thread, the 200 MB of file writes do not hold up the tiles the game asks for meanwhile.
+ */
+export function unzipOff(zipFile, dir) {
+  return new Promise((resolve, reject) => {
+    const src = `import(${JSON.stringify(import.meta.url)}).then((m) => m.unzip(${JSON.stringify(zipFile)}, ${JSON.stringify(dir)}))`;
+    const w = new Worker(src, { eval: true });
+    let err = null;
+    w.on('error', (e) => { err = e; });
+    w.on('exit', (code) => (err || code ? reject(err ?? new Error(`unzip: worker exited with ${code}`)) : resolve()));
+  });
+}
+
 /** Unpack a zip (stored or deflated, no zip64: MapPacker's publish_pack.py refuses packs over 1.9 GiB) into dir. */
 export function unzip(zipFile, dir) {
   const fd = fs.openSync(zipFile, 'r');
@@ -291,6 +377,7 @@ async function cli(args) {
   const packsArg = flag('--packs');
   const from = flag('--from');
   const force = args.includes('--force');
+  const full = args.includes('--full');
   const list = args.includes('--list');
   const sha256 = args.includes('--sha256');
   const slug = args.find((a) => !a.startsWith('--'));
@@ -303,7 +390,7 @@ async function cli(args) {
     return;
   }
   if (!slug && !list) {
-    console.log('usage: npm run get <slug> [-- --force]   (npm run get -- --list shows the published resorts;');
+    console.log('usage: npm run get <slug> [-- --force] [--full]   (npm run get -- --list shows the published resorts;');
     console.log('       npm run get [<slug>] -- --from <MapPacker pack dir> copies in a pack built there)');
     process.exit(2);
   }
@@ -320,23 +407,25 @@ async function cli(args) {
     for (const r of catalog.resorts ?? []) {
       const here = local[r.slug];
       const copied = here && readJson(path.join(packsDir, r.slug, FROM_MARKER));
-      const note = formatProblem(r) ?? (copied ? `copy of ${copied.from}` : null) ?? (here ? (here.version === r.pack.version ? 'installed' : here.version ? `installed v${here.version}, v${r.pack.version} out` : 'built on this PC') : '');
+      const note = formatProblem(r) ?? (copied ? `copy of ${copied.from}` : null) ?? (here?.partial ? 'boot only: get it again for the rest' : null) ?? (here ? (here.version === r.pack.version ? 'installed' : here.version ? `installed v${here.version}, v${r.pack.version} out` : 'built on this PC') : '');
       console.log(`${r.slug.padEnd(16)} ${r.name.padEnd(24)} v${r.pack.version}  ${mb(r.pack.bytes).padStart(7)}  ${r.status.padEnd(8)} ${note}`);
     }
     return;
   }
-  let shown = -1;
+  let shown = -1, part = '';
+  const rel = path.relative(process.cwd(), path.join(packsDir, slug)) || '.';
   const res = await getPack(slug, {
-    packsDir, catalog, force, onProgress: ({ phase, received, total, already }) => {
-      if (already || phase !== 'download' || !total) return;
+    packsDir, catalog, force, full, onProgress: ({ phase, received, total, already }) => {
+      if (already || (phase !== 'download' && phase !== 'rest') || !total) return;
+      if (phase !== part) { part = phase; shown = -1; if (phase === 'rest') console.log(`boot zip in: ${rel} plays now (open /?pack=${slug}); the rest follows`); }
       const pct = Math.floor((received / total) * 100);
-      if (pct >= shown + 10 || received === total) { shown = pct; console.log(`  ${pct}% of ${mb(total)}`); }
+      if (pct >= shown + 10 || received === total) { shown = pct; console.log(`  ${phase === 'rest' ? 'rest ' : ''}${pct}% of ${mb(total)}`); }
     },
   });
-  const rel = path.relative(process.cwd(), path.join(packsDir, slug)) || '.';
-  console.log(res.already ? `${slug} v${res.version} is already in ${rel}` : `${slug} v${res.version} installed in ${rel}: cd game && npm run dev, then open /?pack=${slug}`);
+  console.log(res.already ? `${slug} v${res.version} is already in ${rel}` : `${slug} v${res.version} installed in ${rel}${res.boot ? ` (boot ${mb(res.boot)} first, then the rest)` : ''}: cd game && npm run dev, then open /?pack=${slug}`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// the unzip worker imports this module too: only the main thread runs the command line
+if (isMainThread && process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   cli(process.argv.slice(2)).catch((e) => { console.error(`get_pack: ${e.message ?? e}`); process.exit(1); });
 }

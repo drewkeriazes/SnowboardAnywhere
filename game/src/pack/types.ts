@@ -91,7 +91,8 @@ export interface PackMeta {
   lonlat: [number, number];
   bounds: { minX: number; minY: number; maxX: number; maxY: number };
   zRange: [number, number];
-  terrain: { fine?: HeightSetMeta; mid?: HeightSetMeta; far?: HeightSetMeta };
+  /** FEAT-229: `coarse` is a 4 m set over the fine area (the 4 and 8 m chunks read it); absent in older packs */
+  terrain: { fine?: HeightSetMeta; coarse?: HeightSetMeta; mid?: HeightSetMeta; far?: HeightSetMeta };
   mask?: MaskMeta;
   /** baked sky visibility (greyscale PNG tiles, same layout as the mask), FEAT-047 */
   ao?: MaskMeta;
@@ -111,6 +112,17 @@ export interface PackMeta {
   treeline?: number;
   sun: { azimuth: number; elevation: number };
   attribution: string[];
+}
+
+/**
+ * FEAT-230: boot.json in a pack installed from its boot zip (MapPacker's boot_split.py). A folder listed in `tiles`
+ * holds only those tiles ("tx_ty", the file names) until the rest zip arrives; every other file is there.
+ */
+export interface BootInfo {
+  boot: number;
+  centres: [number, number][];
+  radius: number;
+  tiles: Record<string, string[]>;
 }
 
 export type Difficulty = 'easy' | 'intermediate' | 'advanced' | 'expert' | 'freeride' | 'extreme' | 'novice';

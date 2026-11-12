@@ -34,7 +34,8 @@ function servePacks(): Plugin {
  * runs here in Node (tools/get_pack.mjs): GitHub release assets send no CORS headers, so the page can't fetch them.
  *   GET  /__packs/catalog      { formatVersion, catalog | null, error?, local: { slug: { formatVersion, build, version? } }, jobs }
  *   POST /__packs/get {slug}   starts the download; 202, or 400 with the reason
- *   GET  /__packs/job?slug=    { phase: 'download' | 'unzip' | 'done' | 'error', received, total, error? }
+ *   GET  /__packs/job?slug=    { phase: 'download' | 'unzip' | 'rest' | 'done' | 'error', received, total, error? }
+ * FEAT-230: 'rest' means the boot zip is in and the pack plays; the rest downloads on here after the page moves on.
  * The catalog is cached for 5 minutes; a failed read (offline) answers catalog: null and the picker shows local packs.
  */
 function packDownloads(): Plugin {

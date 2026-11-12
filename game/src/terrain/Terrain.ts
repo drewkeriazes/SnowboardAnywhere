@@ -234,8 +234,11 @@ export class Terrain {
     for (const c of this.chunks.values()) {
       if (!c.mesh) continue;
       if (c.minX < minX + size && c.minX + c.size > minX && c.minY < minY + size && c.minY + c.size > minY) {
-        // rebuild if this tile is finer than what the chunk was built from, or it is a mask tile
-        if (res === 0 || res < c.dataRes) this.dirty.add(c.key);
+        // rebuild if this tile is finer than what the chunk was built from, or it is a mask tile; FEAT-229: a fine
+        // tile under a 4 or 8 m chunk does not count where the coarse set carries it (Pack.height skips fine there)
+        const co = this.pack.coarse;
+        const unused = !!co && res > 0 && res < co.meta.res && c.res >= co.meta.res;
+        if (res === 0 || (res < c.dataRes && !unused)) this.dirty.add(c.key);
       }
     }
   }
@@ -251,7 +254,9 @@ export class Terrain {
     for (const c of this.visible) {
       want.add(c.key);
       c.lastUsed = this.frame;
-      if (c.res <= 8 && this.pack.fine) this.pack.fine.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
+      // FEAT-229: the 4 and 8 m chunks read the coarse (4 m) set where the pack has one, so only 1 and 2 m chunks load fine
+      if (c.res <= 8 && this.pack.coarse && c.res >= this.pack.coarse.meta.res) this.pack.coarse.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
+      else if (c.res <= 8 && this.pack.fine) this.pack.fine.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       else if (c.res <= 64 && this.pack.mid) this.pack.mid.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       else if (this.pack.far) this.pack.far.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if (c.res <= 8 && this.pack.mask) this.pack.mask.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
@@ -370,9 +375,11 @@ export class Terrain {
         heights[(j + 1) * (n + 2) + (i + 1)] = pack.height(x, y, res, false);
       }
     }
-    dataRes = pack.finestRes(c.minX + c.size / 2, c.minY + c.size / 2);
+    dataRes = pack.finestRes(c.minX + c.size / 2, c.minY + c.size / 2, res);
     const resB = Math.max(res, MOGUL_MAX_RES * 2); // auxiliary samples (ridges, talus, fall line) without the mogul bumps
-    const useMask = !!pack.mask && res <= 8;
+    // FEAT-230: where a partial pack's mask tiles have not arrived yet, the chunk takes the cover levels like a coarser
+    // one (the forest and rock show), and rebuilds with the mask when its tiles come
+    const useMask = !!pack.mask && res <= 8 && !pack.mask.waiting(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
     // FEAT-153: coarser chunks take forest, rock and canopy height from the cover levels where they have
     // loaded, else the procedural treeline
     const cover = !useMask && pack.cover ? pack.cover : null;

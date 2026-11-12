@@ -49,6 +49,8 @@ export class Rocks {
   constructor(pack: Pack, collider: Collider | null) {
     this.pack = pack;
     this.collider = collider;
+    // FEAT-230: cells a partial pack had not got yet load again once its rest is in
+    pack.onComplete(() => { for (const [k, c] of this.cells) if (c.missing && !c.loading) this.cells.delete(k); });
     for (let v = 0; v < VARIANTS; v++) this.geos.push(makeRock(v * 7.31 + 1.7));
     this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1.0, metalness: 0.0, flatShading: true });
     const uniforms = rockUniforms();
@@ -127,6 +129,7 @@ export class Rocks {
   private async load(cell: Cell): Promise<void> {
     const listed = this.pack.meta.instances?.rockCells;
     if (listed && !listed.includes(`${cell.cx}_${cell.cy}`)) { cell.missing = true; cell.loading = false; return; } // empty cell, no request
+    if (!this.pack.has('rocks', `${cell.cx}_${cell.cy}`)) { cell.missing = true; cell.loading = false; return; } // FEAT-230: not yet
     try {
       const resp = await fetch(`${this.pack.baseUrl}/rocks/${cell.cx}_${cell.cy}.bin`);
       if (!resp.ok) { cell.missing = true; return; }
