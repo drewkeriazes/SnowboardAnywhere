@@ -39,7 +39,7 @@ Also `raw/static/`: `colorado-latest.osm.pbf` (369 MB Geofabrik extract, 2026-11
 - Planetary Computer NAIP crops, Mapterhorn tiles and the EPT nodes on `usgs-lidar-public` all downloaded without a single error.
 
 ## Pipeline files (`pipeline/`)
-- `fetch.ps1` + `fetch_vail.cmd` (repo root): manifest-driven downloader, resumable, per-host concurrency limits, mirror rotation.
+- `fetch.ps1` (run by `build_resort.py`, launcher `build_resort.cmd` in the repo root): manifest-driven downloader, resumable, per-host concurrency limits, mirror rotation.
 - `gen_manifest.py`: builds `manifests/vail.json` from `resorts/vail.json` (needs pyproj). DEM chunk size is `dem.chunk_px` in the resort config (1500).
 - `fetch_static.ps1` + `fetch_static.cmd` (repo root): downloads the Geofabrik PBF and GNIS zip.
 - `extract_osm.py <pbf> <gnis.txt> <out> --near lat0,lon0,lat1,lon1 --far ...`: produces `osm/*.json` and `names/gnis.json`.
@@ -48,5 +48,5 @@ Also `raw/static/`: `colorado-latest.osm.pbf` (369 MB Geofabrik extract, 2026-11
 
 ## Adding a second resort
 1. Copy `pipeline/resorts/vail.json` to `<slug>.json`, set origin, bboxes, EPT dataset (check the 3DEP index at `usgs.entwine.io/boundaries/resources.geojson`) and NAIP item ids.
-2. Set `lidar.far` (`pad_m` wide enough for the ridges one or two over that show from the lifts, 5000 at Vail; `max_depth` as `max_depth_resort`), run `python pipeline/ept_select.py <slug>`, then `python pipeline/gen_manifest.py <slug>` and the `fetch_vail.cmd` equivalent with `-Slug <slug>`. A resort is not complete without the far tree ring (BUG-081): the land cover alone reads as camo from the lifts, so it is only a start for a new range.
+2. Set `lidar.far` (`pad_m` wide enough for the ridges one or two over that show from the lifts, 5000 at Vail; `max_depth` as `max_depth_resort`), run `python pipeline/ept_select.py <slug>`, then `python pipeline/gen_manifest.py <slug>` and the fetch (`build_resort.py <slug>` does all three, or `--stop-after fetch`). A resort is not complete without the far tree ring (BUG-081): the land cover alone reads as camo from the lifts, so it is only a start for a new range.
 3. `python pipeline/extract_osm.py raw/static/colorado-latest.osm.pbf <gnis.txt> raw/<slug> --near ... --far ...` (same PBF if the resort is in Colorado).

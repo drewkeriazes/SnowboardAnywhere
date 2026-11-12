@@ -238,10 +238,13 @@ the card to dismiss it; it hides itself after 10 s.
 
 A Python pipeline downloads public data for a resort (USGS 1 m lidar, NAIP imagery, LANDFIRE
 vegetation, OpenStreetMap) and turns it into a "pack" of height tiles, masks, trees and features.
-The game streams that pack. Fetching runs on Windows with PowerShell; building runs anywhere:
+The game streams that pack. Fetching runs on Windows with PowerShell; building runs anywhere. One
+command does every step for a resort and skips the ones already done (`build_resort.cmd` on Windows):
 
 ```
-python pipeline/build_pack.py vail <raw_dir> packs/vail
+python pipeline/resort.py resolve "Boston Mills" --with Brandywine   # a new resort: name to config
+python pipeline/resort.py plan boston-mills                          # data plan to read before the fetch
+python pipeline/build_resort.py vail <raw_dir> packs/vail            # fetch, build, report
 python pipeline/publish_pack.py packs/vail     # optional: publish it for npm run get (needs push access)
 ```
 
