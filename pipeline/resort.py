@@ -1073,6 +1073,12 @@ def write_json(path, obj):
 
 
 def cmd_resolve(a, hosts):
+    return resolve_and_write(a, hosts)[0]
+
+
+def resolve_and_write(a, hosts, keep_planned=False):
+    """resolve and write resorts/<slug>.json -> (exit code, slug). `keep_planned` (resort.py add): a config already
+    planned for the same ski areas is left as it is"""
     feats = load_json(hosts.index("ski_areas.geojson"))["features"]
     st, r = resolve(a.name, feats, hosts.index("lifts.geojson"), hosts.index("runs.geojson"),
                     pick_id=a.id, with_=a.with_ or (), alone=a.alone)
@@ -1081,17 +1087,17 @@ def cmd_resolve(a, hosts):
         if r["closest"]:
             print("closest names:\n" + "\n".join(f"  {n}" for n in r["closest"]))
         print("A ski area missing from OpenSkiData is a later 'any hill' pack (design section 5).")
-        return 1
+        return 1, None
     if st == "many":
         print(f"{len(r['matches'])} ski areas match {a.name!r}; pick one with --id:")
         print("\n".join(describe(f) for f in r["matches"]))
-        return 2
+        return 2, None
     if st == "neighbours":
         print(f"{r['main']['properties']['name']} has neighbours in its box or sold with it:")
         print("\n".join(describe(f, r["ref"]) for f, _ in r["near"]))
         print(f"Build them into one pack with --with \"<name>\" (for example --with \"{short_name(r['near'][0][0]['properties']['name'])}\"),"
               " or --alone to leave their runs and lifts out.")
-        return 3
+        return 3, None
     stub = r
     slug = a.slug or stub["slug"]
     stub["slug"] = slug
@@ -1100,14 +1106,24 @@ def cmd_resolve(a, hosts):
         old = load_json(path)
         if "openskidata" not in old and not a.force:
             print(f"{path} is a hand-written config; `resort.py compare {slug}` checks it, --force replaces it")
-            return 4
+            return 4, None
+        if keep_planned and same_areas(old, stub):
+            print(f"{path}: already resolved and planned for the same ski areas")
+            return 0, slug
         stub = keep_hand_fields({**old, **stub}, old)
     write_json(path, stub)
     o = stub["openskidata"]
     print(f"{stub['name']} ({stub['region']}, {stub['country']}): {o['runs']} runs, {o['lifts']} lifts, "
           f"box {stub['lonlat_bbox']}" + (f", leaving out {', '.join(e['name'] for e in stub['exclude'])}" if stub.get("exclude") else ""))
     print(f"wrote {path}\nnext: python pipeline/resort.py plan {slug}")
-    return 0
+    return 0, slug
+
+
+def same_areas(old, stub):
+    """a planned config for the same ski areas and the same neighbours left out"""
+    return ("crs" in old and (old.get("openskidata") or {}).get("ids") == stub["openskidata"]["ids"]
+            and sorted(e["name"] for e in old.get("exclude", []) if "openskidata_id" in e)
+            == sorted(e["name"] for e in stub.get("exclude", [])))
 
 
 def cmd_plan(a, hosts):
@@ -1165,6 +1181,162 @@ def cmd_compare(a, hosts):
     return 0
 
 
+ADD_STAGES = ["resolve", "plan", "fetch", "build", "report", "ride", "publish"]
+# resort.py add's fetch, build and report stages are these ranges of build_resort.py's stages
+BUILD_RANGES = {"fetch": ("nodes", "grooming"), "build": ("build", "index"), "report": ("report", "report")}
+MAPPACKER = os.path.join(os.path.dirname(REPO), "MapPacker-SnowboardAnywhere")
+RESORTS_REPO = "drewkeriazes/MapPacker-SnowboardAnywhere"
+
+
+def gate_lines(pack_dir):
+    """(playable, [(id, item, detail)] of the MVP lines that hold it back) from the pack's report.json"""
+    rep = load_json(os.path.join(pack_dir, "report.json"))
+    bad = [(ln["id"], ln["item"], ln["detail"]) for ln in rep.get("lines", [])
+           if ln.get("mvp") and ln["id"] in rep.get("failing", [])]
+    return bool(rep.get("playable")), bad
+
+
+def default_runner(cmd, cwd, env=None):
+    return subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
+def ride(slug, raw_dir, out_dir, runner=default_runner, log=print):
+    """the headless ride from the pack's start (game/tools/shoot.mjs, on the real GPU on Drew's PC): the game must
+    load the pack, ride and fly without a page error. Recorded per pack build in <raw_dir>/shots/ride.json, so a
+    re-run of the same build skips it."""
+    import shutil
+    # absolute: shoot.mjs runs in game/, where a relative SHOT_PACKS finds no pack and the game never starts
+    raw_dir, out_dir = os.path.abspath(raw_dir), os.path.abspath(out_dir)
+    meta = load_json(os.path.join(out_dir, "meta.json"))
+    shots = os.path.join(raw_dir, "shots")
+    rec = os.path.join(shots, "ride.json")
+    if os.path.isfile(rec) and load_json(rec).get("build") == meta.get("build"):
+        log(f"  ride already passed for build {meta.get('build')}")
+        return False
+    game = os.path.join(REPO, "game")
+    r = runner([shutil.which("npx") or "npx", "vite", "build"], game)
+    if r.returncode:
+        log((r.stdout or "")[-2000:] + (r.stderr or "")[-2000:])
+        raise SystemExit("ride: the game did not build (cd game && npx vite build)")
+    env = {**os.environ, "SHOT_PACKS": os.path.dirname(os.path.normpath(out_dir))}
+    r = runner(["node", os.path.join("tools", "shoot.mjs"), slug, shots], game, env)
+    out = (r.stdout or "") + (r.stderr or "")
+    log("\n".join("  " + l for l in out.strip().splitlines()[-25:]))
+    errors = [l.strip() for l in out.splitlines() if "pageerror" in l]
+    if r.returncode or errors:
+        raise SystemExit(f"ride: shoot.mjs {'exited ' + str(r.returncode) if r.returncode else 'saw page errors'}; "
+                         f"stills in {shots}")
+    os.makedirs(shots, exist_ok=True)
+    write_json(rec, {"build": meta.get("build"), "at": datetime.datetime.now().isoformat(timespec="seconds")})
+    return True
+
+
+def published(slug, pack_dir, repo_dir=MAPPACKER):
+    """True when the resorts repo's catalog already has this pack's build"""
+    try:
+        cat = load_json(os.path.join(repo_dir, "catalog.json"))
+        build = load_json(os.path.join(pack_dir, "meta.json")).get("build")
+    except (OSError, ValueError):
+        return False
+    return any(e.get("slug") == slug and (e.get("pack") or {}).get("build") == build for e in cat.get("resorts", []))
+
+
+def cmd_add(a, hosts, publish=None, br=None):
+    """FEAT-224: resolve, plan, fetch, build, report, ride and publish one resort, each stage skipped when done.
+    `publish` and `br` (build_resort) are replaced in tests."""
+    import build_resort
+    br = br or build_resort
+    first = ADD_STAGES.index(a.first) if a.first else 0
+    last = ADD_STAGES.index(a.last) if a.last else len(ADD_STAGES) - 1
+    if first > last:
+        print("--from comes after --stop-after")
+        return 2
+    todo = ADD_STAGES[first:last + 1]
+    forced = set(getattr(a, "force_list", None) or [])
+    slug = a.slug or slugify(a.name)
+
+    def head(stage, what):
+        print(f"\n== {stage}: {what}", flush=True)
+
+    if "resolve" in todo:
+        head("resolve", a.name)
+        code, slug = resolve_and_write(a, hosts, keep_planned=not forced & {"resolve", "all"})
+        if code:
+            return code
+    path = os.path.join(a.resorts_dir, f"{slug}.json")
+    if "plan" in todo:
+        cfg = load_json(path) if os.path.isfile(path) else {}
+        if "openskidata" not in cfg and "crs" in cfg:
+            head("plan", f"skip: {slug}.json is hand-written (--force resolve replaces it with a resolved one)")
+        elif "crs" in cfg and os.path.isfile(os.path.join(a.resorts_dir, f"{slug}-plan.md")) \
+                and not forced & {"plan", "all"}:
+            head("plan", f"skip: planned ({slug}-plan.md; --force plan re-plans)")
+        else:
+            head("plan", slug)
+            code = cmd_plan(argparse.Namespace(slug=slug, resorts_dir=a.resorts_dir, no_nodes=False, force=False), hosts)
+            if code:
+                return code
+            if getattr(a, "review_plan", False) and todo[-1] != "plan":
+                print(f"\nRead {os.path.join(a.resorts_dir, slug + '-plan.md')} (above), then run the same command "
+                      "again to fetch and build.")
+                return 0
+    if not os.path.isfile(path):
+        print(f"no {path}: start from resolve")
+        return 1
+    cfg = load_json(path)
+    if "crs" not in cfg:
+        print(f"{path} is not planned yet: start from plan")
+        return 1
+    raw = os.path.abspath(os.path.join(a.raw_root or br.default_raw_root(), slug))
+    out = os.path.abspath(a.out or os.path.join(REPO, "packs", slug))
+    ctx = br.Context([s for s in br.STAGES if s in forced] + (["all"] if "all" in forced else []), a.email,
+                     sys.stdin.isatty())
+    for stage in ("fetch", "build", "report"):
+        if stage not in todo:
+            continue
+        lo, hi = BUILD_RANGES[stage]
+        head(stage, f"build_resort.py {lo} to {hi}" if lo != hi else f"build_resort.py {lo}")
+        try:
+            br.build(br.Resort(slug, raw, out), ctx, lo, hi)
+        except br.Failed as e:
+            print(f"\nstopped at {stage}: {e}")
+            return 1
+    need_report = [s for s in todo if s in ("ride", "publish")]
+    if need_report and not os.path.isfile(os.path.join(out, "report.json")):
+        print(f"no {os.path.join(out, 'report.json')}: run the report stage first")
+        return 1
+    if set(todo) & {"report", "ride", "publish"} and os.path.isfile(os.path.join(out, "report.json")):
+        ok, bad = gate_lines(out)
+        print("\nDATA-022 gate: " + ("every MVP line passes, playable" if ok else "preview, held back by:"))
+        for i, item, detail in bad:
+            print(f"  {i} {item}: {detail}")
+    if "ride" in todo:
+        head("ride", "game/tools/shoot.mjs from the start")
+        try:
+            ride(slug, raw, out)
+        except SystemExit as e:
+            print(f"\nstopped at ride: {e}")
+            return 1
+    if "publish" in todo:
+        if a.no_publish:
+            head("publish", "skip: --no-publish")
+        elif published(slug, out) and not forced & {"publish", "all"}:
+            head("publish", "skip: the catalog already has this build")
+        else:
+            head("publish", f"publish_pack.py {out} (a release in {RESORTS_REPO})")
+            if publish is None:
+                import publish_pack
+                publish = publish_pack.main
+            try:
+                publish([out, "--tier", cfg.get("tier", "gold")])
+            except SystemExit as e:
+                if e.code not in (None, 0):
+                    print(f"\nstopped at publish: {e}")
+                    return 1
+    print(f"\n{slug}: done ({', '.join(todo)})")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--cache", default=os.environ.get("SBA_INDEX_DIR", os.path.join(REPO, "raw", "_index")),
@@ -1185,9 +1357,32 @@ def main(argv=None):
     p.add_argument("--force", action="store_true", help="re-plan a hand-written config (its hand fields are kept)")
     c = sub.add_parser("compare", help="plan a hand-written config again and list the differences")
     c.add_argument("slug")
+    import build_resort
+    d = sub.add_parser("add", help="resolve, plan, fetch, build, report, ride and publish (FEAT-224)")
+    d.add_argument("name")
+    d.add_argument("--id", help="OpenSkiData ski area id, when several match")
+    d.add_argument("--with", dest="with_", action="append", help="a neighbour to build into the same pack")
+    d.add_argument("--alone", action="store_true", help="leave the neighbours' runs and lifts out")
+    d.add_argument("--slug", help="slug (default from the name)")
+    d.add_argument("--from", dest="first", choices=ADD_STAGES, help="start at this stage")
+    d.add_argument("--stop-after", dest="last", choices=ADD_STAGES,
+                   help="stop after this stage (plan: read the data plan before a 1+ GB fetch)")
+    d.add_argument("--force", action="append", default=[], choices=list(dict.fromkeys(ADD_STAGES + build_resort.STAGES)) + ["all"],
+                   help="run a stage even if done (add's or build_resort.py's stage names; resolve replaces a "
+                        "hand-written config)")
+    d.add_argument("--raw-root", help="folder that holds <slug>/ raw data (default raw/ in the main checkout, or "
+                   "SBA_RAW_ROOT)")
+    d.add_argument("--out", help="pack folder (default packs/<slug>)")
+    d.add_argument("--email", help="email for the LANDFIRE service (or LANDFIRE_EMAIL)")
+    d.add_argument("--no-publish", action="store_true", help="everything but the release")
+    d.add_argument("--review-plan", action="store_true", help="stop after a plan that was just written, to read it "
+                   "before the fetch (add_resort.cmd passes it)")
     a = ap.parse_args(argv)
+    if a.cmd == "add":
+        a.force_list = a.force                                  # the stages to run even when done
+        a.force = bool({"resolve", "all"} & set(a.force))       # resolve's own flag: replace a hand config
     hosts = Hosts(a.cache, a.refresh)
-    return {"resolve": cmd_resolve, "plan": cmd_plan, "compare": cmd_compare}[a.cmd](a, hosts)
+    return {"resolve": cmd_resolve, "plan": cmd_plan, "compare": cmd_compare, "add": cmd_add}[a.cmd](a, hosts)
 
 
 if __name__ == "__main__":

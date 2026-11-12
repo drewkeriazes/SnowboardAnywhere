@@ -92,6 +92,19 @@ def same_code(commit, repo=REPO) -> bool:
     return r.returncode == 0 and not (pipeline_code(repo) or "").endswith("+dirty")
 
 
+def default_raw_root(repo=REPO) -> str:
+    """where raw data lives: SBA_RAW_ROOT, else raw/ in the main checkout. Every worktree of the repo shares the
+    main checkout's raw/ (a worktree's own raw/ is empty: a run there would fetch the resort again from scratch)"""
+    if os.environ.get("SBA_RAW_ROOT"):
+        return os.path.abspath(os.environ["SBA_RAW_ROOT"])
+    try:
+        common = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=repo,
+                                capture_output=True, text=True, check=True).stdout.strip()
+        return os.path.join(os.path.dirname(os.path.normpath(common)), "raw")
+    except (OSError, subprocess.CalledProcessError):
+        return os.path.join(repo, "raw")
+
+
 def run(cmd, cwd=REPO):
     """run a stage's command with its output on the console; -> exit code"""
     print("  $ " + " ".join(cmd), flush=True)
@@ -155,8 +168,24 @@ def manifest_inputs(r):
     return sha(file_sha(r.cfg_path), [file_sha(p) for p in r.node_files()], gen_manifest.MANIFEST_VERSION)
 
 
+def manifest_items_sha(r):
+    """the manifest's download list (not its bytes: a new manifestVersion key alone fetches nothing)"""
+    try:
+        with open(r.man_path, encoding="utf-8") as f:
+            return sha(json.load(f).get("items"))
+    except (OSError, ValueError):
+        return None
+
+
 def manifest_present(r):
-    return os.path.isfile(r.man_path)
+    """the manifest is there and from this MANIFEST_VERSION: an older one (Breckenridge's, from before land cover)
+    is made again, and the fetch then gets the layers it lacked (DATA-022 item 3)"""
+    import gen_manifest
+    try:
+        with open(r.man_path, encoding="utf-8") as f:
+            return json.load(f).get("manifestVersion") == gen_manifest.MANIFEST_VERSION
+    except (OSError, ValueError):
+        return False
 
 
 def manifest_run(r, ctx):
@@ -165,7 +194,7 @@ def manifest_run(r, ctx):
 
 
 def fetch_inputs(r):
-    return file_sha(r.man_path)
+    return manifest_items_sha(r)
 
 
 def fetch_present(r):
@@ -187,13 +216,23 @@ def fetch_run(r, ctx):
 
 def check_raw(r):
     """the pack-build skill's raw checks: every layer there, the OSM files real JSON (an Overpass error page is
-    HTML or a JSON "remark" with no elements)"""
+    HTML or a JSON "remark" with no elements). Land cover and pistes_wide are required unless the config turns
+    land cover off (DATA-022 item 8: cover.py skips the far levels without them, and the far terrain reads as camo),
+    and the far ring's lidar when the config has lidar.far (item 8b)"""
     miss = []
-    for name, (d, f) in RAW_NEED.items():
+    need = dict(RAW_NEED)
+    osm_need = list(OSM_NEED)
+    if (r.cfg.get("landcover") or {}).get("enabled", True):
+        need["WorldCover land cover"] = (os.path.join("landcover", "worldcover"), None)
+        need["ETH canopy height"] = (os.path.join("landcover", "eth_canopy"), None)
+        osm_need.append("pistes_wide")
+    if (r.cfg.get("lidar") or {}).get("far"):
+        need["far ring lidar (ept_far)"] = ("ept_far", None)
+    for name, (d, f) in need.items():
         p = os.path.join(r.raw, d)
         if not os.path.isdir(p) or not os.listdir(p) or (f and not os.path.isfile(os.path.join(p, f))):
             miss.append(name)
-    for q in OSM_NEED:
+    for q in osm_need:
         p = os.path.join(r.raw, "osm", f"{q}.json")
         try:
             with open(p, encoding="utf-8") as fh:
@@ -203,7 +242,8 @@ def check_raw(r):
         except (OSError, ValueError):
             miss.append(f"OSM {q} (missing or not JSON)")
     if miss:
-        raise Failed(f"raw data incomplete in {r.raw}: {', '.join(miss)}. Delete the bad files and fetch again")
+        raise Failed(f"raw data incomplete in {r.raw}: {', '.join(miss)}. Delete any bad files and run again with "
+                     "--force fetch (it downloads only what is missing)")
 
 
 def landfire_needed(r):
@@ -224,7 +264,10 @@ def landfire_run(r, ctx):
         return
     email = ctx.email or os.environ.get("LANDFIRE_EMAIL")
     if not email and ctx.interactive:
-        email = input("Email address for the LANDFIRE service (LFPS asks for one for its statistics): ").strip()
+        try:
+            email = input("Email address for the LANDFIRE service (LFPS asks for one for its statistics): ").strip()
+        except EOFError:          # no console after all (a background run)
+            email = None
     if not email:
         raise Failed("LANDFIRE needs an email address for the LFPS service: --email <address> or set LANDFIRE_EMAIL")
     force = ctx.forced("landfire") or (r.state.get("landfire") not in (None, landfire_inputs(r)))
@@ -253,7 +296,7 @@ def grooming_run(r, ctx):
 
 def build_inputs(r):
     groom = sorted(os.path.basename(p) for p in glob.glob(os.path.join(r.raw, "grooming", "*.json")))
-    return sha(file_sha(r.cfg_path), file_sha(r.man_path), r.state.get("fetch"), r.state.get("landfire"), groom,
+    return sha(file_sha(r.cfg_path), manifest_items_sha(r), r.state.get("fetch"), r.state.get("landfire"), groom,
                pipeline_code(), r.out)
 
 
@@ -388,7 +431,8 @@ def build(r, ctx, first=None, last=None, dry=False, out=print):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("slug")
-    ap.add_argument("raw_dir", nargs="?", help="the resort's raw folder (default raw/<slug>)")
+    ap.add_argument("raw_dir", nargs="?", help="the resort's raw folder (default raw/<slug> in the main checkout, "
+                                               "or SBA_RAW_ROOT/<slug>)")
     ap.add_argument("out_dir", nargs="?", help="the pack folder (default packs/<slug>)")
     ap.add_argument("--from", dest="first", choices=STAGES, help="start at this stage")
     ap.add_argument("--stop-after", dest="last", choices=STAGES, help="stop after this stage")
@@ -403,7 +447,7 @@ def main(argv=None):
     if a.first and a.last and STAGES.index(a.first) > STAGES.index(a.last):
         print("--from comes after --stop-after")
         return 2
-    raw = a.raw_dir or os.path.join(REPO, "raw", a.slug)
+    raw = a.raw_dir or os.path.join(default_raw_root(), a.slug)
     out = a.out_dir or os.path.join(REPO, "packs", a.slug)
     r = Resort(a.slug, raw, out)
     print(f"{r.cfg.get('name', a.slug)}: raw {r.raw}, pack {r.out}")

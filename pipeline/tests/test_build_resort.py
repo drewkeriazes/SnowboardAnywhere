@@ -40,11 +40,12 @@ class Fake:
         elif script == "fetch.ps1":
             if self.fetch_code:
                 return self.fetch_code
-            for d in ("dem1m", "dem10m", "naip1m", "mapterhorn", "ept"):
+            for d in ("dem1m", "dem10m", "naip1m", "mapterhorn", "ept", "ept_far", "landcover/worldcover",
+                      "landcover/eth_canopy"):
                 os.makedirs(os.path.join(r.raw, d), exist_ok=True)
                 open(os.path.join(r.raw, d, "ept.json" if d == "ept" else "a"), "w").write("x")
             os.makedirs(os.path.join(r.raw, "osm"), exist_ok=True)
-            for q in B.OSM_NEED:
+            for q in B.OSM_NEED + ("pistes_wide",):
                 json.dump(self.osm if self.osm is not None else {"elements": [{"id": 1}]},
                           open(os.path.join(r.raw, "osm", f"{q}.json"), "w"))
             open(os.path.join(r.raw, "FETCH_COMPLETE.txt"), "w").write("complete")
@@ -136,7 +137,8 @@ def test_existing_outputs_are_adopted_on_the_first_run(resort):
 
 def test_a_new_manifest_fetches_again(resort):
     go(resort, Fake(resort))
-    json.dump({"slug": "demo", "manifestVersion": 2, "items": []}, open(resort.man_path, "w"))
+    json.dump({"slug": "demo", "manifestVersion": 1, "items": [{"url": "u2", "path": "landcover/x.tif"}]},
+              open(resort.man_path, "w"))                 # a layer added to the download list
     r = B.Resort("demo", resort.raw, resort.out, resort.resorts, resort.manifests)
     f = Fake(r)
     lines = go(r, f)
@@ -162,6 +164,37 @@ def test_raw_data_fetched_earlier_is_checked_too(resort):
     r = B.Resort("demo", resort.raw, resort.out, resort.resorts, resort.manifests)
     with pytest.raises(B.Failed, match=r"OSM ski \(missing or not JSON\)"):
         go(r, Fake(r))
+
+
+def test_land_cover_and_the_far_ring_are_required(resort):
+    go(resort, Fake(resort))
+    import shutil
+    shutil.rmtree(os.path.join(resort.raw, "landcover", "eth_canopy"))
+    os.remove(os.path.join(resort.raw, "osm", "pistes_wide.json"))
+    shutil.rmtree(os.path.join(resort.raw, "ept_far"))
+    r = B.Resort("demo", resort.raw, resort.out, resort.resorts, resort.manifests)
+    with pytest.raises(B.Failed) as e:
+        go(r, Fake(r))
+    assert "ETH canopy height" in str(e.value) and "far ring lidar" in str(e.value) and "OSM pistes_wide" in str(e.value)
+    assert "--force fetch" in str(e.value)
+    # a config with land cover off and no far ring needs neither
+    json.dump(dict(CFG, landcover={"enabled": False}, lidar={k: v for k, v in CFG["lidar"].items() if k != "far"}),
+              open(resort.cfg_path, "w"))
+    r = B.Resort("demo", resort.raw, resort.out, resort.resorts, resort.manifests)
+    B.check_raw(r)
+
+
+def test_an_old_manifest_is_made_again_but_the_same_items_fetch_nothing(resort):
+    go(resort, Fake(resort))
+    m = json.load(open(resort.man_path))
+    del m["manifestVersion"]                            # a manifest from before FEAT-223
+    json.dump(m, open(resort.man_path, "w"))
+    os.remove(resort.state_path)                        # and never seen by build_resort.py
+    r = B.Resort("demo", resort.raw, resort.out, resort.resorts, resort.manifests)
+    f = Fake(r)
+    lines = go(r, f)
+    assert "[manifest] run: not done yet" in lines
+    assert f.calls == ["gen_manifest.py", "pack_report.py"]    # same items: the fetch and the build are adopted
 
 
 def test_landfire_without_an_email_stops(resort):
@@ -207,6 +240,23 @@ def test_the_raw_folder_must_be_named_for_the_slug(resort, tmp_path):
     r = B.Resort("demo", str(tmp_path / "raw" / "other"), resort.out, resort.resorts, resort.manifests)
     with pytest.raises(B.Failed, match="not named demo"):
         go(r, Fake(r))
+
+
+def test_raw_lives_in_the_main_checkout(monkeypatch, tmp_path):
+    monkeypatch.delenv("SBA_RAW_ROOT", raising=False)
+    root = B.default_raw_root()
+    assert os.path.basename(root) == "raw" and os.path.isdir(os.path.join(os.path.dirname(root), ".git"))
+    monkeypatch.setenv("SBA_RAW_ROOT", str(tmp_path))
+    assert B.default_raw_root() == str(tmp_path)
+
+
+def test_no_console_for_the_landfire_prompt_stops_cleanly(resort, monkeypatch):
+    def eof(prompt=""):
+        raise EOFError
+    monkeypatch.setattr("builtins.input", eof)
+    monkeypatch.delenv("LANDFIRE_EMAIL", raising=False)
+    with pytest.raises(B.Failed, match="LANDFIRE needs an email"):
+        B.build(resort, B.Context(runner=Fake(resort), interactive=True), out=lambda *a: None)
 
 
 def test_pipeline_code_ignores_tests_and_configs():

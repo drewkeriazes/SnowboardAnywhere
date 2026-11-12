@@ -47,7 +47,16 @@ As built (FEAT-223, `pipeline/resort.py`), checked against the hand configs with
 - **EPT depth** is the shallowest whose node spacing on the ground is under 3.2 m (Vail 2.9 m and Big Sky 3.1 m at depth 9; Big Sky's east strip, MT P3_3_B21, is 4.4 m at 9, so it gets 10, one deeper than its hand config). `lidar.far` (5 km) goes on every resort at the depth under 4.5 m. Flight dates and QL come from the 3DEP elevation index's lidar work units (MapServer layer 8), not `ept.json`, which has none: Ohio's 2019 statewide lidar was flown November to May, leaf-off.
 - **Grooming feed**: a resort gets `terrain_status_url` when the Internet Archive holds its Vail Resorts terrain status page (Vail, Breckenridge; not Boston Mills, which has no snapshots). The live pages answer 403 or carry no feed to a script, so the archive is the evidence.
 - **The data plan** goes to `pipeline/resorts/<slug>-plan.md` beside the config, and `publish_pack.py` copies it to the resorts repo's `reports/`; a plan written straight into the MapPacker clone would leave it dirty, which `publish_pack.py` refuses.
-- **OSM**: the plan records the Geofabrik extract (`osm.geofabrik`), but `gen_manifest.py` still uses Overpass; switching the fetch is FEAT-224's.
+- **OSM**: the plan records the Geofabrik extract (`osm.geofabrik`), but `gen_manifest.py` still uses Overpass; switching the fetch is a later card (Overpass still answers for every resort so far).
+
+As built (FEAT-224, `resort.py add`, on FEAT-175 step 3's `build_resort.py`): stages `resolve`, `plan`, `fetch`, `build`, `report`, `ride`, `publish`, each skipped when done; `add_resort.cmd` stops once after a new plan. How the section 3 lessons landed:
+- Manifest version (3): `build_resort.py` makes an older manifest again and fetches what it lacked; the fingerprints hash the manifest's items, so the new version key alone fetches nothing.
+- LANDFIRE (4): a stage of the fetch, with the LFPS email from `--email`, `LANDFIRE_EMAIL` or a prompt.
+- Far terrain skipped without land cover (8): the raw check before the build requires land cover and `pistes_wide` (unless the config turns land cover off) and `ept_far/` with `lidar.far` (8b), instead of `cover.py` failing, so `cover.py` run by hand on an old pack still works.
+- Density, attribution (7, 13): already `pack_report.py` lines 7 and 13.
+- Start and headless ride (10): the start is still `build_pack.py`'s (FEAT-175 step 4 picks it); `add` rides from it with `shoot.mjs` before publishing and stops on a page error.
+- Gate (rule 2): the MVP lines that fail are printed before the ride and publish; `publish_pack.py` marks the pack `preview` from the report.
+- Not yet: stills re-shot and compared on publish (19), and the Geofabrik fetch.
 
 ### publish
 - Gate: every DATA-022 MVP line (1 to 14) in `report.json` passes, or the release is marked `preview` in the catalog.
