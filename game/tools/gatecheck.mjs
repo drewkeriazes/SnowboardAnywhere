@@ -12,7 +12,7 @@ import path from 'node:path';
 import { accountRoute, bearerToken, requireAccount } from './accounts/gate.mjs';
 import { KEY_PATH_DEFAULT, accountFromClaims, fakeVerifier, firebaseVerifier, keyPath } from './accounts/verifier.mjs';
 import { GAME } from './paths.mjs';
-import { claimsFor, needsRevoke, parseRoleArgs } from './set_role.mjs';
+import { claimsFor, databaseUrl, needsRevoke, parseRoleArgs } from './set_role.mjs';
 
 let fails = 0;
 const ok = (c, m) => { if (!c) { fails++; console.error('FAIL', m); } else console.log('ok  ', m); };
@@ -106,6 +106,15 @@ ok(parseRoleArgs(['--uid', 'x', '--player', '0']).player === 0, 'player 0 is all
 ok(JSON.stringify(claimsFor({ foo: 1 }, { role: 'maintainer', player: 1 })) === '{"foo":1,"role":"maintainer","player":1}', 'claimsFor keeps other claims');
 ok(JSON.stringify(claimsFor({ role: 'maintainer', player: 1 }, { role: 'player' })) === '{"player":1}', 'demotion drops the role, keeps the number');
 ok(needsRevoke({ role: 'maintainer' }, { player: 1 }) && !needsRevoke({}, { role: 'maintainer' }) && !needsRevoke({ role: 'maintainer' }, { role: 'maintainer' }), 'needsRevoke only on a demotion');
+ok(databaseUrl('snowboardanywhere', {}) === 'https://snowboardanywhere-default-rtdb.firebaseio.com' && databaseUrl('p', { SBA_FIREBASE_DATABASE_URL: 'https://x.example' }) === 'https://x.example', 'databaseUrl: default from the project id, SBA_FIREBASE_DATABASE_URL wins');
+{
+  const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'gatecheck-env-'));
+  const envFile = path.join(tmp2, 'env.local');
+  fs.writeFileSync(envFile, 'SBA_FIREBASE_ADMIN_KEY=' + path.join(tmp, 'from-env-file.json') + '\n');
+  const r0 = spawnSync(process.execPath, ['-e', `process.loadEnvFile(${JSON.stringify(envFile)}); import(${JSON.stringify(new URL('./accounts/verifier.mjs', import.meta.url).href)}).then((m) => console.log(m.keyPath()))`], { encoding: 'utf8', env: Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'SBA_FIREBASE_ADMIN_KEY')) });
+  ok(r0.stdout.trim() === path.join(tmp, 'from-env-file.json'), 'keyPath honours SBA_FIREBASE_ADMIN_KEY from a loaded env file');
+  fs.rmSync(tmp2, { recursive: true, force: true });
+}
 {
   const r = spawnSync(process.execPath, [path.join(GAME, 'tools', 'set_role.mjs'), '--check'], { encoding: 'utf8', env: { ...process.env, SBA_FIREBASE_ADMIN_KEY: missingKey } });
   ok(r.status === 2 && r.stderr.includes(missingKey) && r.stderr.includes('SBA_FIREBASE_ADMIN_KEY'), 'set_role --check with no key file exits 2 naming the path and SBA_FIREBASE_ADMIN_KEY');

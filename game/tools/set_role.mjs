@@ -1,13 +1,15 @@
 // FEAT-273: set an account's role and player number (the only way to set either, for now). Sets the custom claims
 // (role 'maintainer', player <n>) through the Admin SDK and the players/<uid> record, and revokes the account's
 // refresh tokens on a demotion so the old role stops working at once. The service-account key stays outside every
-// checkout: SBA_FIREBASE_ADMIN_KEY, else %USERPROFILE%\.snowboardanywhere\firebase-admin-key.json.
+// checkout: SBA_FIREBASE_ADMIN_KEY (set in game/.env.local, which this loads), else %USERPROFILE%\.snowboardanywhere\firebase-admin-key.json.
+// The database is the Realtime Database: SBA_FIREBASE_DATABASE_URL, else https://<project_id>-default-rtdb.firebaseio.com.
 //   node tools/set_role.mjs (--uid <uid> | --email <email>) [--role maintainer|player] [--player <n>] [--name <display name>]
 //   node tools/set_role.mjs --check
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { keyPath } from './accounts/verifier.mjs';
+import { GAME } from './paths.mjs';
 
 const USAGE = 'usage: node tools/set_role.mjs (--uid <uid> | --email <email>) [--role maintainer|player] [--player <n>] [--name <display name>]\n       node tools/set_role.mjs --check';
 
@@ -53,8 +55,17 @@ export function needsRevoke(existing, next) {
   return existing.role === 'maintainer' && next.role !== 'maintainer';
 }
 
+/** The database URL: SBA_FIREBASE_DATABASE_URL, else the default one for the key's project.
+ *  @param {string} projectId @param {Record<string, string | undefined>} [env] */
+export function databaseUrl(projectId, env = process.env) {
+  const u = env.SBA_FIREBASE_DATABASE_URL;
+  return u && u.trim() !== '' ? u.trim() : `https://${projectId}-default-rtdb.firebaseio.com`;
+}
+
 /** @param {NonNullable<ReturnType<typeof parseRoleArgs>>} args @returns {Promise<number>} the exit code */
 async function run(args) {
+  const envFile = path.join(GAME, '.env.local');
+  if (fs.existsSync(envFile)) process.loadEnvFile(envFile); // the key path lives there; a variable already set wins
   const file = keyPath();
   if (!fs.existsSync(file)) {
     console.error(`No Firebase Admin key at ${file}. Put the service-account key there, or set SBA_FIREBASE_ADMIN_KEY to its path.`);
@@ -62,9 +73,9 @@ async function run(args) {
   }
   const { cert, initializeApp } = await import('firebase-admin/app');
   const { getAuth } = await import('firebase-admin/auth');
-  const { FieldValue, getFirestore } = await import('firebase-admin/firestore');
+  const { getDatabase } = await import('firebase-admin/database');
   const key = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const app = initializeApp({ credential: cert(key) }, 'sba-set-role');
+  const app = initializeApp({ credential: cert(key), databaseURL: databaseUrl(key.project_id) }, 'sba-set-role');
   const auth = getAuth(app);
 
   if (args.check) {
@@ -82,12 +93,13 @@ async function run(args) {
   }
 
   const user = args.uid ? await auth.getUser(args.uid) : await auth.getUserByEmail(args.email);
-  const db = getFirestore(app);
+  const db = getDatabase(app);
   if (args.player !== undefined) {
-    const taken = await db.collection('players').where('player', '==', args.player).get();
-    const other = taken.docs.find((d) => d.id !== user.uid);
+    const taken = await db.ref('players').orderByChild('player').equalTo(args.player).get();
+    let other = null;
+    taken.forEach((c) => { if (c.key !== user.uid) other = c.key; });
     if (other) {
-      console.error(`Player ${args.player} already belongs to uid ${other.id}. To move a number, rerun this script for that uid with another number first.`);
+      console.error(`Player ${args.player} already belongs to uid ${other}. To move a number, rerun this script for that uid with another number first.`);
       return 1;
     }
   }
@@ -96,12 +108,12 @@ async function run(args) {
   await auth.setCustomUserClaims(user.uid, next);
   const role = next.role === 'maintainer' ? 'maintainer' : 'player';
   const player = typeof next.player === 'number' ? next.player : null;
-  await db.collection('players').doc(user.uid).set({
+  await db.ref(`players/${user.uid}`).update({
     player,
     displayName: args.name ?? user.displayName ?? null,
     role,
-    updatedAt: FieldValue.serverTimestamp(),
-  }, { merge: true });
+    updatedAt: Date.now(),
+  });
   if (needsRevoke(existing, next)) await auth.revokeRefreshTokens(user.uid);
   console.log(`uid ${user.uid}: role ${role}, player ${player ?? 'none'}. Sign out and back in to pick it up.`);
   return 0;

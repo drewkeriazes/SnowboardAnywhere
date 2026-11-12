@@ -31,7 +31,7 @@ Open http://localhost:5173/?pack=vail. Use `?pack=synth` for a synthetic test mo
 no resort pack yet. With no pack in `packs/` at all (a fresh clone), http://localhost:5173/ opens a
 "No resorts yet" screen with the resort list: pick one to download it (below).
 
-Signing in is optional and changes nothing about riding: the game starts as a guest and plays everything. Sign in with GitHub (in the corner of the main menu) works on this PC, through the launcher or `npm run dev`, not from another computer.
+Signing in is optional and changes nothing about riding: the game starts as a guest and plays everything. Sign in with GitHub (in the corner of the main menu) works on this PC, through the launcher or `npm run dev`, not from another computer, and only at `http://localhost:5173` (another port is refused until it is added to the browser key's website list; see [developer guide > Accounts](docs/developer-guide.md#accounts-feat-273)).
 
 ### Getting a resort
 

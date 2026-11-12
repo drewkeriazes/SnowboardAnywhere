@@ -1,4 +1,4 @@
-import { defineConfig, type Connect, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Connect, type Plugin } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { handleShotPost, handleTakePost } from './tools/attract_files.mjs';
@@ -121,7 +121,14 @@ function saveAttractTakes(): Plugin {
 function accountRoutes(): Plugin {
   return {
     name: 'account-routes',
-    configureServer(server) { server.middlewares.use(accountRoute(devVerifier())); },
+    configureServer(server) {
+      // SBA_FIREBASE_ADMIN_KEY lives in game/.env.local (gitignored); Vite only exposes VITE_ names to the page, so read
+      // the SBA_ ones here for the server. A variable already in the environment wins.
+      for (const [k, v] of Object.entries(loadEnv(server.config.mode, server.config.envDir || server.config.root, 'SBA_'))) {
+        if (process.env[k] === undefined) process.env[k] = v;
+      }
+      server.middlewares.use(accountRoute(devVerifier()));
+    },
   };
 }
 
