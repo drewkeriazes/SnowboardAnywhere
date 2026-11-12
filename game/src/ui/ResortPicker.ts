@@ -24,13 +24,15 @@ function rowHtml(r: Row): string {
 function rows(current: string, built: { slug: string; name: string }[], reply: CatalogReply | null): Row[] {
   const local = reply?.local ?? {};
   const cat = reply?.catalog?.resorts ?? [];
-  const bySlug = new Map(cat.map((c) => [c.slug, c]));
   const out: Row[] = [];
   const localNote = (slug: string): Pick<Row, 'note' | 'act'> => {
-    const l = local[slug], c = bySlug.get(slug);
+    const l = local[slug], c = cat.find((e) => e.slug === slug && e.pack.formatVersion === PACK_FORMAT);
     if (slug === current) return { note: 'here now', act: 'load' };
+    // BUG-106: `version` means the pack came from the catalog (it carries .catalog.json), so get_pack replaces it
+    // on its own, also when it is an older format. A pack built on this PC or copied in with --from has no version:
+    // get_pack replaces it only with --force, so an old one says "needs rebuild".
+    if (l?.version && c && (l.formatVersion < PACK_FORMAT || c.pack.version > l.version)) return { note: `Update (${mb(c.pack.bytes)})`, act: 'get' };
     if (l && l.formatVersion < PACK_FORMAT) return { note: 'needs rebuild', act: 'load' };
-    if (l?.version && c && c.pack.formatVersion === PACK_FORMAT && c.pack.version > l.version) return { note: `Update (${mb(c.pack.bytes)})`, act: 'get' };
     return { note: '', act: 'load' };
   };
   for (const r of built) out.push({ ...r, ...localNote(r.slug), on: r.slug === current });

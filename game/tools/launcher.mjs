@@ -20,7 +20,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { DIST, LAUNCHER, PACKS } from './paths.mjs';
-import { getPack, localPacks } from './get_pack.mjs';
+import { getPack, localPacks, PACK_FORMAT } from './get_pack.mjs';
 import { packDownloads, packFiles } from './pack_routes.mjs';
 
 /* global SBA_LAUNCHER */
@@ -162,14 +162,23 @@ function lanUrls(port) {
 const FIRST = { slug: 'vail', name: 'Vail' };
 
 /**
- * No resort in packs/ (the synthetic test pack doesn't count): download Vail through get_pack.mjs, one updating line
- * of progress. getPack builds it as packs/.vail.* and renames it in only when it is whole, so a window closed
+ * No resort in packs/ at this game's pack format (the synthetic test pack doesn't count): download Vail through
+ * get_pack.mjs, one updating line of progress. getPack builds it as packs/.vail.* and renames it in only when it is whole, so a window closed
  * mid-download leaves nothing localPacks counts, and the next launch starts again. Returns an error message or null.
  */
 async function firstResort() {
-  if (Object.keys(localPacks(PACKS)).some((slug) => slug !== 'synth')) return null;
-  console.log(`\nFirst launch: downloading ${FIRST.name} (about 270 MB, a few minutes). Later launches start straight away;`);
-  console.log('more resorts come from Change resort on the main menu.\n');
+  // BUG-106: only a pack at this game's format counts. An older Vail from the catalog (it has a release `version`)
+  // is downloaded again, which replaces it; one built on this PC or copied in with --from (no version) is left alone,
+  // since getPack replaces it only with --force.
+  const local = localPacks(PACKS);
+  if (Object.entries(local).some(([slug, p]) => slug !== 'synth' && p.formatVersion === PACK_FORMAT)) return null;
+  const old = local[FIRST.slug];
+  if (old && !old.version) return null;
+  if (old) console.log(`\n${FIRST.name} in packs is not the pack format this game reads: downloading the current one (about 270 MB, a few minutes).\n`);
+  else {
+    console.log(`\nFirst launch: downloading ${FIRST.name} (about 270 MB, a few minutes). Later launches start straight away;`);
+    console.log('more resorts come from Change resort on the main menu.\n');
+  }
   const mb = (b) => `${Math.round(b / 1e6)} MB`;
   let shown = '';
   try {

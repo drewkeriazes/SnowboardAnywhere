@@ -43,8 +43,9 @@ npm run get synth         # the synthetic test mountain the CI checks run on (no
 ```
 
 Or open **Change resort** on the main menu: a published resort you don't have shows "Download (size)";
-pick it and the game downloads it and loads it. A pack in an older format than the game reads shows
-"needs rebuild". `npm run get` won't replace a pack you built yourself unless you add `-- --force` (it
+pick it and the game downloads it and loads it. A resort you downloaded shows "Update (size)" when a newer
+release is out, also when yours is an older format than the game reads. An older-format pack with no current
+release, or one you built or copied in yourself, shows "needs rebuild". `npm run get` won't replace a pack you built yourself unless you add `-- --force` (it
 deletes the old one). To ride a pack you built in MapPacker before it is published, copy it in:
 
 ```

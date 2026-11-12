@@ -1,11 +1,12 @@
 // FEAT-242 getpackcheck: `npm run get -- --from <dir>` (copyPack in get_pack.mjs) on throwaway packs in a temp folder:
 // what it copies and leaves out, what it replaces and refuses, that the source pack is never touched, and that a
-// plain `get` will not replace a --from copy without --force. Node only (no pack, no browser); exits 1 on a failure.
+// plain `get` will not replace a --from copy without --force, and (BUG-106) that it does replace an older-format
+// catalog pack but not an older local build. Node only (no pack, no browser); exits 1 on a failure.
 //   node tools/getpackcheck.mjs
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { copyPack, getPack, PACK_FORMAT } from './get_pack.mjs';
+import { copyPack, getPack, localPacks, PACK_FORMAT } from './get_pack.mjs';
 
 const F = PACK_FORMAT;
 const t = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-'));
@@ -68,6 +69,22 @@ for (const [s, from, m] of [['js', () => path.join(mp, 'js'), '--from <the link 
 const catalog = { resorts: [{ slug: 'vail', name: 'Vail', status: 'ok', pack: { formatVersion: F, version: 1, sha256: 'bad', url: path.join(t, 'nope.zip'), bytes: 1 } }] };
 try { await getPack('vail', { packsDir: packs, catalog }); ok(false, 'getPack refuses a copy'); } catch (e) { ok(/is a copy of/.test(e.message), 'getPack refuses a copy: ' + e.message); }
 ok(fs.existsSync(path.join(mp, 'vail', 'debug', 'species.png')), 'the source pack is untouched');
+
+// BUG-106: an older-format pack from the catalog has a version in localPacks (the picker's Update) and getPack goes
+// on to download over it without --force; one built here has none ("needs rebuild") and is refused
+const p2 = path.join(t, 'p2');
+const old = (s, marker) => {
+  fs.mkdirSync(path.join(p2, s), { recursive: true }); fs.writeFileSync(path.join(p2, s, 'meta.json'), JSON.stringify({ slug: s, formatVersion: F - 1 }));
+  if (marker) fs.writeFileSync(path.join(p2, s, '.catalog.json'), JSON.stringify({ version: 1, sha256: 'old' }));
+};
+old('dl', true); old('mine', false);
+const lp = localPacks(p2);
+ok(lp.dl.version === 1 && lp.dl.formatVersion === F - 1, 'an old catalog pack: localPacks has its version');
+ok(lp.mine.version === undefined, 'an old local build: localPacks has no version');
+const cat2 = { resorts: ['dl', 'mine'].map((s) => ({ slug: s, name: s, status: 'ok', pack: { formatVersion: F, version: 2, sha256: 'bad', url: path.join(t, 'nope.zip'), bytes: 1 } })) };
+try { await getPack('dl', { packsDir: p2, catalog: cat2 }); ok(false, 'getPack replaces an old catalog pack'); } catch (e) { ok(!/built on this PC|is a copy/.test(e.message), 'getPack replaces an old catalog pack (gets to the download): ' + e.message); }
+ok(JSON.parse(fs.readFileSync(path.join(p2, 'dl', 'meta.json'))).formatVersion === F - 1, 'a failed download leaves the old pack in place');
+try { await getPack('mine', { packsDir: p2, catalog: cat2 }); ok(false, 'getPack refuses an old local build'); } catch (e) { ok(/built on this PC/.test(e.message), 'getPack refuses an old local build: ' + e.message); }
 fs.rmSync(t, { recursive: true, force: true });
 console.log(fails ? `getpackcheck: ${fails} failed` : 'getpackcheck: all passed');
 process.exitCode = fails ? 1 : 0;
