@@ -114,17 +114,6 @@ export interface PackMeta {
   attribution: string[];
 }
 
-/**
- * FEAT-230: boot.json in a pack installed from its boot zip (MapPacker's boot_split.py). A folder listed in `tiles`
- * holds only those tiles ("tx_ty", the file names) until the rest zip arrives; every other file is there.
- */
-export interface BootInfo {
-  boot: number;
-  centres: [number, number][];
-  radius: number;
-  tiles: Record<string, string[]>;
-}
-
 export type Difficulty = 'easy' | 'intermediate' | 'advanced' | 'expert' | 'freeride' | 'extreme' | 'novice';
 
 export interface RunFeature {

@@ -377,9 +377,7 @@ export class Terrain {
     }
     dataRes = pack.finestRes(c.minX + c.size / 2, c.minY + c.size / 2, res);
     const resB = Math.max(res, MOGUL_MAX_RES * 2); // auxiliary samples (ridges, talus, fall line) without the mogul bumps
-    // FEAT-230: where a partial pack's mask tiles have not arrived yet, the chunk takes the cover levels like a coarser
-    // one (the forest and rock show), and rebuilds with the mask when its tiles come
-    const useMask = !!pack.mask && res <= 8 && !pack.mask.waiting(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
+    const useMask = !!pack.mask && res <= 8;
     // FEAT-153: coarser chunks take forest, rock and canopy height from the cover levels where they have
     // loaded, else the procedural treeline
     const cover = !useMask && pack.cover ? pack.cover : null;

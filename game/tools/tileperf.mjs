@@ -12,25 +12,15 @@
 // --look4 keeps today's loading but builds 4 and 8 m chunks from a 4 m box average of the fine tiles (bilinear
 // between 4 m cell means): how the ring would look with the set. --shots <dir> saves the frame when the load
 // settles and every 10 s of the ride (start.png, t10.png, ...), the same moments in every mode.
-// FEAT-230 --get <catalog.json> [--mbps N] [--full]: first install the pack the way the resort picker's Download does
-// (get_pack.mjs, into packs/ or SHOT_PACKS, replacing what is there), from the zips the catalog names (local files;
-// with --mbps served over HTTP at that rate), then load and ride it. With a boot zip in the entry the page loads as
-// soon as the boot zip is in and the rest downloads behind the ride (--full: the one zip, as before FEAT-230).
-// Reports the time to first ride (download and unzip, then page load to settled), when the rest landed, and how
-// much of the ride physics spent on coarser heights; a ride ends by waiting for the rest and checking the chunks
-// rebuilt with it.
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DIST, PACKS } from './paths.mjs';
-import { getPack, readCatalog } from './get_pack.mjs';
 
 const args = process.argv.slice(2);
 const shotsDir = args.includes('--shots') ? path.resolve(args[args.indexOf('--shots') + 1]) : null;
-const valued = new Set(['--shots', '--get', '--mbps']);
-const opt = (f) => (args.includes(f) ? args[args.indexOf(f) + 1] : null);
-const positional = args.filter((a, i) => !a.startsWith('--') && !valued.has(args[i - 1]));
+const positional = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--shots');
 const shoot = async (name) => {
   if (!shotsDir) return;
   const url = await page.evaluate(() => window.__shot());
@@ -49,67 +39,6 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(p).pipe(res);
 });
 await new Promise((r) => server.listen(0, r));
-
-// ---- FEAT-230 --get: install the pack from a catalog first, as the resort picker's Download does
-let get = null;
-if (opt('--get')) {
-  const catFile = path.resolve(opt('--get'));
-  const catalog = await readCatalog(catFile);
-  const mbps = Number(opt('--mbps') ?? 0);
-  let zipServer = null;
-  if (mbps > 0) {
-    // the zips over HTTP at mbps megabits a second (a token bucket per response), as from a release
-    const files = new Map();
-    const bps = (mbps * 1e6) / 8;
-    zipServer = http.createServer(async (req, res) => {
-      const f = files.get(decodeURIComponent(req.url.slice(1)));
-      if (!f) { res.writeHead(404); res.end(); return; }
-      res.writeHead(200, { 'content-type': 'application/zip', 'content-length': fs.statSync(f).size });
-      const t0 = performance.now();
-      let sent = 0;
-      for await (const c of fs.createReadStream(f, { highWaterMark: 1 << 16 })) {
-        sent += c.length;
-        const wait = (sent / bps) * 1000 - (performance.now() - t0);
-        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-        if (!res.write(c)) await new Promise((r) => res.once('drain', r));
-      }
-      res.end();
-    });
-    await new Promise((r) => zipServer.listen(0, '127.0.0.1', r));
-    for (const e of [...(catalog.resorts ?? []), ...(catalog.test ?? [])]) {
-      for (const part of [e.pack, e.pack?.boot, e.pack?.rest]) {
-        if (!part?.url || /^https?:/.test(part.url)) continue;
-        const name = path.basename(part.url);
-        files.set(name, path.resolve(path.dirname(catFile), part.url));
-        part.url = `http://127.0.0.1:${zipServer.address().port}/${encodeURIComponent(name)}`;
-      }
-    }
-  }
-  const full = args.includes('--full');
-  // a fresh install every run: what is there goes first (never through a link: that would empty its target)
-  const dest = path.join(PACKS, pack);
-  if (fs.existsSync(dest)) {
-    if (fs.lstatSync(dest).isSymbolicLink()) { console.log(`--get: ${dest} is a link; point SHOT_PACKS at a folder of your own`); process.exit(1); }
-    fs.rmSync(dest, { recursive: true, force: true });
-  }
-  get = { mbps, full, t0: performance.now(), bootMs: -1, restMs: -1, boot: 0, rest: 0, error: null };
-  let ready;
-  const bootIn = new Promise((r) => { ready = r; });
-  get.done = getPack(pack, {
-    packsDir: PACKS, catalog, force: true, full,
-    onProgress: (p) => { if (p.phase === 'rest' && get.bootMs < 0) { get.bootMs = performance.now() - get.t0; get.boot = p.boot; ready(); } },
-  }).then((res) => {
-    get.restMs = performance.now() - get.t0;
-    if (get.bootMs < 0) { get.bootMs = get.restMs; get.boot = res.bytes; } else get.rest = res.rest;
-    ready();
-    zipServer?.close();
-  }, (e) => { get.error = String(e.message ?? e); ready(); zipServer?.close(); });
-  await bootIn;
-  if (get.error) { console.log(`get: ${get.error}`); process.exit(1); }
-  get.pageT0 = performance.now();
-  console.log(`get: ${get.restMs < 0 ? 'boot zip' : 'pack'} in after ${(get.bootMs / 1000).toFixed(1)} s (${(get.boot / 1e6).toFixed(1)} MB${mbps ? ` at ${mbps} Mbit/s` : ', local files'}); loading the page`);
-}
-
 const browser = await launchBrowser(args);
 const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
 const warnings = [];
@@ -258,8 +187,7 @@ for (let b = 0; b < batches; b++) {
     const w = window, s = w.__sim, r = s.rider;
     const a = performance.now(); w.__step(15, 1 / 60); const ms = performance.now() - a;
     const f = s.pack.fine;
-    return { x: r.x, y: r.y, z: r.z, speed: r.speed, crashed: r.crashed, state: s.states?.current ?? '', ms, fine: w.__resident(f), fineFlight: f.inFlight, mask: w.__resident(s.pack.mask), dir: s.pack.dir ? w.__resident(s.pack.dir) : 0,
-      fineHere: !Number.isNaN(f.sample(r.x, r.y)), partial: s.pack.partial, at: performance.now() };
+    return { x: r.x, y: r.y, z: r.z, speed: r.speed, crashed: r.crashed, state: s.states?.current ?? '', ms, fine: w.__resident(f), fineFlight: f.inFlight, mask: w.__resident(s.pack.mask), dir: s.pack.dir ? w.__resident(s.pack.dir) : 0 };
   });
   track.push(st);
   if ((b + 1) % 40 === 0) await shoot(`t${(b + 1) / 4}`);
@@ -267,27 +195,6 @@ for (let b = 0; b < batches; b++) {
 }
 if (carve) await page.keyboard.up(carve);
 await page.keyboard.up('ArrowUp');
-// FEAT-230: a rest still on its way: wait for it, then for the chunks it makes dirty, with frames running
-let afterRest = null;
-if (get && !get.full) {
-  await get.done;
-  afterRest = await page.evaluate(async () => {
-    const w = window, s = w.__sim, p = s.pack, t = s.terrain;
-    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
-    const t0 = performance.now();
-    while (p.partial && performance.now() - t0 < 30000) { w.__step(1, 1 / 60); await frame(); }
-    const waitedMs = performance.now() - t0;
-    const busy = () => [p.fine, p.coarse, p.mid, p.far, p.mask, p.ao, p.dir, p.moguls].reduce((n, x) => n + (x?.inFlight ?? 0), 0) + t.pending + s.veg.pending;
-    const fine0 = w.__resident(p.fine);
-    let quiet = 0, frames = 0;
-    const t1 = performance.now();
-    while (performance.now() - t1 < 30000) { w.__step(1, 1 / 60); frames++; quiet = busy() === 0 ? quiet + 1 : 0; if (quiet >= 3) break; await frame(); }
-    w.__step(60, 1 / 60);
-    const r = s.rider;
-    return { completedAt: p.completedAt, waitedMs, partial: p.partial, fine0, fine1: w.__resident(p.fine), settleMs: performance.now() - t1, frames, fineHere: !Number.isNaN(p.fine.sample(r.x, r.y)) };
-  });
-  await shoot('rest'); // the ride's last spot once the rest is in and the chunks have rebuilt
-}
 await page.evaluate(() => { window.__resetWin(); window.__step(60, 1 / 60); });
 const endSnap = await page.evaluate(() => window.__snap());
 const endClass = await page.evaluate(() => window.__classify());
@@ -339,23 +246,6 @@ for (const n of Object.keys(allLog)) {
   const desc = (ls) => `${ls.length} tiles, ${mb(ls.reduce((s, l) => s + l.bytes, 0))} MB, decode ${f1(ls.reduce((s, l) => s + l.decodeMs, 0))} ms`;
   const cb = groups.coarseOnly.reduce((s, l) => s + l.bytes, 0), cd = groups.coarseOnly.reduce((s, l) => s + l.decodeMs, 0);
   console.log(`  ${n.padEnd(5)} ${allLog[n].length} tiles (${mb(totB)} MB, decode ${f1(tot)} ms). 1-2 m chunks: ${desc(groups.fineChunks)}; prefetch / spawn / lifts only: ${desc(groups.otherOnly)}; 4-8 m chunks only: ${desc(groups.coarseOnly)} = ${(100 * groups.coarseOnly.length / Math.max(1, allLog[n].length)).toFixed(0)}% of tiles, ${(100 * cb / Math.max(1, totB)).toFixed(0)}% of bytes, ${(100 * cd / Math.max(1e-9, tot)).toFixed(0)}% of decode`);
-}
-if (get) {
-  const s1 = (ms) => (ms / 1000).toFixed(1);
-  const ride = get.bootMs / 1000 + load.settled / 1000;
-  console.log(`get (${get.full ? 'full zip' : 'boot then rest'}${get.mbps ? `, ${get.mbps} Mbit/s` : ', local files'}): ${get.full ? 'pack' : 'boot zip'} ${(get.boot / 1e6).toFixed(1)} MB downloaded and unzipped in ${s1(get.bootMs)} s`
-    + (get.full ? '' : `, rest ${(get.rest / 1e6).toFixed(1)} MB in at ${s1(get.restMs)} s`));
-  console.log(`time to first ride: ${s1(get.bootMs)} s download + ${s1(load.settled)} s page load to settled = ${ride.toFixed(1)} s`);
-  if (!get.full) {
-    const rideStart = track[0]?.at ?? 0;
-    const restInRide = afterRest?.completedAt > 0 ? (afterRest.completedAt - rideStart) / 1000 : null;
-    const part = track.filter((t) => t.partial);
-    // the rider's own spot: 1 m heights there, or physics rides the coarse (4 m) set until the rest is in
-    const coarse = track.filter((t) => !t.fineHere);
-    console.log(`rest landed ${restInRide === null ? 'never' : restInRide < 0 ? `${(-restInRide).toFixed(1)} s before the ride started` : `${restInRide.toFixed(1)} s into the ride`}; ride batches while partial ${part.length} of ${track.length}; rider off the 1 m heights in ${coarse.length} batches (${coarse.filter((t) => t.partial).length} while partial)`);
-    if (part.length) { const l = part[part.length - 1]; console.log(`  last partial batch at ${f1(l.x)}, ${f1(l.y)}, ${f1(Math.hypot(l.x - track[0].x, l.y - track[0].y))} m from the ride's start`); }
-    if (afterRest) console.log(`after the rest: partial ${afterRest.partial}, fine resident ${afterRest.fine0} -> ${afterRest.fine1}, settled in ${s1(afterRest.settleMs)} s (${afterRest.frames} frames), 1 m heights under the rider ${afterRest.fineHere}`);
-  }
 }
 console.log('console issues:', warnings.length);
 for (const w of warnings.slice(0, 10)) console.log('  ', w.slice(0, 300));

@@ -74,7 +74,9 @@ The cause was the synchronous `readPixels` in `decodeRGBA`: on its own (no game 
 
 Vsync off queues frames and stalls them (100 to 370 ms, headed or not, with the main thread idle or blocked in WebGL); it is right for medians and `--ablate`, not for stutter. Ablation (eye camera, vsync off): start 18.1 ms, terrain 10.3, sun 4.6, shadow pass 1.8, hemisphere light 1.3, clouds 1.3; Born Free 11.8 ms, terrain 3.1, shadow pass 2.9, bridges 2.5 (180 calls), roads 1.7, lifts 1.5, trees 1.3. Cards: FEAT-236 (#556) terrain, FEAT-237 (#557) shadows, BUG-090 (#558) heap.
 
-## FEAT-230 and FEAT-229 steps 2 to 4: boot zip, 4 m height set (2026-11-12)
+## FEAT-229 steps 2 to 4: the 4 m height set, and the FEAT-230 boot zip measured and parked (2026-11-12)
+
+The 4 m set merged (#583); the boot zip did not. FEAT-230 (#538) is parked: the boot zip saves about 30 s once per download, but holds only 19 of Vail's 144 tree cells, none of the far tree ring and 19 of 144 ao tiles, so the first ride shows a forest that stops on a 1 km cell line across the bowls and a bare horizon, then pops in when the rest lands. The boot code and `tileperf.mjs --get` were taken out of the PR before it merged (the code is at 73a8f2a in its history); the numbers below are the record.
 
 `cd game && npx vite build && node tools/tileperf.mjs vail 60 --gpu --straight --get <catalog> --mbps <N> [--full]` on Drew's PC (RTX 2070 SUPER, ANGLE D3D11, headless, 1920 x 1080), branch `issue-538-boot-pack`. The pack is a copy of the Vail pack on disk with the coarse set added (`python pipeline/coarse_set.py`, MapPacker) and `formatVersion` set to 1 for the test; the zips are MapPacker's `boot_split.py` and `zip_pack` output in a scratch folder with a local catalog, served by tileperf at the given rate. Nothing was published. Time to first ride = download and unzip (in Node, as the dev server does) + page load to settled (tileperf's load: frames back to back until nothing is in flight or building). Other sessions shared the GPU, so page load times spread by several seconds between runs of the same mode and ride frame times are not comparable here.
 

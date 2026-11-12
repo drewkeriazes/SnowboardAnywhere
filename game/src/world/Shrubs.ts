@@ -104,8 +104,6 @@ export class Shrubs {
   constructor(pack: Pack, collider: Collider | null, kit: TreeKit) {
     this.pack = pack;
     this.collider = collider;
-    // FEAT-230: cells a partial pack had not got yet load again once its rest is in
-    pack.onComplete(() => { for (const [k, c] of this.cells) if (c.missing && !c.loading) { this.cells.delete(k); this.dirty = true; } });
     const youngTris = Math.max(...YOUNG_SPECIES.flatMap((s) => kit.geo.lod1[s].map((g) => (g.index ? g.index.count : g.getAttribute('position').count) / 3)));
     this.shrubGeo = buildShrubGeometries(kit.atlas.cellMean, kit.atlas.barkMean, youngTris);
     const tex = kit.atlas.texture, wind = { value: 0 };
@@ -191,7 +189,6 @@ export class Shrubs {
   private async load(cell: Cell): Promise<void> {
     const listed = this.pack.meta.instances?.shrubCells;
     if (listed && !listed.includes(`${cell.cx}_${cell.cy}`)) { cell.missing = true; return; } // empty cell, no request
-    if (!this.pack.has('shrubs', `${cell.cx}_${cell.cy}`)) { cell.missing = true; return; } // FEAT-230: not yet
     cell.loading = true;
     try {
       const resp = await fetch(`${this.pack.baseUrl}/shrubs/${cell.cx}_${cell.cy}.bin`);

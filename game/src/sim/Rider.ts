@@ -363,11 +363,9 @@ export class Rider {
   private onCoarse(): void {
     this.coarseSteps++;
     const now = performance.now();
-    // FEAT-230: outside a partial pack's boot area this is expected until the rest arrives: say so, less often
-    const partial = !!this.pack.partial;
-    if (now - this.lastWarn < (partial ? 10000 : 2000)) return;
+    if (now - this.lastWarn < 2000) return;
     this.lastWarn = now;
-    console.warn(`physics: 1 m terrain not loaded at ${this.x.toFixed(0)}, ${this.y.toFixed(0)}; riding on a coarser set (${this.coarseSteps}/${this.steps} steps so far)${partial ? ': the rest of the pack is still downloading' : ''}`);
+    console.warn(`physics: 1 m terrain not loaded at ${this.x.toFixed(0)}, ${this.y.toFixed(0)}; riding on a coarser set (${this.coarseSteps}/${this.steps} steps so far)`);
   }
 
   /**

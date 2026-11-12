@@ -1,7 +1,7 @@
 import { HeightSet } from './HeightSet';
 import { MaskSet } from './MaskSet';
 import { CoverSet } from './CoverSet';
-import type { BootInfo, Features, PackMeta } from './types';
+import type { Features, PackMeta } from './types';
 import { downhillFrom, mogulHeight, MOGUL_FALL_D } from '../terrain/Moguls';
 
 /** chunks at this resolution or finer carry the mogul bumps in their geometry */
@@ -12,9 +12,6 @@ export const MOGUL_SHADE_MAX_RES = 16;
 /** A straight bridge deck segment (pack metres). The surface runs from a to b at the given z. */
 export interface Deck { ax: number; ay: number; az: number; bx: number; by: number; bz: number; hw: number }
 const DECK_CELL = 32;
-
-/** FEAT-230: how often a partial pack checks packs/index.json for its rest (ms) */
-const PARTIAL_POLL_MS = 2000;
 
 /**
  * A loaded resort pack: metadata, the height sets, the surface mask and features.
@@ -68,66 +65,7 @@ export class Pack {
     } catch (e) {
       console.warn('no features.json', e);
     }
-    await pack.checkPartial();
     return pack;
-  }
-
-  /**
-   * FEAT-230: true while the pack holds only its boot zip (packs/index.json lists it as `partial`, get_pack.mjs).
-   * Its tiled sets then ask only for the tiles boot.json lists; the rest are "not yet" (coarser sets stand in), and
-   * once the index drops the pack every set and layer asks again for what it skipped (onComplete).
-   */
-  partial = false;
-  /** FEAT-230: boot.json's tiles per folder while partial, else null */
-  private bootTiles: Map<string, Set<string>> | null = null;
-  private readonly completeFns: (() => void)[] = [];
-  /** performance.now() when the rest arrived (tools/tileperf.mjs), or -1 */
-  completedAt = -1;
-
-  /** FEAT-230: whether `dir/<key>.*` (a tile "tx_ty" of a set or an instance cell) is in the pack yet */
-  has(dir: string, key: string): boolean {
-    const t = this.bootTiles?.get(dir);
-    return !t || t.has(key);
-  }
-
-  /** FEAT-230: call fn once the rest of a partial pack has arrived (never for a whole pack) */
-  onComplete(fn: () => void): void { if (this.partial) this.completeFns.push(fn); }
-
-  private async checkPartial(): Promise<void> {
-    const folder = this.baseUrl.replace(/\/+$/, '').split('/').pop() ?? '';
-    const indexUrl = `${this.baseUrl.replace(/\/+$/, '').replace(/[^/]+$/, '')}index.json`;
-    const isPartial = async (): Promise<boolean | null> => {
-      try {
-        const r = await fetch(indexUrl, { cache: 'no-store' });
-        if (!r.ok) return null;
-        const idx = await r.json() as { partial?: string[] };
-        return (idx.partial ?? []).includes(folder);
-      } catch { return null; }
-    };
-    if (!(await isPartial())) return;
-    this.partial = true;
-    let boot: BootInfo | null = null;
-    try { const r = await fetch(`${this.baseUrl}/boot.json`, { cache: 'no-store' }); if (r.ok) boot = await r.json() as BootInfo; } catch { /* below */ }
-    // without boot.json every tile is asked for; the missing ones 404 and are asked for again on completion
-    if (boot) this.bootTiles = new Map(Object.entries(boot.tiles ?? {}).map(([k, v]) => [k, new Set(v)]));
-    const sets: [string, HeightSet | MaskSet | null][] = [['fine', this.fine], ['coarse', this.coarse], ['mid', this.mid], ['far', this.far],
-      ['mask', this.mask], ['ao', this.ao], ['dir', this.dir], ['moguls', this.moguls]];
-    for (const [dir, set] of sets) if (set && this.bootTiles?.has(dir)) set.available = (tx, ty) => this.has(dir, `${tx}_${ty}`);
-    console.log(`[pack] ${folder}: boot zip only, the rest is on its way`);
-    const poll = async (): Promise<void> => {
-      if ((await isPartial()) === false) { this.complete(sets.map(([, s]) => s)); return; }
-      setTimeout(poll, PARTIAL_POLL_MS);
-    };
-    setTimeout(poll, PARTIAL_POLL_MS);
-  }
-
-  private complete(sets: (HeightSet | MaskSet | null)[]): void {
-    this.partial = false;
-    this.bootTiles = null;
-    this.completedAt = performance.now();
-    for (const s of sets) s?.retry();
-    console.log(`[pack] ${this.meta.slug}: the rest has arrived`);
-    for (const fn of this.completeFns.splice(0)) fn();
   }
 
   /** Sets ordered finest first. */

@@ -31,13 +31,8 @@ npm run get synth         # the synthetic test mountain the CI checks run on (no
 ```
 
 Or open **Change resort** on the main menu: a published resort you don't have shows "Download (size)";
-pick it and the game downloads it and loads it. A resort published with a boot zip (FEAT-230) plays as soon
-as that small first part is in (Vail: 71 MB of 254 MB): you start at the resort's start with everything round
-it, the far terrain and the 4 m heights, and the rest downloads while you ride. Ride far from the start before
-it lands and the ground there is 4 m terrain with the distant forest colours (no holes); it sharpens on its
-own when the rest arrives. `npm run get` does the same (the boot zip, then the rest; `-- --full` takes the one
-whole zip). A resort whose rest never finished (the server stopped) shows "Finish download". A pack in an
-older format than the game reads shows "needs rebuild". `npm run get` won't replace a pack you built yourself unless you add `-- --force` (it
+pick it and the game downloads it and loads it. A pack in an older format than the game reads shows
+"needs rebuild". `npm run get` won't replace a pack you built yourself unless you add `-- --force` (it
 deletes the old one). To ride a pack you built in MapPacker before it is published, copy it in:
 
 ```

@@ -17,11 +17,6 @@ export class HeightSet {
   private readonly baseUrl: string;
   /** FEAT-229: bytes fetched and decode time (tools/tileperf.mjs) */
   readonly stats = new TileStats();
-  /**
-   * FEAT-230: in a pack still waiting for its rest zip, the tiles that are there (Pack.partialTiles); a tile not in
-   * it is "not yet": request() skips it (no fetch, no 404) and asks again after retry(). null = every tile.
-   */
-  available: ((tx: number, ty: number) => boolean) | null = null;
   /** called when a tile finishes loading so the terrain can rebuild chunks */
   onTileLoaded: ((tx: number, ty: number) => void) | null = null;
 
@@ -38,23 +33,6 @@ export class HeightSet {
 
   private key(tx: number, ty: number): number {
     return ty * 4096 + tx;
-  }
-
-  /** FEAT-230: the rest of the pack is in: every tile may be asked for, and those that failed are asked for again */
-  retry(): void {
-    this.available = null;
-    this.missing.clear();
-  }
-
-  /** FEAT-230: whether a tile under the rectangle is not in the pack yet (a partial pack); false once it is whole */
-  waiting(minX: number, minY: number, maxX: number, maxY: number): boolean {
-    const av = this.available;
-    if (!av) return false;
-    const m = this.meta;
-    const tx0 = Math.max(0, Math.floor((minX - m.minX) / this.size)), ty0 = Math.max(0, Math.floor((minY - m.minY) / this.size));
-    const tx1 = Math.min(m.tilesX - 1, Math.floor((maxX - m.minX) / this.size)), ty1 = Math.min(m.tilesY - 1, Math.floor((maxY - m.minY) / this.size));
-    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) if (!av(tx, ty)) return true;
-    return false;
   }
 
   tileCoord(x: number, y: number): [number, number] {
@@ -80,7 +58,6 @@ export class HeightSet {
         if (this.tiles.get(k)) continue;
         if (this.missing.has(k)) continue;
         all = false;
-        if (this.available && !this.available(tx, ty)) continue; // FEAT-230: not yet
         if (!this.pending.has(k)) this.pending.set(k, this.load(tx, ty));
       }
     }
