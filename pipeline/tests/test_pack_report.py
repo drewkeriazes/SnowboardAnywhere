@@ -143,3 +143,53 @@ def test_publish_status_follows_the_report(tmp_path):
     (tmp_path / "report.json").write_text(json.dumps({"build": "b1", "playable": False, "failing": ["8b"]}))
     with pytest.raises(SystemExit, match="8b"):
         report_status(str(tmp_path), meta, "playable")
+
+
+# ------------------------------------------------------------------ FEAT-232: courses scale with the resort
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def test_course_thresholds_scale_with_the_hill():
+    assert pr.course_thresholds(900.0) == (300.0, 60.0)       # a mountain keeps 300 m and 60 m
+    assert pr.course_thresholds(120.0) == (300.0, 60.0)
+    assert pr.course_thresholds(60.0) == (150.0, 30.0)        # Boston Mills
+    assert pr.course_thresholds(10.0) == (100.0, 20.0)        # never under 20 m of drop
+    assert pr.course_thresholds(0.0) == (100.0, 20.0)
+
+
+def test_course_rule_matches_the_game():
+    import re
+    ts = open(os.path.join(REPO, "game", "src", "sim", "Courses.ts"), encoding="utf-8").read()
+    val = lambda k: float(re.search(rf"const {k} = (\d+(?:\.\d+)?)", ts).group(1))
+    assert (val("MIN_LENGTH"), val("MIN_DROP"), val("MIN_DROP_FLOOR")) == \
+        (pr.COURSE_MIN_LENGTH, pr.COURSE_MIN_DROP, pr.COURSE_MIN_DROP_FLOOR)
+    assert "Math.max(MIN_DROP_FLOOR, maxDrop / 2)" in ts and "drop * LENGTH_PER_DROP" in ts
+
+
+def run(name, length, drop):
+    return {"name": name, "points": [[0.0, 0.0, drop], [length, 0.0, 0.0]]}
+
+
+def test_course_candidates_on_a_small_hill_and_a_mountain():
+    hill = [run("Buttermilk", 358, 60.0), run("Outer Limits", 401, 52.3), run("Croyle", 222, 56.8),
+            run("Downdraft", 199, 33.9), run("Summit", 133, 20.2), run("Frosty", 113, 10.4)]
+    names, th = pr.course_candidates(hill)
+    assert th == (150.0, 30.0) and names == ["Buttermilk", "Croyle", "Downdraft", "Outer Limits"]
+    mountain = hill + [run("Riva Ridge", 5800, 900.0)]
+    names, th = pr.course_candidates(mountain)
+    assert th == (300.0, 60.0) and names == ["Buttermilk", "Riva Ridge"]     # Buttermilk: 358 m, 60 m: still one
+
+
+@pytest.mark.parametrize("slug,expect", [("vail", (300.0, 60.0)), ("breckenridge", (300.0, 60.0)),
+                                         ("bigsky", (300.0, 60.0)), ("boston-mills", (150.0, 30.0))])
+def test_real_packs_keep_or_gain_courses(slug, expect):
+    for root in (os.path.join(REPO, "packs"), os.path.join(os.path.dirname(REPO), "SnowboardAnywhere", "packs"),
+                 os.path.join(os.path.dirname(REPO), "wt-mp4", "packs")):
+        f = os.path.join(root, slug, "features.json")
+        if os.path.isfile(f):
+            break
+    else:
+        pytest.skip(f"no {slug} pack on this machine")
+    runs = json.load(open(f, encoding="utf-8"))["runs"]
+    names, th = pr.course_candidates(runs)
+    assert th == pytest.approx(expect, abs=0.5) and names

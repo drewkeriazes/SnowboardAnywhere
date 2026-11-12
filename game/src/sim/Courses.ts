@@ -6,6 +6,11 @@ import type { Difficulty } from '../pack/types';
  * into several ways with the same name, so segments with one name are oriented downhill and
  * chained top to bottom where one ends within JOIN m of the next start. The longest chain per
  * name becomes the course. Checkpoints are laid every CHECK_SPACING m along it.
+ *
+ * FEAT-232: how long and steep a course must be scales with the resort. A mountain (any named run with
+ * 120 m of drop or more) keeps 300 m and 60 m; a small hill takes half its biggest drop, at least 20 m,
+ * and five times that in length (Boston Mills: 60 m at most, so 30 m and 150 m). pipeline/pack_report.py
+ * `course_thresholds` is the same rule (tests/test_pack_report.py reads these constants).
  */
 export interface Course {
   id: string;
@@ -22,9 +27,17 @@ export interface Course {
 }
 
 const JOIN = 25;
-const MIN_LENGTH = 300;
-const MIN_DROP = 60;
+const MIN_LENGTH = 300; // m, a mountain's course
+const MIN_DROP = 60; // m, a mountain's course
+const MIN_DROP_FLOOR = 20; // m: never a course with less drop, however small the hill
+const LENGTH_PER_DROP = MIN_LENGTH / MIN_DROP;
 const CHECK_SPACING = 150;
+
+/** [min length, min drop] in m for a resort whose biggest named run drops `maxDrop` m */
+export function courseThresholds(maxDrop: number): [number, number] {
+  const drop = Math.min(MIN_DROP, Math.max(MIN_DROP_FLOOR, maxDrop / 2));
+  return [drop * LENGTH_PER_DROP, drop];
+}
 
 export function buildCourses(pack: Pack): Course[] {
   const byName = new Map<string, { difficulty: Difficulty | null; segs: [number, number, number][][] }>();
@@ -36,7 +49,7 @@ export function buildCourses(pack: Pack): Course[] {
     if (!e) { e = { difficulty: r.difficulty, segs: [] }; byName.set(r.name, e); }
     e.segs.push(pts);
   }
-  const courses: Course[] = [];
+  const chains: { name: string; difficulty: Difficulty | null; best: [number, number, number][]; bestLen: number; drop: number }[] = [];
   for (const [name, { difficulty, segs }] of byName) {
     // try every segment as the head of a chain; keep the longest
     let best: [number, number, number][] | null = null, bestLen = 0;
@@ -59,8 +72,12 @@ export function buildCourses(pack: Pack): Course[] {
       if (len > bestLen) { bestLen = len; best = chain; }
     }
     if (!best) continue;
-    const drop = best[0][2] - best[best.length - 1][2];
-    if (bestLen < MIN_LENGTH || drop < MIN_DROP) continue;
+    chains.push({ name, difficulty, best, bestLen, drop: best[0][2] - best[best.length - 1][2] });
+  }
+  const [minLength, minDrop] = courseThresholds(chains.reduce((m, c) => Math.max(m, c.drop), 0));
+  const courses: Course[] = [];
+  for (const { name, difficulty, best, bestLen, drop } of chains) {
+    if (bestLen < minLength || drop < minDrop) continue;
     const cum = [0];
     for (let i = 1; i < best.length; i++) cum.push(cum[i - 1] + Math.hypot(best[i][0] - best[i - 1][0], best[i][1] - best[i - 1][1]));
     const checkpoints: number[] = [];
