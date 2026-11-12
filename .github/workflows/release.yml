@@ -1,0 +1,124 @@
+# FEAT-262 the release: only when Drew clicks Run workflow (Actions > Release > Run workflow > bump). Merges to main
+# never release. It reads the latest release's tag (X.Y.Z, no v: 0.0.1 is the first), bumps it, builds the Windows
+# zip at the commit it ran on (npm run package, FEAT-261, which stamps the version into the exe and the game), then
+# creates the tag and the release with SnowboardAnywhere-win.zip attached and notes from the PRs merged since the
+# last tag. An existing tag stops it before the build: a release is never overwritten.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Which number goes up (from 0.0.1: patch 0.0.2, minor 0.1.0, major 1.0.0)'
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: write
+
+# two clicks queue instead of racing for the same number; the second then stops on the same-commit check below
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Next version
+        id: v
+        shell: bash
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          # the latest release (gh skips drafts and pre-releases)
+          if ! last=$(gh release view --json tagName -q .tagName 2>&1); then
+            echo "::error::Could not read the latest release: $last. Make the first one (0.0.1) by hand."
+            exit 1
+          fi
+          if [[ ! "$last" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::The latest release's tag is '$last', not X.Y.Z (like 0.0.1, no v), so there is nothing to bump."
+            exit 1
+          fi
+          ma=${BASH_REMATCH[1]} mi=${BASH_REMATCH[2]} pa=${BASH_REMATCH[3]}
+          case "$BUMP" in
+            major) ma=$((ma + 1)); mi=0; pa=0 ;;
+            minor) mi=$((mi + 1)); pa=0 ;;
+            patch) pa=$((pa + 1)) ;;
+            *) echo "::error::bump is '$BUMP', not patch, minor or major"; exit 1 ;;
+          esac
+          ver="$ma.$mi.$pa"
+          echo "Latest release $last, $BUMP bump: $ver at ${GITHUB_SHA:0:7} ($GITHUB_REF_NAME)"
+          echo "last=$last" >> "$GITHUB_OUTPUT"
+          echo "ver=$ver" >> "$GITHUB_OUTPUT"
+
+      - name: Stop if the tag exists or this commit is already released
+        shell: bash
+        env:
+          LAST: ${{ steps.v.outputs.last }}
+          VER: ${{ steps.v.outputs.ver }}
+        run: |
+          set -uo pipefail
+          git ls-remote --exit-code --tags origin "refs/tags/$VER" > /dev/null
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::Tag $VER already exists, and a release is never overwritten. Delete the tag by hand if it is a leftover, or bump minor or major."
+            exit 1
+          elif [ "$rc" -ne 2 ]; then
+            echo "::error::Could not list the tags (git ls-remote exit $rc)."
+            exit 1
+          fi
+          if out=$(gh release view "$VER" --json tagName 2>&1); then
+            echo "::error::A release named $VER already exists (a draft?): delete it or bump minor or major."
+            exit 1
+          elif ! grep -qi 'not found' <<< "$out"; then
+            echo "::error::Could not check for a release $VER: $out"
+            exit 1
+          fi
+          # a second click on the same commit would only ship the same game under a new number
+          if ! at=$(gh api "repos/$GH_REPO/commits/$LAST" --jq .sha 2>&1); then
+            echo "::error::Could not find the commit of $LAST: $at"
+            exit 1
+          fi
+          if [ "$at" = "$GITHUB_SHA" ]; then
+            echo "::error::$LAST is already this commit (${GITHUB_SHA:0:7}): merge something first."
+            exit 1
+          fi
+          echo "No tag or release $VER yet; $LAST is ${at:0:7}."
+
+      - uses: actions/setup-node@v4
+        with:
+          # the exe embeds the node.exe that builds it: 24 is what FEAT-261 was tested on
+          node-version: 24
+          cache: npm
+          cache-dependency-path: game/package-lock.json
+
+      - run: npm ci
+        working-directory: game
+
+      # vite build, the launcher exe (checked with --version), README.txt, the zip in game/release/
+      - name: Build SnowboardAnywhere-win.zip
+        working-directory: game
+        shell: bash
+        env:
+          VER: ${{ steps.v.outputs.ver }}
+        run: npm run package -- --version "$VER"
+
+      - name: Create the tag and the release
+        shell: bash
+        env:
+          LAST: ${{ steps.v.outputs.last }}
+          VER: ${{ steps.v.outputs.ver }}
+        run: |
+          set -euo pipefail
+          gh release create "$VER" game/release/SnowboardAnywhere-win.zip --target "$GITHUB_SHA" \
+            --title "$VER" --generate-notes --notes-start-tag "$LAST"
+          echo "Released [$VER](https://github.com/$GH_REPO/releases/tag/$VER) at ${GITHUB_SHA:0:7}, notes since $LAST." >> "$GITHUB_STEP_SUMMARY"

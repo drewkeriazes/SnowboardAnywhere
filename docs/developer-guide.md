@@ -229,6 +229,18 @@ Plain steps list the PRs merged into `main` since then (by their merge commits),
 
 One-time setup: Settings > Actions > General > Workflow permissions > tick "Allow GitHub Actions to create and approve pull requests". Without it the run pushes the branch and its summary links to open the PR by hand.
 
+## Releases
+
+`.github/workflows/release.yml` (FEAT-262) makes a release of the Windows zip. It runs only by hand: Actions > Release > Run workflow > pick the branch (`main`) and `bump` (`patch`, the default; `minor` or `major`) > Run workflow. Merges to `main` never make a release, and nothing in `.github/workflows/` runs on tags or releases.
+
+The release tag is the version of record: `X.Y.Z`, no `v`. `0.0.1` is the first release (made by hand, no zip) and the starting point, so the first `patch` run makes `0.0.2`. A run:
+1. reads the latest release's tag (`gh release view`, which skips drafts and pre-releases) and bumps it: from `0.0.1`, `patch` is `0.0.2`, `minor` `0.1.0`, `major` `1.0.0`. A tag that isn't `X.Y.Z` stops the run.
+2. stops before building when the new tag or a release by that name (a draft too) already exists, so a release is never overwritten, or when the latest release is already this commit (a second click with nothing merged in between).
+3. builds at the commit it ran on with Node 24 (the exe embeds the `node.exe` that builds it): `npm ci`, then `npm run package -- --version X.Y.Z` in `game/`, which stamps the version into the exe (`SnowboardAnywhere.exe --version`) and the main menu. `game/package.json`'s `version` is not used.
+4. `gh release create X.Y.Z game/release/SnowboardAnywhere-win.zip --target <commit> --generate-notes --notes-start-tag <last tag>`: the tag, the release with the zip attached, and notes listing the PRs merged since the last release. The run's summary links it.
+
+Runs queue (`concurrency: release`) instead of racing for the same number. It needs only `contents: write`: it makes a tag and a release, no commits, so the `main` ruleset doesn't apply. The tag is made last, with the release, so a failed build leaves nothing behind; a failed upload can leave a draft release, which the next run stops on (delete it under Releases). Release assets can be up to 2 GB each; the zip is about 185 MB. The repo is public, so anyone can download a release. `PLAY.md` sends riders to `releases/latest`, and FEAT-263 (#590) will read that for updates.
+
 ## Pipeline scripts (in MapPacker)
 
 The pipeline that turns a resort name into a published pack moved to
