@@ -9,6 +9,8 @@ Modes: free ride, time trials and Outrun, picked on the main menu's cards or in 
 
 ## Play
 
+**Just want to ride?** Follow [PLAY.md](PLAY.md): install, download and start the game in five copy-paste steps, plus fixes for the common problems. The rest of this section is the developer version.
+
 On Windows without any tools: download `SnowboardAnywhere-win.zip` from
 [Releases](https://github.com/drewkeriazes/SnowboardAnywhere/releases), unzip it, double-click
 `SnowboardAnywhere.exe`. The first launch downloads Vail in its small window (about 270 MB, a few minutes), then
