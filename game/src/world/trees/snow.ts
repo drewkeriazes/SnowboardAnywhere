@@ -59,9 +59,13 @@ export function setTreeSnow(s: TreeSnowState): void {
   treeSnowUniforms.uTreeSnow.value.set(s.load, s.melt, s.ghost);
 }
 
-/** DATA-021: put the snow-ghost band at this resort's treeline (m) */
-export function setGhostBand(treeline: number): void {
-  treeSnowUniforms.uGhostZ.value.set(treeline - 30, treeline + 80);
+/** FEAT-234: the band's floor (m) for a resort with no treeline: above any ground, so no tree is a ghost */
+const NO_GHOST_Z = 100_000;
+
+/** DATA-021: put the snow-ghost band at this resort's treeline (m); null (FEAT-234: no treeline) means no band */
+export function setGhostBand(treeline: number | null): void {
+  if (treeline === null) treeSnowUniforms.uGhostZ.value.set(NO_GHOST_Z, NO_GHOST_Z + 110);
+  else treeSnowUniforms.uGhostZ.value.set(treeline - 30, treeline + 80);
 }
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
