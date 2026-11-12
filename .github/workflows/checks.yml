@@ -60,7 +60,7 @@ env:
   PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
   BASE_REF: ${{ github.base_ref || 'main' }}
   # Node-only check tools: exit 1 on a failed check, need neither a pack nor a browser
-  PHYSICS_CHECKS: accountcheck brakecheck carvecheck conditionscheck fakiecheck fallcheck getpackcheck hardcarvecheck mogulcheck presscheck shrubcheck standcheck treepuffcheck
+  PHYSICS_CHECKS: accountcheck brakecheck carvecheck conditionscheck fakiecheck fallcheck getpackcheck hardcarvecheck mogulcheck origincheck presscheck shrubcheck standcheck treepuffcheck
   # Browser check tools that pass on the synthetic pack under SwiftShader within a few minutes
   BROWSER_CHECKS: switchcheck glancecheck hardposecheck padcheck accountmenucheck
   # BROWSER_LOCAL (timed on a runner for FEAT-172: they draw every frame, and SwiftShader takes minutes per check):
