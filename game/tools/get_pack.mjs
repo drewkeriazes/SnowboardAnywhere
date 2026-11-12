@@ -23,7 +23,10 @@ import zlib from 'node:zlib';
 import { GAME, PACKS } from './paths.mjs';
 
 export const RESORTS_REPO = 'drewkeriazes/MapPacker-SnowboardAnywhere';
+/** The raw file on main: the fallback, and what CI's synth-pack job reads. GitHub's CDN caches it for 5 minutes. */
 export const CATALOG_URL = `https://raw.githubusercontent.com/${RESORTS_REPO}/main/catalog.json`;
+/** BUG-096: the same file through the contents API, which reads main as it is now (one unauthenticated API call). */
+export const CATALOG_API = `https://api.github.com/repos/${RESORTS_REPO}/contents/catalog.json`;
 export const SLUG = /^[a-z0-9][a-z0-9_-]*$/;
 const MARKER = '.catalog.json';
 const FROM_MARKER = '.from.json'; // FEAT-242: a pack copied in with --from: { from, build, copied }
@@ -42,12 +45,29 @@ export const PACK_FORMAT = typeof SBA_LAUNCHER !== 'undefined' ? SBA_LAUNCHER.pa
 
 const isUrl = (s) => /^https?:\/\//.test(s);
 
-/** catalog.json from the resorts repo (or SA_CATALOG / a file path). */
-export async function readCatalog(src = process.env.SA_CATALOG || CATALOG_URL) {
-  if (!isUrl(src)) return JSON.parse(fs.readFileSync(src, 'utf8'));
-  const r = await fetch(src, { cache: 'no-store', signal: AbortSignal.timeout(10000) });
-  if (!r.ok) throw new Error(`catalog: HTTP ${r.status} from ${src}`);
-  return r.json();
+/**
+ * catalog.json from the resorts repo, or from `src` (SA_CATALOG or --catalog: a URL or a file path, read as is).
+ * BUG-096: by default through CATALOG_API, so a pack publish_pack.py released a minute ago is in it: the raw URL is
+ * cached by GitHub's CDN (max-age=300) and can name the previous release for up to 5 minutes. Any API failure (the
+ * 60 an hour unauthenticated limit answers 403 or 429, offline, an answer that is not a catalog) falls back to the
+ * raw URL with a warning, so nothing is worse than before. `api`, `raw`, `fetch` and `warn` are for getpackcheck.
+ */
+export async function readCatalog(src = process.env.SA_CATALOG, { api = CATALOG_API, raw = CATALOG_URL, fetch: get = fetch, warn = console.warn } = {}) {
+  if (src && !isUrl(src)) return JSON.parse(fs.readFileSync(src, 'utf8'));
+  const read = async (url, headers = {}) => {
+    const r = await get(url, { headers: { 'user-agent': 'SnowboardAnywhere-get_pack', ...headers }, cache: 'no-store', signal: AbortSignal.timeout(10000) });
+    if (!r.ok) throw new Error(`catalog: HTTP ${r.status} from ${url}`);
+    return r.json();
+  };
+  if (src) return read(src);
+  try {
+    const c = await read(api, { accept: 'application/vnd.github.raw', 'x-github-api-version': '2022-11-28' });
+    if (!Array.isArray(c?.resorts)) throw new Error(`catalog: ${api} did not answer a catalog`);
+    return c;
+  } catch (e) {
+    warn(`get_pack: ${e.message ?? e}; reading ${raw}, which can be up to 5 minutes behind a publish`);
+    return read(raw);
+  }
 }
 
 function readJson(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } }
