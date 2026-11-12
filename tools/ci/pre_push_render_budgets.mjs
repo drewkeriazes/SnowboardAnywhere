@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // FEAT-183: the pre-push hook's logic (.githooks/pre-push runs it). On Drew's PC, with
-// `git config sa.gpuBudgets true`, a plain `git push` of a PR branch that changes game/ or pipeline/ runs
+// `git config sa.gpuBudgets true`, a plain `git push` of a PR branch that changes game/ (or the CI tools) runs
 // CI's render-budgets check on the GPU first (render_budgets_lib.mjs, the same steps as
 // local_render_budgets.mjs). On a pass a detached process (render_budgets_post.mjs) waits until GitHub has
 // the commit and sets the `render-budgets/local` status and the PR comment, so CI's job skips.

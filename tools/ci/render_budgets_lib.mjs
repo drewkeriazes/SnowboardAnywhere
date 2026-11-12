@@ -6,15 +6,16 @@
 //   post(ctx, res)                                  the `render-budgets/local` status and the PR comment
 //
 // It builds the merge base with origin/<base> ("before") and the commit ("after") in their own detached
-// worktrees, runs the commit's game/tools/cishot.mjs on both with the synthetic pack CI would build
-// (tools/ci/synth_key.sh on an LF copy of each pipeline/), then the commit's tools/ci/render_report.py: the
-// same commands as the CI job. CI accepts the status only when it was set by the repo owner, on the exact
+// worktrees, runs the commit's game/tools/cishot.mjs on both with the synthetic pack CI downloads (FEAT-241:
+// MapPacker's release, the catalog's synth at this game's PACK_FORMAT, one pack for both sides), then the
+// commit's tools/ci/render_report.py: the same commands as the CI job. CI accepts the status only when it was set by the repo owner, on the exact
 // head SHA, with the PR's current merge base, the same tools hash (tools/ci/render_budgets_key.sh) and the
 // same synthetic pack key, and the PR did not ask for stills.
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { CATALOG_URL } from '../../game/tools/get_pack.mjs';
 
 export const MARKER = '<!-- ci-stills -->';
 export const CONTEXT = 'render-budgets/local';
@@ -98,8 +99,8 @@ export function findPr(repo, which) {
   return json ? JSON.parse(json) : null;
 }
 
-/** the paths CI's `changes` filter turns render-budgets on for (checks.yml: the ci, game and pipeline filters) */
-export const BUDGET_PATHS = /^(game\/|pipeline\/|tools\/ci\/|\.github\/workflows\/checks\.yml$)/;
+/** the paths CI's `changes` filter turns render-budgets on for (checks.yml: the ci and game filters) */
+export const BUDGET_PATHS = /^(game\/|tools\/ci\/|\.github\/workflows\/checks\.yml$)/;
 
 /**
  * Preconditions. mode 'manual': the commit is HEAD; it must be the PR's head on GitHub, or (push: true) ahead
@@ -166,42 +167,33 @@ function checkInstalled(gameDir) {
 
 /** Builds both sides and runs the check. Returns { pass, outDir, body, gpu, desc }; never posts anything. */
 export function runCheck(ctx) {
-  const { repo, git, L, SHA, BASE, TOOLS, BASH, cache, keep } = ctx;
-  const posix = (p) => p.split(path.sep).join('/');
-  // Windows' own bsdtar: Git Bash's GNU tar reads `C:` in a path as a remote host
-  const winTar = process.platform === 'win32' && path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
-  const TAR = winTar && fs.existsSync(winTar) ? winTar : 'tar';
-
-  // ---- synthetic packs -------------------------------------------------------------------------------
-  /** the synth key of <sha>'s pipeline/ as CI computes it: synth_key.sh on an LF checkout */
-  function synthKey(sha) {
-    const src = path.join(cache, 'src', sha);
-    if (!fs.existsSync(path.join(src, '.done'))) {
-      fs.rmSync(src, { recursive: true, force: true });
-      fs.mkdirSync(src, { recursive: true });
-      const tarFile = path.join(src, 'pipeline.tar');
-      git('-c', 'core.autocrlf=false', '-c', 'core.eol=lf', 'archive', '--format=tar', '-o', tarFile, sha, 'pipeline');
-      out(TAR, ['-xf', tarFile, '-C', src]);
-      fs.rmSync(tarFile);
-      fs.writeFileSync(path.join(src, '.done'), '');
-    }
-    return { key: out(BASH, ['tools/ci/synth_key.sh', posix(path.join(src, 'pipeline'))], { cwd: repo }), src };
-  }
-  /** the packs folder (packs/synth plus index.json) for a synth key, built once and kept in the cache */
-  function synthPacks({ key, src }) {
+  const { repo, git, L, SHA, BASE, TOOLS, cache, keep } = ctx;
+  // ---- the synthetic pack ----------------------------------------------------------------------------
+  /** the packs folder (packs/synth plus index.json) CI's synth-pack job would download, and its cache key: one
+   *  read of the catalog for both, the commit's get_pack.mjs for the download, kept in the cache per release */
+  function synthPacks() {
+    const tool = path.join(repo, 'game', 'tools', 'get_pack.mjs');
+    const catalog = path.join(cache, 'catalog.json');
+    fs.mkdirSync(cache, { recursive: true });
+    const fetchCatalog = "fetch(process.argv[1], { cache: 'no-store' }).then((r) => r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))).then((t) => process.stdout.write(t))";
+    const text = tryOut(process.execPath, ['-e', fetchCatalog, CATALOG_URL]);
+    if (!text) die(`could not read the catalog ${CATALOG_URL}`);
+    fs.writeFileSync(catalog, text);
+    const sha = tryOut(process.execPath, [tool, 'synth', '--sha256', '--catalog', catalog]);
+    if (!sha) die(`no synthetic pack for this game's pack format in ${CATALOG_URL} (MapPacker: publish_pack.py --synth)`);
+    const key = `synth-sha-${sha.slice(0, 16)}`;
     const dir = path.join(cache, 'synth', key);
     if (!fs.existsSync(path.join(dir, '.done'))) {
-      L.step(`building the synthetic pack ${key} (about 2 minutes)`);
+      L.step(`downloading the synthetic pack ${key}`);
       fs.rmSync(dir, { recursive: true, force: true });
       fs.mkdirSync(dir, { recursive: true });
-      if (L.run(PYTHON, [path.join(src, 'pipeline', 'synth_pack.py'), path.join(dir, 'synth')]) !== 0) die('synth_pack.py failed');
+      if (L.run(process.execPath, [tool, 'synth', '--catalog', catalog, '--packs', dir]) !== 0) die('get_pack.mjs synth failed');
       fs.writeFileSync(path.join(dir, 'index.json'), '{"packs":["synth"]}\n');
       fs.writeFileSync(path.join(dir, '.done'), '');
     }
-    return dir;
+    return { key, dir };
   }
-  const synthBase = synthKey(BASE), synthHead = synthKey(SHA);
-  const packsBase = synthPacks(synthBase), packsHead = synthPacks(synthHead);
+  const synth = synthPacks();
 
   // ---- builds ----------------------------------------------------------------------------------------
   const runDir = path.join(cache, 'runs', SHA.slice(0, 12));
@@ -248,10 +240,10 @@ export function runCheck(ctx) {
     const cishot = path.join(gameHead, 'tools', 'cishot.mjs');
     L.step('cishot.mjs on the merge base (before)');
     L.run(process.execPath, [cishot, 'synth', path.join(outDir, 'before'), SHOT_FLAG],
-      { cwd: gameHead, env: { ...env, SHOT_DIST: path.join(gameBase, 'dist'), SHOT_PACKS: packsBase } });
+      { cwd: gameHead, env: { ...env, SHOT_DIST: path.join(gameBase, 'dist'), SHOT_PACKS: synth.dir } });
     L.step(`cishot.mjs on ${SHA.slice(0, 12)} (after)`);
     const after = L.run(process.execPath, [cishot, 'synth', path.join(outDir, 'after'), SHOT_FLAG],
-      { cwd: gameHead, env: { ...env, SHOT_DIST: path.join(gameHead, 'dist'), SHOT_PACKS: packsHead } });
+      { cwd: gameHead, env: { ...env, SHOT_DIST: path.join(gameHead, 'dist'), SHOT_PACKS: synth.dir } });
 
     L.step('render_report.py');
     const reportDir = path.join(outDir, 'report');
@@ -267,7 +259,7 @@ export function runCheck(ctx) {
     lines.splice(2, 0, '', `**Run locally** on \`${os.hostname()}\` (\`${gpu}\`) with \`tools/ci/local_render_budgets.mjs\` or the pre-push hook: after is ${SHA}, before is the merge base ${BASE}. CI skips its own \`render-budgets\` run for this commit; a new push, a new merge base, a change to the tools or a \`stills\` request runs it again.`);
     const body = path.join(reportDir, 'comment.md');
     fs.writeFileSync(body, lines.join('\n'));
-    return { pass: true, outDir, body, gpu, desc: `passed base=${BASE} tools=${TOOLS} synth=${synthHead.key}` };
+    return { pass: true, outDir, body, gpu, desc: `passed base=${BASE} tools=${TOOLS} synth=${synth.key}` };
   } finally {
     if (!keep) { removeWorktree(wtBase); removeWorktree(wtHead); }
   }

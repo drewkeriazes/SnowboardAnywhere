@@ -1,4 +1,4 @@
-// FEAT-222 `npm run get <slug>` (node tools/get_pack.mjs <slug> [--force] [--catalog <url|file>] | --list):
+// FEAT-222 `npm run get <slug>` (node tools/get_pack.mjs <slug> [--force] [--sha256] [--catalog <url|file>] | --list):
 // download a published resort pack into packs/<slug>. Reads catalog.json from the resorts repo
 // (drewkeriazes/MapPacker-SnowboardAnywhere, written by pipeline/publish_pack.py), downloads the release zip in
 // Node (GitHub release assets send no CORS headers, so the page can't), checks its sha256 and pack format against
@@ -6,6 +6,9 @@
 // The dev and host servers (vite.config.ts /__packs/*) call getPack() for the resort picker's Download button.
 // A pack this tool installed carries packs/<slug>/.catalog.json, so a newer release replaces it on its own; a pack
 // built here (no marker) is only replaced with --force. SA_CATALOG overrides the catalog URL (tests).
+// FEAT-241: the catalog's `test` list holds test packs the picker never shows (the synthetic pack CI runs on,
+// `npm run get synth`), one entry per pack format: findEntry picks the one this game reads. `--sha256` prints the
+// sha256 of the zip it would install, for CI's cache key.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -71,15 +74,24 @@ export function formatProblem(entry) {
   return null;
 }
 
+/**
+ * The catalog entry for `slug`: a resort, else a test pack (FEAT-241). Of several (a test pack has one per pack
+ * format), the one at this game's PACK_FORMAT, else the first, which formatProblem then explains.
+ */
+export function findEntry(catalog, slug) {
+  const all = [...(catalog.resorts ?? []), ...(catalog.test ?? [])].filter((r) => r.slug === slug && r.pack);
+  if (!all.length) {
+    const have = (catalog.resorts ?? []).map((r) => r.slug).join(', ') || 'none';
+    throw new Error(`${slug} is not in the catalog (published: ${have})`);
+  }
+  return all.find((r) => r.pack.formatVersion === PACK_FORMAT) ?? all[0];
+}
+
 /** Install `slug` from the catalog. onProgress({ phase: 'download' | 'unzip' | 'done', received, total }). */
 export async function getPack(slug, { packsDir = PACKS, catalog, force = false, onProgress = () => {} } = {}) {
   if (!SLUG.test(slug)) throw new Error(`not a resort slug: ${slug}`);
   catalog ??= await readCatalog();
-  const entry = (catalog.resorts ?? []).find((r) => r.slug === slug);
-  if (!entry?.pack) {
-    const have = (catalog.resorts ?? []).map((r) => r.slug).join(', ') || 'none';
-    throw new Error(`${slug} is not in the catalog (published: ${have})`);
-  }
+  const entry = findEntry(catalog, slug);
   const problem = formatProblem(entry);
   if (problem) throw new Error(problem);
   const dest = path.join(packsDir, slug);
@@ -215,6 +227,7 @@ async function cli(args) {
   const packsArg = flag('--packs');
   const force = args.includes('--force');
   const list = args.includes('--list');
+  const sha256 = args.includes('--sha256');
   const slug = args.find((a) => !a.startsWith('--'));
   const packsDir = packsArg ? path.resolve(packsArg) : PACKS;
   if (!slug && !list) {
@@ -222,6 +235,13 @@ async function cli(args) {
     process.exit(2);
   }
   const catalog = await readCatalog(catalogSrc);
+  if (sha256) {
+    const entry = findEntry(catalog, slug);
+    const problem = formatProblem(entry);
+    if (problem) throw new Error(problem);
+    console.log(entry.pack.sha256);
+    return;
+  }
   if (list) {
     const local = localPacks(packsDir);
     for (const r of catalog.resorts ?? []) {

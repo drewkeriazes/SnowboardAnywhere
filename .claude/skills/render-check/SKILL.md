@@ -8,7 +8,7 @@ description: Verify the game renders and rides correctly without a human watchin
 ## Run
 ```
 cd game && npx tsc --noEmit && npx vite build
-node tools/shoot.mjs synth shots          # synthetic pack (generate first: python pipeline/synth_pack.py packs/synth)
+node tools/shoot.mjs synth shots          # synthetic pack (get it first: cd game && npm run get synth)
 node tools/shoot.mjs vail shots-vail      # real pack, once packs/vail exists
 ```
 `tools/shoot.mjs` serves `dist/` plus `../packs` on a local port, loads `index.html?pack=<slug>&headless`, steps frames with `window.__step(n, dt)` and saves PNGs with `window.__shot()` (canvas.toDataURL, so no page.screenshot hangs). Each `settle` prints a JSON line with chunk count, triangle count, tree instances, rider position, speed, onGround and loaded tile counts per height set.
