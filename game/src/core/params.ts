@@ -8,7 +8,8 @@ export interface Params {
   pack: string;
   /** ?headless: test tools step the loop with window.__step instead of requestAnimationFrame */
   headless: boolean;
-  /** FEAT-138: `npm run host` builds for other computers on the home network; dev-only tools stay off there */
+  /** FEAT-138: `npm run host` builds for other computers on the home network, FEAT-261 `npm run package` for the
+   *  Windows launcher; dev-only tools stay off on both */
   hosted: boolean;
   /** ?debug, ?debug=moguls, ?debug=pad: the value, '' when bare, null when absent */
   debug: string | null;
@@ -49,7 +50,7 @@ export interface Params {
   snowdepth: number | null;
 }
 
-export function parseParams(search: string, hosted = !!import.meta.env.VITE_HOST_NAME): Params {
+export function parseParams(search: string, hosted = !!(import.meta.env.VITE_HOST_NAME || import.meta.env.VITE_HOSTED)): Params {
   const p = new URLSearchParams(search);
   const num = (k: string): number | null => { const v = Number(p.get(k)); return p.has(k) && Number.isFinite(v) ? v : null; };
   const rider = p.get('rider'), stance = p.get('stance'), time = p.get('time');

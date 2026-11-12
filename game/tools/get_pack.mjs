@@ -28,8 +28,12 @@ const MARKER = '.catalog.json';
 const FROM_MARKER = '.from.json'; // FEAT-242: a pack copied in with --from: { from, build, copied }
 const STALL_MS = 60_000;
 
-/** The pack format this checkout's client reads (PACK_FORMAT in src/pack/format.ts). */
-export const PACK_FORMAT = (() => {
+/**
+ * The pack format this checkout's client reads (PACK_FORMAT in src/pack/format.ts). The Windows launcher has no
+ * src/ next to it: tools/package.mjs reads the same line when it bundles the exe and defines SBA_LAUNCHER.packFormat.
+ */
+/* global SBA_LAUNCHER */
+export const PACK_FORMAT = typeof SBA_LAUNCHER !== 'undefined' ? SBA_LAUNCHER.packFormat : (() => {
   const m = /PACK_FORMAT\s*=\s*(\d+)/.exec(fs.readFileSync(path.join(GAME, 'src', 'pack', 'format.ts'), 'utf8'));
   if (!m) throw new Error('PACK_FORMAT not found in src/pack/format.ts');
   return Number(m[1]);
@@ -337,6 +341,6 @@ async function cli(args) {
   console.log(res.already ? `${slug} v${res.version} is already in ${rel}` : `${slug} v${res.version} installed in ${rel}: cd game && npm run dev, then open /?pack=${slug}`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (typeof SBA_LAUNCHER === 'undefined' && process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   cli(process.argv.slice(2)).catch((e) => { console.error(`get_pack: ${e.message ?? e}`); process.exit(1); });
 }

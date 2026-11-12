@@ -20,6 +20,12 @@ function hostedLine(): string {
   return `<div class="hosted">Hosted from ${pc} &middot; ${location.host}${pads}</div>`;
 }
 
+/** FEAT-261: the build's version (`npm run package -- --version X.Y.Z`), small in the corner so a rider can say what they are on */
+function versionLine(): string {
+  const v = import.meta.env.VITE_GAME_VERSION as string | undefined;
+  return `<div class="version">${v && v !== 'dev' ? `v${v}` : 'dev build'}</div>`;
+}
+
 export interface MenuChoice { action: 'ride' | 'map'; mode: PauseMode }
 export interface MainMenuOpts {
   slug: string;
@@ -102,7 +108,7 @@ export class MainMenu {
         <button class="card change" data-a="resort"><span class="cname">Change resort</span><span class="cmeta">${o.resorts.length} built</span></button>
       </div>
       <div class="pop" hidden></div>
-      <footer class="foot"><div class="hintbar"></div><div class="sound">Click or press any key for sound</div>${hostedLine()}</footer>
+      <footer class="foot"><div class="hintbar"></div><div class="sound">Click or press any key for sound</div>${hostedLine()}${versionLine()}</footer>
       <div class="loadbar"><div class="fill"></div><span class="label">Loading</span></div>`;
     this.el.style.display = 'none'; // show() puts it up
     document.body.appendChild(this.el);

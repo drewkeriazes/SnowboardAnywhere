@@ -9,6 +9,15 @@ Modes: free ride, time trials and Outrun, picked on the main menu's cards or in 
 
 ## Play
 
+On Windows without any tools: download `SnowboardAnywhere-win.zip` from
+[Releases](https://github.com/drewkeriazes/SnowboardAnywhere/releases), unzip it, double-click
+`SnowboardAnywhere.exe`. The first launch downloads Vail in its small window (about 270 MB, a few minutes), then
+the game opens in your browser; later launches start straight away, and more resorts come from Change resort.
+Windows may warn the first time (the exe is not code-signed): More info > Run anyway. Close the small window to
+quit. To build that zip: `cd game && npm run package -- --version X.Y.Z` (Windows; it lands in `game/release/`).
+
+From the source:
+
 ```
 cd game
 npm install
