@@ -25,13 +25,16 @@ function vnoise2(x: number, y: number): number {
  * Forest cover 0..1 where there is neither canopy mask nor a cover level (FEAT-153: only before the cover
  * has loaded, or beyond its levels; older packs everywhere past the fine chunks): conifers
  * below a noisy treeline (the pack's own, DATA-021), thinning on steep ground and in open patches (meadows, ski runs).
+ * No treeline (null, FEAT-234: the pack is forest to the top) leaves out both elevation terms: no treeline and no open
+ * valley floor under it, so only the slope and the patches open it.
  */
-function proceduralForest(x: number, y: number, h: number, slope: number, treeline: number): number {
-  const tl = treeline + (vnoise2(x / 900, y / 900) - 0.5) * 220;
-  const below = THREE.MathUtils.smoothstep(tl + 40 - h, 0, 160);
+function proceduralForest(x: number, y: number, h: number, slope: number, treeline: number | null): number {
   const patch = vnoise2(x / 420 + 31.7, y / 420 - 12.3) * 0.65 + vnoise2(x / 140, y / 140) * 0.35;
   const open = THREE.MathUtils.smoothstep(patch, 0.3, 0.5);
   const flatOK = 1 - THREE.MathUtils.smoothstep(slope, 0.6, 0.85); // cliffs carry no trees
+  if (treeline === null) return open * flatOK;
+  const tl = treeline + (vnoise2(x / 900, y / 900) - 0.5) * 220;
+  const below = THREE.MathUtils.smoothstep(tl + 40 - h, 0, 160);
   const valley = THREE.MathUtils.smoothstep(h, treeline - 1030, treeline - 830); // towns and the valley floor are open (2,450 to 2,650 m on Vail's I-70)
   return below * open * flatOK * valley;
 }
@@ -68,8 +71,8 @@ export class Terrain {
   private readonly pack: Pack;
   /** BUG-081: the pack has stands (FEAT-074), so past the stems' reach its crowns grow to stand in for them */
   private readonly stemsDrawn: boolean;
-  /** m: the procedural forest's treeline, the pack's own (DATA-021) */
-  private readonly treeline: number;
+  /** m: the procedural forest's treeline, the pack's own (DATA-021); null: none (FEAT-234) */
+  private readonly treeline: number | null;
   private readonly rootMinX: number;
   private readonly rootMinY: number;
   private readonly rootSize: number;
