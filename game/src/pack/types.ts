@@ -18,7 +18,7 @@ export interface MaskMeta {
   tilesY: number;
 }
 
-/** FEAT-153: one forest cover level, a single RGBA PNG over a rectangle (pack-format.md) */
+/** FEAT-153: one forest cover level, a single RGBA PNG over a rectangle (MapPacker's docs/pack-format.md) */
 export interface CoverLevelMeta {
   name: string;
   res: number;
@@ -102,7 +102,7 @@ export interface PackMeta {
   /** FEAT-153: forest cover levels for the terrain at a distance; absent in older packs */
   cover?: CoverMeta;
   instances?: InstancesMeta;
-  /** DATA-020: 2 = tree species ids 0..7 (see docs/pack-format.md); absent = 0..2 */
+  /** DATA-020: 2 = tree species ids 0..7 (see MapPacker's docs/pack-format.md); absent = 0..2 */
   treeSpecies?: number;
   /** FEAT-074: stand density per 4 m cell (stands/<cx>_<cy>.png per tree cell); absent in older packs */
   stands?: StandsMeta;

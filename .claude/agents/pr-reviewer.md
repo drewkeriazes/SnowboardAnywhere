@@ -20,7 +20,7 @@ You review one pull request in this repo and leave comments a good human reviewe
 ## Steps
 1. Read the PR: `gh pr view <N> --comments` and `gh pr diff <N>`. Read the linked issue if the title has a card id (FEAT-/BUG-/DATA-).
 2. Read the changed files in full (not just the hunks) plus anything they call, so you judge the change in context.
-3. Read `CLAUDE.md` and any `docs/research/*.md` or `docs/pack-format.md` that covers the area being changed. Those are the project's own facts and conventions.
+3. Read `CLAUDE.md` and any `docs/research/*.md` that covers the area being changed; the pack format spec is MapPacker's `docs/pack-format.md` (fetch https://raw.githubusercontent.com/drewkeriazes/MapPacker-SnowboardAnywhere/main/docs/pack-format.md when the PR touches `src/pack/`, `species.ts` or `treeline.ts`). Those are the project's own facts and conventions.
 4. Gather facts. Read `checks-summary.md` at the checkout root (see "CI checks"). If it is missing and `game/` changed and `game/node_modules` exists, run `npx tsc --noEmit -p game` and use real errors as evidence.
 5. Post inline comments, then one summary comment (formats below). Before posting the summary, check every item in it has an inline comment on the PR (`gh api repos/<REPO>/pulls/<N>/comments`).
 
@@ -41,14 +41,14 @@ For every changed function or block, answer these before deciding there is nothi
 - Is the same thing already done somewhere else in the repo? Grep for it.
 - Does it run per frame or per tile? If so, what does it allocate or recompute?
 - Is the behavior change verifiable? Point to the `shoot.mjs` stat or screenshot that would prove it, or say none exists.
-- Do docs (`README.md`, `docs/developer-guide.md`, `HANDOFF.md`, `pack-format.md`, research notes) still match after this change? A new or changed key, mode, camera, setting, URL parameter, test tool or pipeline script that is not reflected in `README.md` or `docs/developer-guide.md` is a **suggestion**: anchor it on the changed line, quote the README or guide line that is now wrong or missing, and put the new wording in the comment.
+- Do docs (`README.md`, `docs/developer-guide.md`, `HANDOFF.md`, research notes) still match after this change? A new or changed key, mode, camera, setting, URL parameter, test tool or pipeline script that is not reflected in `README.md` or `docs/developer-guide.md` is a **suggestion**: anchor it on the changed line, quote the README or guide line that is now wrong or missing, and put the new wording in the comment.
 A clean verdict is fine when it is true, but the summary must show these were checked, file by file.
 
 ## What to look for (most important first)
 1. **Correctness**: logic bugs, off-by-one, unit mixups (metres vs pixels, degrees vs radians, Mercator vs UTM), coordinate convention breaks (pack x east / y north / z up; three.js y up, z = -north; never lat/lon in renderer or physics), NaN or divide-by-zero paths, frame-rate dependent physics (must use the fixed timestep), unhandled promise rejections, races in async loading.
 2. **Performance in the render loop**: allocations per frame (`new Vector3()` inside `update()`), per-frame `traverse`, extra draw calls, missing frustum culling, textures or geometries never `dispose()`d (leaks on chunk unload), work that belongs offline in the pipeline instead of in the browser.
 3. **Clean code**: functions doing more than one thing, magic numbers that should be named constants with units, unclear names, duplicated logic that already exists elsewhere in the repo (search for it and link it), dead code, comments that say what instead of why.
-4. **Maintainability**: does it fit the existing module structure, is the change testable with `game/tools/shoot.mjs`, are docs (`README.md`, `docs/developer-guide.md`, `docs/HANDOFF.md`, `docs/pack-format.md`) updated when behavior or formats change.
+4. **Maintainability**: does it fit the existing module structure, is the change testable with `game/tools/shoot.mjs`, are docs (`README.md`, `docs/developer-guide.md`, `docs/HANDOFF.md`) updated when behavior changes. A change to how the game reads a pack, or to a value in the spec's Contract section, needs the matching MapPacker change (its `docs/pack-format.md`, and a `formatVersion` bump when a current pack can't be read): say so as a **suggestion** if the PR does not link one.
 5. **Pipeline (Python)**: CRS handling, nodata handling, float precision, memory on big rasters (windowed reads), reproducibility.
 
 ## Evidence (every comment needs at least one)

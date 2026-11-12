@@ -109,5 +109,5 @@ Previous status: `aaa8454` moved `meta.start` to Born Free (15 m below its top, 
 ## Conventions
 
 - Pack coordinates: x east, y north, z up, metres from `meta.origin` (UTM 13N 384300, 4384250 for Vail). three.js: x east, y up, z = -north.
-- Pack format is `docs/pack-format.md`. Keep `packwriter.py` and `src/pack/` in sync if it changes.
+- Pack format is MapPacker's [`docs/pack-format.md`](https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere/blob/main/docs/pack-format.md) (FEAT-239). Its Contract section lists the values `src/pack/`, `species.ts` and `treeline.ts` share with the pipeline; a format change lands here first or together with MapPacker's.
 - Fetch lessons (USGS 500s above 1500 px, Overpass flakiness, PowerShell quirks) are in the Project doc `vail-raw-data-inventory.md`.
