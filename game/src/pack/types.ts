@@ -91,7 +91,8 @@ export interface PackMeta {
   lonlat: [number, number];
   bounds: { minX: number; minY: number; maxX: number; maxY: number };
   zRange: [number, number];
-  terrain: { fine?: HeightSetMeta; mid?: HeightSetMeta; far?: HeightSetMeta };
+  /** FEAT-229: `coarse` is a 4 m set over the fine area (the 4 and 8 m chunks read it); absent in older packs */
+  terrain: { fine?: HeightSetMeta; coarse?: HeightSetMeta; mid?: HeightSetMeta; far?: HeightSetMeta };
   mask?: MaskMeta;
   /** baked sky visibility (greyscale PNG tiles, same layout as the mask), FEAT-047 */
   ao?: MaskMeta;

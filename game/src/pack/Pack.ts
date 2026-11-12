@@ -14,7 +14,7 @@ export interface Deck { ax: number; ay: number; az: number; bx: number; by: numb
 const DECK_CELL = 32;
 
 /**
- * A loaded resort pack: metadata, the three height sets, the surface mask and features.
+ * A loaded resort pack: metadata, the height sets, the surface mask and features.
  * `height(x, y, res)` returns the best available height for a requested detail level,
  * falling back to coarser sets when the fine tiles are not loaded yet.
  */
@@ -22,6 +22,8 @@ export class Pack {
   readonly meta: PackMeta;
   readonly baseUrl: string;
   readonly fine: HeightSet | null;
+  /** FEAT-229: 4 m over the fine area, for the 4 and 8 m chunks; null in older packs */
+  readonly coarse: HeightSet | null;
   readonly mid: HeightSet | null;
   readonly far: HeightSet | null;
   readonly mask: MaskSet | null;
@@ -42,6 +44,7 @@ export class Pack {
     this.baseUrl = baseUrl;
     this.meta = meta;
     this.fine = meta.terrain.fine ? new HeightSet(`${baseUrl}/fine`, meta.terrain.fine) : null;
+    this.coarse = meta.terrain.coarse ? new HeightSet(`${baseUrl}/coarse`, meta.terrain.coarse) : null;
     this.mid = meta.terrain.mid ? new HeightSet(`${baseUrl}/mid`, meta.terrain.mid) : null;
     this.far = meta.terrain.far ? new HeightSet(`${baseUrl}/far`, meta.terrain.far) : null;
     this.mask = meta.mask ? new MaskSet(`${baseUrl}/mask`, meta.mask) : null;
@@ -67,7 +70,16 @@ export class Pack {
 
   /** Sets ordered finest first. */
   get sets(): HeightSet[] {
-    return [this.fine, this.mid, this.far].filter((s): s is HeightSet => !!s);
+    return [this.fine, this.coarse, this.mid, this.far].filter((s): s is HeightSet => !!s);
+  }
+
+  /**
+   * FEAT-229: a chunk at `res` m or coarser leaves the fine set to the coarse one where that has data (the 4 and 8 m
+   * chunks), so the ring looks the same whether or not fine tiles happen to be loaded under it.
+   */
+  private skipFine(s: HeightSet, x: number, y: number, res: number): boolean {
+    const c = this.coarse;
+    return s === this.fine && !!c && res >= c.meta.res && c.contains(x, y) && !Number.isNaN(c.sampleNearest(x, y));
   }
 
   /**
@@ -81,6 +93,7 @@ export class Pack {
       if (!s.contains(x, y)) continue;
       // skip sets that are far finer than needed (except when nothing else covers the point)
       if (s.meta.res * 16 < res && s !== this.sets[this.sets.length - 1]) continue;
+      if (this.skipFine(s, x, y, res)) continue;
       const h = s.sample(x, y);
       if (!Number.isNaN(h)) return bumps && res <= MOGUL_MAX_RES ? h + this.bumpAt(x, y) : h;
     }
@@ -194,9 +207,13 @@ export class Pack {
     return best;
   }
 
-  /** Finest resolution with data at this point (for normal estimation). */
-  finestRes(x: number, y: number): number {
+  /**
+   * Finest resolution with data at this point (for normal estimation). With `res`, the one height() reads for a
+   * chunk at that spacing (FEAT-229: the coarse set over fine for 4 and 8 m chunks).
+   */
+  finestRes(x: number, y: number, res = 0): number {
     for (const s of this.sets) {
+      if (res > 0 && this.skipFine(s, x, y, res)) continue;
       if (s.contains(x, y) && !Number.isNaN(s.sampleNearest(x, y))) return s.meta.res;
     }
     return this.far?.meta.res ?? 128;
