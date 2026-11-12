@@ -25,7 +25,8 @@ Leave the black window open while you play. **Close it to quit.** More resorts: 
 | "Vail could not be downloaded" | Check your internet connection, then double-click the exe again. The download starts over. |
 | "older than the published resorts" | Your copy is out of date. Download the newest zip (see Updating). |
 | "Port 5173 was busy" | Something else uses that port. The game still opens on the next one, but settings and best times from 5173 don't show there. Close the other program and start again to get them back. |
-| A resort says **needs rebuild** after an update | Close the black window, delete that resort's folder from `packs`, start the game again and download the resort from **Change resort**. |
+| A resort says **Update** in **Change resort** after an update | Pick it: the game downloads the current version and swaps it in. If none of your resorts is current, the black window downloads Vail again when it starts. |
+| A resort says **needs rebuild** | That resort isn't published for this version of the game yet: try again after its next release. A pack you built or copied in yourself says it too when it is out of date: rebuild it, or delete its folder from `packs` and download the published one. |
 | The browser doesn't open, or it isn't Chrome or Edge | Paste the address the black window shows (like `http://localhost:5173/`) into Chrome or Edge. |
 
 Everything else (controls, choppy game, no sound) is the same as below: see Basic controls and Troubleshooting.
@@ -126,11 +127,13 @@ npm run dev
 
 `git pull` grabs the newest version of the game. Then open http://localhost:5173/?pack=vail again.
 
-If the game says your resort **needs rebuild**, download it again. It swaps in the new version on its own:
+If **Change resort** shows **Update** next to your resort, pick it, or download it again. Either way it swaps in the new version on its own:
 
 ```
 npm run get vail
 ```
+
+**needs rebuild** means that resort isn't published for this version of the game yet (or it is a pack you built yourself in an older format).
 
 If it says **needs a newer game**, you skipped `git pull`. Run it, then start again.
 

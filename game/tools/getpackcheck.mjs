@@ -1,14 +1,15 @@
 // FEAT-242 getpackcheck: `npm run get -- --from <dir>` (copyPack in get_pack.mjs) on throwaway packs in a temp folder:
 // what it copies and leaves out, what it replaces and refuses, that the source pack is never touched, and that a
-// plain `get` will not replace a --from copy without --force. BUG-095: the swap of both (--from and a getPack install
-// from a small zip) tries a locked rename again and, locked for good, puts the old pack back. Node only (no pack, no
-// browser); exits 1 on a failure.
+// plain `get` will not replace a --from copy without --force, and (BUG-106) that it does replace an older-format
+// catalog pack but not an older local build. BUG-095: the swap of both (--from and a getPack install from a small
+// zip) tries a locked rename again and, locked for good, puts the old pack back. Node only (no pack, no browser);
+// exits 1 on a failure.
 //   node tools/getpackcheck.mjs
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { copyPack, getPack, PACK_FORMAT } from './get_pack.mjs';
+import { copyPack, getPack, localPacks, PACK_FORMAT } from './get_pack.mjs';
 
 const F = PACK_FORMAT;
 const t = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-'));
@@ -126,6 +127,22 @@ ok(build('rel') === 'r2' && said.length === 3 && said.every((p) => p.phase === '
 installed(); fl = flaky(99, 'EPERM', intoDest);
 try { await getPack('rel', { packsDir: packs, catalog: relCat, rename: fl.rename, waits }); ok(false, 'get: locked for good gives up'); } catch (e) { ok(/EPERM.*the old pack is back/.test(e.message), `get: locked for good gives up: ${e.message}`); }
 ok(fl.calls() === 4 && build('rel') === 'r1' && fs.existsSync(path.join(packs, 'rel', 'fine', '0_0.png')) && !leftovers().length && !fs.existsSync(path.join(packs, '.rel.download.zip')), 'get: after 4 tries the old pack is back whole, nothing left behind');
+
+// BUG-106: an older-format pack from the catalog has a version in localPacks (the picker's Update) and getPack goes
+// on to download over it without --force; one built here has none ("needs rebuild") and is refused
+const p2 = path.join(t, 'p2');
+const old = (s, marker) => {
+  fs.mkdirSync(path.join(p2, s), { recursive: true }); fs.writeFileSync(path.join(p2, s, 'meta.json'), JSON.stringify({ slug: s, formatVersion: F - 1 }));
+  if (marker) fs.writeFileSync(path.join(p2, s, '.catalog.json'), JSON.stringify({ version: 1, sha256: 'old' }));
+};
+old('dl', true); old('mine', false);
+const lp = localPacks(p2);
+ok(lp.dl.version === 1 && lp.dl.formatVersion === F - 1, 'an old catalog pack: localPacks has its version');
+ok(lp.mine.version === undefined, 'an old local build: localPacks has no version');
+const cat2 = { resorts: ['dl', 'mine'].map((s) => ({ slug: s, name: s, status: 'ok', pack: { formatVersion: F, version: 2, sha256: 'bad', url: path.join(t, 'nope.zip'), bytes: 1 } })) };
+try { await getPack('dl', { packsDir: p2, catalog: cat2 }); ok(false, 'getPack replaces an old catalog pack'); } catch (e) { ok(!/built on this PC|is a copy/.test(e.message), 'getPack replaces an old catalog pack (gets to the download): ' + e.message); }
+ok(JSON.parse(fs.readFileSync(path.join(p2, 'dl', 'meta.json'))).formatVersion === F - 1, 'a failed download leaves the old pack in place');
+try { await getPack('mine', { packsDir: p2, catalog: cat2 }); ok(false, 'getPack refuses an old local build'); } catch (e) { ok(/built on this PC/.test(e.message), 'getPack refuses an old local build: ' + e.message); }
 fs.rmSync(t, { recursive: true, force: true });
 console.log(fails ? `getpackcheck: ${fails} failed` : 'getpackcheck: all passed');
 process.exitCode = fails ? 1 : 0;

@@ -47,8 +47,9 @@ Or open **Change resort** on the main menu: a published resort you don't have sh
 pick it and the game downloads it and loads it. The same list shows on the "No resorts yet" screen
 when `packs/` is empty, and under the error when `?pack=` names a pack that isn't there. Where the
 server can't download (a plain static host, or offline) the list is empty and the screen says to run
-`npm run get vail`. A pack in an older format than the game reads shows
-"needs rebuild". `npm run get` won't replace a pack you built yourself unless you add `-- --force` (it
+`npm run get vail`. A resort you downloaded shows "Update (size)" when a newer
+release is out, also when yours is an older format than the game reads. An older-format pack with no current
+release, or one you built or copied in yourself, shows "needs rebuild". `npm run get` won't replace a pack you built yourself unless you add `-- --force` (it
 deletes the old one). To ride a pack you built in MapPacker before it is published, copy it in:
 
 ```
