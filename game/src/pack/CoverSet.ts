@@ -3,7 +3,7 @@ import type { CoverLevelMeta, CoverMeta } from './types';
 import { decodeRGBA } from './MaskSet';
 
 /**
- * FEAT-153: forest cover levels for the terrain at a distance (`cover/<level>.png`, see pack-format.md).
+ * FEAT-153: forest cover levels for the terrain at a distance (`cover/<level>.png`, see MapPacker's docs/pack-format.md).
  * Each level is one RGBA image over a rectangle (R forest share 0..1, G canopy height, B rock, A 255 - built-up).
  * The terrain shader samples the forest per pixel from a mipmapped GPU texture (the mips are the box-filtered
  * levels, so a trail narrower than a far chunk's vertex spacing still shows); the chunk builder samples all

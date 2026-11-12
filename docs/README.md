@@ -32,7 +32,7 @@ Start here. Everything a session needs to know that is not code lives in this fo
 | [research/trick-system-roadmap.md](research/trick-system-roadmap.md) | Before trick, scoring, rail, replay or control-preset work (FEAT-186 to FEAT-192, FEAT-049, FEAT-050, FEAT-061, FEAT-114): how The Snowboard Game, Steep, Riders Republic, SSX, Shredders and Skate do trick input, air rotation, grabs, landings, scoring, replays and assists, what transfers to the browser, and which cards came from it. |
 | [research/steep-reference.md](research/steep-reference.md) | Before terrain streaming, pack layout or pack download work (FEAT-229 to FEAT-231): what Steep's shipped terrain files hold (a complete quadtree with one offset per tile, a small first set and a streamed set), its install chunks and graphics settings, what this game already matches, and the three cards that came from it. |
 | [compare/README.md](compare/README.md) | Real vs game photo pairs (Street View spot vs the eye camera): the workflow, the checklist and the index of spots. |
-| [pack-format.md](pack-format.md) | The resort pack layout the pipeline writes and the game reads. |
+| [pack-format.md](https://github.com/drewkeriazes/MapPacker-SnowboardAnywhere/blob/main/docs/pack-format.md) | The resort pack layout the pipeline writes and the game reads. In MapPacker-SnowboardAnywhere since FEAT-239; `pack-format.md` here is a pointer. |
 
 Conventions
 - Dated "Researched YYYY-MM-DD" headers; update the date when you revise.
