@@ -52,7 +52,7 @@ await page.addInitScript(({ emulate, look4 }) => {
   Object.defineProperty(window, '__step', { configurable: true, get: () => stepFn, set: (v) => { stepFn = v; if (!window.__hooked) { window.__hooked = true; window.__readyMs = performance.now(); install(); queueMicrotask(() => { window.__firstFrameMs = performance.now(); }); } } });
   function install() {
   const w = window, s = w.__sim, p = s.pack;
-  w.__sets = { fine: p.fine, mask: p.mask, dir: p.dir, ao: p.ao, moguls: p.moguls };
+  w.__sets = { fine: p.fine, coarse: p.coarse, mask: p.mask, dir: p.dir, ao: p.ao, moguls: p.moguls };
   w.__life = {}; w.__win = {}; w.__inTerrain = false;
   const keys = (set, x0, y0, x1, y1) => {
     const m = set.meta, out = [];
@@ -143,7 +143,7 @@ const load = await page.evaluate(async () => {
   const w = window, s = w.__sim, p = s.pack, t = s.terrain;
   t.budgetMs = 12; t.maxBuilds = 64; s.veg.budgetMs = 12;
   const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
-  const busy = () => [p.fine, p.mid, p.far, p.mask, p.ao, p.dir, p.moguls].reduce((n, x) => n + (x?.inFlight ?? 0), 0) + t.pending + s.veg.pending;
+  const busy = () => [p.fine, p.coarse, p.mid, p.far, p.mask, p.ao, p.dir, p.moguls].reduce((n, x) => n + (x?.inFlight ?? 0), 0) + t.pending + s.veg.pending;
   const t0 = performance.now();
   let first = -1, quiet = 0, frames = 0;
   while (performance.now() - t0 < 30000) {

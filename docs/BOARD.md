@@ -14,7 +14,7 @@ A card goes in the repo whose PR closes it. A PR here that finishes a MapPacker 
 - Columns: **Backlog** (idea) -> **Ready** (specced, data available) -> **In Progress** -> **Done**.
 - Labels: `type: feature | bug | data`, `milestone`. `status: ready` / `status: backlog` mirror the column for issue-list filtering.
 - `type: data` cards are pipeline or raw-data work that runs on Drew's PC, so they go in MapPacker; they are Done only when the pack is rebuilt.
-- Ids never get reused. There is no stored "next id". Run `python tools/card_id.py` right before creating a card: it reads every issue (all pages, open and closed, pull requests skipped) and prints the next FEAT / BUG / DATA id plus any id two issues share. Run it again after creating the card, because a parallel session may have taken the same id; on a clash the newer issue gets a new id. Do not commit a counter to this file; every bump conflicted with open PRs.
+- Ids never get reused. There is no stored "next id". Run `python tools/card_id.py` right before creating a card: it reads every issue (all pages, open and closed, pull requests skipped) and prints the next FEAT / BUG / DATA id plus any id two different cards share (twin cards, the same title copied into both repos, are one card and not reported). Run it again after creating the card, because a parallel session may have taken the same id; on a clash the newer issue gets a new id. Do not commit a counter to this file; every bump conflicted with open PRs.
 - Pull requests carry the card id in their title too (`FEAT-097 to FEAT-101: Outrun mode`). That is not a duplicate card; the checker ignores PRs.
 
 ## What Claude does with a card

@@ -10,7 +10,7 @@ import { crownOverlap, type CrownHit } from './TreeBrush';
 
 /**
  * Streams tree instances per 1 km cell around the rider and draws them with the FEAT-156 tree kit
- * (trees/): eight species, four variants each, and four LODs picked per tree by its distance from the
+ * (trees/): ten species, four variants each, and four LODs picked per tree by its distance from the
  * camera, with a dither crossfade at each edge:
  *   LOD0 branch cards  0..80 m      one InstancedMesh per species x variant, from the trees near the camera
  *   LOD1 cones         80..400 m    the same, from a wider ring

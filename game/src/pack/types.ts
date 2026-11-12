@@ -91,7 +91,8 @@ export interface PackMeta {
   lonlat: [number, number];
   bounds: { minX: number; minY: number; maxX: number; maxY: number };
   zRange: [number, number];
-  terrain: { fine?: HeightSetMeta; mid?: HeightSetMeta; far?: HeightSetMeta };
+  /** FEAT-229: `coarse` is a 4 m set over the fine area (the 4 and 8 m chunks read it); absent in older packs */
+  terrain: { fine?: HeightSetMeta; coarse?: HeightSetMeta; mid?: HeightSetMeta; far?: HeightSetMeta };
   mask?: MaskMeta;
   /** baked sky visibility (greyscale PNG tiles, same layout as the mask), FEAT-047 */
   ao?: MaskMeta;
@@ -102,7 +103,7 @@ export interface PackMeta {
   /** FEAT-153: forest cover levels for the terrain at a distance; absent in older packs */
   cover?: CoverMeta;
   instances?: InstancesMeta;
-  /** DATA-020: 2 = tree species ids 0..7 (see MapPacker's docs/pack-format.md); absent = 0..2 */
+  /** DATA-020: 2 = tree species ids 0..7, FEAT-233: 3 = 0..9 (see MapPacker's docs/pack-format.md); absent = 0..2 */
   treeSpecies?: number;
   /** FEAT-074: stand density per 4 m cell (stands/<cx>_<cy>.png per tree cell); absent in older packs */
   stands?: StandsMeta;
@@ -113,8 +114,9 @@ export interface PackMeta {
   start: { x: number; y: number; heading: number; run?: string; lift?: string; label?: string; source?: string };
   /** FEAT-175: the pack has its own main menu content, `attract/index.json` (generated: gen_content.py); absent = none */
   attract?: { generated?: boolean };
-  /** DATA-021: the resort's treeline (m), measured from its canopy by elevation; absent in older packs and where the box never leaves the forest (pack/treeline.ts falls back to Colorado's) */
-  treeline?: number;
+  /** DATA-021: the resort's treeline (m), measured from its canopy by elevation; absent in older packs and where the box had no
+   * forest to measure (pack/treeline.ts falls back to Colorado's); null where the box is forest to the top (FEAT-234: no treeline) */
+  treeline?: number | null;
   sun: { azimuth: number; elevation: number };
   attribution: string[];
 }

@@ -64,7 +64,7 @@ const levelName = (l: SnowLevel): string => (l === 'ghost' ? 'snow ghost' : `sno
 snowLevel(0);
 
 /** a typical height (m) per species for the lineup */
-const HEIGHT = [18, 14, 2.2, 15, 20, 24, 9, 15];
+const HEIGHT = [18, 14, 2.2, 15, 20, 24, 9, 15, 18, 20];
 
 const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
 function clearTrees(): void { for (const c of [...trees.children]) { trees.remove(c); } }
@@ -123,10 +123,10 @@ function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number
   ctx.fillStyle = '#1b2430'; ctx.fillText(text, x, y);
 }
 
-/** 8 strips: the 4 variants of every species, front-lit then back-lit; ortho, so the grid reads in metres */
+/** 8 strips (4 variants x front and back light): every species, front-lit then back-lit; ortho, so the grid reads in metres */
 function lineup(snow: SnowLevel = 0): string {
   snowLevel(snow);
-  const stripH = 330, slot = 14, x0 = -slot * 3.5;
+  const stripH = 330, n = SPECIES.length, slot = 116 / (n + 0.3), x0 = -slot * (n - 1) / 2;
   const out = document.createElement('canvas'); out.width = W; out.height = stripH * 8;
   const ctx = out.getContext('2d')!;
   forceLod(0);
@@ -137,7 +137,7 @@ function lineup(snow: SnowLevel = 0): string {
   for (const kind of ['front', 'back'] as const) {
     for (let v = 0; v < 4; v++) {
       clearTrees();
-      for (let s = 0; s < 8; s++) addTree(s, v, x0 + s * slot, 0, HEIGHT[s], 0, 0.4 + v * 1.3);
+      for (let s = 0; s < n; s++) addTree(s, v, x0 + s * slot, 0, HEIGHT[s], 0, 0.4 + v * 1.3);
       rider.position.set(x0 - 8.5, 0, 2); rider.rotation.y = 0.6;
       light(kind, new THREE.Vector3(0, 0, 0), 70);
       const img = render(cam, W, stripH);

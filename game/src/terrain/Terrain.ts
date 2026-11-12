@@ -25,13 +25,16 @@ function vnoise2(x: number, y: number): number {
  * Forest cover 0..1 where there is neither canopy mask nor a cover level (FEAT-153: only before the cover
  * has loaded, or beyond its levels; older packs everywhere past the fine chunks): conifers
  * below a noisy treeline (the pack's own, DATA-021), thinning on steep ground and in open patches (meadows, ski runs).
+ * No treeline (null, FEAT-234: the pack is forest to the top) leaves out both elevation terms: no treeline and no open
+ * valley floor under it, so only the slope and the patches open it.
  */
-function proceduralForest(x: number, y: number, h: number, slope: number, treeline: number): number {
-  const tl = treeline + (vnoise2(x / 900, y / 900) - 0.5) * 220;
-  const below = THREE.MathUtils.smoothstep(tl + 40 - h, 0, 160);
+function proceduralForest(x: number, y: number, h: number, slope: number, treeline: number | null): number {
   const patch = vnoise2(x / 420 + 31.7, y / 420 - 12.3) * 0.65 + vnoise2(x / 140, y / 140) * 0.35;
   const open = THREE.MathUtils.smoothstep(patch, 0.3, 0.5);
   const flatOK = 1 - THREE.MathUtils.smoothstep(slope, 0.6, 0.85); // cliffs carry no trees
+  if (treeline === null) return open * flatOK;
+  const tl = treeline + (vnoise2(x / 900, y / 900) - 0.5) * 220;
+  const below = THREE.MathUtils.smoothstep(tl + 40 - h, 0, 160);
   const valley = THREE.MathUtils.smoothstep(h, treeline - 1030, treeline - 830); // towns and the valley floor are open (2,450 to 2,650 m on Vail's I-70)
   return below * open * flatOK * valley;
 }
@@ -68,8 +71,8 @@ export class Terrain {
   private readonly pack: Pack;
   /** BUG-081: the pack has stands (FEAT-074), so past the stems' reach its crowns grow to stand in for them */
   private readonly stemsDrawn: boolean;
-  /** m: the procedural forest's treeline, the pack's own (DATA-021) */
-  private readonly treeline: number;
+  /** m: the procedural forest's treeline, the pack's own (DATA-021); null: none (FEAT-234) */
+  private readonly treeline: number | null;
   private readonly rootMinX: number;
   private readonly rootMinY: number;
   private readonly rootSize: number;
@@ -234,8 +237,11 @@ export class Terrain {
     for (const c of this.chunks.values()) {
       if (!c.mesh) continue;
       if (c.minX < minX + size && c.minX + c.size > minX && c.minY < minY + size && c.minY + c.size > minY) {
-        // rebuild if this tile is finer than what the chunk was built from, or it is a mask tile
-        if (res === 0 || res < c.dataRes) this.dirty.add(c.key);
+        // rebuild if this tile is finer than what the chunk was built from, or it is a mask tile; FEAT-229: a fine
+        // tile under a 4 or 8 m chunk does not count where the coarse set carries it (Pack.height skips fine there)
+        const co = this.pack.coarse;
+        const unused = !!co && res > 0 && res < co.meta.res && c.res >= co.meta.res;
+        if (res === 0 || (res < c.dataRes && !unused)) this.dirty.add(c.key);
       }
     }
   }
@@ -251,7 +257,9 @@ export class Terrain {
     for (const c of this.visible) {
       want.add(c.key);
       c.lastUsed = this.frame;
-      if (c.res <= 8 && this.pack.fine) this.pack.fine.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
+      // FEAT-229: the 4 and 8 m chunks read the coarse (4 m) set where the pack has one, so only 1 and 2 m chunks load fine
+      if (c.res <= 8 && this.pack.coarse && c.res >= this.pack.coarse.meta.res) this.pack.coarse.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
+      else if (c.res <= 8 && this.pack.fine) this.pack.fine.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       else if (c.res <= 64 && this.pack.mid) this.pack.mid.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       else if (this.pack.far) this.pack.far.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
       if (c.res <= 8 && this.pack.mask) this.pack.mask.request(c.minX, c.minY, c.minX + c.size, c.minY + c.size);
@@ -370,7 +378,7 @@ export class Terrain {
         heights[(j + 1) * (n + 2) + (i + 1)] = pack.height(x, y, res, false);
       }
     }
-    dataRes = pack.finestRes(c.minX + c.size / 2, c.minY + c.size / 2);
+    dataRes = pack.finestRes(c.minX + c.size / 2, c.minY + c.size / 2, res);
     const resB = Math.max(res, MOGUL_MAX_RES * 2); // auxiliary samples (ridges, talus, fall line) without the mogul bumps
     const useMask = !!pack.mask && res <= 8;
     // FEAT-153: coarser chunks take forest, rock and canopy height from the cover levels where they have

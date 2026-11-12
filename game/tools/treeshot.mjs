@@ -7,7 +7,7 @@
 //   snow-<species>.png  LOD0 | LOD1 | LOD2 | impostor per snow level (bare, 0.5, 1, ghost), spruce, fir and Douglas-fir by default
 //   shrubs.png          the shrubs (willow, juniper, sagebrush, Gambel oak, young conifers) at snow depths 0, 0.5 and 1.5 m (FEAT-159)
 // and prints the triangles per species per LOD, the texture memory and the build times; exit 1 when a
-// budget is broken (LOD0 600 conifers / 400 aspen / 200 krummholz and snags, LOD1 96, LOD2 8, textures 24 MB,
+// budget is broken (LOD0 600 conifers / 400 aspen and bare hardwood / 200 krummholz and snags, LOD1 96, LOD2 8, textures 28 MB,
 // generation 150 ms; shrubs: willow and oak 60, juniper and sagebrush 40, young conifers the kit's LOD1 96).
 // node tools/treeshot.mjs [outDir] [--headed | --gpu | --cpu] [--only=lineup,lods,distance,snow,shrubs] [--species=0,3]
 import { launchBrowser } from './browser.mjs';
@@ -79,7 +79,7 @@ console.log('\ntriangles per tree (largest variant)');
 console.log('species              LOD0  LOD1  LOD2  impostor');
 for (const t of stats.triangles) {
   console.log(`${t.species.padEnd(20)} ${String(t.lod0).padStart(4)}  ${String(t.lod1).padStart(4)}  ${String(t.lod2).padStart(4)}  ${String(t.impostor).padStart(8)}`);
-  const cap0 = /aspen/.test(t.species) ? 400 : /krummholz|snag/.test(t.species) ? 200 : 600;
+  const cap0 = /aspen|hardwood/.test(t.species) ? 400 : /krummholz|snag/.test(t.species) ? 200 : 600;
   if (t.lod0 > cap0) fails.push(`${t.species} LOD0 ${t.lod0} > ${cap0}`);
   if (t.lod1 > 96) fails.push(`${t.species} LOD1 ${t.lod1} > 96`);
   if (t.lod2 > 8) fails.push(`${t.species} LOD2 ${t.lod2} > 8`);
@@ -91,10 +91,11 @@ for (const t of stats.shrubs) {
 }
 console.log(`shrub generation ${stats.shrubMs.toFixed(0)} ms`);
 const mb = (stats.textureBytes.atlas + stats.textureBytes.impostors) / (1024 * 1024);
-console.log(`\ntexture memory: atlas ${(stats.textureBytes.atlas / 1048576).toFixed(1)} MB + impostors and snow mask ${(stats.textureBytes.impostors / 1048576).toFixed(1)} MB = ${mb.toFixed(1)} MB (budget 24)`);
+console.log(`\ntexture memory: atlas ${(stats.textureBytes.atlas / 1048576).toFixed(1)} MB + impostors and snow mask ${(stats.textureBytes.impostors / 1048576).toFixed(1)} MB = ${mb.toFixed(1)} MB (budget 28)`);
 const gen = stats.ms.atlas + stats.ms.geometry;
 console.log(`generation: atlas ${stats.ms.atlas.toFixed(0)} ms + geometry ${stats.ms.geometry.toFixed(0)} ms = ${gen.toFixed(0)} ms (budget 150); impostor bake ${stats.ms.bake.toFixed(0)} ms`);
-if (mb > 24) fails.push(`texture memory ${mb.toFixed(1)} MB > 24`);
+// FEAT-233: 28 MB, from 24: the impostor atlases grew a row each for bare hardwood and hemlock (1024 x 1280)
+if (mb > 28) fails.push(`texture memory ${mb.toFixed(1)} MB > 28`);
 if (gen > 150) fails.push(`generation ${gen.toFixed(0)} ms > 150`);
 if (errors.length) { console.log('\nbrowser errors:'); for (const e of errors.slice(0, 20)) console.log(' ', e); }
 for (const f of fails) console.log('FAIL', f);

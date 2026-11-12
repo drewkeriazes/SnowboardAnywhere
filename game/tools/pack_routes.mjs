@@ -1,0 +1,85 @@
+// The pack routes every server of the game shares (FEAT-261): the dev server and `npm run host` (vite.config.ts
+// plugins) and the Windows launcher (tools/launcher.mjs) mount these same handlers, so there is one copy of them
+// and of their checks. Each is a Connect-style handler, (req, res, next), that calls next() for a URL it doesn't own.
+import fs from 'node:fs';
+import path from 'node:path';
+import * as gp from './get_pack.mjs';
+import { PACKS } from './paths.mjs';
+
+const TYPES = { '.png': 'image/png', '.json': 'application/json', '.bin': 'application/octet-stream', '.webp': 'image/webp' };
+
+/** /packs/* from packsDir (resort packs stay out of the game bundle; they are gitignored). */
+export function packFiles(packsDir = PACKS) {
+  return (req, res, next) => {
+    if (!req.url || !req.url.startsWith('/packs/')) return next();
+    // npm run host serves this to the LAN: a bad escape is a 400, and only files inside packs/ (not a packs-old/ sibling)
+    let rel;
+    try { rel = decodeURIComponent(req.url.split('?')[0].slice('/packs/'.length)); } catch { res.statusCode = 400; res.end(); return; }
+    const file = path.join(packsDir, rel);
+    if (!file.startsWith(packsDir + path.sep) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.statusCode = 404; res.end(); return; }
+    res.setHeader('content-type', TYPES[path.extname(file)] ?? 'application/octet-stream');
+    res.setHeader('cache-control', 'no-cache');
+    fs.createReadStream(file).pipe(res);
+  };
+}
+
+/**
+ * FEAT-222: the resort picker's Download button. The download runs here in Node (tools/get_pack.mjs): GitHub release
+ * assets send no CORS headers, so the page can't fetch them.
+ *   GET  /__packs/catalog      { formatVersion, catalog | null, error?, local: { slug: { formatVersion, build, version? } }, jobs }
+ *   POST /__packs/get {slug}   starts the download; 202, or 400 with the reason
+ *   GET  /__packs/job?slug=    { phase: 'download' | 'unzip' | 'done' | 'error', received, total, error? }
+ * The catalog is cached for 5 minutes; a failed read (offline) answers catalog: null and the picker shows local packs.
+ */
+export function packDownloads(packsDir = PACKS) {
+  const jobs = new Map();
+  let cached = null;
+  const send = (res, code, body) => {
+    res.statusCode = code; res.setHeader('content-type', 'application/json'); res.setHeader('cache-control', 'no-store'); res.end(JSON.stringify(body));
+  };
+  const catalog = async () => {
+    if (!cached || Date.now() - cached.at > 5 * 60_000) cached = { at: Date.now(), catalog: await gp.readCatalog() };
+    return cached.catalog;
+  };
+  const route = async (req, res, next) => {
+    const url = new URL(req.url, 'http://x');
+    if (req.method === 'GET' && url.pathname === '/__packs/catalog') {
+      let cat = null, error;
+      try { cat = await catalog(); } catch (e) { error = String(e.message ?? e); cached = null; }
+      return send(res, 200, { formatVersion: gp.PACK_FORMAT, catalog: cat, error, local: gp.localPacks(packsDir), jobs: Object.fromEntries(jobs) });
+    }
+    if (req.method === 'GET' && url.pathname === '/__packs/job') {
+      const job = jobs.get(url.searchParams.get('slug') ?? '');
+      return job ? send(res, 200, job) : send(res, 404, { error: 'no download for that resort' });
+    }
+    if (req.method === 'POST' && url.pathname === '/__packs/get') {
+      // the game's own page only: a JSON body forces a CORS preflight this server never answers, and a browser's
+      // Origin must be this host (the server listens on the LAN, so another site must not start a 2 GB download)
+      const origin = req.headers.origin;
+      let sameOrigin = !origin;
+      try { sameOrigin ||= new URL(origin).host === req.headers.host; } catch { /* "null" or junk: refused */ }
+      if (!(req.headers['content-type'] ?? '').startsWith('application/json') || !sameOrigin) return send(res, 403, { error: 'same-origin JSON only' });
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      let slug = '';
+      try { slug = String(JSON.parse(Buffer.concat(chunks).toString('utf8')).slug ?? ''); } catch { /* checked below */ }
+      if (!gp.SLUG.test(slug)) return send(res, 400, { error: 'bad slug' });
+      const running = jobs.get(slug);
+      if (running && running.phase !== 'done' && running.phase !== 'error') return send(res, 202, running);
+      let cat;
+      try { cat = await catalog(); } catch (e) { return send(res, 400, { error: String(e.message ?? e) }); }
+      const job = { phase: 'download', received: 0, total: 0 };
+      jobs.set(slug, job);
+      // a pack built on this PC (no catalog marker) is never replaced from the menu: getPack refuses without force
+      gp.getPack(slug, { packsDir, catalog: cat, onProgress: (p) => Object.assign(job, p) })
+        .then(() => { job.phase = 'done'; console.log(`[packs] ${slug} installed from the catalog`); })
+        .catch((e) => { job.phase = 'error'; job.error = String(e.message ?? e); console.warn(`[packs] ${slug}: ${job.error}`); });
+      return send(res, 202, job);
+    }
+    next();
+  };
+  return (req, res, next) => {
+    if (!req.url?.startsWith('/__packs/')) return next();
+    route(req, res, next).catch((e) => send(res, 500, { error: String(e.message ?? e) }));
+  };
+}
