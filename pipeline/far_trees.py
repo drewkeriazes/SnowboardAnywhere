@@ -32,8 +32,15 @@ CLIFF_SLOPE = 45.0  # deg: no crowns on cliffs (a cliff top over its foot reads 
 GROUND_SIGMA = 3.0  # ground cells: how far a lidar ground offset spreads into the gaps under closed canopy
 # classes that are never canopy: building, low and high noise, water, wires and towers, bridge deck
 DROP_CLASSES = (6, 7, 9, 13, 14, 15, 16, 17, 18)
-DM = 10.0           # the binned heights are stored in decimetres over Z0 (uint16)
-Z0 = 1000.0
+DM = 10.0           # the binned heights are stored in decimetres over z0 (uint16: 6.5 km of range)
+Z0_BELOW = 1000.0   # z0 sits this far under the pack's lowest ground, for the ring's valleys
+
+
+def z0_for(meta):
+    """the floor of the binned heights: 1 km under the pack's lowest ground, to 100 m. DATA-023: a fixed 1,000 m
+    clipped every return of Boston Mills (200 to 370 m) to 1,000 m, so the ring's ground read 700 m too high"""
+    lo = float((meta.get("zRange") or [1000.0 + Z0_BELOW])[0])
+    return math.floor((lo - Z0_BELOW) / 100.0) * 100.0
 BLOCK = 1000        # CHM cells per detection block side
 MARGIN = 8          # cells of overlap round a block
 
@@ -129,6 +136,7 @@ def main(argv):
     pin_m = (pin[0][0], pin[1][0], pin[0][1], pin[1][1])
     ept = json.load(open(os.path.join(raw, "ept", "ept.json"), encoding="utf-8"))
     eb = ept["bounds"]
+    z0 = z0_for(meta)
     files = []
     for p in sorted(glob.glob(os.path.join(raw, "ept", "*.laz")) + glob.glob(os.path.join(raw, "ept_far", "*.laz"))):
         k = os.path.basename(p)[:-4]
@@ -160,7 +168,7 @@ def main(argv):
         col = np.floor((ux - ox - X0) / R2).astype(np.int64); row = np.floor((Y1 - (uy - oy)) / R2).astype(np.int64)
         ok = (col >= 0) & (col < W2) & (row >= 0) & (row < H2)
         col, row, z, cls = col[ok], row[ok], z[ok], cls[ok]
-        zq = np.clip(np.round((z - Z0) * DM), 1, 65534).astype(np.uint16)
+        zq = np.clip(np.round((z - z0) * DM), 1, 65534).astype(np.uint16)
         np.maximum.at(dsm.ravel(), row * W2 + col, zq)
         g = cls == 2
         if g.any():
@@ -182,7 +190,7 @@ def main(argv):
     fc = (gx - hx0) / hres - 0.5; fr = (hy1 - gy) / hres - 0.5
     base = ndimage.map_coordinates(big, np.meshgrid(fr, fc, indexing="ij"), order=1, mode="nearest").astype(np.float32)
     del big
-    lg = np.where(gnd < 65535, gnd.astype(np.float32) / DM + Z0, np.nan).astype(np.float32)
+    lg = np.where(gnd < 65535, gnd.astype(np.float32) / DM + z0, np.nan).astype(np.float32)
     log(f"  ground cells with a lidar return {np.isfinite(lg).mean() * 100:.1f}%, "
         f"median lidar - drawn ground {np.nanmedian(lg - base):+.2f} m")
     ground = fill_ground(lg, base)
@@ -207,7 +215,7 @@ def main(argv):
             s2 = np.repeat(np.repeat(slope_g[a0 // 2:(a1 + 1) // 2, e0 // 2:(e1 + 1) // 2], 2, 0), 2, 1)
             s2 = s2[a0 % 2:a0 % 2 + (a1 - a0), e0 % 2:e0 % 2 + (e1 - e0)]
             has = d > 0
-            chm = np.where(has & np.isfinite(g2), d.astype(np.float32) / DM + Z0 - g2, 0)
+            chm = np.where(has & np.isfinite(g2), d.astype(np.float32) / DM + z0 - g2, 0)
             chm = ndimage.grey_closing(np.clip(chm, 0, CHM_MAX).astype(np.float32), size=3)
             r, c, h = detect(chm, ndimage.binary_dilation(has, iterations=1), s2)
             r, c = r + a0, c + e0

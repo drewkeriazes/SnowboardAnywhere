@@ -52,7 +52,7 @@ await page.addInitScript(({ emulate, look4 }) => {
   Object.defineProperty(window, '__step', { configurable: true, get: () => stepFn, set: (v) => { stepFn = v; if (!window.__hooked) { window.__hooked = true; window.__readyMs = performance.now(); install(); queueMicrotask(() => { window.__firstFrameMs = performance.now(); }); } } });
   function install() {
   const w = window, s = w.__sim, p = s.pack;
-  w.__sets = { fine: p.fine, mask: p.mask, dir: p.dir };
+  w.__sets = { fine: p.fine, mask: p.mask, dir: p.dir, ao: p.ao, moguls: p.moguls };
   w.__life = {}; w.__win = {}; w.__inTerrain = false;
   const keys = (set, x0, y0, x1, y1) => {
     const m = set.meta, out = [];

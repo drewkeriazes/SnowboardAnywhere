@@ -47,3 +47,17 @@ Mask and dir (2 m, 1 km tiles; the card leaves them as they are): 15 each at the
 **Verdict: not worth building for load or decode time.** The 4 and 8 m only tiles are two thirds of the fine tiles fetched and of fine decode, but that decode is under 60 ms of main-thread time in a whole run, and the load does not settle sooner without them (14.6 to 14.7 s against 14.8 to 15.0 s, within run-to-run noise). The first frame (6.3 s: shader compile and the first chunk builds) and the mask and dir tiles set the load; responses wait for the main thread while that frame runs (fetch wall time about 6 s a tile). What a 4 m set would still buy: about 40 MB less JS heap (40 fewer 1 MB Float32 tiles resident) and about 10 MB less to download per session, which counts on a hosted build over a slow link, not locally (first-download size is FEAT-230, #538). Caveats: headless with a local server, so no network time; one run of each mode crashed about 15 s in at the same spot (1,181 m) and the tile counts held.
 
 Look (headed, `--shots`, the three modes on the same frames after a restart at the spawn): on mid (`--emulate-coarse`) the 4 and 8 m ring goes visibly softer, its small rolls smoothed out; built from a 4 m box average (`--look4`, how the set would look) it cannot be told from today. The ride is the same in all three (physics and prefetch keep reading fine). So the set changes nothing a player sees or feels, and on its own buys only the heap and the download. In a boot zip (FEAT-230, #538) it is what lets the ring look finished with only the fine tiles round the start; the findings are on that card.
+
+## BUG-087: tile decode stalls while riding (2026-11-11)
+
+`node tools/tileperf.mjs vail 60 --gpu --straight`, same setup as FEAT-229 above, now also reporting ao and moguls. Main-thread decode per tile (median of the run, max in brackets); "riding" is the 60 s ride, 3 to 9 tiles per set:
+
+| set | before, riding | before, load | dir / ao / moguls on the 2D canvas | after (2D canvas + fenced mask readback), riding | after, load |
+|---|---|---|---|---|---|
+| dir | 24.1 (40.3) | 2.8 (14.4) | 0.7 to 0.9 (1.1) | 0.6 to 0.9 (1.1) | 0.6 (0.8) |
+| ao | 26.3 (58.7) | 2.9 (25.8) | 0.7 to 0.8 (1.0) | 0.5 to 0.6 (0.7) | 0.6 (1.7) |
+| moguls | 12.0 (41.1) | 2.5 (18.6) | 0.8 to 0.9 (1.0) | 0.6 to 0.7 (0.8) | 0.6 (1.1) |
+| mask | 1.4 (1.5) | 2.2 (4.9) | **19.5 to 22.7 (42.5)** | 1.3 to 1.4 (1.7) | 1.5 to 2.0 (2.9) |
+
+The cause was the synchronous `readPixels` in `decodeRGBA`: on its own (no game rendering) a tile reads back in about 1.3 ms, but while the game renders it waits for the frame's GPU work, and whichever readback runs first pays it. Moving the greyscale sets (ao, dir, moguls) to the 2D canvas, which is exact for them (byte-identical on 40 tiles each; it is not for the mask, whose alpha would wipe RGB), handed the whole wait to the mask, so the mask reads back into a GPU buffer and copies out once a fence passes. All 212 resident mask, dir, ao and moguls tiles are byte-identical to the old decode, and the ride covers the same 1,154.9 m. Settled 15.0 to 15.3 s (16.1 before), ride frame time median 9.1 to 9.8 ms, p95 11.4 to 12.4 (10.1 / 12.8 before). Not changed: `CoverSet` and the stand images (`Vegetation`) still use the synchronous `decodeRGBA`; the cover loads once at the start and Vail has no stand images.
+

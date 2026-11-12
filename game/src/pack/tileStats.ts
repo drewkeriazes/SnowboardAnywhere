@@ -8,7 +8,7 @@ export interface TileLoad {
   fetchMs: number;
   /** createImageBitmap: the PNG decode, off the main thread in Chromium (wall clock) */
   bitmapMs: number;
-  /** drawImage, getImageData and the conversion: main thread */
+  /** the copy out of the bitmap and the conversion: main thread only (an async GPU readback's wait is not counted) */
   decodeMs: number;
 }
 
