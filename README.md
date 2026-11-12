@@ -27,6 +27,7 @@ Resort packs are not in this repo. Published ones (Vail, Breckenridge, Big Sky) 
 cd game
 npm run get vail          # download, check and unpack into packs/vail (about 240 MB)
 npm run get -- --list     # what is published, and which you have
+npm run get synth         # the synthetic test mountain the CI checks run on (no real data)
 ```
 
 Or open **Change resort** on the main menu: a published resort you don't have shows "Download (size)";

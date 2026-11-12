@@ -6,7 +6,7 @@ Read this first when picking the project up in Claude Code / VS Code. Current wo
 
 - Repo: `C:\Users\Drew\git\SnowboardAnywhere` (origin github.com/drewkeriazes/SnowboardAnywhere). Everything below is committed on `main`.
 - Raw Vail data (1.4 GB, complete): `C:\Users\Drew\Documents\snowboard-sim\raw\vail\` (64 DEM chunks, 4 mid-ring chunks, 16 NAIP crops, 388 lidar nodes, 210 Mapterhorn tiles, 4 OSM extracts). Not in git. `docs/` in the claude.ai Project has the full inventory (`vail-raw-data-inventory.md`).
-- Synthetic test pack: generate with `python pipeline/synth_pack.py packs/synth` (takes ~3 min, 39 MB). The client runs against it with `?pack=synth`.
+- Synthetic test pack: `cd game && npm run get synth` downloads the copy MapPacker publishes (release `synth-v<N>`, FEAT-241); `python pipeline/synth_pack.py packs/synth` still builds one here (about 3 min, 39 MB) until FEAT-242. The client runs against it with `?pack=synth`.
 
 ## What works
 
