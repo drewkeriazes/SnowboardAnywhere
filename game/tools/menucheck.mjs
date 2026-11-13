@@ -9,19 +9,23 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DIST, PACKS } from './paths.mjs';
+import { packDownloads } from './pack_routes.mjs';
 
 const args = process.argv.slice(2);
 const shots = args.includes('--shots');
 const pack = args.filter((a) => !a.startsWith('--'))[0] ?? 'synth';
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.webp': 'image/webp', '.bin': 'application/octet-stream', '.css': 'text/css', '.woff2': 'font/woff2', '.jpg': 'image/jpeg', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg' };
-const server = http.createServer((req, res) => {
+// BUG-118: the /__packs/* routes every game server has (the resort picker's catalog, the menu's Preview badge), offline
+// as with no network: catalog null and the packs on disk, so the picker doesn't 404 into the console check
+const packRoutes = packDownloads(PACKS, { readCatalog: async () => { throw new Error('offline (menucheck)'); } });
+const server = http.createServer((req, res) => packRoutes(req, res, () => {
   const u = decodeURIComponent(req.url.split('?')[0]);
   const [root, rel] = u.startsWith('/packs/') ? [PACKS, u.slice('/packs/'.length)] : [DIST, u];
   const p = path.join(root, rel);
   if (!p.startsWith(root) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); res.end(); return; }
   res.writeHead(200, { 'content-type': types[path.extname(p)] ?? 'application/octet-stream' });
   fs.createReadStream(p).pipe(res);
-});
+}));
 await new Promise((r) => server.listen(0, r));
 const browser = await launchBrowser();
 const fails = [];
