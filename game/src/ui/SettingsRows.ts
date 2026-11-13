@@ -30,6 +30,8 @@ interface Base {
   /** a note when another setting overrides this one */
   note?: (s: Settings) => string | null;
   hidden?: () => boolean;
+  /** FEAT-285: a heavy graphics option, held as pending until Apply (the settings screen edits a draft of it) */
+  held?: boolean;
 }
 interface Valued extends Base { get: (s: Settings) => V; set: (s: Settings, v: V) => void }
 export type Row =
@@ -62,6 +64,9 @@ export function applyGfxPreset(s: Settings, p: GfxPreset): void {
   if (p === 'ultra') s.pixelRatio = fullRes();
 }
 const GFX_FIELDS = ['quality', 'shadows', 'treeDensity', 'forestDensity', 'pixelRatio', 'csmExperimental'] as const;
+/** FEAT-285: the fields the held rows write; changing one rebuilds shaders, shadow maps or the trees, so they wait for Apply */
+export const HELD_FIELDS = [...GFX_FIELDS, 'snowDeform'] as const;
+const held = { held: true } as const;
 export function gfxPresetOf(s: Settings): GfxPreset | 'custom' {
   for (const p of ['low', 'medium', 'high', 'ultra'] as GfxPreset[]) {
     const t = { ...s }; applyGfxPreset(t, p);
@@ -156,20 +161,24 @@ export const SECTIONS: Section[] = [
   ] },
 
   { cat: 'graphics', title: 'Preset', rows: [
-    { kind: 'seg', id: 'gfx', label: 'Preset', opts: GFX_OPTS, what: 'quality', get: (s) => gfxPresetOf(s), set: (s, v) => applyGfxPreset(s, v as GfxPreset),
+    { kind: 'seg', id: 'gfx', label: 'Preset', opts: GFX_OPTS, what: 'quality', get: (s) => gfxPresetOf(s), set: (s, v) => applyGfxPreset(s, v as GfxPreset), held: true,
       desc: 'Sets the options under Advanced together. Ultra is High plus cascaded shadows at full resolution. Changing an advanced option shows Custom.' },
   ] },
   { cat: 'graphics', title: 'Frame rate', rows: [
-    seg('targetFps', 'Frame cap', [[30, '30'], [60, '60'], [0, 'Uncapped']], 'The most frames drawn each second. 30 saves battery; Uncapped draws as fast as the display refreshes. Nothing else changes with it: what you set is what is drawn.'),
+    seg('targetFps', 'Frame cap', [[30, '30'], [60, '60'], [0, 'Uncapped']], 'The most frames drawn each second. 30 saves battery; Uncapped draws as fast as the display refreshes. Nothing else changes with it: what you set is what is drawn. It applies at once.'),
   ] },
   { cat: 'graphics', title: 'Advanced', rows: [
-    { ...seg('quality', 'Detail', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], 'The base detail level: shadow map size, snowflake count and the tree budget. Changing it moves Shadows, Trees, Forest and Resolution with it.'), set: (s: Settings, v: V) => applyQuality(s, v as Settings['quality']) } as Row,
-    toggle('shadows', 'Shadows', 'Sun shadows from the rider, trees and terrain.'),
-    toggle('csmExperimental', 'Cascaded shadows (beta)', 'Sharper shadows near you and shadows far away, in several layers. Experimental: it has turned the terrain black on some GPUs.'),
-    slider('treeDensity', 'Trees', 0.25, 1, 0.05, pct, 'How far out trees are drawn.'),
-    slider('forestDensity', 'Forest', 0, 1, 0.05, pct, 'How closed the forest near you is: the stems drawn between the trees the lidar found. The mapped trees always stay.', { cost: 'Tree instances near you scale with it.' }),
-    slider('pixelRatio', 'Resolution', 0.5, 2, 0.25, (v) => `${v}x`, 'Render resolution against the screen. Lower is softer and faster; the device caps the top.', { cost: 'The biggest single cost: pixels drawn scale with its square.' }),
-    toggle('snowDeform', 'Snow dents', 'The snow near you takes real trenches and lips.', { note: (s) => (s.quality === 'low' ? 'Off while Detail is Low.' : null) }),
+    { ...seg('quality', 'Detail', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], 'The base detail level: shadow map size, snowflake count and the tree budget. Changing it moves Shadows, Trees, Forest and Resolution with it.', held), set: (s: Settings, v: V) => applyQuality(s, v as Settings['quality']) } as Row,
+    toggle('shadows', 'Shadows', 'Sun shadows from the rider, trees and terrain.', held),
+    toggle('csmExperimental', 'Cascaded shadows (beta)', 'Sharper shadows near you and shadows far away, in several layers. Experimental: it has turned the terrain black on some GPUs.', held),
+    slider('treeDensity', 'Trees', 0.25, 1, 0.05, pct, 'How far out trees are drawn.', held),
+    slider('forestDensity', 'Forest', 0, 1, 0.05, pct, 'How closed the forest near you is: the stems drawn between the trees the lidar found. The mapped trees always stay.', { cost: 'Tree instances near you scale with it.', ...held }),
+    slider('pixelRatio', 'Resolution', 0.5, 2, 0.25, (v) => `${v}x`, 'Render resolution against the screen. Lower is softer and faster; the device caps the top.', { cost: 'The biggest single cost: pixels drawn scale with its square.', ...held }),
+    toggle('snowDeform', 'Snow dents', 'The snow near you takes real trenches and lips.', { note: (s) => (s.quality === 'low' ? 'Off while Detail is Low.' : null), ...held }),
+  ] },
+  { cat: 'graphics', title: 'Apply', rows: [
+    { kind: 'action', id: 'gfx-apply', label: 'Apply', button: 'Apply', action: 'gfx-apply',
+      desc: 'The preset and the advanced options wait here until you apply them, so trying one costs nothing. Apply rebuilds the renderer behind a short loading screen. Leaving with changes waiting asks whether to apply or discard them.' },
   ] },
 
   { cat: 'conditions', title: 'Weather', rows: [

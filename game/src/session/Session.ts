@@ -20,7 +20,7 @@ import { Prefetch } from '../sim/Prefetch';
 import { MainMenu, type MenuChoice } from '../ui/MainMenu';
 import { attractDir, attractShot, shotPose, CONDITION_FIELDS, type AttractManifest, type AttractShot, type ShotConditions } from '../world/AttractShots';
 import { AttractGhosts } from '../world/AttractGhosts';
-import { LoadingScreen } from '../ui/Loading';
+import { LoadingScreen, framesSettled } from '../ui/Loading';
 import { PauseMenu, type PauseInfo } from '../ui/PauseMenu';
 import { Labels } from '../ui/Labels';
 import { TouchControls } from '../ui/TouchControls';
@@ -211,6 +211,16 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       map.metric = s.units === 'metric';
       if (what === 'camera' || what === 'reset') cam.mode = s.camera;
     };
+    /** FEAT-285: Settings > Graphics > Apply, behind its loading screen: the held options go live, every material
+     *  compiles now instead of on the frames after, and the loading screen waits until the frames run clean */
+    const applyGraphics = async (s: Settings, progress: (p: number, text: string) => void): Promise<void> => {
+      applySettings(s, 'quality');
+      progress(0.4, 'Compiling shaders');
+      try { await renderer.compileAsync(scene, cam.camera); } catch { /* the first frames compile them instead */ }
+      progress(0.75, 'Drawing the first frames');
+      await framesSettled();
+      progress(1, 'Ready');
+    };
 
     // ---------------------------------------------------------------- spawn point
     const start = landmarkStart(pack.meta.slug) ?? pack.meta.start; // FEAT-132: a landmark marked `start` beats meta.start
@@ -251,7 +261,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     map.onPick = pickHandler;
 
     const fps = new FpsMeter();
-    const pause = new PauseMenu(settings, applySettings, { fps: () => fps.fps, credits: () => audio.credits });
+    const pause = new PauseMenu(settings, applySettings, { fps: () => fps.fps, credits: () => audio.credits, apply: applyGraphics });
     // ---------------------------------------------------------------- FEAT-164: Free ride, Time trial and Outrun on top of riding
     const toSpawn = () => { liftRide.cancel(); rider.reset(sx, sy, sh); cam.snapTo(rider); };
     const modes = new Modes(ctx, world, { rider, liftRide, cam, map, keyLabels, toast: (t, ms) => showToast(t, ms), pick: pickHandler, toSpawn }, outrunUI);
@@ -323,6 +333,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     if (menu) {
       menu.onChoice = leaveAttract;
       menu.onSettingsChange = (s, what) => applySettings(s, what);
+      menu.onSettingsApply = applyGraphics;
       menu.onResetStart = () => {
         resetStart(pack.meta.slug);
         sx = start.x; sy = start.y; sh = start.heading; map.spawnPos = [sx, sy];

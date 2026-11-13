@@ -1,7 +1,7 @@
 import type { GameAudio } from '../audio/Audio';
 import type { AttractShot } from '../world/AttractShots';
 import { saveSettings, type Settings } from './Settings';
-import { closeSettings, openSettings, settingsOpen, type Credit } from './SettingsOverlay';
+import { closeSettings, openSettings, settingsOpen, type Credit, type SettingsOpen } from './SettingsOverlay';
 import { closeScreen, lastInputKind, openScreen, Screen } from './MenuNav';
 import { renderHints, type Hint } from './HintBar';
 import { fillResortPicker, packStatus, PREVIEW_BADGE } from './ResortPicker';
@@ -66,6 +66,8 @@ export class MainMenu {
   onChoice: ((c: MenuChoice) => void) | null = null;
   /** applies a settings change (the session's applySettings once it exists; the audio before) */
   onSettingsChange: (s: Settings, what: string) => void;
+  /** FEAT-285: applies the held graphics options behind the loading screen (the session's, once it exists) */
+  onSettingsApply: SettingsOpen['onApply'] = undefined;
   onResetStart: (() => void) | null = null;
   private mode: PauseMode = { kind: 'free' };
   private courses: PauseCourse[] = [];
@@ -236,7 +238,7 @@ export class MainMenu {
     this.onChoice?.(c);
   }
   private openSettings(cat?: 'controls' | 'credits'): void {
-    openSettings(this.o.settings, { overGame: false, cat, credits: this.o.credits, onChange: (s, what) => { this.onSettingsChange(s, what); this.syncDiscipline(); } });
+    openSettings(this.o.settings, { overGame: false, cat, credits: this.o.credits, onChange: (s, what) => { this.onSettingsChange(s, what); this.syncDiscipline(); }, onApply: (s, p) => this.onSettingsApply?.(s, p) ?? Promise.resolve(this.onSettingsChange(s, 'quality')) });
   }
   private setDiscipline(d: 'board' | 'ski'): void {
     this.o.settings.discipline = d;
