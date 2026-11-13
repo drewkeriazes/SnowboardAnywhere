@@ -68,7 +68,7 @@ const [x0, y0] = at(0);
 await page.goto(`http://localhost:${server.address().port}/index.html?pack=${pack}&headless&cam=eye&x=${x0}&y=${y0}&weather=${weather}${process.env.SHOT_QUERY ?? ''}`);
 await page.waitForFunction(() => window.__step, null, { timeout: 180000 });
 page.setDefaultTimeout(300000);
-await page.evaluate((hour) => { window.__sim.settings.timeOfDay = hour; }, hour);
+await page.evaluate((hour) => { window.__sim.settings.timeOfDay = hour; window.__sim.applySettings('conditions'); }, hour);
 
 const pose = (d) => {
   const [x, y] = at(d);

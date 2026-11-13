@@ -109,7 +109,7 @@ const measure = (page) => page.evaluate((frames) => {
     if (o.isInstancedMesh) { geo += o.instanceMatrix.array.byteLength; if (o.instanceColor) geo += o.instanceColor.array.byteLength; }
     for (const m of [].concat(o.material ?? [])) {
       for (const v of Object.values(m)) if (v?.isTexture) texBytes(v);
-      for (const u of Object.values(m.uniforms ?? {})) if (u?.value?.isTexture) texBytes(u.value);
+      for (const u of [...Object.values(m.uniforms ?? {}), ...Object.values(m.userData?.uniforms ?? {})]) if (u?.value?.isTexture) texBytes(u.value);
     }
   });
   const r2 = (x) => Math.round(x * 100) / 100;
@@ -151,7 +151,8 @@ for (const preset of presets) {
   for (const [w, h] of sizes) {
     await page.setViewportSize({ width: w, height: h });
     for (const hour of times) {
-      await page.evaluate((hour) => { window.__sim.settings.timeOfDay = hour; }, hour);
+      // timeOfDay is applied to the sun only through applySettings (SunClock.apply); setting the field alone keeps the old light
+      await page.evaluate((hour) => { window.__sim.settings.timeOfDay = hour; window.__sim.applySettings('conditions'); }, hour);
       for (const v of views) {
         await page.evaluate((v) => window.__sim.eyeAt(v.x, v.y, v.h, v.pitch ?? 0, v.fov ?? 50, v.eye ?? 1.7), v);
         await settle(page);
