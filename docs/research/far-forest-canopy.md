@@ -38,10 +38,10 @@ The full set (every build, preset, view and light, 1080p frames and native-pixel
 
 | View | Noon | Low sun (7.6 h) |
 |---|---|---|
-| The Slot corner | ![](far-forest-canopy/slot-corner-12h.jpg) | ![](far-forest-canopy/slot-corner-7.6h.jpg) |
-| Below the sign | ![](far-forest-canopy/sign-sunup-12h.jpg) | ![](far-forest-canopy/sign-sunup-7.6h.jpg) |
-| Lower toward Sun Up | ![](far-forest-canopy/lower-sunup-12h.jpg) | ![](far-forest-canopy/lower-sunup-7.6h.jpg) |
-| Aerial | ![](far-forest-canopy/aerial-12h.jpg) | ![](far-forest-canopy/aerial-7.6h.jpg) |
+| The Slot corner | ![](../screenshots/far-forest-canopy/slot-corner-12h.jpg) | ![](../screenshots/far-forest-canopy/slot-corner-7.6h.jpg) |
+| Below the sign | ![](../screenshots/far-forest-canopy/sign-sunup-12h.jpg) | ![](../screenshots/far-forest-canopy/sign-sunup-7.6h.jpg) |
+| Lower toward Sun Up | ![](../screenshots/far-forest-canopy/lower-sunup-12h.jpg) | ![](../screenshots/far-forest-canopy/lower-sunup-7.6h.jpg) |
+| Aerial | ![](../screenshots/far-forest-canopy/aerial-12h.jpg) | ![](../screenshots/far-forest-canopy/aerial-7.6h.jpg) |
 
 ## The candidates
 
