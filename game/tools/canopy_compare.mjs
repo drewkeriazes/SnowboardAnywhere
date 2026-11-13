@@ -72,6 +72,43 @@ const settle = async (page) => {
   }
 };
 
+/**
+ * GPU time per frame from timer queries (EXT_disjoint_timer_query_webgl2), median of `frames` frames after a
+ * warm-up that brings the GPU's clocks up: wall-clock times swing by up to 10 ms between identical runs on Drew's
+ * PC (the GPU idles at 300 MHz between bursts), GPU time much less. Results only arrive after the page yields.
+ */
+const gpuTime = async (page, frames) => {
+  const ok = await page.evaluate((frames) => {
+    const gl = window.__sim.renderer.getContext(), ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+    if (!ext) return false;
+    const px = new Uint8Array(4);
+    for (let i = 0; i < 120; i++) window.__step(1, 1 / 60);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    window.__gq = [];
+    for (let i = 0; i < frames; i++) {
+      const q = gl.createQuery();
+      gl.beginQuery(ext.TIME_ELAPSED_EXT, q); window.__step(1, 1 / 60); gl.endQuery(ext.TIME_ELAPSED_EXT);
+      window.__gq.push(q);
+    }
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return true;
+  }, frames);
+  if (!ok) return null;
+  for (let tries = 0; tries < 50; tries++) {
+    await page.waitForTimeout(50);
+    const r = await page.evaluate(() => {
+      const gl = window.__sim.renderer.getContext(), ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+      if (!window.__gq.every((q) => gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE))) return null;
+      const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT);
+      const ms = window.__gq.map((q) => gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6).sort((a, b) => a - b);
+      for (const q of window.__gq) gl.deleteQuery(q);
+      return disjoint ? -1 : Math.round(ms[Math.floor(ms.length / 2)] * 100) / 100;
+    });
+    if (r !== null) return r < 0 ? null : r;
+  }
+  return null;
+};
+
 const measure = (page) => page.evaluate((frames) => {
   const s = window.__sim, r = s.renderer, gl = r.getContext();
   const px = new Uint8Array(4);
@@ -156,14 +193,15 @@ for (const preset of presets) {
       for (const v of views) {
         await page.evaluate((v) => window.__sim.eyeAt(v.x, v.y, v.h, v.pitch ?? 0, v.fov ?? 50, v.eye ?? 1.7), v);
         await settle(page);
-        const st = await measure(page);
+        const gpuMs = await gpuTime(page, frames);
+        const st = { gpuMs, ...(await measure(page)) };
         const key = `${v.label}-${hour}h-${w}x${h}`;
         if (shots) {
           const url = await page.evaluate(() => { window.__step(1, 1 / 60); return window.__shot(); });
           fs.writeFileSync(path.join(out, `${key}.png`), Buffer.from(url.split(',')[1], 'base64'));
         }
         all[preset][key] = st;
-        console.log(`${preset} ${key.padEnd(34)} ${String(st.ms).padStart(6)} ms ${String(st.calls).padStart(5)} calls ${String(st.trisM).padStart(6)} Mtris | trees ${st.treeMs} ms ${st.treeCalls} calls ${st.treeTrisM} Mtris | geo ${st.geoMB} MB tex ${st.texMB} MB${st.canopy ? ` | canopy ${JSON.stringify(st.canopy)}` : ''}`);
+        console.log(`${preset} ${key.padEnd(34)} gpu ${String(st.gpuMs).padStart(6)} ms wall ${String(st.ms).padStart(6)} ms ${String(st.calls).padStart(5)} calls ${String(st.trisM).padStart(6)} Mtris | trees ${st.treeMs} ms ${st.treeCalls} calls ${st.treeTrisM} Mtris | geo ${st.geoMB} MB tex ${st.texMB} MB${st.canopy ? ` | canopy ${JSON.stringify(st.canopy)}` : ''}`);
       }
     }
   }
