@@ -1,0 +1,6 @@
+[
+ {"label":"slot-corner", "note":"Coming round the corner of The Slot, looking toward the Sun Up Express (Drew's snips)", "x":-640, "y":368, "h":112, "pitch":-4, "fov":50},
+ {"label":"sign-sunup", "note":"Just below the Legendary Back Bowls sign on The Slot, looking toward Sun Up and Over Yonder (BUG-074)", "x":-690, "y":470, "h":150, "pitch":-5, "fov":50},
+ {"label":"lower-sunup", "note":"Further down The Slot toward Sun Up; the far forested ridges on the right are the reference for good", "x":-360, "y":171, "h":125, "pitch":-2, "fov":50},
+ {"label":"aerial", "note":"FEAT-154's look from above, 700 m over the Back Bowls", "x":-727, "y":524, "h":160, "pitch":-18, "fov":50, "eye":700}
+]
