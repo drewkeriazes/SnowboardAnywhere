@@ -156,6 +156,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     uForestDrawn: { value: 0.7 },
     /** BUG-081: where the generated stems stop (Vegetation, set by Terrain.update); past it uForestDrawn rises to FOREST_DRAWN_FAR */
     uStemReach: { value: 1e8 },
+    /** BUG-121: where the drawn trees end (m, horizontal, from where they start to go to none), so the shade map's shadows of the trees past it go with them */
+    uTreeEnd: { value: new THREE.Vector2(1e8, 1e8 + 1) },
     uCanopySun: { value: 0.22 },
     uTimberMix: { value: 0.97 },
     /** FEAT-154: the rectangle (pack minX, minY, maxX, maxY) holding tree instances; none by default */
@@ -220,6 +222,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         uniform float uWrap, uGlint, uFlat, uAO;
         uniform vec4 uDebugFar;
         uniform float uForestDrawn, uCanopySun, uLiftNear, uTimberMix, uStemReach;
+        uniform vec2 uTreeEnd;
         uniform vec4 uTreeRect;
         #define AO_POW 2.6
         #define AO_DIRECT 0.6
@@ -555,7 +558,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         if (shadeGate > 0.0 && uFlat < 0.99 && fd < 0.99 && uSunDir.y >= 0.02) {
           vec2 sm = treeShadeMap(pxyF, pixGround);
           float coarse = (1.0 - sm.y) * (1.0 - smoothstep(2.0, 3.0, cellPx));
-          treeShade = sm.x + (coarse > 0.001 ? coarse * treeShadow(pxyF, dist, treeG) : 0.0);
+          treeShade = sm.x * (1.0 - smoothstep(uTreeEnd.x, uTreeEnd.y, length(wp.xz - cameraPosition.xz))) + (coarse > 0.001 ? coarse * treeShadow(pxyF, dist, treeG) : 0.0);
           treeShade *= shadeGate * (1.0 - fd) * (1.0 - uFlat);
         }
         gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd) * (1.0 - vegK) * (1.0 - 0.6 * uSpring); // wet spring snow sparkles less

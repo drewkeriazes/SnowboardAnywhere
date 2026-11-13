@@ -18,7 +18,7 @@ export { generateStems, type StandGrid } from './stands';
  *
  * LOD bands (m from the camera, scaled by the graphics setting through `setBands`):
  *   LOD0 cards 0..b0 (80), LOD1 cones b0..b1 (400), LOD2 crossed quads b1..b2 (1500), impostors b2..b3 (4500),
- *   each edge a dither crossfade `fade(edge)` metres wide.
+ *   each edge a dither crossfade `fade(edge)` metres wide; the trees end over `farFadeWidth(b3)` before b3.
  */
 
 /** FEAT-233: one impostor row per species (10: the atlases are 1024 x 1280) */
@@ -33,6 +33,12 @@ const BAKE_EL = 6 * Math.PI / 180;
 
 /** crossfade width at a band edge (m) */
 export function fadeWidth(edge: number): number { return Math.max(10, edge * 0.05); }
+/**
+ * BUG-121: the drawn trees end over this many metres before their far edge `far` (Vegetation treeEnd), tree by tree,
+ * so they never stop at the edge of the 1 km cells that happen to be loaded: on the Low preset whole rows of trees
+ * used to appear on the skyline as a cell arrived.
+ */
+export function farFadeWidth(far: number): number { return Math.max(60, far * 0.2); }
 
 export interface KitStats {
   /** triangles per species: LOD0 and LOD1 (the largest variant), LOD2 and the impostor */
@@ -92,11 +98,14 @@ export class TreeKit {
       this.bands.lod0.value.set(1e8, 1e8 + 1, 1e8 + 2, 1e8 + 3);
       this.bands.lod1.value.set(-2, -1, b1 - f1, b1 + f1);
     }
+    // BUG-121: the trees end over the farFadeWidth before b3: the impostors thin out to none (THIN_GLSL), LOD2 alone dithers out
+    const f3 = farFadeWidth(b3);
+    kitUniforms.uFarEdge.value.set(b3 - f3, b3);
     if (impostors) {
       this.bands.lod2.value.set(b1 - f1, b1 + f1, b2 - f2, b2 + f2);
       this.bands.imp.value.set(b2 - f2, b2 + f2, 1e8, 1e8 + 1);
     } else {
-      this.bands.lod2.value.set(b1 - f1, b1 + f1, 1e8, 1e8 + 1);
+      this.bands.lod2.value.set(b1 - f1, b1 + f1, b3 - f3, b3);
       this.bands.imp.value.set(1e8, 1e8 + 1, 1e8 + 2, 1e8 + 3);
     }
   }
