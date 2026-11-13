@@ -71,7 +71,7 @@ export function fillAccountPanel(host: HTMLElement, account: AccountService, o: 
     const r = await go();
     busy = false;
     if (closeOnOk && (!r || r.ok)) { o.close(); return; }
-    if (r) { note = r.ok ? (r.note ?? '') : r.message; noteOk = r.ok; } // a cancelled popup has an empty message: no note
+    if (r) { note = r.ok ? (r.note ?? '') : r.message; noteOk = r.ok || (r.code === 'unverified' && act === 'signup'); } // a cancelled popup has an empty message: no note
     // a refused password: back to its field to try again
     if (host.isConnected && !host.hidden) draw(null, r && !r.ok && act !== 'github' && act !== 'add-github' ? 'input[name=password]' : null);
   };
