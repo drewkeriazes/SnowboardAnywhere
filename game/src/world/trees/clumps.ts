@@ -963,6 +963,12 @@ export class ClumpCanopy {
     this.stats.bytes = this.atlasBytes() + this.iPos.array.byteLength * 2;
   }
 
+  /** BUG-130: the preset draws no clumps (the trees reach as far themselves): hide them; `update` brings them back */
+  off(): void {
+    this.mesh.visible = false;
+    this.last.blocksReady = -1; // repack on the next update
+  }
+
   dispose(): void {
     this.disposed = true;
     this.baking = null;
