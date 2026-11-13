@@ -48,6 +48,8 @@ export function buildWorld(ctx: GameContext) {
   const terrain = new Terrain(pack);
   if (params.debugHud && params.debug === 'moguls') terrain.setMogulDebug(true); // BUG-062
   add('terrain', terrain.group);
+  // FEAT-278 prototype: ?canopy=shell draws the far forest as a canopy shell (window.__canopy: its build cost)
+  if (params.canopy === 'shell') (window as unknown as { __canopy: unknown }).__canopy = terrain.enableCanopyShell(params.canopyFrom).stats;
   const collider = new Collider();
   const veg = new Vegetation(pack, collider);
   const treeFade = new TreeFade();

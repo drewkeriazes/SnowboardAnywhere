@@ -108,6 +108,9 @@ function coverUniforms() {
     uShadeBox: { value: new THREE.Matrix4() },
     uShadeBoxOn: { value: 0 },
     uLiftNear: { value: 4500 },
+    /** FEAT-278 prototype (canopy=shell): where the canopy shell stands over the ground (rise start, end, sink start, end; m),
+     *  where the ground drops its flat timber tone; off by default */
+    uShell: { value: new THREE.Vector4(1e9, 1e9 + 1, 2e9, 2e9 + 1) },
   };
 }
 
@@ -221,6 +224,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         uniform vec4 uDebugFar;
         uniform float uForestDrawn, uCanopySun, uLiftNear, uTimberMix, uStemReach;
         uniform vec4 uTreeRect;
+        uniform vec4 uShell;
         #define AO_POW 2.6
         #define AO_DIRECT 0.6
         // FEAT-075: forest darkening from FOREST_NEAR (full by FOREST_FULL, m); canopy cover FOREST_LO..FOREST_HI maps to 0..1
@@ -528,6 +532,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float seen = 1.0 - pow((1.0 - sK) / (1.0 - rho * sK), (1.0 + TREE_ASPECT * sqrt(1.0 - viewMu * viewMu)) / viewMu);
         float fd = mix(1.0, smoothstep(FOREST_NEAR, FOREST_FULL, dist), treeHere) * seen;
         fd *= 1.0 - uDebugFar.x;
+        // FEAT-278 prototype: under the canopy shell the crowns are geometry; the ground between them is snow
+        fd *= 1.0 - smoothstep(uShell.x, uShell.y, dist) * (1.0 - smoothstep(uShell.z, uShell.w, dist));
         // FEAT-075: conifer canopy in sun is dark (shaded needles and crowns), dark green-black in the photos.
         // FEAT-153: crowns (about 6 m) texture it while a pixel is smaller than a crown and fade to an even
         // tone beyond, with a faint stand-scale variation; no 50 m snow blotches at a distance

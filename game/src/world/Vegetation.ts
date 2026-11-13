@@ -63,14 +63,19 @@ const STAND_COLLIDE = 150;
 export function setStandDensity(k: number): void { STAND_K = Math.max(0, Math.min(1, k)); }
 /** FEAT-153: how far the tree impostors reach (m), where the terrain's canopy lift takes over */
 export function vegetationFarRadius(): number { return FAR_RADIUS; }
+/** FEAT-278: where the impostors start to thin (m); the canopy shell prototype takes over from here */
+export function vegetationThinRadius(): number { return THIN_RADIUS; }
+/** FEAT-278 prototype (canopy=shell): the impostors reach at most this many times the thinning radius (Infinity: as main) */
+let FAR_CAP = Infinity;
+export function setImpostorCap(k: number): void { FAR_CAP = k; bandsVersion++; }
 /** FEAT-159: the near radius (1500 m at full density); the shrubs scale their 300 m reach by it */
 export function vegetationNearRadius(): number { return NEAR_RADIUS; }
 /** BUG-081: where the generated stems stop (m), past which the crowns grow to stand in for them */
 export function vegetationStemReach(): number { return NEAR_RADIUS + STAND_MID; }
 /** Headless / weak GPU: far fewer instances; `lod0` false draws LOD1 from the camera out (the Low preset). */
-export function setVegetationBudget(near: number, far: number, lod0 = true): void { NEAR_RADIUS = near; FAR_RADIUS = THIN_RADIUS = far; LOD_K = Math.max(0.5, Math.min(1, near / 1500)); LOD0_ON = lod0; bandsVersion++; }
+export function setVegetationBudget(near: number, far: number, lod0 = true): void { NEAR_RADIUS = near; FAR_RADIUS = THIN_RADIUS = far; FAR_RADIUS = Math.min(FAR_RADIUS, THIN_RADIUS * FAR_CAP); LOD_K = Math.max(0.5, Math.min(1, near / 1500)); LOD0_ON = lod0; bandsVersion++; }
 /** Scale the near/far radii by a 0.25..1 density (1 = full 1500 m, thinning from 4500 m out to 9000 m); the LOD0 / LOD1 reach scales more gently. */
-export function setVegetationDensity(d: number): void { const k = Math.max(0.25, Math.min(1, d)); NEAR_RADIUS = 1500 * k; THIN_RADIUS = 4500 * k; FAR_RADIUS = THIN_RADIUS * FAR_REACH_K; LOD_K = 0.6 + 0.4 * k; LOD0_ON = true; bandsVersion++; }
+export function setVegetationDensity(d: number): void { const k = Math.max(0.25, Math.min(1, d)); NEAR_RADIUS = 1500 * k; THIN_RADIUS = 4500 * k; FAR_RADIUS = THIN_RADIUS * Math.min(FAR_REACH_K, FAR_CAP); LOD_K = 0.6 + 0.4 * k; LOD0_ON = true; bandsVersion++; }
 
 /** the LOD band edges for the current setting (m from the camera), into `out`; out[0] is 0 without LOD0 */
 function edges(out: number[]): void {

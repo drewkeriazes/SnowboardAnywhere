@@ -78,6 +78,46 @@ export class CoverLevel {
       }
     }
     this.cpu = c; this.cw = cw; this.ch = ch; this.cres = this.meta.res * 2;
+    // FEAT-278 prototype (canopy shell): the forest share and where the drawn trees stand at full resolution,
+    // then box-filtered down by twos, so the shell's tiles read the level matching their vertex spacing
+    if (CoverLevel.keepCrowns && trees) {
+      let lw = w, lh = h, lres = this.meta.res;
+      let cur = new Uint8Array(w * h * 2);
+      for (let i = 0; i < w * h; i++) { cur[i * 2] = px[i * 4]; cur[i * 2 + 1] = trees[i * 4 + 1]; }
+      this.crownMips = [{ w: lw, h: lh, res: lres, data: cur }];
+      while (lres < 64 && lw > 2 && lh > 2) {
+        const nw = lw >> 1, nh = lh >> 1, nx = new Uint8Array(nw * nh * 2);
+        for (let y = 0; y < nh; y++) for (let x = 0; x < nw; x++) {
+          const a = ((2 * y) * lw + 2 * x) * 2, b = a + lw * 2, o = (y * nw + x) * 2;
+          for (let k = 0; k < 2; k++) nx[o + k] = (cur[a + k] + cur[a + 2 + k] + cur[b + k] + cur[b + 2 + k] + 2) >> 2;
+        }
+        lw = nw; lh = nh; lres *= 2; cur = nx;
+        this.crownMips.push({ w: lw, h: lh, res: lres, data: cur });
+      }
+    }
+  }
+
+  /** FEAT-278 prototype: set before the pack loads to keep `crownMips` (canopy=shell) */
+  static keepCrowns = false;
+  /** FEAT-278: (forest share, crowns) pyramids, finest first; null unless keepCrowns and the level has crowns */
+  crownMips: { w: number; h: number; res: number; data: Uint8Array }[] | null = null;
+
+  /** FEAT-278: bilinear (forest share, crown cover) 0..1 at (x, y) from the pyramid level nearest `res` m, into out[0..1] */
+  sampleCrowns(x: number, y: number, res: number, out: number[]): void {
+    const mips = this.crownMips!;
+    let m = mips[0];
+    for (const l of mips) if (l.res <= res * 1.01) m = l;
+    const fx = Math.min(m.w - 1, Math.max(0, (x - this.rect[0]) / m.res - 0.5));
+    const fy = Math.min(m.h - 1, Math.max(0, (this.rect[3] - y) / m.res - 0.5));
+    const x0 = Math.floor(fx), y0 = Math.floor(fy), x1 = Math.min(m.w - 1, x0 + 1), y1 = Math.min(m.h - 1, y0 + 1);
+    // at the level's own spacing: the nearest texel (a vertex reads its own footprint's box average, not a blur of four)
+    const near = res < m.res * 1.5;
+    const tx = near ? (fx - x0 >= 0.5 ? 1 : 0) : fx - x0, ty = near ? (fy - y0 >= 0.5 ? 1 : 0) : fy - y0, d = m.data;
+    for (let k = 0; k < 2; k++) {
+      const a = d[(y0 * m.w + x0) * 2 + k], b = d[(y0 * m.w + x1) * 2 + k], c = d[(y1 * m.w + x0) * 2 + k], e = d[(y1 * m.w + x1) * 2 + k];
+      const top = a + (b - a) * tx, bot = c + (e - c) * tx;
+      out[k] = (top + (bot - top) * ty) / 255;
+    }
   }
 
   /** 0 outside, ramping to 1 over `blend` m inside the edges */
