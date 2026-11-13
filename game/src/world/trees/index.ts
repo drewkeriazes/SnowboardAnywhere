@@ -227,11 +227,17 @@ export function farAttrs(n: number): FarAttrs {
     count: n,
   };
 }
-/** a far-LOD geometry: the template (crossed quads or the billboard) with these instances */
+/**
+ * a far-LOD geometry: a copy of the template (crossed quads or the billboard) with these instances.
+ * BUG-128: the template's index and vertex attributes are copied, not shared: a dropped cell's
+ * `geometry.dispose()` deletes the GL buffers of every attribute it holds, and the other cells'
+ * vertex array objects kept pointing at the deleted shared buffer (WebGL INVALID_OPERATION, the draw
+ * dropped). The template is a few vertices, so the copy costs nothing.
+ */
 export function farGeometry(template: THREE.InstancedBufferGeometry, a: FarAttrs): THREE.InstancedBufferGeometry {
   const g = new THREE.InstancedBufferGeometry();
-  g.index = template.index;
-  for (const name of Object.keys(template.attributes)) g.setAttribute(name, template.getAttribute(name));
+  g.index = template.index!.clone();
+  for (const name of Object.keys(template.attributes)) g.setAttribute(name, (template.getAttribute(name) as THREE.BufferAttribute).clone());
   g.setAttribute('iPos', a.iPos); g.setAttribute('iScale', a.iScale); g.setAttribute('iYaw', a.iYaw); g.setAttribute('iColor', a.iColor); g.setAttribute('iSpec', a.iSpec);
   g.instanceCount = a.count;
   return g;
