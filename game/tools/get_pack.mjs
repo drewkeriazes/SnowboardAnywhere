@@ -75,7 +75,7 @@ export async function readCatalog(src = process.env.SA_CATALOG, { api = CATALOG_
 
 function readJson(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } }
 
-/** What is on disk: per pack folder with a meta.json, its format, build and (if this tool installed it) release. */
+/** What is on disk: per pack folder with a meta.json, its format, build and (if this tool installed it) release and catalog status. */
 export function localPacks(packsDir = PACKS) {
   const out = {};
   let names = [];
@@ -85,7 +85,8 @@ export function localPacks(packsDir = PACKS) {
     const meta = readJson(path.join(packsDir, n, 'meta.json'));
     if (!meta) continue;
     const mark = readJson(path.join(packsDir, n, MARKER));
-    out[n] = { name: meta.name ?? n, formatVersion: meta.formatVersion ?? 0, build: meta.build ?? null, ...(mark ? { version: mark.version } : {}) };
+    // FEAT-248: status is the catalog's ('preview' did not pass the DATA-022 gate), in a marker written since then
+    out[n] = { name: meta.name ?? n, formatVersion: meta.formatVersion ?? 0, build: meta.build ?? null, ...(mark ? { version: mark.version } : {}), ...(typeof mark?.status === 'string' ? { status: mark.status } : {}) };
   }
   return out;
 }
@@ -173,6 +174,8 @@ export async function getPack(slug, { packsDir = PACKS, catalog, force = false, 
   if (fs.existsSync(dest)) {
     if (fs.lstatSync(dest).isSymbolicLink()) throw new Error(`packs/${slug} is a link to ${fs.realpathSync(dest)}: run get there, or remove the link`);
     if (mark?.sha256 === entry.pack.sha256 && fs.existsSync(path.join(dest, 'meta.json'))) {
+      // FEAT-248: the same release, but the catalog may have changed its status (a marker from before FEAT-248 has none)
+      if ((mark.status ?? null) !== (entry.status ?? null)) { try { fs.writeFileSync(path.join(dest, MARKER), JSON.stringify({ ...mark, status: entry.status ?? null }, null, 1)); } catch { /* read-only: no badge */ } }
       onProgress({ phase: 'done', received: 0, total: 0, already: true });
       return { slug, version: entry.pack.version, already: true };
     }
@@ -225,7 +228,7 @@ export async function getPack(slug, { packsDir = PACKS, catalog, force = false, 
     if (meta.slug !== slug) throw new Error(`the zip is the ${meta.slug} pack, not ${slug}`);
     if ((meta.formatVersion ?? 0) !== PACK_FORMAT) throw new Error(`the zip's meta.json is format ${meta.formatVersion ?? 0}, this game reads ${PACK_FORMAT}`);
     fs.writeFileSync(path.join(incoming, MARKER), JSON.stringify({
-      version: entry.pack.version, sha256: sha, build: meta.build ?? null, url, installed: new Date().toISOString(),
+      version: entry.pack.version, sha256: sha, build: meta.build ?? null, url, installed: new Date().toISOString(), status: entry.status ?? null,
     }, null, 1));
     await swapIn(incoming, dest, old, { rename, waits, onWait: (wait) => onProgress({ phase: 'unzip', received, total, wait }) });
     writePackIndex(packsDir);

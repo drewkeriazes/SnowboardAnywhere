@@ -131,6 +131,7 @@ const installed = () => { // release 1 of rel, as getPack left it
 installed(); fl = flaky(3, 'EPERM', intoDest); said = [];
 await getPack('rel', { packsDir: packs, catalog: relCat, rename: fl.rename, waits, onProgress: (p) => p.wait && said.push(p) });
 ok(build('rel') === 'r2' && said.length === 3 && said.every((p) => p.phase === 'unzip') && !leftovers().length, `get: incoming refused 3 times (EPERM), then in; the waits are reported as { phase: 'unzip', wait }`);
+ok(JSON.parse(fs.readFileSync(path.join(packs, 'rel', '.catalog.json'), 'utf8')).status === 'ok' && localPacks(packs).rel.status === 'ok', "get: the marker keeps the catalog's status and localPacks lists it (FEAT-248: the Preview badge)");
 installed(); fl = flaky(99, 'EPERM', intoDest);
 try { await getPack('rel', { packsDir: packs, catalog: relCat, rename: fl.rename, waits }); ok(false, 'get: locked for good gives up'); } catch (e) { ok(/EPERM.*the old pack is back/.test(e.message), `get: locked for good gives up: ${e.message}`); }
 ok(fl.calls() === 4 && build('rel') === 'r1' && fs.existsSync(path.join(packs, 'rel', 'fine', '0_0.png')) && !leftovers().length && !fs.existsSync(path.join(packs, '.rel.download.zip')), 'get: after 4 tries the old pack is back whole, nothing left behind');
@@ -221,6 +222,11 @@ ok(/fresh-v2\.zip/.test(j.error ?? ''), 'it uses the cached catalog');
 h = packDownloads(packs, { readCatalog: reader });
 const refused = await call(h, 'POST', '/__packs/get', { slug: 'fresh' });
 ok(refused.code === 400 && /offline/.test(refused.body.error) && (await call(h, 'GET', '/__packs/job?slug=fresh')).code === 404, 'no catalog at all: 400, and no job is left behind');
+{ // FEAT-248: GET /__packs/local is what is on disk, with no catalog read (the main menu's Preview badge)
+  fs.writeFileSync(path.join(packs, 'rel', '.catalog.json'), JSON.stringify({ version: 1, sha256: 'old', status: 'preview' }));
+  const before = reads; const loc = await call(h, 'GET', '/__packs/local');
+  ok(loc.code === 200 && loc.body.formatVersion === F && loc.body.local.rel?.status === 'preview' && reads === before, '/__packs/local: the packs on disk and their catalog status, no catalog read');
+}
 // BUG-095: a pack file request the browser drops mid-file must not leave the file open in the server. Windows then
 // refuses to rename the pack folder, and the picker's Update over it fails with EPERM until the server stops (on
 // Linux, CI, the rename works either way; the check bites on Windows)

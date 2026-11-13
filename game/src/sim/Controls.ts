@@ -33,6 +33,10 @@ const GYRO_PX_PER_RAD = 1 / 0.003;
 /** gyro: degrees a second below which it is noise, and the touchpad swipe (of 1920 across) that cycles the camera */
 const GYRO_DEAD = 1.5, SWIPE = 550, SWIPE_S = 0.6;
 
+/** FEAT-248: a same-tab navigation the player asked for (the release toast's Ride) leaves without the leave prompt */
+let leavingOnPurpose = false;
+export function leaveTo(href: string): void { leavingOnPurpose = true; location.href = href; }
+
 export class Controls {
   readonly input: Input = { steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false, squat: false, skate: false, lean: 0, balance: 0 };
   /** FEAT-140: main sets this while a press would be balanced (on the board, on the snow, Press balance not Off):
@@ -103,7 +107,7 @@ export class Controls {
     this.listeners.push(['keydown', kd as EventListener], ['keyup', ku as EventListener], ['blur', bl], ['mousedown', md as EventListener], ['mouseup', mu as EventListener]);
     // FEAT-111: Ctrl+W / Ctrl+N / Ctrl+T can't be blocked with preventDefault, so ask before leaving
     // mid-ride, and in real fullscreen ask the browser to hand those keys to the page (Keyboard Lock, Chromium)
-    const unload = (e: BeforeUnloadEvent) => { if (!this.guardLeave) return; e.preventDefault(); e.returnValue = ''; };
+    const unload = (e: BeforeUnloadEvent) => { if (!this.guardLeave || leavingOnPurpose) return; e.preventDefault(); e.returnValue = ''; };
     const fs = () => {
       const kb = (navigator as Navigator & { keyboard?: { lock?: (codes?: string[]) => Promise<void>; unlock?: () => void } }).keyboard;
       if (document.fullscreenElement) kb?.lock?.(['KeyW', 'KeyN', 'KeyT', 'KeyS', 'KeyD', 'KeyR', 'KeyF']).catch(() => undefined);

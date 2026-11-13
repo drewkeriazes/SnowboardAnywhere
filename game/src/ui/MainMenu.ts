@@ -4,7 +4,7 @@ import { saveSettings, type Settings } from './Settings';
 import { closeSettings, openSettings, settingsOpen, type Credit } from './SettingsOverlay';
 import { closeScreen, lastInputKind, openScreen, Screen } from './MenuNav';
 import { renderHints, type Hint } from './HintBar';
-import { fillResortPicker } from './ResortPicker';
+import { fillResortPicker, packStatus, PREVIEW_BADGE } from './ResortPicker';
 import { optsOf, rowById, type Row } from './SettingsRows';
 import { fmtDistance, fmtHeight } from './Units';
 import type { AccountService } from '../account/Account';
@@ -125,6 +125,8 @@ export class MainMenu {
     document.body.appendChild(this.el);
     this.hintEl = this.el.querySelector('.hintbar')!;
     this.pop = this.el.querySelector('.pop')!;
+    // FEAT-248: a preview pack (did not pass the DATA-022 gate) says so by its name
+    void packStatus(o.slug).then((st) => { if (st === 'preview') this.el.querySelector('[data-card="resort"] .cname')?.insertAdjacentHTML('beforeend', PREVIEW_BADGE); });
     const still = this.el.querySelector<HTMLImageElement>('.still');
     still?.addEventListener('error', () => still.remove()); // no still: the dark gradient
 
