@@ -188,7 +188,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       env.sun.visible = wantSize === 0;
       env.sun.shadow.mapSize.set(s.quality === 'high' ? 4096 : 2048, s.quality === 'high' ? 4096 : 2048);
       env.setShadows(s.shadows);
-      if (s.quality === 'low') setVegetationBudget(250, 600, false); else setVegetationDensity(s.treeDensity); // FEAT-158: Low has no LOD0 cards
+      if (s.quality === 'low') setVegetationBudget(250, 600, params.lowgfx ? 0 : 200); else setVegetationDensity(s.treeDensity); // BUG-107: Low's LOD0 cards to 200 m (none on ?lowgfx, the software-GPU runs, FEAT-158)
       setStandDensity(s.forestDensity ?? 1); // FEAT-074: only the generated stems
       cam.baseFov = s.fov;
       controls.keymap = { ...s.keys };

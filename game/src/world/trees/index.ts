@@ -17,7 +17,7 @@ export { generateStems, type StandGrid } from './stands';
  * once a renderer is given (`bake`): albedo, normals and (FEAT-157) the snow mask. Vegetation.ts draws with it; tools/treeshot.mjs renders it alone.
  *
  * LOD bands (m from the camera, scaled by the graphics setting through `setBands`):
- *   LOD0 cards 0..b0 (200, BUG-107), LOD1 cones b0..b1 (400), LOD2 crossed quads b1..b2 (1500), impostors b2..b3 (4500),
+ *   LOD0 cards 0..b0 (800 on High, BUG-107), LOD1 cones b0..b1 (400), LOD2 crossed quads b1..b2 (1500), impostors b2..b3 (4500),
  *   each edge a dither crossfade `fade(edge)` metres wide; the trees end over `farFadeWidth(b3)` before b3.
  */
 
