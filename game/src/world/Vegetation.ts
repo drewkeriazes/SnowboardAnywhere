@@ -3,7 +3,7 @@ import type { Pack } from '../pack/Pack';
 import type { StandsMeta } from '../pack/types';
 import { decodeRGBA } from '../pack/MaskSet';
 import type { Collider } from '../sim/Collider';
-import { TreeKit, SPECIES_COUNT, VARIANTS, speciesFor, variantFor, crownRadius, hash01, fadeWidth, farAttrs, farGeometry, generateStems, setGhostBand, type FarAttrs, type StandGrid } from './trees';
+import { TreeKit, SPECIES_COUNT, VARIANTS, speciesFor, variantFor, crownRadius, hash01, fadeWidth, farFadeWidth, farAttrs, farGeometry, generateStems, setGhostBand, type FarAttrs, type StandGrid } from './trees';
 import { treelineOf } from '../pack/treeline';
 import { TreeShade } from './TreeShade';
 import { crownOverlap, type CrownHit } from './TreeBrush';
@@ -72,10 +72,20 @@ export function setVegetationBudget(near: number, far: number, lod0 = true): voi
 /** Scale the near/far radii by a 0.25..1 density (1 = full 1500 m, thinning from 4500 m out to 9000 m); the LOD0 / LOD1 reach scales more gently. */
 export function setVegetationDensity(d: number): void { const k = Math.max(0.25, Math.min(1, d)); NEAR_RADIUS = 1500 * k; THIN_RADIUS = 4500 * k; FAR_RADIUS = THIN_RADIUS * FAR_REACH_K; LOD_K = 0.6 + 0.4 * k; LOD0_ON = true; bandsVersion++; }
 
-/** the LOD band edges for the current setting (m from the camera), into `out`; out[0] is 0 without LOD0 */
+/**
+ * BUG-121: the impostors run on, thinning, this far (m) past FAR_RADIUS, and end over the last farFadeWidth of it. They
+ * used to stop wherever the loaded 1 km cells did (cells whose centre is within FAR_RADIUS plus their half-diagonal), on
+ * average about this far out, so on the Low preset whole rows of trees appeared on the skyline as each cell arrived.
+ */
+const TREE_TAIL = 700;
+/** BUG-121: where the drawn trees end (m from the camera) */
+const treeEnd = (): number => FAR_RADIUS + TREE_TAIL;
+/** BUG-121: where the drawn trees start to go (m, horizontal, from the camera) and where none are left */
+export function vegetationTreeEnd(): [number, number] { const e = treeEnd(); return [e - farFadeWidth(e), e]; }
+/** the LOD band edges for the current setting (m from the camera), into `out`; out[0] is 0 without LOD0, out[3] is where the trees end */
 function edges(out: number[]): void {
   const b2 = NEAR_RADIUS, b1 = Math.min(400 * LOD_K, b2 * 0.8), b0 = LOD0_ON ? Math.min(80 * LOD_K, b1 * 0.5) : 0;
-  out[0] = b0; out[1] = b1; out[2] = b2; out[3] = FAR_RADIUS;
+  out[0] = b0; out[1] = b1; out[2] = b2; out[3] = treeEnd();
 }
 
 /** sub-tiles per cell side for the near-set gather and the far packing */
@@ -98,8 +108,16 @@ const FAR_CHECK = 15, FAR_GROW = 150;
 /** BUG-081: an impostor mesh packs the trees it may show from THIN_SLACK m nearer than the camera, and repacks
  * once the camera has moved half that */
 const THIN_SLACK = 400;
-/** BUG-081: the share of the impostors that stay at d m from the camera (trees/materials.ts THIN_GLSL) */
-const thinKeep = (d: number): number => (d <= THIN_RADIUS ? 1 : (THIN_RADIUS / d) ** 2);
+/**
+ * BUG-121: cells load this far (m) past where the trees end (treeEnd), so a cell's trees and stems are in and built
+ * before the camera is close enough for any of them to show; they come in tree by tree over the far edge
+ */
+const STREAM_AHEAD = 250;
+/** BUG-081: the share of the impostors that stay at d m from the camera (trees/materials.ts THIN_GLSL; BUG-121: none past treeEnd) */
+const thinKeep = (d: number): number => {
+  const e1 = treeEnd(), e0 = e1 - farFadeWidth(e1), t = Math.min(1, Math.max(0, (d - e0) / (e1 - e0)));
+  return (d <= THIN_RADIUS ? 1 : (THIN_RADIUS / d) ** 2) * (1 - t * t * (3 - 2 * t));
+};
 
 /** one far LOD mesh of a cell: its own instance buffers, holding the trees of the tiles in `mask` */
 interface FarMesh {
@@ -285,7 +303,7 @@ export class Vegetation {
     }
     const b0 = band[0], b1 = band[1], b2 = band[2];
     const cs = inst.cellSize;
-    const r = FAR_RADIUS;
+    const r = band[3] + STREAM_AHEAD;
     // BUG-081: the far tree ring runs `treeRing` cells past the grid on every side
     const ring = inst.farTreeCells?.length ? (inst.treeRing ?? 0) : 0;
     const cx0 = Math.max(-ring, Math.floor((Math.min(x, ax) - r - inst.minX) / cs)), cx1 = Math.min(inst.cellsX - 1 + ring, Math.floor((Math.max(x, ax) + r - inst.minX) / cs));
@@ -296,14 +314,14 @@ export class Vegetation {
     const stands = this.pack.meta.stands, standReach = NEAR_RADIUS + STAND_MID;
     const t0 = performance.now();
     const f1 = fadeWidth(b1) / 2, f2 = fadeWidth(b2) / 2;
-    // the distances each far LOD draws at (the shader's bands)
-    const lo2 = b1 - f1, hi2 = this.impostorsOn ? b2 + f2 : Infinity, loImp = b2 - f2;
+    // the distances each far LOD draws at (the shader's bands; BUG-121: the last one ends where the trees do)
+    const lo2 = b1 - f1, hi2 = this.impostorsOn ? b2 + f2 : band[3], loImp = b2 - f2, hiImp = band[3];
     const far = this.kit.far;
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         const ccx = inst.minX + (cx + 0.5) * cs, ccy = inst.minY + (cy + 0.5) * cs;
         const d = Math.min(Math.hypot(ccx - x, ccy - y), Math.hypot(ccx - ax, ccy - ay)) - cs * 0.71;
-        if (d > FAR_RADIUS) continue;
+        if (d > r) continue;
         const key = `${cx}_${cy}`;
         keep.add(key);
         let cell = this.cells.get(key);
@@ -336,16 +354,16 @@ export class Vegetation {
         const dx = Math.max(minX - cpx, 0, cpx - minX - cs), dy = Math.max(minY - cpy, 0, cpy - minY - cs);
         const dMin = Math.hypot(dx, dy);
         const dMax = Math.hypot(Math.max(Math.abs(cpx - minX), Math.abs(cpx - minX - cs)), Math.max(Math.abs(cpy - minY), Math.abs(cpy - minY - cs)));
-        const wantLod2 = dMax > b1 - f1 && (!this.impostorsOn || dMin < b2 + f2);
-        const wantImp = this.impostorsOn && dMax > b2 - f2;
+        const wantLod2 = dMax > lo2 && dMin < hi2;
+        const wantImp = this.impostorsOn && dMax > loImp && dMin < hiImp;
         if ((wantLod2 && !cell.lod2) || (wantImp && !cell.imp)) {
           // BUG-063: at least one build per update, then only while inside the time budget
-          if (this.budgetMs <= 0 || built === 0 || performance.now() - t0 < this.budgetMs) { this.buildFar(cell, wantLod2, wantImp, lo2, hi2, loImp); built++; }
+          if (this.budgetMs <= 0 || built === 0 || performance.now() - t0 < this.budgetMs) { this.buildFar(cell, wantLod2, wantImp, lo2, hi2, loImp, hiImp); built++; }
           else pending++;
         }
         // a far mesh repacks its tiles when its band has come to reach one it left out (cheap: no build budget)
         if (cell.lod2) { if (wantLod2) this.checkFar(cell, cell.lod2, lo2, hi2); cell.lod2.mesh.visible = wantLod2 && cell.lod2.count > 0; if (cell.lod2.mesh.visible) farCount += cell.lod2.count; }
-        if (cell.imp) { if (wantImp) this.checkFar(cell, cell.imp, loImp, Infinity); cell.imp.mesh.visible = wantImp && cell.imp.count > 0; if (cell.imp.mesh.visible) farCount += cell.imp.count; }
+        if (cell.imp) { if (wantImp) this.checkFar(cell, cell.imp, loImp, hiImp); cell.imp.mesh.visible = wantImp && cell.imp.count > 0; if (cell.imp.mesh.visible) farCount += cell.imp.count; }
       }
     }
     for (const [key, cell] of this.cells) {
@@ -639,7 +657,7 @@ export class Vegetation {
   }
 
   /** the far meshes of a cell (built once with buffers for all its trees, then repacked and shown or hidden as the camera moves) */
-  private buildFar(cell: Cell, lod2: boolean, imp: boolean, lo2: number, hi2: number, loImp: number): void {
+  private buildFar(cell: Cell, lod2: boolean, imp: boolean, lo2: number, hi2: number, loImp: number, hiImp: number): void {
     const far = this.kit.far!, n = cell.data!.length / 6;
     const make = (template: THREE.InstancedBufferGeometry, mat: THREE.Material, name: string, lo: number, hi: number): FarMesh => {
       const attrs = farAttrs(n);
@@ -654,7 +672,7 @@ export class Vegetation {
       return f;
     };
     if (lod2 && !cell.lod2) cell.lod2 = make(this.kit.crossed, far.lod2, 'lod2', lo2, hi2);
-    if (imp && !cell.imp) cell.imp = make(this.kit.billboard, far.imp, 'impostor', loImp, Infinity);
+    if (imp && !cell.imp) cell.imp = make(this.kit.billboard, far.imp, 'impostor', loImp, hiImp);
   }
 
   /** the camera's 2D nearest and 3D farthest distance to a cell's tile t (pack metres) */

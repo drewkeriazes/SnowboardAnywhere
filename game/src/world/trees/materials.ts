@@ -26,6 +26,8 @@ export const kitUniforms = {
   uThin: { value: 1e8 },
   /** BUG-081: (where the generated stems stop, m; the crowns' growth past it, linear; Vegetation STEM_GROW) */
   uStemGrow: { value: new THREE.Vector2(1e8, 1) },
+  /** BUG-121: the impostors' far edge (m): the share kept falls to none from x to y (see THIN_GLSL) */
+  uFarEdge: { value: new THREE.Vector2(1e8, 1e8 + 1) },
 };
 
 /**
@@ -33,16 +35,18 @@ export const kitUniforms = {
  * the ground under crowns holds while the count falls with the distance and a crown keeps its size on screen:
  * the far tree ring's ridges draw as the pack's trees do, out to twice the old reach. The draw h is per tree
  * (Vegetation packs it into iSpec's fraction and leaves out of the buffers the trees that cannot show). Returns the size factor and fades the tree out (vLodVis) as its chance runs out.
+ * BUG-121: over the far edge (uFarEdge) the chance falls on to none, so the trees end tree by tree at a set distance
+ * instead of at the edge of the loaded cells.
  */
 const THIN_GLSL = /* glsl */ `
-  uniform float uThin; uniform vec2 uStemGrow;
+  uniform float uThin; uniform vec2 uStemGrow; uniform vec2 uFarEdge;
   float thinTree(vec3 o, float h) {
     float d = distance(o.xz, uLodCam.xz);
     float g = mix(1.0, uStemGrow.y, smoothstep(uStemGrow.x, uStemGrow.x * 1.5, d));
-    if (d <= uThin) return g;
-    float keep = uThin * uThin / (d * d);
-    vLodVis *= clamp((keep - h) * 12.0 / keep, 0.0, 1.0);
-    return g * d / uThin;
+    float keep = (d <= uThin ? 1.0 : uThin * uThin / (d * d)) * (1.0 - smoothstep(uFarEdge.x, uFarEdge.y, d));
+    if (keep >= 1.0) return g;
+    vLodVis *= clamp((keep - h) * 12.0 / max(keep, 1e-4), 0.0, 1.0);
+    return d <= uThin ? g : g * d / uThin;
   }
 `;
 
