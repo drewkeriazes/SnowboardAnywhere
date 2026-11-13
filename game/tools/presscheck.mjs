@@ -27,6 +27,9 @@ function plane(deg, mogul = 0, wave = 6, groomed = 1) {
   return {
     coarseFallbacks: 0,
     mask: { sample: (_x, _y, o) => { const m = o ?? [0, 0, 0, 0]; m[0] = 0; m[1] = 0; m[2] = groomed; m[3] = 0; return m; } },
+    // flagged as a mogul field, as the game does wherever it draws bumps (FEAT-059); unflagged, bumps this
+    // size are lips to FEAT-277 and throw a stiff rider off every crest
+    mogulAmp: () => (mogul > 0 ? 1 : 0),
     groundHeight: h,
     groundNormal: (x, y, o) => {
       const e = 0.25, dx = (h(x + e, y) - h(x - e, y)) / (2 * e), dy = (h(x, y + e) - h(x, y - e)) / (2 * e), l = Math.hypot(dx, dy, 1);

@@ -59,7 +59,7 @@ export function rideStep(r: Rider, dt: number, input: Input, n: [number, number,
   drag(r, c, dt, input);
   glide(r, c, dt, input);
   if (jump(r, dt, input, n, ground)) return;
-  followGround(r, dt, spd);
+  followGround(r, dt, spd, n);
   rideCollide(r);
 }
 
