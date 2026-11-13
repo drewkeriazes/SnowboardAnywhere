@@ -52,6 +52,7 @@
 /* ---------------------------------------------------------------- BUG-063 loading screen */
 #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(#1b2a44, var(--bg)); z-index: 30; color: var(--text); font-family: var(--font-body); transition: opacity .45s ease; }
 #loading.done { opacity: 0; pointer-events: none; }
+#loading.over { z-index: 60; } /* FEAT-285: Apply, over the menus and the settings screen */
 #loading .panel { width: calc(360px * var(--ui-scale)); padding: 28px 32px; background: rgba(255,255,255,.06); border: 1px solid var(--line); border-radius: var(--r-lg); }
 #loading .eyebrow { font-size: var(--fs-xs); letter-spacing: .2em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
 #loading .title { font: 800 var(--fs-xl) var(--font-display); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 18px; }
@@ -348,6 +349,18 @@ body.peeking #settings, body.peeking #pause { opacity: 0; }
 #settings .act { min-height: calc(34px * var(--ui-scale)); padding: 0 var(--sp-4); border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--fill); font: 600 var(--fs-sm) var(--font-body); white-space: nowrap; }
 #settings .status { font-size: var(--fs-xs); color: var(--dim); max-width: 50%; }
 #settings .status:empty { display: none; }
+/* FEAT-285: a held graphics option changed and not applied yet; the Apply button; the leave prompt */
+#settings .srow.pending .lbl::after { content: "Pending"; margin-left: var(--sp-2); padding: 1px var(--sp-2); border-radius: var(--r-sm); background: var(--accent-wash); color: var(--accent); font: 700 var(--fs-xs) var(--font-body); text-transform: uppercase; letter-spacing: .08em; vertical-align: .1em; }
+#settings .act.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+#settings .act:disabled { opacity: .4; cursor: default; }
+#settings .leave { position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; background: rgba(6, 10, 20, .6); }
+#settings .leave[hidden] { display: none; }
+#settings .leave .box { width: min(calc(420px * var(--ui-scale)), calc(100vw - 32px)); box-sizing: border-box; padding: var(--sp-5); border: 1px solid var(--line-strong); border-radius: var(--r-lg); background: var(--panel-strong); }
+#settings .leave h3 { margin: 0 0 var(--sp-2); font: 800 var(--fs-xl) / 1.1 var(--font-display); text-transform: uppercase; letter-spacing: .03em; }
+#settings .leave p { margin: 0 0 var(--sp-4); font-size: var(--fs-md); line-height: 1.5; color: rgba(255,255,255,.85); }
+#settings .leave .btns { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+#settings .leave .btns button { flex: 1; }
+#settings .leave button.nav-focus { box-shadow: 0 0 0 2px var(--accent); background-image: none; }
 /* key and controller slots */
 #settings .keyrow .ctl { gap: var(--sp-2); }
 #settings button.key { flex: 1; min-height: calc(32px * var(--ui-scale)); padding: 0 var(--sp-2); border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--fill); font: 600 var(--fs-sm) ui-monospace, monospace; }

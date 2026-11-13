@@ -1,5 +1,5 @@
 import { saveSettings, type Settings } from './Settings';
-import { closeSettings, openSettings, type Credit } from './SettingsOverlay';
+import { closeSettings, openSettings, type Credit, type SettingsOpen } from './SettingsOverlay';
 import { closeScreen, lastInputKind, openScreen, Screen } from './MenuNav';
 import { renderHints, type Hint } from './HintBar';
 import { optsOf, rowById, type Row } from './SettingsRows';
@@ -56,7 +56,7 @@ export class PauseMenu {
   private modeTab: PauseMode['kind'] = 'free';
   private quitArmed = -1e9;
 
-  constructor(private readonly settings: Settings, private readonly onChange: (s: Settings, what: string) => void, private readonly extras: { fps?: () => number; credits?: () => Credit[] } = {}) {
+  constructor(private readonly settings: Settings, private readonly onChange: (s: Settings, what: string) => void, private readonly extras: { fps?: () => number; credits?: () => Credit[]; apply?: SettingsOpen['onApply'] } = {}) {
     this.el = document.createElement('div');
     this.el.id = 'pause';
     const pick = (id: string, label: string, lbl = label) => `<div class="qrow" data-q="${id}" data-nav tabindex="-1"><span class="lbl">${lbl}</span><span class="ctl"><button class="arr" data-d="-1" data-nav="skip" tabindex="-1" aria-label="Previous ${label}">&#8249;</button><span class="pv"></span><button class="arr" data-d="1" data-nav="skip" tabindex="-1" aria-label="Next ${label}">&#8250;</button></span></div>`;
@@ -147,7 +147,7 @@ export class PauseMenu {
 
   // ---------------------------------------------------------------- the menu
   private press(a: string): void {
-    if (a === 'settings') { openSettings(this.settings, { overGame: true, onChange: this.onChange, fps: this.extras.fps, credits: this.extras.credits, onClose: () => this.refresh() }); return; }
+    if (a === 'settings') { openSettings(this.settings, { overGame: true, onChange: this.onChange, onApply: this.extras.apply, fps: this.extras.fps, credits: this.extras.credits, onClose: () => this.refresh() }); return; }
     if (a === 'mode') { this.openMode(); return; }
     if (a === 'replay' && this.info?.replayBlocked) return;
     if (a === 'quit' && performance.now() - this.quitArmed > 3000) {

@@ -7,7 +7,8 @@ import { MENU_KEYS, MENU_PAD } from './MenuKeys';
 import { Screen, closeScreen, lastInputKind, openScreen, setNavSuspended } from './MenuNav';
 import { padGlyph, stickGlyph } from './PadGlyphs';
 import { KEY_GROUPS, PAD_GROUPS, applyUiScale, defaultSettings, keyName, migrateKeys, saveSettings, type Settings } from './Settings';
-import { CATEGORIES, SECTIONS, descOf, optsOf, presetLine, rowsOf, type CatId, type Row } from './SettingsRows';
+import { CATEGORIES, HELD_FIELDS, SECTIONS, descOf, optsOf, presetLine, rowsOf, type CatId, type Row } from './SettingsRows';
+import { LoadingScreen } from './Loading';
 
 /**
  * FEAT-128 settings screen (layout B): full screen, categories on the left, rows of label and control in
@@ -20,6 +21,9 @@ export interface Credit { title: string; artist?: string; license?: string; url?
 export interface SettingsOpen {
   overGame: boolean;
   onChange: (s: Settings, what: string) => void;
+  /** FEAT-285: apply the held graphics options (already copied into the settings and saved) and resolve once the
+   *  frames run clean; `progress` moves the loading bar. Without it Apply calls onChange(s, 'quality'). */
+  onApply?: (s: Settings, progress: (p: number, text: string) => void) => Promise<void>;
   cat?: CatId;
   /** the live frame rate (over the game) */
   fps?: () => number;
@@ -49,8 +53,14 @@ class SettingsOverlay {
   private rumbleMsg = '';
   /** on the MenuNav stack (set after openScreen) */
   private shown = false;
+  /** FEAT-285: the held rows (heavy graphics) read and write this copy; `s` keeps the applied values until Apply */
+  private draft: Settings;
+  private applying = false;
+  private readonly leaveEl: HTMLElement;
+  private readonly leaveScreen: Screen;
 
   constructor(private readonly s: Settings) {
+    this.draft = { ...s };
     this.el = document.createElement('div');
     this.el.id = 'settings';
     this.el.innerHTML = `
@@ -65,19 +75,31 @@ class SettingsOverlay {
       <nav class="cats">${CATEGORIES.map((c) => `<button data-cat="${c.id}">${c.label}</button>`).join('')}<div class="grow"></div><button data-reset-all>Reset all</button></nav>
       <main class="rows">${CATEGORIES.map((c) => this.page(c.id)).join('')}<div class="nomatch">No settings match.</div></main>
       <aside class="detail"></aside>
-      <footer class="hintbar"></footer>`;
+      <footer class="hintbar"></footer>
+      <div class="leave" hidden role="dialog" aria-modal="true" aria-labelledby="settings-leave-h">
+        <div class="box"><h3 id="settings-leave-h">Graphics changes waiting</h3>
+          <p>Apply them now (a short loading screen while the renderer rebuilds), or discard them and keep the graphics as they are?</p>
+          <div class="btns"><button class="act primary" data-leave="apply">Apply</button><button class="act" data-leave="discard">Discard</button><button class="act" data-leave="stay">Keep editing</button></div></div>
+      </div>`;
     this.el.style.display = 'none';
     document.body.appendChild(this.el);
     this.hintEl = this.el.querySelector('.hintbar')!;
     this.detail = this.el.querySelector('.detail')!;
     this.searchEl = this.el.querySelector('.search')!;
+    this.leaveEl = this.el.querySelector('.leave')!;
     this.wire();
     this.screen = new Screen(this.el, {
       primary: () => this.firstRow(),
-      onBack: () => { if (this.searchEl.value) { this.searchEl.value = ''; this.applySearch(); this.screen.focus(this.searchEl); } else this.close(); },
+      onBack: () => { if (this.searchEl.value) { this.searchEl.value = ''; this.applySearch(); this.screen.focus(this.searchEl); } else this.requestClose(); },
       onIntent: (i, down) => this.intent(i, down),
       onInputKind: () => this.hints(),
       onFocus: (el) => this.showDetail(el),
+    });
+    // FEAT-285: leaving with graphics changes waiting asks Apply or Discard; Back keeps editing
+    this.leaveScreen = new Screen(this.leaveEl, {
+      primary: () => this.leaveEl.querySelector<HTMLElement>('[data-leave="apply"]'),
+      onBack: () => this.closeLeave(),
+      onIntent: () => this.applying, // nothing moves while Apply runs
     });
   }
 
@@ -89,6 +111,8 @@ class SettingsOverlay {
     this.el.classList.toggle('over-menu', !o.overGame);
     (this.el.querySelector('.peek') as HTMLElement).style.display = o.overGame ? '' : 'none';
     this.searchEl.value = '';
+    this.draft = { ...this.s }; // nothing waiting
+    this.leaveEl.hidden = true;
     this.el.style.display = '';
     document.body.classList.add('settings-open');
     this.fillAll();
@@ -103,9 +127,34 @@ class SettingsOverlay {
     if (o.fps) this.fpsTimer = window.setInterval(() => { fpsEl.textContent = `${Math.round(o.fps!())} fps`; }, 500);
   }
 
+  /** Back or the close button: with graphics changes waiting, ask Apply or Discard first */
+  private requestClose(): void {
+    if (this.applying) return;
+    if (!this.pending().length) { this.close(); return; }
+    this.cancelListen?.();
+    this.leaveEl.hidden = false;
+    openScreen(this.leaveScreen);
+  }
+  private closeLeave(): void {
+    if (this.applying) return;
+    this.leaveEl.hidden = true;
+    closeScreen(this.leaveScreen);
+  }
+  private async leave(how: 'apply' | 'discard' | 'stay'): Promise<void> {
+    if (this.applying) return;
+    if (how === 'stay') { this.closeLeave(); return; }
+    if (how === 'apply') await this.apply();
+    else this.discard();
+    this.closeLeave();
+    this.close();
+  }
+
+  /** Close now. Graphics changes still waiting are dropped (the menus close it this way when they hide). */
   close(): void {
     if (!this.o) return;
     const o = this.o;
+    if (!this.leaveEl.hidden) { this.leaveEl.hidden = true; closeScreen(this.leaveScreen); }
+    this.draft = { ...this.s };
     this.cancelListen?.();
     this.peek(false);
     clearInterval(this.fpsTimer);
@@ -147,7 +196,8 @@ class SettingsOverlay {
     el.querySelectorAll<HTMLButtonElement>('.cats button[data-cat]').forEach((b) => b.addEventListener('click', () => { this.openCat(b.dataset.cat as CatId, false); this.screen.focus(b, false); }));
     el.querySelectorAll<HTMLButtonElement>('[data-reset-cat]').forEach((b) => b.addEventListener('click', () => this.askReset(b.dataset.resetCat as CatId)));
     el.querySelector('[data-reset-all]')!.addEventListener('click', () => this.askReset('all'));
-    el.querySelector('.close')!.addEventListener('click', () => this.close());
+    el.querySelector('.close')!.addEventListener('click', () => this.requestClose());
+    el.querySelectorAll<HTMLButtonElement>('[data-leave]').forEach((b) => b.addEventListener('click', () => void this.leave(b.dataset.leave as 'apply' | 'discard' | 'stay')));
     // rows: a click on the row selects it, the inner controls do their own thing
     el.querySelectorAll<HTMLElement>('.srow[data-nav]').forEach((rowEl) => {
       const r = ROW_OF.get(rowEl.dataset.row!)!;
@@ -155,7 +205,7 @@ class SettingsOverlay {
         const t = e.target as HTMLElement;
         this.screen.focus(rowEl, false);
         const segB = t.closest<HTMLButtonElement>('.seg button'), arr = t.closest<HTMLButtonElement>('button.arr');
-        if (segB && 'get' in r) { const v = optsOf(r as Row & { opts: never }, this.s).find(([o]) => String(o) === segB.dataset.v)?.[0]; if (v !== undefined) this.change(r, v); }
+        if (segB && 'get' in r) { const v = optsOf(r as Row & { opts: never }, this.src(r)).find(([o]) => String(o) === segB.dataset.v)?.[0]; if (v !== undefined) this.change(r, v); }
         else if (arr) this.adjust(r, Number(arr.dataset.d));
         else if (t.closest('input')) { /* the input's own events */ }
         else this.activate(r, rowEl);
@@ -180,30 +230,43 @@ class SettingsOverlay {
   }
 
   // ---------------------------------------------------------------- values
+  /** the settings a row reads and writes: the draft for a held graphics row (FEAT-285), else the live settings */
+  private src(r: Row): Settings { return r.held ? this.draft : this.s; }
+  /** the held fields changed in the draft and not applied yet */
+  private pending(): string[] {
+    const d = this.draft as unknown as Record<string, unknown>, s = this.s as unknown as Record<string, unknown>;
+    return HELD_FIELDS.filter((f) => d[f] !== s[f]);
+  }
+
   private fillAll(): void {
+    const pending = this.pending().length;
     this.el.querySelectorAll<HTMLElement>('.srow[data-row]').forEach((rowEl) => {
       const r = ROW_OF.get(rowEl.dataset.row!);
       if (!r) return;
+      const s = this.src(r);
       rowEl.classList.toggle('gone', !!r.hidden?.());
-      const note = r.note?.(this.s) ?? null;
+      const note = r.note?.(s) ?? null;
       rowEl.classList.toggle('overridden', !!note);
-      const d = rowEl.querySelector<HTMLElement>('.sdesc'); if (d) d.textContent = descOf(r, this.s);
+      const d = rowEl.querySelector<HTMLElement>('.sdesc'); if (d) d.textContent = descOf(r, s);
       if (r.kind === 'action') {
         const b = rowEl.querySelector<HTMLButtonElement>('button.act')!;
-        b.textContent = r.id === 'hid' ? (dualSense.connected ? 'Disconnect' : 'Connect') : typeof r.button === 'function' ? r.button(this.s) : r.button;
+        b.textContent = r.id === 'hid' ? (dualSense.connected ? 'Disconnect' : 'Connect') : typeof r.button === 'function' ? r.button(s) : r.button;
         const st = rowEl.querySelector<HTMLElement>('.status')!;
-        st.textContent = r.id === 'hid' ? (dualSense.status || (dualSense.connected ? 'Connected' : 'Not connected')) : r.id === 'rumble-test' ? this.rumbleMsg : '';
+        st.textContent = r.id === 'hid' ? (dualSense.status || (dualSense.connected ? 'Connected' : 'Not connected')) : r.id === 'rumble-test' ? this.rumbleMsg
+          : r.id === 'gfx-apply' ? (this.applying ? 'Applying...' : pending ? `${pending} ${pending === 1 ? 'change' : 'changes'} waiting` : 'Nothing to apply') : '';
+        if (r.id === 'gfx-apply') { b.disabled = !pending || this.applying; b.classList.toggle('primary', !!pending); }
         return;
       }
       if (!('get' in r)) return;
-      const v = r.get(this.s);
+      const v = r.get(s);
+      rowEl.classList.toggle('pending', !!r.held && String(v) !== String(r.get(this.s)));
       if (r.kind === 'toggle') { rowEl.classList.toggle('on', !!v); rowEl.querySelector('.tv')!.textContent = v ? 'On' : 'Off'; }
       else if (r.kind === 'seg') {
-        const opts = optsOf(r, this.s);
+        const opts = optsOf(r, s);
         rowEl.querySelectorAll<HTMLButtonElement>('.seg button').forEach((b) => b.classList.toggle('on', b.dataset.v === String(v)));
         rowEl.classList.toggle('custom', !opts.some(([o]) => String(o) === String(v)));
       } else if (r.kind === 'pick') {
-        const opts = optsOf(r, this.s);
+        const opts = optsOf(r, s);
         const i = opts.findIndex(([o]) => String(o) === String(v));
         const pv = rowEl.querySelector<HTMLElement>('.pv')!;
         pv.textContent = i >= 0 ? opts[i][1] : 'Custom';
@@ -227,8 +290,39 @@ class SettingsOverlay {
 
   private change(r: Row, v: string | number | boolean): void {
     if (!('set' in r)) return;
+    if (r.held) { r.set(this.draft, v); this.fillAll(); this.hints(); return; } // FEAT-285: waits for Apply, nothing rebuilds
     r.set(this.s, v);
     this.commit([whatOf(r)]);
+  }
+
+  /** FEAT-285: the held graphics options go live behind a loading screen; the settings screen stays open */
+  private async apply(): Promise<void> {
+    if (this.applying || !this.pending().length) return;
+    this.applying = true;
+    const s = this.s as unknown as Record<string, unknown>, d = this.draft as unknown as Record<string, unknown>;
+    for (const f of HELD_FIELDS) s[f] = d[f];
+    saveSettings(this.s);
+    this.fillAll();
+    const screen = new LoadingScreen('Applying settings', { eyebrow: 'Graphics', over: true });
+    screen.set(0.15, 'Rebuilding the renderer');
+    await screen.painted(); // drawn before the rebuild blocks the page
+    const o = this.o;
+    try {
+      if (o?.onApply) await o.onApply(this.s, (p, t) => screen.set(p, t));
+      else o?.onChange(this.s, 'quality');
+    } catch (e) {
+      console.error('Applying graphics settings failed', e);
+    } finally {
+      screen.hide();
+      this.applying = false;
+      this.draft = { ...this.s };
+      if (this.o) { this.fillAll(); this.hints(); }
+    }
+  }
+  /** FEAT-285: every held graphics option back to what is applied */
+  private discard(): void {
+    this.draft = { ...this.s };
+    this.fillAll(); this.hints();
   }
   private commit(whats: string[]): void {
     saveSettings(this.s);
@@ -240,10 +334,10 @@ class SettingsOverlay {
   /** left / right on a row; true when the row took it */
   private adjust(r: Row, d: number): boolean {
     if (!('get' in r)) return false;
-    const v = r.get(this.s);
+    const v = r.get(this.src(r));
     if (r.kind === 'toggle') { this.change(r, d > 0); return true; }
     if (r.kind === 'seg' || r.kind === 'pick') {
-      const opts = optsOf(r, this.s);
+      const opts = optsOf(r, this.src(r));
       const i = opts.findIndex(([o]) => String(o) === String(v));
       const j = i < 0 ? (d > 0 ? 0 : opts.length - 1) : Math.max(0, Math.min(opts.length - 1, i + d));
       if (j !== i) this.change(r, opts[j][0]);
@@ -260,10 +354,11 @@ class SettingsOverlay {
 
   /** A / Enter / click on a row */
   private activate(r: Row, rowEl: HTMLElement): void {
-    if (r.kind === 'toggle') this.change(r, !r.get(this.s));
+    const s = this.src(r);
+    if (r.kind === 'toggle') this.change(r, !r.get(s));
     else if (r.kind === 'seg' || r.kind === 'pick') {
-      const opts = optsOf(r, this.s);
-      const i = opts.findIndex(([o]) => String(o) === String(r.get(this.s)));
+      const opts = optsOf(r, s);
+      const i = opts.findIndex(([o]) => String(o) === String(r.get(s)));
       this.change(r, opts[(i + 1) % opts.length][0]);
     } else if (r.kind === 'color') rowEl.querySelector<HTMLInputElement>('input')!.click();
     else if (r.kind === 'action') this.action(r.action);
@@ -275,6 +370,7 @@ class SettingsOverlay {
     else if (a === 'pad-reset') { s.padKeys = migratePadKeys(undefined); this.commit(['padKeys']); this.drawKeys(); }
     else if (a === 'rumble-test') { this.rumbleMsg = 'Testing...'; this.fillAll(); void padFx.test(activePad()).then((m) => { this.rumbleMsg = m; this.fillAll(); }); }
     else if (a === 'hid') void (dualSense.connected ? dualSense.disconnect() : dualSense.connect()).then(() => this.fillAll());
+    else if (a === 'gfx-apply') void this.apply();
   }
 
   // ---------------------------------------------------------------- reset
@@ -298,12 +394,16 @@ class SettingsOverlay {
     if (what === 'all') {
       // the nested objects keep their identity (the pause menu and the game hold them); a ?weather= override clears as with Reset conditions
       const { outfit, outrun } = this.s;
+      // FEAT-285: the held graphics options reset in the draft and wait for Apply like any other change to them
+      const live = this.s as unknown as Record<string, unknown>, draft = this.draft as unknown as Record<string, unknown>;
+      const applied = Object.fromEntries(HELD_FIELDS.map((f) => [f, live[f]]));
       Object.assign(this.s, d, { outfit: Object.assign(outfit, d.outfit), outrun: Object.assign(outrun, d.outrun) });
+      for (const f of HELD_FIELDS) { draft[f] = live[f]; live[f] = applied[f]; }
       this.commit(['reset', 'clouds']);
     } else {
       const whats: string[] = [];
       const lens = this.s.goggleLens; // the outfit preset carries a lens, but the lens is Camera's setting
-      for (const r of rowsOf(what)) if ('set' in r) { r.set(this.s, r.get(d)); whats.push(whatOf(r)); }
+      for (const r of rowsOf(what)) if ('set' in r) { r.set(this.src(r), r.get(d)); if (!r.held) whats.push(whatOf(r)); }
       if (what === 'rider') this.s.goggleLens = lens;
       if (what === 'controls') { this.s.keys = d.keys; this.s.padKeys = d.padKeys; this.s.keysNote = false; whats.push('keys', 'padKeys'); }
       this.commit(whats);
@@ -476,11 +576,13 @@ class SettingsOverlay {
     if (r) {
       const cat = CAT_OF.get(r.id)!;
       const keyLabel = el?.closest('.keyrow')?.querySelector('.lbl')?.textContent;
-      h = `<div class="eyebrow">${catLabel(cat)}</div><h3>${esc(keyLabel ?? r.label)}</h3><p>${esc(descOf(r, this.s))}</p>`;
-      const note = r.note?.(this.s);
+      const s = this.src(r);
+      h = `<div class="eyebrow">${catLabel(cat)}</div><h3>${esc(keyLabel ?? r.label)}</h3><p>${esc(descOf(r, s))}</p>`;
+      const note = r.note?.(s);
       if (note) h += `<p class="note">${esc(note)}</p>`;
+      if (rowEl?.classList.contains('pending')) h += `<p class="note">Waiting for Apply (Graphics &gt; Apply).</p>`;
       if (r.cost) h += `<p class="cost"><b>Cost</b> ${esc(r.cost)}</p>`;
-      const pl = presetLine(r, this.s);
+      const pl = presetLine(r, s);
       if (pl) h += `<p class="presets"><b>Presets</b> ${esc(pl)}</p>`;
       if (r.id === 'hid') h += `<p class="note">${esc(dualSense.status || (dualSense.connected ? 'Connected' : 'Not connected'))}</p>`;
     } else if (el?.dataset.cat) {
@@ -499,6 +601,7 @@ class SettingsOverlay {
   }
 
   private intent(i: string, down: boolean): boolean {
+    if (this.applying) return true; // the loading screen is up: nothing moves, Back waits
     if (i === 'peek') return this.peek(down);
     if (!down) return false;
     const f = this.screen.focused;

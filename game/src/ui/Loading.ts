@@ -8,11 +8,14 @@ export class LoadingScreen {
   private readonly label: HTMLDivElement;
   private shown = 0;
 
-  constructor(title: string) {
+  /** `over` puts it above the menus and the settings screen (FEAT-285's Apply) */
+  constructor(title: string, opts: { eyebrow?: string; over?: boolean } = {}) {
     this.el = document.createElement('div');
     this.el.id = 'loading';
-    this.el.innerHTML = `<div class="panel"><div class="eyebrow">Loading</div><div class="title"></div>` +
+    if (opts.over) this.el.classList.add('over');
+    this.el.innerHTML = `<div class="panel"><div class="eyebrow"></div><div class="title"></div>` +
       `<div class="track"><div class="fill"></div></div><div class="label">Starting...</div></div>`;
+    (this.el.querySelector('.eyebrow') as HTMLDivElement).textContent = opts.eyebrow ?? 'Loading';
     (this.el.querySelector('.title') as HTMLDivElement).textContent = title;
     this.bar = this.el.querySelector('.fill') as HTMLDivElement;
     this.label = this.el.querySelector('.label') as HTMLDivElement;
@@ -37,4 +40,24 @@ export class LoadingScreen {
     this.el.classList.add('done');
     setTimeout(() => this.el.remove(), 500);
   }
+}
+
+/**
+ * FEAT-285: resolves once the frame loop runs clean again: `calm` frames in a row each under `frameMs`
+ * apart (shader compiles and tree rebuilds land in the first frames after a graphics change), or after
+ * `maxMs` whatever the frames do (a hidden tab draws none).
+ */
+export function framesSettled(frameMs = 50, calm = 3, maxMs = 6000): Promise<void> {
+  return new Promise((resolve) => {
+    let last = -1, run = 0, done = false;
+    const finish = () => { if (!done) { done = true; clearTimeout(timer); resolve(); } };
+    const timer = setTimeout(finish, maxMs);
+    const tick = (t: number) => {
+      if (done) return;
+      if (last >= 0) run = t - last < frameMs ? run + 1 : 0;
+      last = t;
+      if (run >= calm) finish(); else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
 }

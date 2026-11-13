@@ -100,20 +100,57 @@ check('right steps a slider', (await saved()).fov === fov0 + 2, `${fov0} -> ${(a
 await focusRow('camera');
 await key('ArrowRight');
 check('right steps a picker', (await saved()).camera === 'close', (await saved()).camera);
-// Graphics presets: Low moves the advanced options; changing one of them shows Custom
+// Graphics presets: Low moves the advanced options; changing one of them shows Custom. FEAT-285: they wait for Apply
 await openCat('graphics');
 await focusRow('gfx');
+const gfx0 = await saved();
+const shown = () => page.evaluate(() => {
+  const q = (id) => document.querySelector(`#settings [data-row="${id}"]`);
+  const b = q('gfx-apply')?.querySelector('button.act');
+  return { preset: q('gfx').querySelector('.seg button.on')?.dataset.v ?? 'custom', quality: q('quality').querySelector('.seg button.on')?.dataset.v, shadows: q('shadows').classList.contains('on'),
+    csm: q('csmExperimental').classList.contains('on'), trees: q('treeDensity').querySelector('.val').textContent, pending: document.querySelectorAll('#settings .srow.pending').length, apply: !!b && !b.disabled };
+});
+// (?lowgfx starts on Low, so High is the change)
 await page.evaluate(() => document.querySelector('#settings [data-row="gfx"] .seg button[data-v="high"]')?.click());
+{ const v = await shown(), sv = await saved();
+  check('a graphics change waits for Apply (not saved, rows marked, Apply on)', v.preset === 'high' && sv.quality === gfx0.quality && sv.shadows === gfx0.shadows && v.pending > 0 && v.apply, JSON.stringify([v.preset, sv.quality, sv.shadows, v.pending, v.apply])); }
 await page.evaluate(() => document.querySelector('#settings [data-row="gfx"] .seg button[data-v="low"]')?.click());
-const low = await saved();
-check('Graphics preset Low sets the advanced options', low.quality === 'low' && low.shadows === false && low.treeDensity === 0.3, JSON.stringify([low.quality, low.shadows, low.treeDensity]));
+{ const v = await shown(); check('Graphics preset Low sets the advanced options', v.preset === 'low' && v.quality === 'low' && !v.shadows && v.trees === '30%', JSON.stringify(v)); }
 await focusRow('shadows');
 await key('Enter');
 check('changing an advanced option shows Custom', await page.evaluate(() => document.querySelector('#settings [data-row="gfx"]').classList.contains('custom') && !document.querySelector('#settings [data-row="gfx"] .seg button.on')));
 await page.evaluate(() => document.querySelector('#settings [data-row="gfx"] .seg button[data-v="ultra"]')?.click());
-const ultra = await saved();
-check('Ultra is High plus cascaded shadows', ultra.quality === 'high' && ultra.csmExperimental === true && ultra.shadows === true);
+{ const v = await shown(); check('Ultra is High plus cascaded shadows', v.quality === 'high' && v.csm && v.shadows, JSON.stringify(v)); }
+// Apply: the loading screen over the settings, then saved and nothing waiting
+await focusRow('gfx-apply');
+await key('Enter');
+// Apply waits for clean frames; here the session can still be warming up behind the menu, which holds the frames for a while
+const applied = () => page.waitForFunction(() => !document.querySelector('#loading.over:not(.done)'), null, { timeout: 60000 }).then(() => true, () => false);
+const loadUp = await page.waitForFunction(() => !!document.querySelector('#loading.over'), null, { timeout: 3000 }).then(() => true, () => false);
+check('Apply shows the loading screen over the settings', loadUp);
+const applyDone = await applied();
+{ const v = await shown(), sv = await saved();
+  check('Apply saves the graphics and clears the waiting', applyDone && sv.quality === 'high' && sv.csmExperimental === true && sv.shadows === true && v.pending === 0 && !v.apply && await setOpen(), JSON.stringify([sv.quality, sv.csmExperimental, v.pending, v.apply])); }
+// leaving with a change waiting asks Apply or Discard; Esc keeps editing, Discard puts every graphics setting back
+await page.evaluate(() => document.querySelector('#settings [data-row="gfx"] .seg button[data-v="low"]')?.click());
+await key('Escape');
+const leaveUp = () => page.evaluate(() => { const l = document.querySelector('#settings .leave'); return !!l && !l.hidden; });
+check('Esc with a change waiting asks Apply or Discard', await leaveUp() && await setOpen() && (await page.evaluate(() => document.activeElement?.dataset.leave)) === 'apply');
+await key('Escape');
+check('Esc on the question keeps editing', !(await leaveUp()) && await setOpen() && (await shown()).preset === 'low');
+await key('Escape');
+await page.evaluate(() => document.querySelector('#settings .leave [data-leave="discard"]')?.click());
+await page.waitForTimeout(100);
+check('Discard closes the settings, nothing saved', !(await setOpen()) && (await saved()).quality === 'high' && (await saved()).csmExperimental === true);
+await page.evaluate(() => document.querySelector('#menu button[data-a="settings"]')?.focus());
+await key('Enter');
+await openCat('graphics');
+{ const v = await shown(); check('Discard put every graphics setting back', v.preset === 'ultra' && v.pending === 0, JSON.stringify(v)); }
+// back to High for the rest of the walk (Apply again)
 await page.evaluate(() => document.querySelector('#settings [data-row="gfx"] .seg button[data-v="high"]')?.click());
+await page.evaluate(() => document.querySelector('#settings [data-row="gfx-apply"] button.act')?.click());
+const applyDone2 = await applied();
+check('Apply by click', applyDone2 && (await saved()).csmExperimental === false && (await shown()).pending === 0);
 // Feel preset
 await openCat('gameplay');
 check('the defaults read Feel Realistic', await page.evaluate(() => !!document.querySelector('#settings [data-row="feel"] .seg button.on[data-v="realistic"]')));
