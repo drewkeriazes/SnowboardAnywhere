@@ -266,7 +266,7 @@ export function buildTreeAtlas(): TreeAtlas {
   const fir: SprayStyle = { droop: 0.04, twigs: 10, twigAngle: 1.15, twigLen: 1, twigDroop: -0.05, needleLen: 11, needleW: 2.4, density: 0.22, spread: 1.05, outline: (u) => 0.45 + 0.45 * Math.min(1, u * 2.5) * (1 - 0.35 * u), lo: 140, hi: 235, stem: 100 };
   const douglas: SprayStyle = { droop: -0.05, twigs: 8, twigAngle: 0.85, twigLen: 1.05, twigDroop: 0.25, needleLen: 14, needleW: 2.3, density: 0.2, spread: 0.95, outline: (u) => 0.4 + 0.6 * Math.sin(Math.PI * Math.min(1, u * 0.85 + 0.1)), lo: 150, hi: 245, stem: 100 };
   const lodge: SprayStyle = { droop: -0.1, twigs: 4, twigAngle: 0.7, twigLen: 1, twigDroop: -0.25, needleLen: 30, needleW: 2.2, density: 0.32, spread: 0.55, outline: (u) => 0.3 + 0.6 * u, lo: 160, hi: 250, stem: 100, tuft: 0.45 };
-  const limber: SprayStyle = { droop: -0.15, twigs: 5, twigAngle: 0.8, twigLen: 1, twigDroop: -0.35, needleLen: 26, needleW: 2.2, density: 0.32, spread: 0.7, outline: (u) => 0.35 + 0.6 * Math.sin(Math.PI * Math.min(1, u * 0.8 + 0.2)), lo: 150, hi: 245, stem: 105, tuft: 0.5 };
+  const limber: SprayStyle = { droop: -0.15, twigs: 7, twigAngle: 0.8, twigLen: 1, twigDroop: -0.35, needleLen: 24, needleW: 2.2, density: 0.45, spread: 0.7, outline: (u) => 0.35 + 0.6 * Math.sin(Math.PI * Math.min(1, u * 0.8 + 0.2)), lo: 150, hi: 245, stem: 105, tuft: 0.5 };
   drawSpray(ctx, ...at(0), spruce, 11);
   drawSpray(ctx, ...at(1), { ...spruce, droop: 0.32, twigs: 8 }, 12);
   drawSpray(ctx, ...at(2), fir, 21);
