@@ -50,8 +50,11 @@ export interface Params {
   nomoguls: boolean;
   /** FEAT-159: one snowpack depth everywhere (m) for burying the shrubs, instead of the season's */
   snowdepth: number | null;
-  /** FEAT-278 prototype ?canopy=clumps: the far forest as clump impostors; null for the trees as on main */
+  /** FEAT-278 prototype ?canopy=shell: the far forest as a canopy mesh past the drawn trees; null: off (as main) */
   canopy: string | null;
+  /** FEAT-278 ?canopyfrom=thin: the shell starts at the impostors' thinning radius and cuts them back to just past it (cheaper
+   *  on High and Medium); default 'far': it starts at their far edge (the same on Low, where the two are one) */
+  canopyFrom: 'thin' | 'far';
 }
 
 export function parseParams(search: string, hosted = !!(import.meta.env.VITE_HOST_NAME || import.meta.env.VITE_HOSTED)): Params {
@@ -88,5 +91,6 @@ export function parseParams(search: string, hosted = !!(import.meta.env.VITE_HOS
     nomoguls: p.has('nomoguls'),
     snowdepth: num('snowdepth'),
     canopy: p.get('canopy'),
+    canopyFrom: p.get('canopyfrom') === 'thin' ? 'thin' : 'far',
   };
 }

@@ -64,20 +64,29 @@ const STAND_COLLIDE = 150;
 export function setStandDensity(k: number): void { STAND_K = Math.max(0, Math.min(1, k)); }
 /** FEAT-278 prototype (?canopy=clumps): the clump band, set by the Vegetation that draws them (null: off) */
 let CLUMP_BAND: { near: number; fade: number; far: number } | null = null;
-/** FEAT-278: the clumps reach at least this far (m), past the Low preset's 600 m trees */
-const CLUMP_FAR_MIN = (() => { try { return Number(new URLSearchParams(location.search).get('clumpfar')) || 6000; } catch { return 6000; } })();
+/** FEAT-278 ?canopy=mix: the clumps carry only the band past the trees and the canopy shell takes over past it */
+const CLUMP_MIX = (() => { try { return new URLSearchParams(location.search).get('canopy') === 'mix'; } catch { return false; } })();
+/** FEAT-278: the clumps reach at least this far (m), past the Low preset's 600 m trees (mix: where the shell takes over) */
+const CLUMP_FAR_MIN = (() => { try { return Number(new URLSearchParams(location.search).get('clumpfar')) || (CLUMP_MIX ? 4500 : 6000); } catch { return 6000; } })();
+/** FEAT-278 mix: the clump band is at least this wide (m, and half the trees' reach), so the handover never squeezes */
+const CLUMP_MIX_BAND = 800;
 /** FEAT-153: how far the tree impostors reach (m), where the terrain's canopy lift takes over (FEAT-278: the clumps' reach when they draw) */
 export function vegetationFarRadius(): number { return CLUMP_BAND ? CLUMP_BAND.far : FAR_RADIUS; }
 /** FEAT-278 prototype: where the clumps take over from the trees and how far they reach (m), or null without them */
 export function vegetationClumpBand(): { near: number; fade: number; far: number } | null { return CLUMP_BAND; }
+/** FEAT-278: where the impostors start to thin (m); the canopy shell prototype takes over from here */
+export function vegetationThinRadius(): number { return THIN_RADIUS; }
+/** FEAT-278 prototype (canopy=shell): the impostors reach at most this many times the thinning radius (Infinity: as main) */
+let FAR_CAP = Infinity;
+export function setImpostorCap(k: number): void { FAR_CAP = k; bandsVersion++; }
 /** FEAT-159: the near radius (1500 m at full density); the shrubs scale their 300 m reach by it */
 export function vegetationNearRadius(): number { return NEAR_RADIUS; }
 /** BUG-081: where the generated stems stop (m), past which the crowns grow to stand in for them */
 export function vegetationStemReach(): number { return NEAR_RADIUS + STAND_MID; }
 /** Headless / weak GPU: far fewer instances; `lod0` false draws LOD1 from the camera out (the Low preset). */
-export function setVegetationBudget(near: number, far: number, lod0 = true): void { NEAR_RADIUS = near; FAR_RADIUS = THIN_RADIUS = far; LOD_K = Math.max(0.5, Math.min(1, near / 1500)); LOD0_ON = lod0; bandsVersion++; }
+export function setVegetationBudget(near: number, far: number, lod0 = true): void { NEAR_RADIUS = near; FAR_RADIUS = THIN_RADIUS = far; FAR_RADIUS = Math.min(FAR_RADIUS, THIN_RADIUS * FAR_CAP); LOD_K = Math.max(0.5, Math.min(1, near / 1500)); LOD0_ON = lod0; bandsVersion++; }
 /** Scale the near/far radii by a 0.25..1 density (1 = full 1500 m, thinning from 4500 m out to 9000 m); the LOD0 / LOD1 reach scales more gently. */
-export function setVegetationDensity(d: number): void { const k = Math.max(0.25, Math.min(1, d)); NEAR_RADIUS = 1500 * k; THIN_RADIUS = 4500 * k; FAR_RADIUS = THIN_RADIUS * FAR_REACH_K; LOD_K = 0.6 + 0.4 * k; LOD0_ON = true; bandsVersion++; }
+export function setVegetationDensity(d: number): void { const k = Math.max(0.25, Math.min(1, d)); NEAR_RADIUS = 1500 * k; THIN_RADIUS = 4500 * k; FAR_RADIUS = THIN_RADIUS * Math.min(FAR_REACH_K, FAR_CAP); LOD_K = 0.6 + 0.4 * k; LOD0_ON = true; bandsVersion++; }
 
 /** the LOD band edges for the current setting (m from the camera), into `out`; out[0] is 0 without LOD0 */
 function edges(out: number[]): void {
@@ -309,7 +318,7 @@ export class Vegetation {
     if (this.clumps) {
       const stemsOn = !!this.pack.meta.stands && STAND_K > 0;
       const c0 = Math.min(FAR_RADIUS, stemsOn ? NEAR_RADIUS + STAND_MID : FAR_RADIUS), fc = Math.max(40, 0.08 * c0);
-      CLUMP_BAND = { near: c0, fade: fc, far: Math.max(FAR_RADIUS, CLUMP_FAR_MIN) };
+      CLUMP_BAND = { near: c0, fade: fc, far: CLUMP_MIX ? Math.max(c0 + Math.max(CLUMP_MIX_BAND, 0.5 * c0), CLUMP_FAR_MIN) : Math.max(FAR_RADIUS, CLUMP_FAR_MIN) };
       if (this.impostorsOn) { this.kit.bands.imp.value.z = c0 - fc; this.kit.bands.imp.value.w = c0 + fc; }
       reachR = Math.min(FAR_RADIUS, c0 + fc + 100);
       this.clumps.update(cpx, cpy, c0, fc, CLUMP_BAND.far, this.budgetMs > 0 ? 2 : 0);

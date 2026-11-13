@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Pack } from '../pack/Pack';
+import { CoverLevel } from '../pack/CoverSet';
 import { GameAudio } from '../audio/Audio';
 import { availableResorts } from '../resorts';
 import { landmarkStart } from '../world/Landmarks';
@@ -40,6 +41,7 @@ export class Game {
     }
     status.textContent = `Loading ${packSlug}...`;
     let pack: Pack;
+    CoverLevel.keepCrowns = params.canopy === 'shell' || params.canopy === 'mix'; // FEAT-278 prototype: the canopy shell reads the crowns on the CPU
     try {
       pack = await Pack.load(`${import.meta.env.BASE_URL}packs/${packSlug}`);
     } catch (e) {

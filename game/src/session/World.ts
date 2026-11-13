@@ -48,6 +48,14 @@ export function buildWorld(ctx: GameContext) {
   const terrain = new Terrain(pack);
   if (params.debugHud && params.debug === 'moguls') terrain.setMogulDebug(true); // BUG-062
   add('terrain', terrain.group);
+  // FEAT-278 prototype: ?canopy=shell (or mix, past the clumps) draws the far forest as a canopy shell (window.__canopy: its build cost)
+  if (params.canopy === 'shell') (window as unknown as { __canopy: unknown }).__canopy = terrain.enableCanopyShell(params.canopyFrom).stats;
+  if (params.canopy === 'mix') {
+    // FEAT-278 mix: both prototypes' numbers in one object; busy sums both so the compare tools wait for each to finish building
+    const shell = terrain.enableCanopyShell('far').stats;
+    const mix = { mode: 'mix', shell, clumps: null as { busy?: number } | null, get busy() { return shell.busy + (mix.clumps?.busy ?? 0); } };
+    (window as unknown as { __canopy: unknown }).__canopy = mix;
+  }
   const collider = new Collider();
   const veg = new Vegetation(pack, collider);
   const treeFade = new TreeFade();
@@ -113,7 +121,7 @@ export function buildWorld(ctx: GameContext) {
   for (const m of eat.materials) env.registerMaterial(m);
   for (const m of landmarks.materials) env.registerMaterial(m);
   veg.enableImpostors(renderer, !params.noimpostors, params.lowgfx ? 1024 : 2048); // FEAT-156: bakes the LOD2 / impostor atlases either way
-  if (params.canopy === 'clumps') veg.enableClumps(renderer); // FEAT-278 prototype: the far forest as clump impostors
+  if (params.canopy === 'clumps' || params.canopy === 'mix') veg.enableClumps(renderer); // FEAT-278 prototype: the far forest as clump impostors (mix: only the near band)
   terrain.setTreeShade(veg.shade); // FEAT-171: the drawn trees' shadows past the shadow map
   return {
     zr, env, clouds, snow, terrain, collider, veg, shrubs, treeFade, rocks, lifts, liftLines, resortTop, runs, buildings, roads, landmarks, bridges,

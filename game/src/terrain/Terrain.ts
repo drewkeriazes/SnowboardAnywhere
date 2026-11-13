@@ -3,8 +3,9 @@ import { type Pack, MOGUL_MAX_RES, MOGUL_SHADE_MAX_RES } from '../pack/Pack';
 import { treelineOf } from '../pack/treeline';
 import { MOGUL_FALL_D } from './Moguls';
 import { createTerrainMaterial, COVER_SLOTS, EMPTY_RECT } from './TerrainMaterial';
-import { vegetationFarRadius, vegetationStemReach, vegetationClumpBand } from '../world/Vegetation';
+import { vegetationFarRadius, vegetationStemReach, vegetationClumpBand, vegetationThinRadius, setImpostorCap } from '../world/Vegetation';
 import { CLUMP_RHO } from '../world/trees/clumps';
+import { CanopyShell } from './CanopyShell';
 import type { TreeShade } from '../world/TreeShade';
 import { snowpackUniform, type SnowpackState } from '../sim/Snowpack';
 
@@ -51,6 +52,13 @@ const AO_MAX_RES = 32;
 const DIR_MIN_SLOPE = 0.1;
 const SPLIT_K = 2.6; // split when distance < size * SPLIT_K
 const MAX_BUILDS_PER_FRAME = 10;
+/** FEAT-278: with the canopy shell from the thinning radius, the impostors reach this many times it (main: 2) */
+const SHELL_IMP_CAP = 1.25;
+/** FEAT-278: the shell reaches at least this far (m) and sinks over the last SHELL_FAR_RAMP, where the lift takes over */
+const SHELL_FAR = 10000;
+const SHELL_FAR_RAMP = 2000;
+/** FEAT-278 mix: past the clumps the shell carries the far mountains, so it reaches further (m; ?shellfar=) */
+const SHELL_FAR_MIX = (() => { try { return Number(new URLSearchParams(location.search).get('shellfar')) || 14000; } catch { return 14000; } })();
 
 interface Chunk {
   key: string;
@@ -97,6 +105,22 @@ export class Terrain {
   budgetMs = 0;
   /** BUG-063: selected chunks still unbuilt or waiting on a rebuild after the last update (0 = settled) */
   pending = 0;
+  /** FEAT-278 prototype (canopy=shell): the canopy shell past the drawn trees, null when off */
+  shell: CanopyShell | null = null;
+  private shellFrom: 'thin' | 'far' = 'far';
+
+  /**
+   * FEAT-278 prototype: draw the far forest as a canopy shell from where the drawn trees end. 'thin' starts it at the
+   * impostors' thinning radius and cuts the impostors back to just past it; 'far' starts it at their far edge.
+   */
+  enableCanopyShell(from: 'thin' | 'far'): CanopyShell {
+    this.shellFrom = from;
+    this.shell = new CanopyShell(this.pack, this.material.userData.uniforms as Record<string, { value: unknown }>);
+    (this.material.userData.uniforms as { uShell: { value: THREE.Vector4 } }).uShell.value = this.shell.range;
+    this.group.add(this.shell.group);
+    if (from === 'thin') setImpostorCap(SHELL_IMP_CAP);
+    return this.shell;
+  }
 
   constructor(pack: Pack) {
     this.pack = pack;
@@ -301,6 +325,20 @@ export class Terrain {
     this.material.userData.shader?.uniforms.uTime && (this.material.userData.shader.uniforms.uTime.value = performance.now() / 1000);
     // FEAT-153: the canopy lift starts where the tree impostors end, which moves with the tree density setting
     (this.material.userData.uniforms as { uLiftNear: { value: number } }).uLiftNear.value = vegetationFarRadius();
+    if (this.shell) {
+      // FEAT-278: the shell rises where the drawn trees end (it reads the bands every frame, so a Trees, Forest or
+      // auto quality change moves it at once, no rebuild) and the lift takes over where it sinks
+      const far = vegetationFarRadius(), thin = vegetationThinRadius();
+      const near = this.shellFrom === 'far' ? far : thin;
+      const riseEnd = Math.max(this.shellFrom === 'far' ? far * 1.05 : far, near * 1.1);
+      const cb = vegetationClumpBand();
+      const reach = Math.max(cb ? SHELL_FAR_MIX : SHELL_FAR, near + 3000);
+      // FEAT-278 mix: past the clumps the shell rises over the same 300 m they dissolve out over (clumps.ts update)
+      if (cb && this.shellFrom === 'far') this.shell.setRange(cb.far - 300, cb.far, reach, SHELL_FAR_RAMP);
+      else this.shell.setRange(near * 0.9, riseEnd, reach, SHELL_FAR_RAMP);
+      (this.material.userData.uniforms as { uLiftNear: { value: number } }).uLiftNear.value = reach - SHELL_FAR_RAMP;
+      this.shell.update(camX, camY, camZ);
+    }
     // BUG-081: past the stems' reach the grown crowns carry the forest (packs with stands only, as Vegetation)
     (this.material.userData.uniforms as { uStemReach: { value: number } }).uStemReach.value = this.stemsDrawn ? vegetationStemReach() : 1e8;
     // FEAT-278 prototype: the clump band, where the clumps carry the canopy instead of the ground's timber tone

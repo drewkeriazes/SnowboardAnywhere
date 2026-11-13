@@ -169,6 +169,7 @@ function bakeMat(atlas: THREE.Texture, mode: 'albedo' | 'normal' | 'snow', dir: 
 const BAYER = /* glsl */ `
   float cBayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
   float cBayer8(vec2 a) { return cBayer2(0.25 * a) * 0.0625 + cBayer2(0.5 * a) * 0.25 + cBayer2(a); }
+  vec3 cHash3(vec2 p) { vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); q += dot(q, q.yxz + 33.33); return fract((q.xxy + q.yxx) * q.zyx); }
 `;
 
 const SPEC_K = 0.25;
@@ -180,6 +181,12 @@ const STRETCH = knob('clumpstretch', 1.6);
 const THIN_FULL = knob('clumpthin', 0.6);
 /** the coverage cut where the atlas is minified (0.5 where it is magnified): lower keeps the crowns full far off */
 const ALPHA_FAR = knob('clumpalpha', 0.5);
+/** FEAT-278 refine: where the atlas is minified, each pixel draws one crown (lit or shaded, snowy or bare) with the averaged
+ *  chance, instead of the average itself; 0 turns it off. The crown cell is CROWN_CELL m */
+const DITHER = knob('clumpdither', 1);
+const CROWN_CELL = knob('clumpcell', 4.5);
+/** FEAT-278 refine: how white a snowy crown draws in the dither (its chance scales so the mean holds) */
+const SNOW_PEAK = knob('clumpspeak', 0.4);
 /** the share of the canopy the clumps carry: the terrain under them adds what they miss (TerrainMaterial uClump) */
 export const CLUMP_RHO = knob('clumprho', 0.7);
 
@@ -535,13 +542,20 @@ export class ClumpCanopy {
           float load = vSnowLoad * (1.0 - uTreeSnow.y * clamp(dot(n.xz, uTreeSunDir.xz) * 1.5, 0.0, 1.0) * (1.0 - vSnowGhost));
           float scov = (load < 0.5 ? sm.r * load * 2.0 : mix(sm.r, sm.g, load * 2.0 - 1.0)) * ${SNOW_K.toFixed(3)};
           scov = mix(scov, max(scov, sm.g), vSnowGhost);
+          // FEAT-278 refine: far off the mips average a stand's snow and sunlit sides into one dark tone (flat from the air,
+          // worst at dawn); there a pixel is one crown instead, drawn per crown cell with the averaged chance, so the mean
+          // holds and the speckle the drawn trees make comes back
+          vec3 hc = cHash3(floor(Pt.xz / ${CROWN_CELL.toFixed(2)}));
+          float dk = mk * ${DITHER.toFixed(2)};
+          scov = mix(scov, step(hc.x, scov / ${SNOW_PEAK.toFixed(2)}) * ${SNOW_PEAK.toFixed(2)}, dk);
           // (a stand's needles read darker and bluer than one tree's: the light between the crowns is shade; matched to High's stills)
-          vec3 needle = albT * vTint * ${FAR_GAIN.toFixed(2)} * vec3(0.7, 0.78, 0.92);
+          vec3 needle = albT * vTint * ${FAR_GAIN.toFixed(2)} * vec3(0.7, 0.78, 0.92) * mix(1.0, 0.7 + 0.6 * hc.z, dk);
           vec3 alb = mix(needle, TREE_SNOW_ALB, scov);
           vec3 ns = normalize(mix(n, vec3(0.0, 1.0, 0.0), 0.6 * scov));
           // the stand shades itself: a low sun reaches only the tops of a closed stand
           float sunEl = clamp(uSunDir.y, 0.0, 1.0);
           float lit = smoothstep(0.0, 0.85, sm.b + sunEl * 1.4 - 0.25);
+          lit = mix(lit, step(hc.y, lit), dk);
           float selfSh = mix(1.0, lit, clamp(vShare * 1.3, 0.0, 1.0));
           vec3 hemi = mix(uHemiGround, uHemiSky, 0.5 * ns.y + 0.5) * mix(vec3(1.0), TREE_SNOW_SHADE, scov);
           vec3 vv = -ray;
@@ -697,7 +711,9 @@ export class ClumpCanopy {
     this.stats.blocks = this.blocks.size;
     this.stats.placeMs = Math.round((this.stats.placeMs + performance.now() - t0) * 10) / 10;
     this.stats.buildMs = Math.round(this.stats.bakeMs + this.stats.placeMs);
-    (window as unknown as { __canopy?: unknown }).__canopy = this.stats;
+    // FEAT-278 mix: the shell owns window.__canopy and carries these as .clumps
+    const w = window as unknown as { __canopy?: { mode?: string; clumps?: unknown } };
+    if (w.__canopy?.mode === 'mix') w.__canopy.clumps = this.stats; else w.__canopy = this.stats;
   }
 
   /** copy the clumps of the ready blocks the annulus lo..hi reaches into the instance buffers */
