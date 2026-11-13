@@ -124,7 +124,7 @@ for (let i = 0; i < 150 && quiet < 3; i++) {
   await page.waitForTimeout(200);
   const busy = await page.evaluate(() => {
     const s = window.__sim, p = s.pack;
-    return [p.fine, p.mid, p.far, p.mask].reduce((n, t) => n + (t?.pending?.size ?? 0), 0) + [...(s.veg.cells?.values?.() ?? [])].filter((c) => c.loading).length + s.terrain.stats.builds + (window.__canopy?.busy ?? 0);
+    return [p.fine, p.mid, p.far, p.mask].reduce((n, t) => n + (t?.pending?.size ?? 0), 0) + [...(s.veg.cells?.values?.() ?? [])].filter((c) => c.loading).length + s.terrain.stats.builds + (s.veg.clumps?.busy ?? 0);
   });
   quiet = busy === 0 ? quiet + 1 : 0;
 }
