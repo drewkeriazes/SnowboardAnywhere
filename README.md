@@ -52,7 +52,12 @@ server can't download (a plain static host, or offline) the list is empty and th
 `npm run get vail`. A resort you downloaded shows "Update (size)" when a newer
 release is out, also when yours is an older format than the game reads. An older-format pack with no current
 release, or one you built or copied in yourself, shows "needs rebuild". `npm run get` won't replace a pack you built yourself unless you add `-- --force` (it
-deletes the old one). To ride a pack you built in MapPacker before it is published, copy it in:
+deletes the old one). The **Find a resort** box at the top of the list filters it by name. Signed in as a
+maintainer on `npm run dev`, typing three or more letters also lists ski areas from OpenSkiData that are not
+packed yet, each with its region, runs and lifts and a **Build it** button that starts the build in MapPacker's
+GitHub Actions (the row then says "Build started"; see [developer guide > Accounts](docs/developer-guide.md#accounts-feat-273)
+for the setup). Anything already built or published shows Ride or Download there instead. A guest, or the game
+served by `npm run host` or the launcher, gets the filter only. To ride a pack you built in MapPacker before it is published, copy it in:
 
 ```
 npm run get -- --from ../../MapPacker-SnowboardAnywhere/packs/vail   # copies that build into packs/vail

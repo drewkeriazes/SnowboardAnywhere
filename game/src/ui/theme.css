@@ -141,6 +141,13 @@
 #menu .course.on { border-color: var(--accent); }
 #menu button.course:disabled { opacity: 0.55; cursor: default; }
 #menu .course[data-act="get"] .cl { color: var(--accent); }
+/* FEAT-246: Find a resort over the list; a search match's place and size, then Build it */
+#menu .pop .find-row { margin: var(--sp-2) 0 var(--sp-2); }
+#menu .pop input.find { box-sizing: border-box; width: 100%; min-height: var(--row-h); margin: 0; padding: 0 var(--sp-3); border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--fill); color: var(--text); font: 500 var(--fs-md) var(--font-body); outline: none; }
+#menu .pop input.find:focus, #menu .pop input.find.nav-focus { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+#menu .pop input.find::placeholder { color: var(--dim); }
+#menu .pop .find-note { margin: var(--sp-1) 0 0; }
+#menu .course[data-act="build"] .cb { color: var(--accent); font-weight: 700; }
 #menu .pop .qrow { display: flex; align-items: center; gap: var(--sp-3); min-height: var(--row-h); padding: 0 var(--sp-3); border-radius: var(--r-md); outline: none; cursor: pointer; }
 #menu .pop .qrow .lbl { flex: 1; font: 500 var(--fs-md) var(--font-body); }
 #menu .pop .qrow .ctl { flex: 0 0 calc(220px * var(--ui-scale)); display: flex; align-items: center; gap: var(--sp-2); }

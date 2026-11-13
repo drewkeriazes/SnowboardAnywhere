@@ -82,6 +82,7 @@ async function loadExt(rel, name) {
 const { FirebaseAccount } = await loadExt('account/firebaseAccount.ts', 'fbaccount');
 const { createAccount } = await loadExt('account/createAccount.ts', 'create');
 const drew = { uid: 'u-drew', displayName: 'Drew', providerIds: ['github.com'] };
+let holdToken = null; // a promise the stub's token() waits on (FEAT-246: a sign-out during the await)
 function stubPort({ claims = {}, claimsFail = false, fail = null, hold = false } = {}) {
   const calls = { signIn: 0, claims: [] };
   let release = () => {}; const gate = new Promise((r) => { release = r; });
@@ -96,7 +97,7 @@ function stubPort({ claims = {}, claimsFail = false, fail = null, hold = false }
     },
     async signOut() {},
     async claims(u, refresh) { calls.claims.push(refresh); if (hold && refresh) await gate; if (claimsFail) throw new Error('offline'); return claims; },
-    async token(u) { return `tok-${u.uid}`; },
+    async token(u) { if (holdToken) await holdToken; return `tok-${u.uid}`; },
   };
   return { port, calls, release: () => release(), fire(u) { if (cb) cb(u); else { pending = u; has = true; } } };
 }
@@ -114,6 +115,17 @@ s.fire(drew); await new Promise((r) => setTimeout(r, 5));
 ok(s.calls.claims.at(-1) === true && a.state().kind === 'signed-in' && changes.join() === 'signed-in', 'signIn refreshes claims, one change (the SDK echo adds none)');
 ok((await a.idToken()) === 'tok-u-drew', 'idToken is the port token when signed in');
 await a.signOut(); ok(a.state().kind === 'guest' && (await a.idToken()) === null, 'signOut: guest, no token');
+{
+  // FEAT-246: signed out while the token was being read: null, never the previous user's token
+  s = stubPort({ claims: { role: 'maintainer', player: 1 } }); a = new FirebaseAccount(Promise.resolve(s.port)); s.fire(drew); await a.ready();
+  let release; holdToken = new Promise((r) => { release = r; });
+  const pending = a.idToken();
+  await new Promise((r) => setTimeout(r, 5));
+  await a.signOut(); release(); holdToken = null;
+  ok((await pending) === null, 'idToken: a sign-out during the await gives null, not the old token');
+  s.fire(drew); await new Promise((r) => setTimeout(r, 5));
+  ok((await a.idToken()) === 'tok-u-drew', 'idToken: signed in again, the token comes back');
+}
 for (const [code, want] of [['auth/popup-closed-by-user', 'cancelled'], ['auth/popup-blocked', 'popup-blocked'], ['auth/account-exists-with-different-credential', 'email-in-use']]) {
   s = stubPort({ fail: code }); a = new FirebaseAccount(Promise.resolve(s.port)); s.fire(null); await a.ready();
   let fired = 0; a.onChange(() => fired++);

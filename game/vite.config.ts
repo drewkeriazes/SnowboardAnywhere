@@ -6,6 +6,7 @@ import { accountRoute } from './tools/accounts/gate.mjs';
 import { devVerifier } from './tools/accounts/verifier.mjs';
 import { refuseForeignOrigin } from './tools/same_origin.mjs';
 import { packDownloads, packFiles } from './tools/pack_routes.mjs';
+import { resortBuildRoutes } from './tools/resort_build_routes.mjs';
 
 /**
  * Serve ../packs at /packs/ so resort packs stay out of the game bundle (they are gitignored), and FEAT-222's
@@ -115,7 +116,8 @@ function saveAttractTakes(): Plugin {
 /**
  * FEAT-273, dev server only (configureServer; no configurePreviewServer): GET /api/account answers who the player's
  * Firebase ID token says they are, verified with the Admin SDK (tools/accounts/gate.mjs, verifier.mjs). So
- * `npm run host` (vite preview) and the launcher have no account routes. FEAT-246 mounts /api/resorts/build here
+ * `npm run host` (vite preview) and the launcher have no account routes. FEAT-246's GET /api/resorts/search and
+ * POST /api/resorts/build (tools/resort_build_routes.mjs: the picker's Find a resort and Build it) are here too, each
  * through requireAccount(devVerifier(), ..., { role: 'maintainer' }).
  */
 function accountRoutes(): Plugin {
@@ -128,6 +130,7 @@ function accountRoutes(): Plugin {
         if (process.env[k] === undefined) process.env[k] = v;
       }
       server.middlewares.use(accountRoute(devVerifier()));
+      server.middlewares.use(resortBuildRoutes({ verifier: devVerifier() }).middleware);
     },
   };
 }

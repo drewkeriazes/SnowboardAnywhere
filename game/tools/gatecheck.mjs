@@ -88,6 +88,7 @@ try {
   const launcherBundle = fs.readFileSync(out, 'utf8');
   ok(launcherBundle.length > 1000, `the launcher bundled (${launcherBundle.length} bytes)`);
   ok(!/firebase-admin|tools[\\/]accounts/.test(launcherBundle), 'the launcher bundle has no Admin SDK and no account routes');
+  ok(!/resort_build_routes|api\/resorts/.test(launcherBundle), 'the launcher bundle has no resort search or Build it routes (FEAT-246)');
   // and that test can fail: the same bundling of the verifier is caught (its path and the Admin SDK import)
   const control = path.join(tmp, 'verifier.cjs');
   await build({ entryPoints: [path.join(GAME, 'tools', 'accounts', 'verifier.mjs')], outfile: control, bundle: true, platform: 'node', format: 'cjs', target: 'node22', packages: 'external', logLevel: 'error' });

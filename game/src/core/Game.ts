@@ -31,12 +31,15 @@ export class Game {
     const status = document.getElementById('status')!;
     // no ?pack: last resort played if it is built, else the first built real resort, else the synthetic mountain
     const resorts = await availableResorts(import.meta.env.BASE_URL);
+    // FEAT-273: not awaited: the menu's account line starts hidden and fills in when the account settles. Made before
+    // the pack loads, so the first-run screen's resort picker has it too (FEAT-246: Build it for a maintainer)
+    const account = createAccount({ env: import.meta.env, fake: params.account, hosted: params.hosted, headless });
     let packSlug = params.pack;
     if (!packSlug) {
       let last = ''; try { last = localStorage.getItem('lastPack') ?? ''; } catch { /* ignore */ }
       packSlug = resorts.find((r) => r.slug === last)?.slug ?? resorts.find((r) => r.slug !== 'synth')?.slug ?? 'synth';
       // BUG-105: nothing built (a fresh clone): the first-run screen with the resort picker, not a synth 404
-      if (!resorts.length && !headless) { startPadNav(); showFirstRun({ resorts }); return; }
+      if (!resorts.length && !headless) { startPadNav(); showFirstRun({ resorts, account }); return; }
     }
     status.textContent = `Loading ${packSlug}...`;
     let pack: Pack;
@@ -48,7 +51,7 @@ export class Game {
       console.error(e);
       status.textContent = '';
       startPadNav();
-      showFirstRun({ resorts, error: { slug: packSlug, message: String((e as Error).message ?? e) } });
+      showFirstRun({ resorts, account, error: { slug: packSlug, message: String((e as Error).message ?? e) } });
       return;
     }
     try { localStorage.setItem('lastPack', packSlug); } catch { /* ignore */ }
@@ -85,8 +88,6 @@ export class Game {
     // FEAT-177: the still is the frame this browser kept at its last crossfade (same build, pack and quality), else
     // the shipped one when it was rendered from this build of the pack, else none (the menu over the loading bar)
     const still = headless || skipMenu ? '' : (await cachedMenuStill(pack, shot, settings)) || shippedStill(import.meta.env.BASE_URL, attractFiles, pack, shot.id);
-    // FEAT-273: not awaited: the line starts hidden and fills in when the account settles
-    const account = createAccount({ env: import.meta.env, fake: params.account, hosted: params.hosted, headless });
     // dev build only: the account as the page sees it and as the dev server verifies it (Drew's setup check)
     if (import.meta.env.DEV) (window as any).__account = { state: () => account.state(), server: () => serverAccount(account) };
     const menu = headless ? null : new MainMenu({
