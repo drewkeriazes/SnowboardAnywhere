@@ -11,7 +11,7 @@ export interface Params {
   /** FEAT-138: `npm run host` builds for other computers on the home network, FEAT-261 `npm run package` for the
    *  Windows launcher; dev-only tools stay off on both */
   hosted: boolean;
-  /** FEAT-273 ?account=guest|player|maintainer|unconfigured: a fake account for the tools; null on a hosted build */
+  /** FEAT-273 ?account=guest|player|maintainer|unconfigured (FEAT-274 adds rider, a password-only account): a fake account for the tools; null on a hosted build */
   account: string | null;
   /** ?debug, ?debug=moguls, ?debug=pad: the value, '' when bare, null when absent */
   debug: string | null;

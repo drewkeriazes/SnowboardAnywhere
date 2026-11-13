@@ -9,6 +9,7 @@ import { optsOf, rowById, type Row } from './SettingsRows';
 import { fmtDistance, fmtHeight } from './Units';
 import type { AccountService } from '../account/Account';
 import { mountAccountLine } from './AccountLine';
+import { fillAccountPanel } from './AccountPanel';
 import type { PauseCourse, PauseMode } from './PauseMenu';
 
 /**
@@ -74,7 +75,9 @@ export class MainMenu {
   private readonly sub: Screen;
   private readonly hintEl: HTMLElement;
   private readonly pop: HTMLElement;
-  private popKind: 'trial' | 'outrun' | 'resort' | null = null;
+  private popKind: 'trial' | 'outrun' | 'resort' | 'account' | null = null;
+  /** FEAT-274: the account panel's unsubscribe while it is open */
+  private popOff: (() => void) | null = null;
   private readonly unmountAccount: () => void;
 
   constructor(private readonly o: MainMenuOpts) {
@@ -154,11 +157,13 @@ export class MainMenu {
         const f = this.sub.focused;
         if ((i === 'left' || i === 'right') && f?.matches('.qrow')) { this.cycle(f, i === 'left' ? -1 : 1, false); return true; }
         if (i === 'select' && f?.matches('.qrow')) { this.cycle(f, 1, true); return true; }
+        // FEAT-274: Enter in the account panel's email or password field presses its button
+        if (i === 'select' && f instanceof HTMLInputElement && f.dataset.submit) { this.pop.querySelector<HTMLButtonElement>(`button[data-act="${f.dataset.submit}"]`)?.click(); return true; }
         return false;
       },
       onInputKind: () => this.hints(),
     });
-    this.unmountAccount = mountAccountLine(this.el.querySelector<HTMLElement>('.corner .account')!, o.account);
+    this.unmountAccount = mountAccountLine(this.el.querySelector<HTMLElement>('.corner .account')!, o.account, () => this.openPop('account'));
     this.syncDiscipline();
     this.drawModes();
   }
@@ -255,8 +260,10 @@ export class MainMenu {
   }
 
   // ---------------------------------------------------------------- the pop-up panels
-  private openPop(kind: 'trial' | 'outrun' | 'resort'): void {
+  private openPop(kind: 'trial' | 'outrun' | 'resort' | 'account'): void {
+    this.popOff?.(); this.popOff = null;
     this.popKind = kind;
+    this.pop.classList.toggle('acct', kind === 'account');
     const pick = (id: string) => { const r = rowById(id)!; return `<div class="qrow" data-q="${id}" data-nav tabindex="-1"><span class="lbl">${esc(r.label.replace(/^Outrun /, '').replace(/^./, (c) => c.toUpperCase()))}</span><span class="ctl"><button class="arr" data-d="-1" data-nav="skip" tabindex="-1" aria-label="Previous">&#8249;</button><span class="pv"></span><button class="arr" data-d="1" data-nav="skip" tabindex="-1" aria-label="Next">&#8250;</button></span></div>`; };
     const cur = this.mode.kind === 'trial' ? this.mode.course : '';
     if (kind === 'trial') {
@@ -269,6 +276,8 @@ export class MainMenu {
       this.pop.querySelectorAll<HTMLElement>('.qrow').forEach((q) => q.addEventListener('click', (e) => { const a = (e.target as HTMLElement).closest<HTMLButtonElement>('button.arr'); this.cycle(q, a ? Number(a.dataset.d) : 1, !a); }));
       this.pop.querySelector('[data-ok]')!.addEventListener('click', () => { this.mode = { kind: 'outrun' }; this.closePop(); this.drawModes(); });
       this.fillRows();
+    } else if (kind === 'account') {
+      this.popOff = fillAccountPanel(this.pop, this.o.account, { close: () => this.closePop(), redraw: () => { if (!this.pop.hidden) this.sub.refresh(); } });
     } else {
       this.pop.innerHTML = '<div class="ph">Change resort</div><div class="courses"></div>';
       // FEAT-222: built packs, then the published ones to download (ui/ResortPicker.ts); FEAT-246: Find a resort,
@@ -288,6 +297,7 @@ export class MainMenu {
   }
   private closePop(): void {
     if (this.pop.hidden) return;
+    this.popOff?.(); this.popOff = null;
     this.pop.hidden = true;
     this.el.classList.remove('popped');
     closeScreen(this.sub); // focus goes back to the card that opened it
