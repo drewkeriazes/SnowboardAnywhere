@@ -1,14 +1,16 @@
 # Far forest canopy: hiding the snow like real trees (FEAT-278)
 
-Card: [FEAT-278 (#614)](https://github.com/drewkeriazes/SnowboardAnywhere/issues/614). Related: BUG-114 (#612), BUG-074 (#417), BUG-069 (#387), FEAT-154 (#347), FEAT-184 (#434), FEAT-228 (#530), FEAT-236 (#556).
+Card: [FEAT-278 (#614)](https://github.com/drewkeriazes/SnowboardAnywhere/issues/614). Related: BUG-114 (#612), BUG-074 (#417), BUG-069 (#387), FEAT-154 (#347), FEAT-184 (#434), FEAT-228 (#530), FEAT-236 (#556). Found along the way: BUG-120 (#632), BUG-121 (#633).
 
-A research and compare card: three ways to draw dense forest at 0.6 to 6 km were prototyped on their own branches, behind a URL flag, and measured against `main` at the same poses, light and settings. Nothing here ships; the winner gets its own build card.
+A research and compare card: three ways to draw dense forest at 0.6 to 6 km were prototyped on their own branches, behind a URL flag, and measured against `main` at the same poses, light and settings. After Drew's review a fourth, a mix of two of them by distance, was built and measured the same way. Nothing here ships; the winner gets its own build card.
 
 ## Recommendation
 
-**Clump impostors.** On Low it turns the flat navy slab into forest that reads close to High in all four views, at noon and at dawn. It is the steadiest of the three in motion. It costs about 0.5 ms of GPU on Low, nothing on Medium, and is slightly cheaper than `main` on High, where it replaces the per-tree impostor ring past 2.5 km and uses about 40 MB less geometry. It needs nothing new in the pack. The canopy shell is the runner-up: just as cheap on the GPU, but its 0.6 to 2 km band reads as dark cones and blotches rather than trees. Shader crowns look good from the snow but cost 3 to 9 ms at 1080p (5 to 15 ms at 1440p), shimmer the most and are too speckled from the air.
+**A mix by distance (`issue-614-canopy-mix`, `?canopy=mix`): clump impostors from where the drawn trees end out to 4.5 km, then the canopy shell out to 14 km.** No one technique won every view (see [Review](#review-2026-11-13)): clumps are the best from the snow and the steadiest in motion but were flat from the air; the shell gives the far mountains texture and shape and hides the ground under them, but from the snow at 0.6 to 3 km it reads as dark blobs; shader crowns look best from the air but cost 3 to 9 ms. The mix uses each where it is strong, and adds a crown dither to the clumps so they keep their texture from the air ([The mix](#the-mix)).
 
-What the build card for clumps has to add (from the prototype's gaps, below): more than one species mix, conservative depth so the cards keep early-Z, the bake off the load path, a check of the handover and runtime setting changes in a real ride, and render-budget and synth-pack coverage.
+On Low it reads close to High in all four views at noon and at dawn. GPU cost against `main` (1080p, ground / aerial): High -0.5 / -1.6 ms, Medium +0.1 / -0.2, Low -0.3 / +0.8 (+0.9 / +1.2 at 1440p). In the ride clip it flickers about as little as clumps alone (3.99 against `main`'s 3.87 on Low; 4.50 against 4.89 on High) and has under half of `main`'s pop-ins at the Low tree edge (8 against 19 in the top-left third of the frame, BUG-121). It needs nothing new in the pack.
+
+What the build card has to decide: whether High uses the mix too, or keeps `main`'s impostors with the shell only past 9 km (on High the mix is cheaper but a small step down from today; see [The mix](#the-mix)). What it has to add (from the prototypes' gaps, below): the shell reads stem density as well as the detected crowns, so its clearings stop being larger than High's; the shell's tile builds off the main thread (330 ms over about 80 frames today, up to 7.6 ms in one); fewer shell draw calls on Low (+38 for the mix); more than one species mix in the clumps; conservative depth so the clump cards keep early-Z; the clump bake off the load path; the clumps' dawn tone (still darker than High's warm-lit crowns); a check of the 4.5 km seam and of runtime setting changes in a real ride; render-budget and synth-pack coverage.
 
 ## The problem
 
@@ -31,10 +33,10 @@ Fixed poses in `game/tools/canopy-views.json` (pack metres, heading from grid no
 
 - **Stills:** `game/tools/canopy_compare.mjs` shoots every view per build at noon (12 h) and low sun (7.6 h), at 1920x1080 and 2560x1440, on each preset (High, Medium, Low as Settings > Graphics sets them, pixel ratio 1, Auto quality off), clear weather, Vail v4 pack, on Drew's RTX 2070 SUPER (ANGLE D3D11, headless). It waits for the tiles, trees and the candidate's own build to settle.
 - **Cost:** GPU time per frame from timer queries (`EXT_disjoint_timer_query_webgl2`), median of 30 frames after a 120-frame warm-up; every build measured twice in alternating order and the lower of the two taken. Wall-clock frame times swung by up to 10 ms between identical runs on this PC (the GPU idles at 300 MHz between bursts and the desktop is in use), GPU time by about 0.4 ms; two of the eight passes were still disturbed (main's second pass on Medium and Low, crowns' first on High and Medium), which the minimum discards. Draw calls, triangles and a scene memory estimate (every geometry buffer and texture reachable from the scene, counted once) come from the same frames.
-- **Handover:** `game/tools/canopy_clip.mjs` glides the eye camera 500 m down The Slot at 25 m/s looking at the middle of the Sun Up Express, Low and High, 30 fps. Two numbers from each clip's forest band (rows 25 to 60%): spikes in the frame-to-frame difference (a pop) and the temporal second difference (flicker; smooth motion mostly cancels).
+- **Handover:** `game/tools/canopy_clip.mjs` glides the eye camera 500 m down The Slot at 25 m/s looking at the middle of the Sun Up Express, Low and High, 30 fps. Two numbers from each clip, over the whole frame (decoded to 640x360): flicker, the mean temporal second difference per pixel (smooth motion mostly cancels), and pops, a 16 px block whose brightness steps between two frames while holding steady for 4 frames either side (something appeared or vanished rather than slid past), binned to a 3x3 grid of the frame. The first write-up measured only rows 25 to 60% and reported no pops; that missed the pop-ins Drew saw at the top left on Low.
 - **Baselines:** `main` at each preset. `main` High is the brute-force look the card calls right.
 
-The full set (every build, preset, view and light, 1080p frames and native-pixel 1440p crops, a full-size flip view, and the handover clips) is on the comparison page, a private claude.ai artifact: https://claude.ai/artifact/2gWCh56cdmCCSaZNAceLgA. Grids of Low with each candidate against `main` (1080p, scaled):
+The full set (every build, preset, view and light, 1080p frames and native-pixel 1440p crops, a full-size flip view, and the handover clips) is on the comparison page, a private claude.ai artifact: https://claude.ai/artifact/2gWCh56cdmCCSaZNAceLgA. Grids of Low with each candidate against `main`, and the mix on High (1080p, scaled):
 
 | View | Noon | Low sun (7.6 h) |
 |---|---|---|
@@ -59,32 +61,65 @@ Each is on its own branch, off this card's branch, behind `?canopy=<name>`; with
 
 `game/src/terrain/canopyCrowns.ts`, spliced into the terrain shader under a define: each 4 m cell of the tree map holds at most one jittered ellipsoid crown from a hash, sized by the canopy height (put in the trees texture's spare A channel). Per pixel the view ray is walked back cell by cell (up to 20) with front-to-back occlusion, so crowns have real parallax and a lit and a shaded side; pixels that show snow walk toward the sun for short crown shadows. Past about 1.7 km (1080p) crowns hand over to 8 m clumps, then to the old flat canopy past about 3.5 km, so the lattice never aliases into moire. Inside the drawn trees' reach it fills only the share the drawn trees leave over, so High and Medium get no double forest.
 
+## Review (2026-11-13)
+
+Drew went through the comparison page and the clips. The first write-up recommended clumps on the ground views and the flicker numbers; the review ranked each view on its own and reversed parts of it.
+
+| View | Best | Worst | Notes |
+|---|---|---|---|
+| Ground stills, Low | clumps | `main`, shell | `main` is the flat slab; the shell's near band reads as dark cones |
+| Handover clip, Low | crowns, then clumps | `main` (top left), shell (top right) | Pop-ins at the top left as the rider closes in: the drawn trees appearing at Low's 600 m edge, on `main` too (BUG-121) |
+| Handover clip, High | clumps | | Smoother, less jitter, still reads 3D |
+| Aerial, noon | crowns, shell | clumps | Clumps read as flat felt from above |
+| Aerial, dawn (7.6 h) | crowns, then shell | clumps | Clumps barely change `main` Low's dark slab |
+| Far mountains | shell | | Texture and shape, and no brown ground showing under it |
+
+Two claims in the first write-up were wrong: shader crowns are not "too speckled and grey" from the air (they are the closest to High there), and "no pops were measured" came from a measure that only looked at rows 25 to 60% of the frame. Drew also circled grey-brown ground between the trees at 1 to 3 km on **`main` High**, the target itself; none of the candidates touches the ground under the drawn trees, so it is its own card (BUG-120, #632).
+
+Drew's direction: combine techniques by render distance, the shell for the far mountains.
+
+## The mix
+
+Branch `issue-614-canopy-mix` (the clumps branch with the shell merged in), `?canopy=mix`. Both prototypes run at once: the drawn trees, then the clumps from where the trees' full density ends (Low 600 m, Medium 1.9 km, High 2.5 km) out to 4.5 km (at least 800 m and half the trees' reach past their edge), then the shell from there to 14 km (sinking over the last 2 km, where the terrain's canopy lift takes over). The shell rises over the same 300 m the clumps dissolve out over. `?clumpfar=` and `?shellfar=` move the two edges. Both read the Vegetation bands every frame, so a Trees or Forest change moves them with no rebuild. On High the mix replaces the per-tree impostors past 2.5 km (main draws them to 9 km).
+
+What was tried on the way, on Low at the aerial and The Slot corner, noon and dawn:
+
+1. **Handover at 2 km** (the shell from 2 km). From the air this looked right, but from the snow the slope 2 to 3 km out read as the shell's dark blobs with smooth ridgelines and trails that look too wide, where clumps alone read as trees. The shell's weak band is not only its 4 m tiles near the trees; it is any shell seen at a grazing angle within about 3 km. Starting at 2 km also saved less than expected: the shell still built 200 to 270 tiles (25 to 29 MB), because the tile count is set by the far rings, not the near ones.
+2. **Why the clumps are flat from the air.** The stand atlases are baked at full size and box-filtered down the mips, so far off a pixel shows the average of many crowns: their snow, their sunlit sides and their shaded gaps blend into one dark tone. At dawn every crown gets the stand's mostly-shaded average. The shell and the crowns keep a per-crown speckle instead, which is what High's real trees make when they alias. More snow on the crowns (`?clumpsnow=0.7`) and a brighter tone (`?clumpgain=1.35`) helped little.
+3. **Crown dither** (`clumps.ts`, on in the mix, `?clumpdither=0` turns it off). Where the atlas is minified, each pixel draws one crown from a hash per 4.5 m world cell: lit or shaded, snowy or bare, with the averaged value as its chance, and the needle tone varied 70 to 130%. The mean stays the same and the speckle comes back. Snowy crowns draw at 0.4 white (`?clumpspeak=`; at 0.85 they read as hard white dots). From the air the clumps now read close to High at noon; at dawn they have the texture but are still darker than High's warm-lit crowns. From the snow at dawn it also helps: the far slope at The Slot corner goes from a flat brown-dark tone to textured forest.
+4. **Dither shimmer.** In the Low clip the dither raised flicker from 3.91 (clumps alone) to 4.28, as much as shader crowns: a crown cell 1 to 2 px across flips as the camera moves. It now fades back to the average where a cell is under about 2 px (`?clumpdpx0=1.2&clumpdpx1=2.5`, from the cell's screen footprint), which brought it to 3.99 (High 4.70 to 4.50) and kept the texture from the air.
+5. **Handover at 4.5 km, shell to 14 km.** From the snow the clumps carry everything within 3 km, where they were best; the shell carries the far ridges and the ranges behind them.
+
+Gaps seen in the mix: past 4.5 km the shell leaves larger white clearings than High (it reads only the detected crowns map, `cover/pack-stands.png` G, while High also draws the generated stems); the shell's ridgelines are smooth where High's have tree tops; the seam at 4.5 km was not checked in a live ride. On **High** the mix is a small step down from `main` High, the target: past 2.5 km the clumps read greener and smoother than `main`'s per-tree impostors, and past 4.5 km the shell's clearings show. The build card has to choose whether High keeps `main`'s impostors out to 9 km with the shell only past them (High looks as today; the mix's 0.5 to 1.6 ms saving there is given up), or takes the mix and fixes those two gaps.
+
 ## Comparison
 
-GPU ms per frame, change against `main` at the same view and preset (lower of two passes). "Ground" is the mean of the three ground views; the aerial is its own column because forest fills most of that frame.
+GPU ms per frame, change against `main` at the same view and preset (lower of two passes). "Ground" is the mean of the three ground views; the aerial is its own column because forest fills most of that frame. Shell, crowns and clumps were measured in the first session; the mix in a second session against `main` measured again in that session, alternating (main 1080p ground / aerial there: High 10.2 / 15.6, Medium 9.3 / 13.7, Low 9.3 / 12.1).
 
-| | `main` ground / aerial | Shell | Crowns | Clumps |
+| | `main` ground / aerial | Shell | Crowns | Clumps | **Mix** |
+|---|---|---|---|---|---|
+| High 1080p | 10.3 / 15.4 | +0.0 / +0.1 | +2.9 / +8.4 | -0.1 / -0.3 | **-0.5 / -1.6** |
+| Medium 1080p | 9.4 / 13.8 | +0.1 / +0.1 | +3.5 / +9.1 | +0.1 / -0.1 | **+0.1 / -0.2** |
+| Low 1080p | 8.6 / 12.5 | +0.2 / +0.2 | +3.3 / +8.3 | +0.6 / +0.5 | **-0.3 / +0.8** |
+| High 1440p | 14.6 / 22.1 | -0.1 / +0.1 | +5.2 / +14.9 | +0.0 / -1.4 | **-0.7 / -2.2** |
+| Medium 1440p | 13.4 / 19.9 | +0.3 / +0.1 | +5.1 / +14.0 | +0.6 / +0.1 | **+0.1 / -0.5** |
+| Low 1440p | 12.5 / 18.1 | +0.4 / +1.1 | +5.1 / +13.4 | +0.8 / +0.9 | **+0.9 / +1.2** |
+
+The mix's Low ground figure at 1080p (-0.3) is within the noise (one `main` pass on Low was disturbed and discarded); read it as no change. It was measured before the dither fade (step 4 above), which adds one `fwidth` per clump pixel.
+
+| | Canopy shell | Clump impostors | Shader crowns | **Mix** (clumps to 4.5 km, shell past) |
 |---|---|---|---|---|
-| High 1080p | 10.3 / 15.4 | +0.0 / +0.1 | +2.9 / +8.4 | -0.1 / -0.3 |
-| Medium 1080p | 9.4 / 13.8 | +0.1 / +0.1 | +3.5 / +9.1 | +0.1 / -0.1 |
-| Low 1080p | 8.6 / 12.5 | +0.2 / +0.2 | +3.3 / +8.3 | +0.6 / +0.5 |
-| High 1440p | 14.6 / 22.1 | -0.1 / +0.1 | +5.2 / +14.9 | +0.0 / -1.4 |
-| Medium 1440p | 13.4 / 19.9 | +0.3 / +0.1 | +5.1 / +14.0 | +0.6 / +0.1 |
-| Low 1440p | 12.5 / 18.1 | +0.4 / +1.1 | +5.1 / +13.4 | +0.8 / +0.9 |
-
-| | Canopy shell | Clump impostors | Shader crowns |
-|---|---|---|---|
-| **Looks, Low** | Big step up: speckled crown mass with white runs. From the air close to High. From the snow the 0.6 to 2 km band is dark cones and blotches with more white between than High's spires; dark and harsh at dawn | Closest to High in every view, noon and dawn: uneven crown tops, runs and glades cut clean, single trees on sparse slopes. Gaps: a rounder "carpet" than High's spires at 2 to 4 km, smoother skylines, wider-looking trails, less snow speckle in dense stands | Good from the snow: crowns with parallax and white between. From the air too speckled and grey. Flat tops on stands seen edge on (capped walks); no tree silhouettes on ridgelines; at 720p slopes past 2.5 km are still the slab |
-| **Looks, Medium and High** | Unchanged (fills only past the impostors) | Close to `main`, slightly greener and smoother past 1.9 / 2.5 km | Unchanged |
-| **Flicker in the clip, Low / High** (`main` 2.92 / 3.74) | 3.04 / 3.74 | 2.81 / 3.32, the steadiest | 3.33 / 3.78, the most |
-| **Pops in the clip** | None measured | None measured | None measured |
-| **Draw calls (1080p)** | Low +77 to +81, Medium +24 to +30, High +15 to +17 | +1 on Low; High 65 fewer (tree draws 99 to 31 to 42) | 0 |
-| **Triangles** | Low +0.7 M | Low +0.07 M; High -0.2 M | 0 |
-| **GPU memory** | Low 31 to 35 MB, High 7 MB of tile buffers | 24 MB of atlases plus 1 to 3 MB of instances; High drops about 40 MB of tree geometry | None (uses a spare channel) |
-| **One-off build** | Low 730 ms over 163 frames, up to 6 to 8 ms in one frame; 23 MB of CPU for the crown pyramid | Bake 85 to 140 ms at load (synchronous), placement spread over frames | None |
-| **Pack data** | None new. A per-texel canopy height would help the near band (MapPacker) | None new. Species per cell would allow mixed stands (MapPacker) | None new |
-| **Effort to production** | 6 to 9 days | 5 to 8 days | 4 to 7 days, and under 1 ms is not assured |
-| **Main risks** | Draw calls on Low; main-thread build hitches; LOD pops between tile levels; looks least like trees near | `gl_FragDepth` costs early-Z on every covered pixel; one conifer mix; repetition on big uniform slopes; trees swap identity in the handover band | Fragment cost scales with on-screen forest, on a terrain shader already over half the frame (FEAT-236); register pressure for every terrain pixel |
+| **Looks, Low** | Big step up: speckled crown mass with white runs. From the air close to High. From the snow the 0.6 to 2 km band is dark cones and blotches with more white between than High's spires; dark and harsh at dawn | Closest to High in every view, noon and dawn: uneven crown tops, runs and glades cut clean, single trees on sparse slopes. Gaps: a rounder "carpet" than High's spires at 2 to 4 km, smoother skylines, wider-looking trails, less snow speckle in dense stands. Flat from the air, worst at dawn (Drew's review) | Good from the snow: crowns with parallax and white between. From the air the closest to High (Drew's review; the first write-up called it too speckled). Flat tops on stands seen edge on (capped walks); no tree silhouettes on ridgelines; at 720p slopes past 2.5 km are still the slab | Close to High in all four views, noon and dawn: clumps within 4.5 km (with the crown dither, textured from the air too), the shell's texture on the far ridges. Gaps: clearings past 4.5 km larger than High's; smooth far ridgelines; dawn darker than High |
+| **Looks, Medium and High** | Unchanged (fills only past the impostors) | Close to `main`, slightly greener and smoother past 1.9 / 2.5 km | Unchanged | Clumps 1.9 / 2.5 to 4.5 km, the shell past, in place of `main`'s impostors to 5.4 / 9 km |
+| **Flicker in the clip, whole frame, Low / High** (`main` 3.87 / 4.89) | 4.10 / 4.89 | 3.91 / 4.48, the steadiest | 4.30 / 4.94, the most | 3.99 / 4.50 (4.28 / 4.70 before the dither fade) |
+| **Pops in the clip, Low / High** (`main` 78 / 55; top-left third of the frame 19 / 3) | 74 / 52; top left 21 / 2 | 53 / 58; top left 7 / 4 | 70 / 52; top left 19 / 5 | 53 / 57; top left 8 / 4 |
+| **Draw calls (1080p)** | Low +77 to +81, Medium +24 to +30, High +15 to +17 | +1 on Low; High 65 fewer (tree draws 99 to 31 to 42) | 0 | Low +38, Medium +12, High 28 fewer (four-view means) |
+| **Triangles** | Low +0.7 M | Low +0.07 M; High -0.2 M | 0 | Low +0.35 M, Medium +0.26 M, High +0.04 M |
+| **GPU memory** | Low 31 to 35 MB, High 7 MB of tile buffers | 24 MB of atlases plus 1 to 3 MB of instances; High drops about 40 MB of tree geometry | None (uses a spare channel) | 24 MB of clump atlases plus 17 MB of shell tiles (136 tiles); scene geometry Low +23 MB, High -18 MB |
+| **One-off build** | Low 730 ms over 163 frames, up to 6 to 8 ms in one frame; 23 MB of CPU for the crown pyramid | Bake 85 to 140 ms at load (synchronous), placement spread over frames | None | Clump bake 90 to 140 ms at load; shell 330 ms over about 80 frames, up to 7.6 ms in one; the CPU crown pyramid (23 MB) |
+| **Pack data** | None new. A per-texel canopy height would help the near band (MapPacker) | None new. Species per cell would allow mixed stands (MapPacker) | None new | None new; both MapPacker notes apply |
+| **Effort to production** | 6 to 9 days | 5 to 8 days | 4 to 7 days, and under 1 ms is not assured | 8 to 12 days (both, plus the seam) |
+| **Main risks** | Draw calls on Low; main-thread build hitches; LOD pops between tile levels; looks least like trees near | `gl_FragDepth` costs early-Z on every covered pixel; one conifer mix; repetition on big uniform slopes; trees swap identity in the handover band | Fragment cost scales with on-screen forest, on a terrain shader already over half the frame (FEAT-236); register pressure for every terrain pixel | Both sets of risks, though the shell's worst (its near band, its 4 m tiles) are gone; a seam at 4.5 km between two different looks |
 
 The baselines also say something: on this GPU High (2.1M trees and sun shadows) costs only about 1.7 ms more GPU than Low at 1080p (10.3 against 8.6 ms on the ground views). High's price is memory (about 90 MB more geometry), loading and CPU more than GPU time.
 
@@ -116,10 +151,10 @@ $env:SHOT_DIST='C:\Users\Drew\git\wt614-clump-impostors\game\dist'; $env:SHOT_PA
 node tools/launcher.mjs --port 5191 --no-open
 ```
 
-then open `http://localhost:5191/?pack=vail&canopy=clumps` (or `shell`, `crowns` with that branch's `dist`). Set Graphics to Low to see the difference; Auto quality changes the reach while riding.
+then open `http://localhost:5191/?pack=vail&canopy=clumps` (or `shell`, `crowns` with that branch's `dist`; `mix` with `wt614-canopy-mix`'s, the recommended one). Set Graphics to Low to see the difference; Auto quality changes the reach while riding.
 
 ## Tools added
 
 - `game/tools/canopy_compare.mjs`: the stills and cost matrix (`--presets`, `--times`, `--sizes`, `--only`, `--no-shots`; `SHOT_DIST`, `SHOT_PACKS`, `SHOT_QUERY`).
-- `game/tools/canopy_clip.mjs`: the handover clip down The Slot (`--preset`, `--time`, `--speed`, `--seconds`, `--path`, `--look`).
+- `game/tools/canopy_clip.mjs`: the handover clip down The Slot (`--preset`, `--time`, `--speed`, `--seconds`, `--path`, `--look`); prints the clip's flicker and pops over the whole frame, and `--stats a.mp4 b.mp4` measures existing clips.
 - `game/tools/canopy-views.json`: the four views.

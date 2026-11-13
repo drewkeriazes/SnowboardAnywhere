@@ -4,6 +4,8 @@
 // node tools/canopy_clip.mjs <pack> <out.mp4> [--preset high|medium|low] [--time 12] [--speed 25] [--seconds 20]
 //   [--fps 30] [--size 1280x720] [--path x,y;x,y;...] [--look x,y,z] [--eye 1.7] [--weather clear] [--gpu | --headed]
 //   (after `npx vite build`; SHOT_DIST / SHOT_PACKS / SHOT_QUERY as canopy_compare.mjs). Needs ffmpeg on PATH.
+// Prints the clip's flicker and pops when done (clipStats below); `node tools/canopy_clip.mjs --stats a.mp4 b.mp4 ...`
+// measures existing clips without rendering.
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -13,6 +15,44 @@ import { spawnSync } from 'node:child_process';
 import { DIST, PACKS } from './paths.mjs';
 
 const args = process.argv.slice(2);
+
+/**
+ * Flicker and pops over the whole frame, decoded to 640x360 grey. Flicker: the mean |f[t+1] - 2 f[t] + f[t-1]| per pixel
+ * (smooth motion mostly cancels). Pops: a 16 px block whose mean steps by over 6 grey levels between two frames while each
+ * side's 4 frames hold within a third of the step (something appeared or vanished rather than slid past), at most one per
+ * block per 6 frames, binned to a 3x3 grid of the frame (FEAT-278: a band-only measure missed the pop-ins at the top left).
+ */
+function clipStats(file) {
+  const W = 640, H = 360, B = 16, STEP = 6, K = 4, hb = Math.floor(H / B), wb = W / B, px = W * H;
+  const r = spawnSync('ffmpeg', ['-loglevel', 'error', '-i', file, '-vf', `scale=${W}:${H}`, '-f', 'rawvideo', '-pix_fmt', 'gray', '-'], { maxBuffer: 1 << 30 });
+  if (r.status !== 0) return null;
+  const v = r.stdout, T = Math.floor(v.length / px);
+  let fl = 0;
+  for (let t = 1; t < T - 1; t++) for (let i = 0; i < px; i++) fl += Math.abs(v[(t + 1) * px + i] - 2 * v[t * px + i] + v[(t - 1) * px + i]);
+  const m = new Float32Array(T * hb * wb);
+  for (let t = 0; t < T; t++) for (let y = 0; y < hb * B; y++) for (let x = 0; x < W; x++) m[(t * hb + Math.floor(y / B)) * wb + Math.floor(x / B)] += v[t * px + y * W + x] / (B * B);
+  const grid = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], last = new Map();
+  let pops = 0;
+  for (let t = K; t < T - K; t++) for (let by = 0; by < hb; by++) for (let bx = 0; bx < wb; bx++) {
+    let b0 = 0, a0 = 0, bmin = 1e9, bmax = -1e9, amin = 1e9, amax = -1e9;
+    for (let k = 0; k < K; k++) {
+      const b = m[((t - K + k) * hb + by) * wb + bx], a = m[((t + k) * hb + by) * wb + bx];
+      b0 += b; a0 += a; bmin = Math.min(bmin, b); bmax = Math.max(bmax, b); amin = Math.min(amin, a); amax = Math.max(amax, a);
+    }
+    const jump = Math.abs(a0 - b0) / K;
+    if (jump > STEP && Math.max(bmax - bmin, amax - amin) < jump / 3) {
+      const key = by * wb + bx;
+      if (t - (last.get(key) ?? -99) > 6) { pops++; grid[Math.min(2, Math.floor((by * 3) / hb))][Math.min(2, Math.floor((bx * 3) / wb))]++; }
+      last.set(key, t);
+    }
+  }
+  return { flicker: Math.round((fl / ((T - 2) * px)) * 100) / 100, pops, grid };
+}
+const printStats = (f) => {
+  const s = clipStats(f);
+  console.log(s ? `${path.basename(f)}: flicker ${s.flicker} | pops ${s.pops} | top ${JSON.stringify(s.grid[0])} mid ${JSON.stringify(s.grid[1])} bottom ${JSON.stringify(s.grid[2])}` : `${f}: could not decode`);
+};
+if (args[0] === '--stats') { for (const f of args.slice(1)) printStats(f); process.exit(0); }
 const valued = new Set(['--preset', '--time', '--speed', '--seconds', '--fps', '--size', '--path', '--look', '--eye', '--weather']);
 const opt = (name, def) => (args.includes(name) ? args[args.indexOf(name) + 1] : def);
 const positional = args.filter((a, i) => !a.startsWith('--') && !valued.has(args[i - 1]));
@@ -106,6 +146,7 @@ console.log(`${n} frames in ${((Date.now() - t0) / 1000).toFixed(0)} s, ${((seco
 const ff = spawnSync('ffmpeg', ['-loglevel', 'error', '-y', '-framerate', String(fps), '-i', path.join(tmp, 'f%05d.jpg'), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', outFile], { stdio: 'inherit' });
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(ff.status === 0 ? `wrote ${outFile}` : 'ffmpeg failed');
+if (ff.status === 0) printStats(outFile);
 console.log('errors:', errors.length);
 for (const e of errors.slice(0, 5)) console.log('  ', e.slice(0, 300));
 await browser.close();
