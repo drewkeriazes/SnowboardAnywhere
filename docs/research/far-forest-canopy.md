@@ -34,7 +34,7 @@ Numbers on Vail, RTX 2070 SUPER, 1080p, the four views at noon and 7.6 h, agains
 | Medium | 10.45 to 10.56 (+0.11) | +0.1 to +0.2 | +0.2 | 50 to 23 | 217 to 205 MB |
 | Low | 9.39 to 10.20 (+0.81) | +0.4 to +0.9 | +1.4 | 15 to 16 | +3 MB |
 
-Low is inside the card's 1 ms from the snow and over it from the air, where forest fills the frame. The atlases are 24 MB on every preset. Ride clip down The Slot (`canopy_clip.mjs`), flicker and pops: Low 4.39 and 53 (`main` 3.86 and 75; top-left third 5 against 19), High 4.73 and 57 (`main` 4.89 and 58). Low's flicker is above the prototype's 3.96 because the far forest has texture again; it stays under `main` High's, which is the look it now matches.
+Low is inside the card's 1 ms from the snow and over it from the air, where forest fills the frame. "From the air" here, and in every aerial still and number in this document, is 200 m over the snow, not the 700 m `canopy-views.json` asks for: the eye camera clamps its height to 200 m (BUG-126, #650). The clumps have not been judged or timed from higher up. The atlases are 24 MB on every preset. Ride clip down The Slot (`canopy_clip.mjs`), flicker and pops: Low 4.39 and 53 (`main` 3.86 and 75; top-left third 5 against 19), High 4.73 and 57 (`main` 4.89 and 58). Low's flicker is above the prototype's 3.96 because the far forest has texture again; it stays under `main` High's, which is the look it now matches.
 
 Each grid: `main` and FEAT-292, High above and Low below.
 
