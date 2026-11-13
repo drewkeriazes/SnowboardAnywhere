@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { Rider } from '../sim/Rider';
-import { landmarkStart } from '../world/Landmarks';
 import { isOvercast, parseWeather, type CloudCover } from '../world/Clouds';
 import { Controls } from '../sim/Controls';
 import { setVegetationBudget, setVegetationDensity, setStandDensity } from '../world/Vegetation';
@@ -223,7 +222,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     };
 
     // ---------------------------------------------------------------- spawn point
-    const start = landmarkStart(pack.meta.slug) ?? pack.meta.start; // FEAT-132: a landmark marked `start` beats meta.start
+    const start = pack.meta.start; // FEAT-243: a landmark marked `start` or a placed start is already in it (MapPacker's pack_content.py)
     const saveKey = spawnKey(pack.meta.slug);
     let saved: { x: number; y: number; h: number } | null = null;
     try { saved = JSON.parse(localStorage.getItem(saveKey) ?? 'null'); } catch { saved = null; }
@@ -317,7 +316,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     };
     /** FEAT-177: the shot from its start (the moment the still shows): the clouds where the still has them */
     const shotFromStart = (): void => { clouds.setTime(shot.conditions.cloudTime); };
-    const startLabel = () => { const lm = landmarkStart(pack.meta.slug); return lm ? lm.label : pack.meta.start.label ?? (pack.meta.start.run ? `Starts on ${pack.meta.start.run}` : 'Starts at the resort start'); };
+    const startLabel = () => pack.meta.start.label ?? (pack.meta.start.run ? `Starts on ${pack.meta.start.run}` : 'Starts at the resort start');
     /** RIDE: the mode it starts (BUG-037's start when it is not a course) */
     const leaveAttract = (c: MenuChoice) => {
       states.go('riding');

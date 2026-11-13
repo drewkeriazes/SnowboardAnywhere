@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { Pack } from '../pack/Pack';
 import { GameAudio } from '../audio/Audio';
 import { availableResorts } from '../resorts';
-import { landmarkStart } from '../world/Landmarks';
 import { LENSES, type LensSetting } from '../world/Lens';
 import { attractShot, loadAttractManifest, loadAttractShots, resortNumbers, shippedStill } from '../world/AttractShots';
 import { cachedMenuStill } from '../ui/MenuStill';
@@ -97,7 +96,7 @@ export class Game {
     // (tools/shoot_attract.mjs renders the shot); headless loads no ghosts or stills (attractFiles stays empty)
     const manifest = await loadAttractManifest(import.meta.env.BASE_URL, pack); // FEAT-175: and the pack's own menu
     const shots = await loadAttractShots(import.meta.env.BASE_URL, pack.meta.slug, manifest);
-    const shot = attractShot(pack, landmarkStart(pack.meta.slug) ?? pack.meta.start, shots);
+    const shot = attractShot(pack, pack.meta.start, shots);
     const attractFiles = headless ? {} : manifest;
     // FEAT-177: the still is the frame this browser kept at its last crossfade (same build, pack and quality), else
     // the shipped one when it was rendered from this build of the pack, else none (the menu over the loading bar)

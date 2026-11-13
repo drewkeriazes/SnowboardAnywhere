@@ -4,8 +4,8 @@ import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
 
 /**
- * Landmarks (FEAT-132): hand-placed iconic signs and spots that OSM doesn't carry, listed per
- * resort below in pack metres (x east, y north). A `gateway` is a timber arch you ride under, built
+ * Landmarks (FEAT-132): hand-placed iconic signs and spots that OSM doesn't carry, in pack metres (x east,
+ * y north). FEAT-243: each resort's live in its pack (`meta.landmarks`, from MapPacker's resorts/<slug>/landmarks.json). A `gateway` is a timber arch you ride under, built
  * at 1:1 from Drew's photos (FEAT-143): two square posts on concrete footings, a lower rail and a
  * top beam with spacer blocks between them, a black board standing on the top beam between the
  * posts with white small-caps lettering, and snow piled as in the photos. Lettering is our own (a
@@ -26,58 +26,22 @@ export interface Landmark {
   text: string; sub?: [string, string];
   /** where the placement came from */
   source: string;
-  /** the resort's default Free ride start: just uphill of it, riding through */
+  /** the resort's default Free ride start: just uphill of it, riding through (resolved into meta.start by the pipeline) */
   start?: boolean;
 }
 
-export const LANDMARKS: Record<string, Landmark[]> = {
-  vail: [
-    {
-      id: 'back-bowls-gateway', kind: 'gateway', name: 'The Legendary Back Bowls',
-      // At the top of Forever just below the summit hub (the tops of Mountaintop, Northwoods and High
-      // Noon at 3,429 m, the "ELEV 11,250" on the sign), where the ridge drops south into the bowls.
-      // Moved 20 m left of Forever's OSM line so the tall spruce stands 11 m to its right, open slope
-      // to its left, as in Drew's photo.
-      x: -718.0, y: 495.9, heading: 162, span: 7.1, clearance: 3.55,
-      text: 'THE LEGENDARY BACK BOWLS', sub: ['ELEV.', '11,250'],
-      source: "Drew's photo; height from the summit lift tops at 3,429 m, placed against the spruce on its right",
-      start: true,
-    },
-  ],
-};
-
-/** metres uphill of a start landmark where the rider spawns, facing through it */
-const START_BACK = 15;
-
 /**
- * FEAT-219: hand-placed Free ride starts for resorts whose start is not a landmark, in pack metres
- * (x east, y north) with the heading in degrees clockwise from north. A landmark marked `start` wins.
+ * FEAT-243: the pack's landmarks (`meta.landmarks`, written by MapPacker's pipeline/pack_content.py from
+ * resorts/<slug>/landmarks.json), the well-formed gateways only; [] when the pack has none. A landmark marked
+ * `start` places the resort's default start, which the pipeline resolves into `meta.start`.
  */
-interface PlacedStart { x: number; y: number; heading: number; label: string; source: string }
-const STARTS: Record<string, PlacedStart> = {
-  breckenridge: {
-    // Just off the Imperial SuperChair top deck (top station at -1676, -233, 3,914 m), where the flat
-    // unload area rolls over into the bowl: snow (no rock in the mask), 25 deg falling at about 120-140 deg,
-    // 16 m from the top terminal (closer, the chase camera starts inside it) and 32 m in front of the menu
-    // shot's camera (-1711, -222), facing along its view (145 deg).
-    x: -1688, y: -244, heading: 140, label: 'Starts at the top of Imperial Bowl',
-    source: 'the 2026-11-05 pack: 1 m terrain and mask round the Imperial top station; the menu shot in attract/breckenridge/shots.json',
-  },
-};
-
-/**
- * The default Free ride start when a landmark is marked `start` or the resort has a placed start
- * (pack metres, heading in radians clockwise from north, like meta.start), else null so the pack's
- * meta.start is used.
- */
-export function landmarkStart(slug: string): { x: number; y: number; heading: number; label: string } | null {
-  const l = (LANDMARKS[slug] ?? []).find((m) => m.start);
-  if (!l) {
-    const s = STARTS[slug];
-    return s ? { x: s.x, y: s.y, heading: s.heading * Math.PI / 180, label: s.label } : null;
-  }
-  const h = l.heading * Math.PI / 180;
-  return { x: l.x - Math.sin(h) * START_BACK, y: l.y - Math.cos(h) * START_BACK, heading: h, label: `Starts at ${l.name}` };
+export function packLandmarks(pack: Pack): Landmark[] {
+  const fin = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+  const list = pack.meta.landmarks;
+  return Array.isArray(list)
+    ? list.filter((l) => l && l.kind === 'gateway' && typeof l.name === 'string' && typeof l.text === 'string'
+      && [l.x, l.y, l.heading, l.span, l.clearance].every(fin))
+    : [];
 }
 
 // Sizes measured from Drew's photos (FEAT-143), in metres; the ratios are direct, the absolute scale about +-15%.
@@ -246,7 +210,7 @@ export class Landmarks {
   private readonly seen = new Set<string>();
 
   constructor(private readonly pack: Pack, collider: Collider | null) {
-    this.list = LANDMARKS[pack.meta.slug] ?? [];
+    this.list = packLandmarks(pack);
     this.materials = [this.wood, this.concrete, this.board, this.snow];
     for (const l of this.list) this.build(l, collider);
   }

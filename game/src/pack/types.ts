@@ -1,3 +1,5 @@
+import type { Landmark } from '../world/Landmarks';
+
 export interface HeightSetMeta {
   res: number;
   tileSize: number;
@@ -113,9 +115,13 @@ export interface PackMeta {
   stands?: StandsMeta;
   /**
    * the default drop-in. FEAT-175: MapPacker's gen_content.py writes it (`source: "generated"`) at the top of the
-   * highest lift, on the run (`run`) below it, with the lift's name and the menu's line (`label`)
+   * highest lift, on the run (`run`) below it, with the lift's name and the menu's line (`label`). FEAT-243:
+   * pack_content.py puts a hand start over it: `source: "landmark"` (15 m uphill of a landmark marked `start`) or
+   * `"placed"` (resorts/<slug>/start.json)
    */
   start: { x: number; y: number; heading: number; run?: string; lift?: string; label?: string; source?: string };
+  /** FEAT-243: the resort's hand-placed landmarks (MapPacker's resorts/<slug>/landmarks.json); absent = none */
+  landmarks?: Landmark[];
   /** FEAT-175: the pack has its own main menu content, `attract/index.json` (generated: gen_content.py); absent = none */
   attract?: { generated?: boolean };
   /** DATA-021: the resort's treeline (m), measured from its canopy by elevation; absent in older packs and where the box had no
