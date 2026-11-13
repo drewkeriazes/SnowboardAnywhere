@@ -12,7 +12,7 @@ import path from 'node:path';
 import { accountRoute, bearerToken, requireAccount } from './accounts/gate.mjs';
 import { KEY_PATH_DEFAULT, accountFromClaims, fakeVerifier, firebaseVerifier, keyPath } from './accounts/verifier.mjs';
 import { GAME } from './paths.mjs';
-import { applyRole, claimsFor, databaseUrl, needsRevoke, parseRoleArgs } from './set_role.mjs';
+import { RULES_FIX, applyRole, claimsFor, databaseUrl, failureLine, isMissingIndex, needsRevoke, parseRoleArgs } from './set_role.mjs';
 
 let fails = 0;
 const ok = (c, m) => { if (!c) { fails++; console.error('FAIL', m); } else console.log('ok  ', m); };
@@ -107,6 +107,13 @@ ok(parseRoleArgs(['--uid', 'x', '--player', '0']).player === 0, 'player 0 is all
 ok(JSON.stringify(claimsFor({ foo: 1 }, { role: 'maintainer', player: 1 })) === '{"foo":1,"role":"maintainer","player":1}', 'claimsFor keeps other claims');
 ok(JSON.stringify(claimsFor({ role: 'maintainer', player: 1 }, { role: 'player' })) === '{"player":1}', 'demotion drops the role, keeps the number');
 ok(needsRevoke({ role: 'maintainer' }, { player: 1 }) && !needsRevoke({}, { role: 'maintainer' }) && !needsRevoke({ role: 'maintainer' }, { role: 'maintainer' }), 'needsRevoke only on a demotion');
+{
+  // BUG-119: Firebase's raw missing-index error becomes the one line that names the fix
+  const raw = new Error('Index not defined, add ".indexOn": "player", for path "/players", to the rules');
+  ok(isMissingIndex(raw) && !isMissingIndex(new Error('permission denied')), 'isMissingIndex: the index error only');
+  ok(failureLine(raw) === RULES_FIX && /database\.rules\.json/.test(RULES_FIX) && /Realtime Database > Rules/.test(RULES_FIX) && /Publish/.test(RULES_FIX), 'failureLine: the missing index names the rules file, Realtime Database > Rules and Publish');
+  ok(failureLine(new Error('no user record')) === 'no user record', 'failureLine: any other error prints as it was');
+}
 ok(databaseUrl('snowboardanywhere', {}) === 'https://snowboardanywhere-default-rtdb.firebaseio.com' && databaseUrl('p', { SBA_FIREBASE_DATABASE_URL: 'https://x.example' }) === 'https://x.example', 'databaseUrl: default from the project id, SBA_FIREBASE_DATABASE_URL wins');
 {
   const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'gatecheck-env-'));

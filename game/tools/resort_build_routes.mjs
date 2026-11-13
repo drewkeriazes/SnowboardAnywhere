@@ -187,6 +187,8 @@ export function resortBuildRoutes(o) {
     const r = await run(ctx.python(), [path.join('pipeline', 'resort.py'), 'search', '--json', '--', q.trim()], { cwd: dir, timeout: SEARCH_TIMEOUT_MS, env });
     if (r.error?.code === 'ENOENT') return reply(res, 503, { error: `resort search needs Python: ${ctx.python()} was not found (set SBA_PYTHON)` });
     if (r.error?.killed) return reply(res, 504, { error: `resort search took more than ${SEARCH_TIMEOUT_MS / 1000} s` });
+    // BUG-119: a clone from before FEAT-279 has no search command, and argparse says so in its own words
+    if (r.code !== 0 && /invalid choice: 'search'/.test(r.stderr)) return reply(res, 502, { error: `The MapPacker clone at ${dir} has no resort search yet: pull its main.` });
     if (r.code !== 0) return reply(res, 502, { error: lastLine(r.stderr) || `resort.py search exited ${r.code}` });
     let parsed;
     try { parsed = JSON.parse(r.stdout); } catch { parsed = null; }

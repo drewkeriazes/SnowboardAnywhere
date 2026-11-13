@@ -5,6 +5,8 @@
 // The database is the Realtime Database: SBA_FIREBASE_DATABASE_URL, else https://<project_id>-default-rtdb.firebaseio.com.
 //   node tools/set_role.mjs (--uid <uid> | --email <email>) [--role maintainer|player] [--player <n>] [--name <display name>]
 //   node tools/set_role.mjs --check
+// BUG-119: --check also asks whether the players/player index is live, and a run that meets Firebase's missing-index
+// error prints one line naming the fix (publish game/firebase/database.rules.json) instead of the raw message.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,6 +57,21 @@ export function needsRevoke(existing, next) {
   return existing.role === 'maintainer' && next.role !== 'maintainer';
 }
 
+/** The one line for Firebase's missing-index error: the rules were never published (or are out of date). */
+export const RULES_FIX = 'The Realtime Database has no index on players/player: paste game/firebase/database.rules.json into the Firebase console under Realtime Database > Rules and click Publish.';
+
+/** Firebase's answer to a query the rules have no index for ('Index not defined, add ".indexOn": ...').
+ *  @param {unknown} e */
+export function isMissingIndex(e) {
+  return /Index not defined/i.test(String(/** @type {any} */ (e)?.message ?? e));
+}
+
+/** The message to print for an error that ended the run: RULES_FIX for the missing index, else the error's own.
+ *  @param {unknown} e */
+export function failureLine(e) {
+  return isMissingIndex(e) ? RULES_FIX : String(/** @type {any} */ (e)?.message ?? e);
+}
+
 /** The database URL: SBA_FIREBASE_DATABASE_URL, else the default one for the key's project.
  *  @param {string} projectId @param {Record<string, string | undefined>} [env] */
 export function databaseUrl(projectId, env = process.env) {
@@ -91,6 +108,15 @@ async function run(args) {
 
   if (args.check) {
     console.log(`key ok: project ${key.project_id}`);
+    // the same query the duplicate-number lookup runs: without the published rules Firebase refuses it
+    let indexOk = true;
+    try {
+      await getDatabase(app).ref('players').orderByChild('player').limitToFirst(1).get();
+      console.log('index ok: players/player');
+    } catch (e) {
+      indexOk = false;
+      console.error(isMissingIndex(e) ? RULES_FIX : `Could not check the players/player index: ${failureLine(e)}`);
+    }
     let token;
     do {
       const page = await auth.listUsers(1000, token);
@@ -100,7 +126,7 @@ async function run(args) {
       }
       token = page.pageToken;
     } while (token);
-    return 0;
+    return indexOk ? 0 : 1;
   }
 
   const user = args.uid ? await auth.getUser(args.uid) : await auth.getUserByEmail(args.email);
@@ -131,5 +157,5 @@ async function run(args) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = parseRoleArgs(process.argv.slice(2));
   if ('error' in args) { console.error(`${args.error}\n${USAGE}`); process.exit(2); }
-  run(args).then((code) => process.exit(code), (e) => { console.error(e?.message ?? e); process.exit(1); });
+  run(args).then((code) => process.exit(code), (e) => { console.error(failureLine(e)); process.exit(1); });
 }
