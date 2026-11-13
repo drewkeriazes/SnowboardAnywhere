@@ -4,6 +4,7 @@ import type { PackMeta } from '../../pack/types';
 import type { HeightSet } from '../../pack/HeightSet';
 import { SPECIES, SPECIES_COUNT, VARIANTS, hash01 } from './species';
 import { rng } from './generate';
+import { crownWidthsOf, openness, openFactor, type CrownWidthsMeta } from './widths';
 import { kitUniforms, farLight } from './materials';
 import { treeSnowUniforms, TREE_SNOW_VERT, TREE_SNOW_COMMON, TREE_SNOW_LIGHT } from './snow';
 
@@ -126,11 +127,23 @@ function frame(i: number): [number, number] {
 
 interface Tree { s: number; v: number; x: number; y: number; h: number; cr: number; yaw: number }
 
-/** a stand patch at crown cover c: clustered trees of the mix in a disc of RD, with a hard core so crowns stay apart */
-function genPatch(c: number, seed: number, mix: StandMix): Tree[] {
+/**
+ * FEAT-298: in a pack with crown widths, a patch's open-grown trees are this share of the stand's height when fully open
+ * (Vail lidar round the Back Bowls sign: 16 to 19 m in the open against 27 to 28 m in closed stands)
+ */
+const OPEN_H = 0.65;
+
+/**
+ * a stand patch at crown cover c: clustered trees of the mix in a disc of RD, with a hard core so crowns stay apart.
+ * FEAT-298: with the pack's crown widths the trees widen by their openness the way the pipeline widens the pack's
+ * (the neighbours' crown cover within 10 m), and the patch is thinned back to the crown area it had at the species
+ * radii; trees in the sparse classes stand shorter, as open-grown trees do.
+ */
+function genPatch(c: number, seed: number, mix: StandMix, widths: CrownWidthsMeta | null = null): Tree[] {
   const r = rng(seed);
+  const hk = widths ? 1 - (1 - OPEN_H) * openness(widths, c) : 1;
   let meanA = 0;
-  for (const [s, w, h0, h1] of mix) { const h = (h0 + h1) / 2, cr = SPECIES[s].radius * h; meanA += w * Math.PI * cr * cr; }
+  for (const [s, w, h0, h1] of mix) { const h = ((h0 + h1) / 2) * hk, cr = SPECIES[s].radius * h; meanA += w * Math.PI * cr * cr; }
   // the plane's density for cover c (Poisson crowns); the discs on the grid together hold CELL^2 of it each
   const n = Math.round(-Math.log(1 - c) / meanA * CELL * CELL);
   const cluster = c < 0.6 ? 0.65 : 0.35;
@@ -147,7 +160,7 @@ function genPatch(c: number, seed: number, mix: StandMix): Tree[] {
     const u = r();
     let acc = 0, m = mix[0];
     for (const mm of mix) { acc += mm[1]; if (u < acc) { m = mm; break; } }
-    const s = m[0], h = m[2] + (m[3] - m[2]) * r(), cr = SPECIES[s].radius * h;
+    const s = m[0], h = (m[2] + (m[3] - m[2]) * r()) * hk, cr = SPECIES[s].radius * h;
     let clash = false;
     for (let gx = -1; gx <= 1 && !clash; gx++) for (let gy = -1; gy <= 1 && !clash; gy++) {
       for (const t of grid.get(gk(x + gx * 8, y + gy * 8)) ?? []) if ((t.x - x) ** 2 + (t.y - y) ** 2 < (0.45 * (t.cr + cr)) ** 2) { clash = true; break; }
@@ -161,7 +174,24 @@ function genPatch(c: number, seed: number, mix: StandMix): Tree[] {
     const k = gk(x, y);
     (grid.get(k) ?? grid.set(k, []).get(k)!).push(t);
   }
-  return trees;
+  return widths ? widenPatch(trees, widths, r) : trees;
+}
+
+/** FEAT-298: widen a patch's trees by openness and each tree's own draw, then thin it back to its crown area */
+function widenPatch(trees: Tree[], m: CrownWidthsMeta, r: () => number): Tree[] {
+  let a0 = 0, a1 = 0;
+  const f = trees.map((t) => {
+    let near = 0;
+    for (const o of trees) if (o !== t && (o.x - t.x) ** 2 + (o.y - t.y) ** 2 < 100) near += Math.PI * o.cr * o.cr;
+    const w = openFactor(m, t.s, openness(m, Math.min(1, near / (Math.PI * 100)))) * (m.k[t.s] ?? 1)
+      * (m.widen.includes(t.s) ? 1 - m.jitter + 2 * m.jitter * r() : 1);
+    a0 += t.cr * t.cr; a1 += t.cr * t.cr * w * w;
+    return w;
+  });
+  const keep = a1 > 0 ? Math.min(1, a0 / a1) : 1;
+  const out: Tree[] = [];
+  trees.forEach((t, i) => { if (r() < keep) out.push({ ...t, cr: t.cr * f[i] }); });
+  return out;
 }
 
 /** the bake shader: albedo (with stand AO), normal + depth, or snow mask + height + tree id */
@@ -333,6 +363,8 @@ export class ClumpCanopy {
   readonly band = { value: new THREE.Vector4(1e8, 1e8 + 1, 1e8 + 2, 1e8 + 3) };
   /** the species the stands are built from (kit species, share, height range) */
   readonly mix: StandMix;
+  /** FEAT-298: the pack's crown widths, which the stand patches widen by too (null: species radii) */
+  private readonly widths: CrownWidthsMeta | null;
   /** EXT_conservative_depth is there: the cards keep the early depth test */
   readonly conservative: boolean;
   /** still baking, or blocks in reach still to place (counted into Vegetation.pending, so the loading screen waits) */
@@ -372,6 +404,7 @@ export class ClumpCanopy {
     this.pack = pack;
     this.renderer = renderer;
     this.mix = standMix(pack.meta);
+    this.widths = crownWidthsOf(pack.meta);
     this.conservative = !!renderer.getContext().getExtension('EXT_conservative_depth');
     this.blank = new THREE.DataTexture(new Uint8Array(4), 1, 1); this.blank.needsUpdate = true;
     for (const k of ['uCov0', 'uCov1', 'uCov2'] as const) this.cov[k].value = this.blank;
@@ -421,7 +454,7 @@ export class ClumpCanopy {
     for (let k = 0; k < SHARES.length; k++) {
       for (let sd = 0; sd < SEEDS; sd++) {
         const row = k * SEEDS + sd;
-        const list = genPatch(SHARES[k], 1000 + k * 17 + sd * 101, this.mix);
+        const list = genPatch(SHARES[k], 1000 + k * 17 + sd * 101, this.mix, this.widths);
         this.stats.trees += list.length;
         const scene = new THREE.Scene();
         const groups = new Map<number, Tree[]>();

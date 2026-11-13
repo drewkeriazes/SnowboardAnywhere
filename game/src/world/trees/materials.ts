@@ -28,6 +28,8 @@ export const kitUniforms = {
   uStemGrow: { value: new THREE.Vector2(1e8, 1) },
   /** BUG-121: the impostors' far edge (m): the share kept falls to none from x to y (see THIN_GLSL) */
   uFarEdge: { value: new THREE.Vector2(1e8, 1e8 + 1) },
+  /** FEAT-298: 1 when the pack's crowns are widened per tree (crownWidths): the trunk then keeps its natural width (KIT_CORE) */
+  uKitCore: { value: 0 },
 };
 
 /**
@@ -55,7 +57,9 @@ export type Band = { value: THREE.Vector4 };
 export const newBand = (): Band => ({ value: new THREE.Vector4(-2, -1, 1e8, 1e8 + 1) });
 
 const LOD_VERT = /* glsl */ `
-  uniform vec3 uLodCam; uniform vec4 uLodBand;
+  uniform vec3 uLodCam; uniform vec4 uLodBand; uniform float uKitCore;
+  // FEAT-298 (generate.ts Builder.core): natural crown radius / height, core radius and the lean per unit height (crown-radius frame)
+  attribute vec4 kCore;
   varying float vLodVis; varying float vLodIn;
   // 0..1 visibility at this distance; isIn is 1 on the fade-in edge, 0 on the fade-out edge
   float lodVis(vec3 o, out float isIn) {
@@ -89,6 +93,20 @@ const KIT_BEGIN = /* glsl */ `
   #endif
   vec3 kOrigin = ktm[3].xyz;
   { float kIn; vLodVis = lodVis(kOrigin, kIn); vLodIn = kIn; }
+  #ifndef SHRUB
+    // FEAT-298: the instance scales x and z by its crown radius, so a widened crown would widen its trunk too. Inside
+    // the core (the trunk and the branches' roots, round the leaned axis) undo the widening, and stretch the rest so the
+    // crown's edge stays where the instance puts it.
+    if (uKitCore > 0.5 && kCore.x > 0.0) {
+      float kw = clamp(length(ktm[0].xyz) / max(length(ktm[1].xyz), 1e-4) / kCore.x, 0.5, 3.0);
+      vec2 kAx = position.y * kCore.zw, kD = transformed.xz - kAx;
+      float kr = length(kD), ka = kCore.y;
+      if (kr > 1e-5 && abs(kw - 1.0) > 1e-3) {
+        float kn = kr < ka ? kr / kw : ka / kw + (kr - ka) * (1.0 - ka / kw) / (1.0 - ka);
+        transformed.xz = kAx + kD * (kn / kr);
+      }
+    }
+  #endif
   {
     float kPhase = dot(kOrigin.xz, vec2(0.071, 0.113));
     float kSw = uWindK * position.y * position.y * (0.4 + length(position.xz));

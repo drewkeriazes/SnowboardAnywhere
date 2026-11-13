@@ -38,6 +38,12 @@ export class Builder {
   readonly idxInner: number[] = [];
   /** FEAT-157: the snow hold the next vertices get (times what `card` adds along the branch) */
   holdK = 1;
+  /**
+   * FEAT-298: (natural crown radius / height, core radius, lean x, lean z per unit height), all in the height frame;
+   * written as `kCore` in the crown-radius frame so the kit shader can keep the trunk at its natural width when a
+   * crown is drawn wider than its species. Null: no core (krummholz, snags, shrubs).
+   */
+  core: [number, number, number, number] | null = null;
   /** the crown's reference for the bent normals: radius and the height of its centre */
   normR = 0.15;
   normY = 0.5;
@@ -73,6 +79,9 @@ export class Builder {
     g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(this.uv), 2));
     g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(this.col), 3));
     g.setAttribute('snowHold', new THREE.BufferAttribute(new Float32Array(this.hold), 1));
+    const kc = new Float32Array((p.length / 3) * 4), c = this.core;
+    if (c) for (let i = 0; i < kc.length; i += 4) { kc[i] = c[0]; kc[i + 1] = c[1] / radius; kc[i + 2] = (c[2] * top) / radius; kc[i + 3] = (c[3] * top) / radius; }
+    g.setAttribute('kCore', new THREE.BufferAttribute(kc, 4));
     g.setIndex(this.idx.concat(this.idxInner));
     g.userData.castCount = this.idx.length; // FEAT-158: the shadow pass draws this many indices
     g.computeBoundingSphere();
@@ -603,6 +612,9 @@ function lod1(plan: Plan, cellMean: number[], barkMean: number[]): Builder {
   return b;
 }
 
+/** FEAT-298: the core a widened crown keeps at its natural width, in trunk radii (the base flare is 1.25) */
+const CORE_K = 1.6;
+
 export interface TreeGeometrySet {
   /** [species][variant] */
   lod0: THREE.BufferGeometry[][];
@@ -622,6 +634,11 @@ export function buildTreeGeometries(cellMean: number[], barkMean: number[]): Tre
     for (let v = 0; v < 4; v++) {
       const plan = makePlan(sp, v);
       const b0 = lod0(plan, cellMean, barkMean), b1 = lod1(plan, cellMean, barkMean);
+      if (sp.form !== 'krummholz' && sp.form !== 'snag') {
+        // FEAT-298: the trunk and the roots of the branches, round the leaned axis (applyLean)
+        const lx = Math.tan(plan.lean) * Math.cos(plan.leanAz), lz = Math.tan(plan.lean) * Math.sin(plan.leanAz);
+        b0.core = b1.core = [sp.radius, Math.min(0.5 * sp.radius, sp.trunk * CORE_K), lx, lz];
+      }
       t0max = Math.max(t0max, b0.triangles); t1max = Math.max(t1max, b1.triangles);
       a.push(b0.build(sp.radius)); c.push(b1.build(sp.radius));
     }
