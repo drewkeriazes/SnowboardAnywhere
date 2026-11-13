@@ -8,6 +8,7 @@ import { fillResortPicker } from './ResortPicker';
 import { optsOf, rowById, type Row } from './SettingsRows';
 import { fmtDistance, fmtHeight } from './Units';
 import type { AccountService } from '../account/Account';
+import type { BuildWatch } from './BuildWatch';
 import { mountAccountLine } from './AccountLine';
 import type { PauseCourse, PauseMode } from './PauseMenu';
 
@@ -43,6 +44,8 @@ export interface MainMenuOpts {
   credits: () => Credit[];
   /** FEAT-273: the corner line (Playing as guest / Sign in with GitHub, or the name); never gates RIDE */
   account: AccountService;
+  /** FEAT-247: the page's build watcher, for the resort picker's build progress */
+  builds?: BuildWatch;
 }
 
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -279,7 +282,7 @@ export class MainMenu {
         u.searchParams.set('pack', slug);
         for (const k of ['x', 'y', 'h']) u.searchParams.delete(k);
         location.href = u.toString();
-      }, () => this.closePop(), { account: this.o.account });
+      }, () => this.closePop(), { account: this.o.account, builds: this.o.builds });
     }
     this.pop.hidden = false;
     this.el.classList.add('popped');

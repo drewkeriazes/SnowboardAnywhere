@@ -10,18 +10,23 @@
 //                                       checks each against the shapes build-pack accepts (MapPacker
 //                                       tools/ci/build_pack_ci.py), then runs `gh workflow run build-pack.yml -R
 //                                       <MapPacker> -f slug= -f name= -f osm_id= -f requested_by=<the verified uid>`;
-//                                       202 {slug}, 400 before any run on a bad input, 502 with gh's error
+//                                       202 {slug}, 400 before any run on a bad input, 502 with gh's error; 409
+//                                       when this server started that slug in the last 10 minutes, unless the
+//                                       builds route has since seen that build end (FEAT-247: Build it again)
 // Every command goes through `run(cmd, args, opts)`, execFile with an argument array (never a shell string) and a
 // time limit; the checks (tools/resortsearchcheck.mjs) pass a fake one, so no check ever starts a real build. A run
 // from Drew's gh is a trusted publish that merges itself.
 //
-// FEAT-247 adds GET /api/resorts/builds here with `routes.route('GET', '/api/resorts/builds', handler)` inside
-// resortBuildRoutes, and reuses `ctx` (the runner, gh, the MapPacker path, reply).
+//   GET  /api/resorts/builds            (FEAT-247) the build-pack runs worth showing, as {builds: BuildInfo[]}
+//                                       (tools/build_progress.mjs: the states and the windows), from `gh run list`,
+//                                       `gh run view <id> --json jobs` for the runs not finished and `gh pr list
+//                                       --label publish`; cached 10 s, so several tabs polling cost no more gh calls
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { requireAccount } from './accounts/gate.mjs';
 import { REPO } from './paths.mjs';
+import { DONE_WINDOW_MS, OPEN_WINDOW_MS, buildProgress, runSlug } from './build_progress.mjs';
 
 export const MAPPACKER_REPO = 'drewkeriazes/MapPacker-SnowboardAnywhere';
 export const BUILD_WORKFLOW = 'build-pack.yml';
@@ -39,6 +44,11 @@ export const SEARCH_TIMEOUT_MS = 90_000;
 export const GH_TIMEOUT_MS = 60_000;
 // a second Build it for the same slug this soon is refused (409): a double click must not queue two builds
 export const REBUILD_GAP_MS = 10 * 60_000;
+// FEAT-247: one answer of the builds route serves every request for this long
+export const BUILDS_CACHE_MS = 10_000;
+/** the fields the builds route asks gh for */
+export const RUN_FIELDS = 'databaseId,displayTitle,status,conclusion,createdAt,updatedAt,url';
+export const PR_FIELDS = 'number,url,state,headRefName,createdAt,mergedAt,closedAt';
 
 /** @typedef {{ code: number | null; stdout: string; stderr: string; error?: { code?: string; message: string; killed?: boolean } }} RunResult
  *  code is the exit code (null when it never ran or was killed); error is set when it could not start (ENOENT: not
@@ -132,7 +142,7 @@ function readBody(req, limit) {
  * @param {{ verifier: import('./accounts/verifier.mjs').TokenVerifier; run?: Runner; env?: Record<string, string | undefined>; repo?: string; now?: () => number }} o
  *   verifier: devVerifier() on the dev server, fakeVerifier in the checks; run: execRun, or a fake in the checks;
  *   env: read at each request (SBA_MAPPACKER, SBA_PYTHON), so game/.env.local loaded after this is made still counts
- * @returns {{ middleware: (req: any, res: any, next: (err?: unknown) => void) => void; route: (method: string, pathname: string, handler: (req: any, res: any, account: import('./accounts/verifier.mjs').VerifiedAccount, url: URL) => unknown) => void; ctx: { run: Runner; env: Record<string, string | undefined>; mapPacker: () => string; python: () => string; gh: (args: string[], opts?: { timeout?: number }) => Promise<RunResult>; reply: typeof reply; now: () => number } }}
+ * @returns {{ middleware: (req: any, res: any, next: (err?: unknown) => void) => void; route: (method: string, pathname: string, handler: (req: any, res: any, account: import('./accounts/verifier.mjs').VerifiedAccount, url: URL) => unknown) => void; ctx: { run: Runner; env: Record<string, string | undefined>; mapPacker: () => string; python: () => string; gh: (args: string[], opts?: { timeout?: number }) => Promise<RunResult>; reply: typeof reply; now: () => number; builds: () => Promise<{ status: number; body: unknown }>; forgetBuilds: () => void } }}
  */
 export function resortBuildRoutes(o) {
   const run = o.run ?? execRun;
@@ -144,7 +154,18 @@ export function resortBuildRoutes(o) {
     python: () => (env.SBA_PYTHON && env.SBA_PYTHON.trim()) || 'python',
     /** gh against the MapPacker repo's Actions; the caller adds -R where the command takes it */
     gh: (/** @type {string[]} */ args, opts = {}) => run('gh', args, { timeout: opts.timeout ?? GH_TIMEOUT_MS, env }),
+    /** FEAT-247: the builds route's answer, shared for BUILDS_CACHE_MS */
+    builds: () => sharedBuilds(),
+    /** a build was just started: the next builds request asks gh again */
+    forgetBuilds: () => { cached = null; },
   };
+  /** @type {{ t: number; p: Promise<{ status: number; body: unknown }> } | null} the builds answer every request shares */
+  let cached = null;
+  /** @type {import('./build_progress.mjs').BuildInfo[]} the builds in the last answer that worked */
+  let lastBuilds = [];
+  /** the build of `slug` this server started at `t` has ended (failed, or published nothing): it can be tried again
+   *  inside REBUILD_GAP_MS. The run's start is GitHub's clock, so a 2 minute slack. */
+  const endedSince = (/** @type {string} */ slug, /** @type {number} */ t) => lastBuilds.some((b) => b.slug === slug && Date.parse(b.at) >= t - 120_000 && (b.state === 'failed' || b.state === 'no-change' || b.state === 'published'));
   /** @type {Map<string, ReturnType<typeof requireAccount>>} "<METHOD> <path>" -> gated handler */
   const table = new Map();
   const paths = new Set();
@@ -186,16 +207,72 @@ export function resortBuildRoutes(o) {
     if (!REQUESTED_BY_RE.test(account.uid)) return reply(res, 500, { error: 'this account id is not one build-pack accepts' });
     const slug = body.slug.trim(), name = body.name.trim(), osm = body.osm_id.trim();
     const t = started.get(slug);
-    if (t !== undefined && now() - t < REBUILD_GAP_MS) return reply(res, 409, { error: `a build of ${slug} was started ${Math.round((now() - t) / 1000)} s ago` });
+    if (t !== undefined && now() - t < REBUILD_GAP_MS && !endedSince(slug, t)) return reply(res, 409, { error: `a build of ${slug} was started ${Math.round((now() - t) / 1000)} s ago` });
     started.set(slug, now());
     const r = await ctx.gh(['workflow', 'run', BUILD_WORKFLOW, '-R', MAPPACKER_REPO, '-f', `slug=${slug}`, '-f', `name=${name}`, '-f', `osm_id=${osm}`, '-f', `requested_by=${account.uid}`]);
     if (r.code === 0) {
       console.log(`[resorts] build-pack started for ${slug} (${osm}), requested by ${account.uid}`);
+      ctx.forgetBuilds();
       return reply(res, 202, { slug });
     }
     started.delete(slug);
     if (r.error?.code === 'ENOENT') return reply(res, 503, { error: 'Build it needs the GitHub CLI (gh) on this PC, signed in' });
     return reply(res, 502, { error: lastLine(r.stderr) || r.error?.message || `gh exited ${r.code}` });
+  });
+
+  // ---------------------------------------------------------------- FEAT-247: the builds and how they are going
+  /** @type {Map<number, { jobs: unknown[]; final: boolean }>} run id -> its jobs: the last good answer for a run
+   *  still going, and once for a finished one (final: they never change again) */
+  const jobsSeen = new Map();
+  const loadBuilds = async () => {
+    const t = now();
+    const since = new Date(t - OPEN_WINDOW_MS).toISOString().slice(0, 10);
+    const fail = (/** @type {RunResult} */ r, /** @type {string} */ what) => r.error?.code === 'ENOENT'
+      ? { status: 503, body: { error: 'build progress needs the GitHub CLI (gh) on this PC, signed in' } }
+      : { status: 502, body: { error: lastLine(r.stderr) || r.error?.message || `${what} exited ${r.code}` } };
+    const rl = await ctx.gh(['run', 'list', '--workflow', BUILD_WORKFLOW, '-R', MAPPACKER_REPO, '--created', `>=${since}`, '-L', '50', '--json', RUN_FIELDS]);
+    if (rl.code !== 0) return fail(rl, 'gh run list');
+    let runs;
+    try { runs = JSON.parse(rl.stdout); } catch { runs = null; }
+    if (!Array.isArray(runs)) return { status: 502, body: { error: 'gh run list did not answer a JSON list' } };
+    // the jobs of every run not finished, and once each of a finished run that did not succeed (where it stopped)
+    const want = runs.filter((r) => runSlug(r) && Number.isInteger(r.databaseId) && t - Date.parse(r.createdAt) <= OPEN_WINDOW_MS
+      && (r.status !== 'completed' || (r.conclusion !== 'success' && !jobsSeen.get(r.databaseId)?.final && t - Date.parse(r.updatedAt ?? r.createdAt) <= DONE_WINDOW_MS)));
+    // a view that fails keeps the run's last good jobs (or none: a running run then reads queued)
+    const view = async (/** @type {any} */ r) => {
+      const v = await ctx.gh(['run', 'view', String(r.databaseId), '-R', MAPPACKER_REPO, '--json', 'jobs']);
+      let j = null;
+      try { j = v.code === 0 ? JSON.parse(v.stdout).jobs : null; } catch { j = null; }
+      if (Array.isArray(j)) jobsSeen.set(r.databaseId, { jobs: j, final: r.status === 'completed' });
+    };
+    // the PRs after the runs, so a run that finished between the two calls already has its PR
+    const [, pl] = await Promise.all([
+      Promise.all(want.map(view)),
+      ctx.gh(['pr', 'list', '-R', MAPPACKER_REPO, '--label', 'publish', '--state', 'all', '-L', '50', '--json', PR_FIELDS]),
+    ]);
+    if (pl.code !== 0) return fail(pl, 'gh pr list');
+    let prs;
+    try { prs = JSON.parse(pl.stdout); } catch { prs = null; }
+    if (!Array.isArray(prs)) return { status: 502, body: { error: 'gh pr list did not answer a JSON list' } };
+    // forget the jobs of runs gh no longer lists
+    const listed = new Set(runs.map((r) => r.databaseId));
+    for (const id of jobsSeen.keys()) if (!listed.has(id)) jobsSeen.delete(id);
+    lastBuilds = buildProgress({ runs, jobs: Object.fromEntries([...jobsSeen].map(([id, v]) => [id, v.jobs])), prs, now: t });
+    return { status: 200, body: { builds: lastBuilds, checkedAt: new Date(t).toISOString() } };
+  };
+  /** the shared answer, at most BUILDS_CACHE_MS old; a request while gh is still answering waits for the same one */
+  const sharedBuilds = () => {
+    if (!cached || now() - cached.t >= BUILDS_CACHE_MS) {
+      const p = loadBuilds().catch((e) => ({ status: 500, body: { error: String(e?.message ?? e) } }));
+      cached = { t: now(), p };
+      // the time counts from the answer, so a slow gh does not make the next request ask again at once
+      p.then(() => { if (cached?.p === p) cached.t = now(); });
+    }
+    return cached.p;
+  };
+  route('GET', '/api/resorts/builds', async (req, res) => {
+    const r = await ctx.builds();
+    return reply(res, r.status, r.body);
   });
 
   const middleware = (/** @type {any} */ req, /** @type {any} */ res, /** @type {(err?: unknown) => void} */ next) => {

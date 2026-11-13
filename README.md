@@ -55,8 +55,10 @@ release, or one you built or copied in yourself, shows "needs rebuild". `npm run
 deletes the old one). The **Find a resort** box at the top of the list filters it by name. Signed in as a
 maintainer on `npm run dev`, typing three or more letters also lists ski areas from OpenSkiData that are not
 packed yet, each with its region, runs and lifts and a **Build it** button that starts the build in MapPacker's
-GitHub Actions (the row then says "Build started"; see [developer guide > Accounts](docs/developer-guide.md#accounts-feat-273)
-for the setup). Anything already built or published shows Ride or Download there instead. A guest, or the game
+GitHub Actions (see [developer guide > Accounts](docs/developer-guide.md#accounts-feat-273)
+for the setup). The row then follows the build while it runs, also with the panel closed or the game reopened:
+Queued, Checking data hosts, Building (resolve, fetch, build, report, publish), Publishing, then Published, No change
+or Failed, with a link to the run or its publish PR on GitHub; a rebuilt resort shows the same on its Ride or Download row. Anything already built or published shows Ride or Download there instead. A guest, or the game
 served by `npm run host` or the launcher, gets the filter only. To ride a pack you built in MapPacker before it is published, copy it in:
 
 ```

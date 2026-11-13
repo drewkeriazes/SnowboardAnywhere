@@ -10,6 +10,7 @@ import { createAccount } from '../account/createAccount';
 import { serverAccount } from '../account/serverAccount';
 import { MainMenu } from '../ui/MainMenu';
 import { showFirstRun } from '../ui/FirstRun';
+import { BuildWatch } from '../ui/BuildWatch';
 import { LoadingScreen } from '../ui/Loading';
 import { applyUiScale, loadSettings } from '../ui/Settings';
 import { startPadNav } from '../ui/PadNav';
@@ -34,12 +35,17 @@ export class Game {
     // FEAT-273: not awaited: the menu's account line starts hidden and fills in when the account settles. Made before
     // the pack loads, so the first-run screen's resort picker has it too (FEAT-246: Build it for a maintainer)
     const account = createAccount({ env: import.meta.env, fake: params.account, hosted: params.hosted, headless });
+    // FEAT-247: a maintainer's resort builds, asked on load and every 15 s while one is open, picker open or not
+    // (a guest, a player, or a server without the dev routes: nothing). FEAT-248 acts on its onPublished.
+    const builds = new BuildWatch({ account });
+    if (!headless) builds.start();
+    if (import.meta.env.DEV) (window as any).__builds = builds;
     let packSlug = params.pack;
     if (!packSlug) {
       let last = ''; try { last = localStorage.getItem('lastPack') ?? ''; } catch { /* ignore */ }
       packSlug = resorts.find((r) => r.slug === last)?.slug ?? resorts.find((r) => r.slug !== 'synth')?.slug ?? 'synth';
       // BUG-105: nothing built (a fresh clone): the first-run screen with the resort picker, not a synth 404
-      if (!resorts.length && !headless) { startPadNav(); showFirstRun({ resorts, account }); return; }
+      if (!resorts.length && !headless) { startPadNav(); showFirstRun({ resorts, account, builds }); return; }
     }
     status.textContent = `Loading ${packSlug}...`;
     let pack: Pack;
@@ -51,7 +57,7 @@ export class Game {
       console.error(e);
       status.textContent = '';
       startPadNav();
-      showFirstRun({ resorts, account, error: { slug: packSlug, message: String((e as Error).message ?? e) } });
+      showFirstRun({ resorts, account, builds, error: { slug: packSlug, message: String((e as Error).message ?? e) } });
       return;
     }
     try { localStorage.setItem('lastPack', packSlug); } catch { /* ignore */ }
@@ -92,7 +98,7 @@ export class Game {
     if (import.meta.env.DEV) (window as any).__account = { state: () => account.state(), server: () => serverAccount(account) };
     const menu = headless ? null : new MainMenu({
       slug: pack.meta.slug, resortName: pack.meta.name, shot, numbers: resortNumbers(pack),
-      still, resorts, audio, settings, credits: () => audio.credits, account,
+      still, resorts, audio, settings, credits: () => audio.credits, account, builds,
     });
     // BUG-063: whatever shows first (the menu over its still, or the loading screen) paints before the session's heavy setup
     let loading: LoadingScreen | null = null;

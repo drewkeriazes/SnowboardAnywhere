@@ -148,6 +148,13 @@
 #menu .pop input.find::placeholder { color: var(--dim); }
 #menu .pop .find-note { margin: var(--sp-1) 0 0; }
 #menu .course[data-act="build"] .cb { color: var(--accent); font-weight: 700; }
+/* FEAT-247: how a build is going on its row, and its run or publish PR on the line under it */
+#menu button.course[data-build]:disabled { opacity: 0.85; }
+#menu .course[data-build="open"] .cb { color: var(--accent); }
+#menu .course[data-build="failed"] .cb { color: var(--danger); }
+#menu .course[data-build="done"] .cb { color: var(--ok); }
+#menu .pop a.build-link { align-self: flex-end; margin: 0 var(--sp-3) var(--sp-1); color: var(--link); font: 500 var(--fs-xs) var(--font-body); text-decoration: none; outline: none; }
+#menu .pop a.build-link:hover, #menu .pop a.build-link:focus-visible, #menu .pop a.build-link.nav-focus { text-decoration: underline; }
 #menu .pop .qrow { display: flex; align-items: center; gap: var(--sp-3); min-height: var(--row-h); padding: 0 var(--sp-3); border-radius: var(--r-md); outline: none; cursor: pointer; }
 #menu .pop .qrow .lbl { flex: 1; font: 500 var(--fs-md) var(--font-body); }
 #menu .pop .qrow .ctl { flex: 0 0 calc(220px * var(--ui-scale)); display: flex; align-items: center; gap: var(--sp-2); }
