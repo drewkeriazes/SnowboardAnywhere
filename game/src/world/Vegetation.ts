@@ -13,7 +13,7 @@ import { ClumpCanopy } from './trees/clumps';
  * Streams tree instances per 1 km cell around the rider and draws them with the FEAT-156 tree kit
  * (trees/): ten species, four variants each, and four LODs picked per tree by its distance from the
  * camera, with a dither crossfade at each edge:
- *   LOD0 branch cards  0..80 m      one InstancedMesh per species x variant, from the trees near the camera
+ *   LOD0 branch cards  0..200 m     one InstancedMesh per species x variant, from the trees near the camera
  *   LOD1 cones         80..400 m    the same, from a wider ring
  *   LOD2 crossed quads 400..1500 m  one mesh per cell (all species), from the baked impostor atlas
  *   impostors          1500..4500 m one mesh per cell, camera-facing quads from the same atlas
@@ -46,8 +46,12 @@ const FAR_REACH_K = 2;
  * them carry the forest (TerrainMaterial FOREST_DRAWN_FAR) instead of laying flat timber over the ground between.
  */
 const STEM_GROW = 2.2;
-/** LOD0 / LOD1 reach as a share of 80 / 400 m */
+/** LOD0 / LOD1 reach as a share of LOD0_REACH / 400 m */
 let LOD_K = 1;
+/** BUG-107: how far the LOD0 branch cards reach at full density (m; `?lod0=`): the cones past it read as stand-ins */
+let LOD0_REACH = 200;
+/** BUG-107: LOD0 never reaches past this share of the LOD1 edge, so the cones keep a band of their own */
+const LOD0_MAX_K = 0.75;
 /** FEAT-158: false on the Low preset: LOD1 cones from the camera out, no LOD0 cards */
 let LOD0_ON = true;
 /** FEAT-167: bumped whenever the radii change, so update() redoes the LOD bands only then */
@@ -79,6 +83,8 @@ export function vegetationClumpBand(): { near: number; fade: number; far: number
 export function vegetationNearRadius(): number { return NEAR_RADIUS; }
 /** BUG-081: where the generated stems stop (m), past which the crowns grow to stand in for them */
 export function vegetationStemReach(): number { return NEAR_RADIUS + STAND_MID; }
+/** BUG-107: set the LOD0 reach at full density (m, `?lod0=`) */
+export function setLod0Reach(m: number): void { LOD0_REACH = Math.max(10, m); bandsVersion++; }
 /** Headless / weak GPU: far fewer instances; `lod0` false draws LOD1 from the camera out (the Low preset). */
 export function setVegetationBudget(near: number, far: number, lod0 = true): void { LOW_REACH = true; NEAR_RADIUS = near; FAR_RADIUS = THIN_RADIUS = far; LOD_K = Math.max(0.5, Math.min(1, near / 1500)); LOD0_ON = lod0; bandsVersion++; }
 /** Scale the near/far radii by a 0.25..1 density (1 = full 1500 m, thinning from 4500 m out to 9000 m); the LOD0 / LOD1 reach scales more gently. */
@@ -101,7 +107,7 @@ export function vegetationTreeEnd(): [number, number] {
 }
 /** the LOD band edges for the current setting (m from the camera), into `out`; out[0] is 0 without LOD0, out[3] is where the trees end */
 function edges(out: number[]): void {
-  const b2 = NEAR_RADIUS, b1 = Math.min(400 * LOD_K, b2 * 0.8), b0 = LOD0_ON ? Math.min(80 * LOD_K, b1 * 0.5) : 0;
+  const b2 = NEAR_RADIUS, b1 = Math.min(400 * LOD_K, b2 * 0.8), b0 = LOD0_ON ? Math.min(LOD0_REACH * LOD_K, b1 * LOD0_MAX_K) : 0;
   out[0] = b0; out[1] = b1; out[2] = b2; out[3] = treeEnd();
 }
 

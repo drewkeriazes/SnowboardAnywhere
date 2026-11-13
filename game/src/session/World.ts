@@ -7,7 +7,7 @@ import { Bridges } from '../world/Bridges';
 import { Landmarks } from '../world/Landmarks';
 import { Clouds } from '../world/Clouds';
 import { Snow } from '../world/Snow';
-import { Vegetation } from '../world/Vegetation';
+import { Vegetation, setLod0Reach } from '../world/Vegetation';
 import { Shrubs } from '../world/Shrubs';
 import { TreeFade } from '../world/TreeFade';
 import { Rocks } from '../world/Rocks';
@@ -113,6 +113,7 @@ export function buildWorld(ctx: GameContext) {
   for (const m of eat.materials) env.registerMaterial(m);
   for (const m of landmarks.materials) env.registerMaterial(m);
   veg.enableImpostors(renderer, !params.noimpostors, params.lowgfx ? 1024 : 2048); // FEAT-156: bakes the LOD2 / impostor atlases either way
+  if (params.lod0 != null) setLod0Reach(params.lod0); // BUG-107
   if (!params.noclumps) veg.enableClumps(renderer, params.clumpfar ?? undefined); // FEAT-292: the far forest as clump impostors past the drawn trees
   terrain.setTreeShade(veg.shade); // FEAT-171: the drawn trees' shadows past the shadow map
   return {
