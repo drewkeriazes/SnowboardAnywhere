@@ -7,9 +7,16 @@ sequence across both repos, so a repo `gh` cannot read (on any page) is a failur
 warns, prints no id and exits 2, since the result could miss ids and hand out a duplicate.
 Pull requests are skipped: a PR titled with its card id is not a second card.
 
+BUG-122: the list is read a page at a time, so an issue filed (or deleted, or transferred) while the pages are
+read moves every later issue across a page boundary: one comes back on two pages, or none returns one. Pages are
+read oldest first (a new issue lands at the end, after the pages already read), an issue served twice counts once,
+and each repo is read again until two full reads in a row list the same issues, so a shift that skipped one is
+caught. A list still changing after MAX_READS reads gives a warning, and every issue any read saw counts.
+
     python tools/card_id.py          # next ids, then duplicates (exit 1 if any)
     python tools/card_id.py FEAT     # just the next FEAT id, for scripts
     python tools/card_id.py --allow-partial [FEAT]   # report from the repos it could read anyway
+    python -m unittest discover -s tools -p "test_*.py"   # its tests (tools/test_card_id.py, a fake gh)
 
 Run it right before creating a card, and again after, since another session may have taken
 the same id in between (wait about 20 s: the issue list lags a new issue). On a clash the newer
@@ -19,32 +26,59 @@ import json
 import re
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 REPOS = ("drewkeriazes/SnowboardAnywhere", "drewkeriazes/MapPacker-SnowboardAnywhere")
 TYPES = ("FEAT", "BUG", "DATA")
 ID = re.compile(r"^(FEAT|BUG|DATA)-(\d+)")
+PER_PAGE = 100
+MAX_READS = 4  # full reads of a repo while waiting for two in a row that agree (BUG-122)
 
 
-def issues(repo, failed):
-    """Yield the repo's issues. On a read error (any page) add the repo to `failed` and stop."""
-    page = 1
+class ReadError(Exception):
+    pass
+
+
+def read_once(repo):
+    """One pass over every page of the repo's issues, oldest first: {number: issue}, pull requests left out.
+    Raises ReadError on a page gh cannot read."""
+    found, page = {}, 1
     while True:
         res = subprocess.run(
-            ["gh", "api", f"repos/{repo}/issues?state=all&per_page=100&page={page}"],
+            ["gh", "api", f"repos/{repo}/issues?state=all&sort=created&direction=asc&per_page={PER_PAGE}&page={page}"],
             capture_output=True, text=True, encoding="utf-8",  # BUG-073: not the cp1252 locale
         )
         if res.returncode != 0:
-            print(f"warning: could not read {repo} issues (page {page}), ids from it are missing: {res.stderr.strip()[:200]}", file=sys.stderr)
-            failed.append(repo)
-            return
+            raise ReadError(f"page {page}: {res.stderr.strip()[:200]}")
         batch = json.loads(res.stdout)
-        if not batch:
-            return
         for i in batch:
             if "pull_request" not in i:
-                i["ref"] = f"#{i['number']}" if repo == REPOS[0] else f"{repo.split('/')[1]}#{i['number']}"
-                yield i
+                found[i["number"]] = i  # BUG-122: keyed by number, so an issue served on two pages counts once
+        if len(batch) < PER_PAGE:
+            return found
         page += 1
+
+
+def issues(repo):
+    """(the repo's issues, oldest first, each with its `ref`; a warning or None). Reads the repo until two full
+    reads in a row hold the same issue numbers; if it never settles, every issue any read saw. Raises ReadError."""
+    reads, warning = [], None
+    while True:
+        reads.append(read_once(repo))
+        if len(reads) >= 2 and reads[-1].keys() == reads[-2].keys():
+            found = reads[-1]
+            break
+        if len(reads) == MAX_READS:
+            found = {}
+            for r in reads:
+                found.update(r)  # the newest read's title and state win
+            warning = (f"warning: the {repo} issue list kept changing over {MAX_READS} reads (issues being filed?), "
+                       "so ids come from every issue any read saw; run it again in a minute to check")
+            break
+    out = [found[n] for n in sorted(found)]
+    for i in out:
+        i["ref"] = f"#{i['number']}" if repo == REPOS[0] else f"{repo.split('/')[1]}#{i['number']}"
+    return out, warning
 
 
 def main():
@@ -52,8 +86,18 @@ def main():
     args = [a for a in sys.argv[1:] if a != "--allow-partial"]
     allow_partial = len(args) < len(sys.argv) - 1
     seen, failed = {}, []
-    for repo in REPOS:
-        for i in issues(repo, failed):
+    with ThreadPoolExecutor(len(REPOS)) as pool:  # both repos at once: each is read at least twice
+        reads = [pool.submit(issues, repo) for repo in REPOS]
+    for repo, read in zip(REPOS, reads):
+        try:
+            found, warning = read.result()
+        except ReadError as e:
+            print(f"warning: could not read {repo} issues ({e}), ids from it are missing", file=sys.stderr)
+            failed.append(repo)
+            continue
+        if warning:
+            print(warning, file=sys.stderr)
+        for i in found:
             m = ID.match(i["title"])
             if m:
                 seen.setdefault((m[1], int(m[2])), []).append(i)
