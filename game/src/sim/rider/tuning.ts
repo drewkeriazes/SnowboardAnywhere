@@ -207,6 +207,23 @@ export const SKATE_ACC = 4.2, SKATE_MAX = 5.5, SKATE_SLOPE = 10, SKATE_PERIOD = 
  * ollie / nollie (|lean| > 0.5 at release), and the pitch rate it leaves (rad/s per unit lean) */
 export const LEAN_IN = 0.2, PRESS_GRIP = 0.35, PRESS_DRAG = 0.05, OLLIE_POP = 1.3, OLLIE_PITCH = 1.2;
 
+// ---- leaving the snow off lips and side hits (FEAT-277)
+/** the margin (m/s per step) by which the ground has to drop away faster than you fall before you leave
+ *  it: TAKEOFF_LIFT on open snow, so 1 m elevation-model noise doesn't launch you; LIP_LIFT (about 1 g
+ *  the legs soak up) where the snow bends over sharply along the line of travel */
+export const TAKEOFF_LIFT = 1.5, LIP_LIFT = 0.1;
+/** the bend is the slope behind minus the slope ahead (rise over run, each a fit to LIP_SAMPLES heights out
+ *  to LIP_SPAN m): from LIP_BEND0 it starts to count as a lip, from LIP_BEND1 fully (0.2 is about an 11
+ *  degree kink; a 15 degree side hit onto the flat is about 0.25). 10 cm of 1 m elevation noise reads
+ *  as about 0.05 */
+export const LIP_SPAN = 3, LIP_SAMPLES = 3, LIP_BEND0 = 0.1, LIP_BEND1 = 0.2;
+/** a lip only counts when you leave it climbing: vertical speed at least this share of the speed (about 6 degrees up) */
+export const LIP_RISE = 0.1;
+/** leaving the snow with the board pre-loaded springs you up this much more (m/s): a full jump charge
+ *  held through the lip, or LIP_FLEX of it on a full press (|lean| from 0.5 to 1). Bending the board in
+ *  the early part of an ollie; small next to the ramp, and no pop without it */
+export const LIP_PRELOAD = 0.8, LIP_FLEX = 0.6;
+
 // ---- press balance (FEAT-140, FEAT-152)
 /**
  * FEAT-140 press balance, in needle units per second (the needle runs -1 .. 1, + toward the

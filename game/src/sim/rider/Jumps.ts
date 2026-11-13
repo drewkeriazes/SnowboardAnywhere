@@ -1,7 +1,7 @@
 /** Jumps, the air and leaving the snow (split from sim/Rider.ts, FEAT-165) */
 import type { Rider } from '../Rider';
 import type { Input } from './types';
-import { FLIP_DECAY, FLIP_EASE, FLIP_RATE, G, HARD_IN, OLLIE_PITCH, OLLIE_POP, SQUAT_POP, SQUAT_SPRING_WINDOW } from './tuning';
+import { FLIP_DECAY, FLIP_EASE, FLIP_RATE, G, HARD_IN, LIP_BEND0, LIP_BEND1, LIP_FLEX, LIP_LIFT, LIP_PRELOAD, LIP_RISE, LIP_SAMPLES, LIP_SPAN, OLLIE_PITCH, OLLIE_POP, SQUAT_POP, SQUAT_SPRING_WINDOW, TAKEOFF_LIFT } from './tuning';
 import { poseBoard } from './Brake';
 import { endPress } from './Press';
 import { land } from './Tricks';
@@ -57,8 +57,9 @@ export function jump(r: Rider, dt: number, input: Input, n: [number, number, num
   return false;
 }
 
-/** Follow the ground after a step on the snow, and leave it over a convex rollover at speed (`spd` the speed before the step). */
-export function followGround(r: Rider, dt: number, spd: number): void {
+/** Follow the ground after a step on the snow, and leave it over a convex rollover at speed (`spd` the speed
+ *  before the step, `n` the ground normal it started on). */
+export function followGround(r: Rider, dt: number, spd: number, n: readonly number[]): void {
   const pack = r.pack;
   // follow the ground; detect leaving it (convex rollovers at speed)
   const g2 = groundAt(r, r.x, r.y, r.z);
@@ -68,12 +69,33 @@ export function followGround(r: Rider, dt: number, spd: number): void {
   const ballistic = r.vz - G * dt;
   // FEAT-059: the 1.5 m/s margin absorbs 1 m DEM noise on open snow, but it also swallows every mogul
   // (a 0.7 m bump at 20 m/s drops away at about 10 g). On a bump field the legs absorb only about 2 g.
-  const lift = 1.5 - 1.3 * Math.min(1, r.surface.moguls / 0.4);
+  const bumps = Math.min(1, r.surface.moguls / 0.4);
+  let lift = TAKEOFF_LIFT - (TAKEOFF_LIFT - 0.2) * bumps;
+  // FEAT-277: a real lip or side hit bends over sharply along the line of travel; there the margin
+  // shrinks to what the legs soak up. Only looked at when the ground is falling away at all, and only
+  // leaving it climbing at LIP_RISE or more (a lip sends you up). Not on a bump field: there the legs
+  // soak up every face (FEAT-059), or a steep bump run throws you to a crash.
+  if (bumps < 1 && ballistic > spd * LIP_RISE && ballistic > vzSurf + LIP_LIFT && ballistic <= vzSurf + lift && spd > 6) {
+    lift += (LIP_LIFT - lift) * lipShare(r) * (1 - bumps);
+  }
   if (ballistic > vzSurf + lift && spd > 6) {
     // the ground drops away faster than we fall: airborne
     r.onGround = false; r.airTime = 0; r.spin = 0; r.flip = 0; r.flipRate = 0;
     r.z = Math.max(r.z, g2 + 0.02);
-    r.vz = vzSurf; // start with the surface's vertical speed
+    // FEAT-277: keep the upward speed carried up the face (it used to be reset to the surface past the
+    // lip, so a ramp dropped you off instead of sending you). At most the face's own vertical speed for
+    // the velocity now, so a vz left over from a landing's speed loss or a wall bounce can't fling you.
+    // On a bump field the legs have soaked up the face, so you leave with the surface's speed as before.
+    const vzFace = -(r.vx * n[0] + r.vy * n[1]) / Math.max(0.2, n[2]) - G * dt;
+    const keep = Math.max(vzSurf, Math.min(ballistic, vzFace));
+    r.vz = vzSurf + (keep - vzSurf) * (1 - bumps);
+    // leaving a lip climbing with the board pre-loaded (the jump held, or a press) springs you up a little
+    // more; not off bumps, which the legs soak up
+    if (bumps < 1 && r.vz > spd * LIP_RISE) {
+      const flex = LIP_FLEX * Math.max(0, Math.abs(r.lean) - 0.5) / 0.5;
+      r.vz += LIP_PRELOAD * Math.max(r.jumpCharge, flex) * (1 - bumps);
+      r.jumpCharge = 0; // the held jump is spent on the lip
+    }
   } else {
     r.z = g2;
     r.vz = vzSurf;
@@ -82,4 +104,23 @@ export function followGround(r: Rider, dt: number, spd: number): void {
   r.maxSpeed = Math.max(r.maxSpeed, r.speed);
   r.distance += spd * dt;
   r.landingShock = Math.max(0, r.landingShock - dt * 3);
+}
+
+/** FEAT-277: how much the snow here is a lip, 0 (open snow) to 1: the slope behind the rider minus the
+ *  slope ahead, along the line of travel, each a least-squares fit to the terrain at 1 to LIP_SPAN m
+ *  (LIP_SAMPLES points). Over that span 1 m elevation noise averages out, while a side hit or kicker
+ *  lip stands out. Terrain only, like the surface speed it is compared with. */
+function lipShare(r: Rider): number {
+  const p = r.pack, h = Math.hypot(r.vx, r.vy), ux = r.vx / h, uy = r.vy / h;
+  const h0 = p.groundHeight(r.x, r.y, r.z);
+  let back = 0, ahead = 0, kk = 0;
+  for (let i = 1; i <= LIP_SAMPLES; i++) {
+    const d = LIP_SPAN * i / LIP_SAMPLES;
+    back += (h0 - p.groundHeight(r.x - ux * d, r.y - uy * d, r.z)) * d;
+    ahead += (p.groundHeight(r.x + ux * d, r.y + uy * d, r.z) - h0) * d;
+    kk += d * d;
+  }
+  const bend = (back - ahead) / kk;
+  const t = Math.min(1, Math.max(0, (bend - LIP_BEND0) / (LIP_BEND1 - LIP_BEND0)));
+  return t * t * (3 - 2 * t);
 }
