@@ -2,6 +2,7 @@ import { fillResortPicker } from './ResortPicker';
 import { lastInputKind, openScreen, Screen } from './MenuNav';
 import { renderHints } from './HintBar';
 import type { AccountService } from '../account/Account';
+import type { BuildWatch } from './BuildWatch';
 
 /**
  * BUG-105: the screen the game opens on when it has no resort to load: no pack in packs/ and no `?pack=` (a fresh
@@ -17,6 +18,8 @@ export interface FirstRunOpts {
   error?: { slug: string; message: string };
   /** FEAT-246: a signed-in maintainer can search for a resort and Build it from here too */
   account?: AccountService;
+  /** FEAT-247: how a build started from here is going */
+  builds?: BuildWatch;
 }
 
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -61,7 +64,7 @@ export function showFirstRun(o: FirstRunOpts): void {
     onInputKind: () => hints(),
   });
   // current '' so every row loads (or downloads); close has nothing to go back to
-  fillResortPicker(pop, '', o.resorts, go, () => {}, { account: o.account, settled: () => {
+  fillResortPicker(pop, '', o.resorts, go, () => {}, { account: o.account, builds: o.builds, settled: () => {
     const any = !!pop.querySelector('button[data-pack]');
     note.textContent = any
       ? 'Pick one: it downloads into packs/ and opens when it is ready.'
