@@ -250,7 +250,10 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float covW(vec2 p, vec4 r) { vec2 d = min(p - r.xy, r.zw - p); return smoothstep(0.0, uCovBlend, min(d.x, d.y)); }
         vec2 covUV(vec2 p, vec4 r) { return vec2((p.x - r.x) / (r.z - r.x), (r.w - p.y) / (r.w - r.y)); }
         // BUG-069: G of a level is its forest under closed stands of drawn trees only, shown while single
-        // trees read (to STAND_NEAR m); R, the forest as a mass, takes over by STAND_FAR
+        // trees read (to STAND_NEAR m); R, the forest as a mass, takes over by STAND_FAR. BUG-120: and not before
+        // the generated stems end (uStemReach, R full by 1.5 times it, as the crowns grow to stand in for them):
+        // while the stems are drawn the trees carry a sparse stand on white snow, and R (which counts a tree every
+        // 10 m as forest) laid timber under the Back Bowls' sparse stands from 1.2 km, grey from the air
         // a conifer's side silhouette over its plan area: in a slanted view tall trees close the gaps sooner
         #define TREE_ASPECT 2.5
         #define STAND_NEAR 1200.0
@@ -258,7 +261,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         // forest share (x) blended finest over coarsest, and how much of it is data (y). All three are
         // sampled unconditionally so the mip selection never sits in non-uniform control flow.
         vec2 coverForest(vec2 p, float dist) {
-          float farK = smoothstep(STAND_NEAR, STAND_FAR, dist);
+          float stemR = uStemReach < 1e7 ? uStemReach : 0.0; // 1e8: no stems drawn, the BUG-069 distances alone
+          float farK = smoothstep(max(STAND_NEAR, stemR), max(STAND_FAR, 1.5 * stemR), dist);
           vec2 t0 = texture2D(uCov0, covUV(p, uCovRect[0])).rg;
           vec2 t1 = texture2D(uCov1, covUV(p, uCovRect[1])).rg;
           vec2 t2 = texture2D(uCov2, covUV(p, uCovRect[2])).rg;
