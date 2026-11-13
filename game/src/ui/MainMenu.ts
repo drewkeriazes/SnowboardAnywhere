@@ -271,14 +271,15 @@ export class MainMenu {
       this.fillRows();
     } else {
       this.pop.innerHTML = '<div class="ph">Change resort</div><div class="courses"></div>';
-      // FEAT-222: built packs, then the published ones to download (ui/ResortPicker.ts)
+      // FEAT-222: built packs, then the published ones to download (ui/ResortPicker.ts); FEAT-246: Find a resort,
+      // and Build it for a signed-in maintainer
       fillResortPicker(this.pop, this.o.slug, this.o.resorts, (slug) => {
         // a resort is its own pack: the page reloads into its shot
         const u = new URL(location.href);
         u.searchParams.set('pack', slug);
         for (const k of ['x', 'y', 'h']) u.searchParams.delete(k);
         location.href = u.toString();
-      }, () => this.closePop());
+      }, () => this.closePop(), { account: this.o.account });
     }
     this.pop.hidden = false;
     this.el.classList.add('popped');

@@ -1,6 +1,7 @@
 import { fillResortPicker } from './ResortPicker';
 import { lastInputKind, openScreen, Screen } from './MenuNav';
 import { renderHints } from './HintBar';
+import type { AccountService } from '../account/Account';
 
 /**
  * BUG-105: the screen the game opens on when it has no resort to load: no pack in packs/ and no `?pack=` (a fresh
@@ -14,6 +15,8 @@ export interface FirstRunOpts {
   resorts: { slug: string; name: string }[];
   /** the `?pack=` that failed to load, and why */
   error?: { slug: string; message: string };
+  /** FEAT-246: a signed-in maintainer can search for a resort and Build it from here too */
+  account?: AccountService;
 }
 
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -58,14 +61,14 @@ export function showFirstRun(o: FirstRunOpts): void {
     onInputKind: () => hints(),
   });
   // current '' so every row loads (or downloads); close has nothing to go back to
-  fillResortPicker(pop, '', o.resorts, go, () => {}, () => {
+  fillResortPicker(pop, '', o.resorts, go, () => {}, { account: o.account, settled: () => {
     const any = !!pop.querySelector('button[data-pack]');
     note.textContent = any
       ? 'Pick one: it downloads into packs/ and opens when it is ready.'
       : 'Nothing to download here: this server has no download service, or it is offline.';
     // the rows came in after the screen opened on Reload: the first row takes the focus, unless one already has it
-    if (!pop.querySelector('.courses')!.contains(document.activeElement)) screen.focusPrimary();
-  });
+    if (!pop.querySelector('.courses')!.contains(document.activeElement) && !pop.querySelector('.find-row')?.contains(document.activeElement)) screen.focusPrimary();
+  } });
   openScreen(screen);
   hints();
 }

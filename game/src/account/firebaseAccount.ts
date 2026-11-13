@@ -102,7 +102,10 @@ export class FirebaseAccount implements AccountService {
   async idToken(): Promise<string | null> {
     const u = this.user;
     if (!u || this.current.kind !== 'signed-in' || !this.port) return null;
-    try { return await this.port.token(u); } catch { return null; }
+    let token: string;
+    try { token = await this.port.token(u); } catch { return null; }
+    // FEAT-246: a sign-out (or another user) during the await: never hand out the previous user's token
+    return this.user === u && this.current.kind === 'signed-in' ? token : null;
   }
 
   private async onUser(u: PortUser | null): Promise<void> {
