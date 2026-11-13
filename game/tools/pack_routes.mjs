@@ -34,6 +34,8 @@ export function packFiles(packsDir = PACKS) {
  *   GET  /__packs/catalog      { formatVersion, catalog | null, error?, local: { slug: { formatVersion, build, version? } }, jobs }
  *   POST /__packs/get {slug}   starts the download; 202, or 400 with the reason
  *   GET  /__packs/job?slug=    { phase: 'download' | 'unzip' | 'done' | 'error', received, total, error? }
+ *   GET  /__packs/local        { formatVersion, local }: what is on disk only, no catalog read (FEAT-248: the main
+ *                              menu's Preview badge, from the catalog status get_pack.mjs keeps with each download)
  * The listing's catalog is cached for 5 minutes, so opening the picker again and again spends no more than 12 of the
  * 60 an hour GitHub API calls readCatalog makes; a failed read (offline) answers catalog: null and the picker shows
  * local packs. A Download reads it afresh (BUG-096), so it installs the release published a minute ago, not the one
@@ -58,6 +60,7 @@ export function packDownloads(packsDir = PACKS, { readCatalog = gp.readCatalog }
       try { cat = await catalog(); } catch (e) { error = String(e.message ?? e); cached = null; }
       return send(res, 200, { formatVersion: gp.PACK_FORMAT, catalog: cat, error, local: gp.localPacks(packsDir), jobs: Object.fromEntries(jobs) });
     }
+    if (req.method === 'GET' && url.pathname === '/__packs/local') return send(res, 200, { formatVersion: gp.PACK_FORMAT, local: gp.localPacks(packsDir) });
     if (req.method === 'GET' && url.pathname === '/__packs/job') {
       const job = jobs.get(url.searchParams.get('slug') ?? '');
       return job ? send(res, 200, job) : send(res, 404, { error: 'no download for that resort' });

@@ -5,7 +5,7 @@ import { isMaintainer, type AccountService } from '../account/Account';
  * GET api/resorts/builds (tools/resort_build_routes.mjs; the states come from tools/build_progress.mjs, over MapPacker's
  * build-pack runs and its publish PRs). Builds keep going on GitHub when the tab closes, so Game.start makes one
  * watcher: it asks on load and then every 15 s while a build is open, with the resort picker open or not, and the
- * picker (ui/ResortPicker.ts) draws from it. FEAT-248 acts on a build turning Published (onPublished).
+ * picker (ui/ResortPicker.ts) draws from it. FEAT-248 (ui/ReleaseToast.ts) follows its onChange to download a published build.
  *
  * It does nothing, and asks nothing, for a guest or a player, or on a build without the dev server (`npm run host`,
  * the launcher: the route exists only under `npm run dev`, so `dev` is import.meta.env.DEV). A server that answers

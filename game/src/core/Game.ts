@@ -11,6 +11,9 @@ import { serverAccount } from '../account/serverAccount';
 import { MainMenu } from '../ui/MainMenu';
 import { showFirstRun } from '../ui/FirstRun';
 import { BuildWatch } from '../ui/BuildWatch';
+import { ReleaseToasts, ToastStack } from '../ui/ReleaseToast';
+import { PACK_INSTALLED } from '../ui/ResortPicker';
+import { leaveTo } from '../sim/Controls';
 import { LoadingScreen } from '../ui/Loading';
 import { applyUiScale, loadSettings } from '../ui/Settings';
 import { startPadNav } from '../ui/PadNav';
@@ -36,8 +39,12 @@ export class Game {
     // the pack loads, so the first-run screen's resort picker has it too (FEAT-246: Build it for a maintainer)
     const account = createAccount({ env: import.meta.env, fake: params.account, hosted: params.hosted, headless });
     // FEAT-247: a maintainer's resort builds, asked on load and every 15 s while one is open, picker open or not
-    // (a guest, a player, or a server without the dev routes: nothing). FEAT-248 acts on its onPublished.
+    // (a guest, a player, or a server without the dev routes: nothing).
     const builds = new BuildWatch({ account });
+    // FEAT-248: a build that turns Published downloads on its own, and a toast offers Ride (a same-tab ?pack= reload).
+    // `loaded` is the pack the page rides: a new release of it is not swapped in under the running game.
+    let loaded = '';
+    if (!headless) new ReleaseToasts({ builds, view: new ToastStack(), current: () => loaded, navigate: leaveTo, installed: () => window.dispatchEvent(new Event(PACK_INSTALLED)) }).start();
     if (!headless) builds.start();
     if (import.meta.env.DEV) (window as any).__builds = builds;
     let packSlug = params.pack;
@@ -60,6 +67,7 @@ export class Game {
       showFirstRun({ resorts, account, builds, error: { slug: packSlug, message: String((e as Error).message ?? e) } });
       return;
     }
+    loaded = packSlug;
     try { localStorage.setItem('lastPack', packSlug); } catch { /* ignore */ }
     document.title = `${pack.meta.name} - snowboard sim`;
     const audio = new GameAudio();

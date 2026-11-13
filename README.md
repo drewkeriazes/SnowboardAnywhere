@@ -58,7 +58,14 @@ packed yet, each with its region, runs and lifts and a **Build it** button that 
 GitHub Actions (see [developer guide > Accounts](docs/developer-guide.md#accounts-feat-273)
 for the setup). The row then follows the build while it runs, also with the panel closed or the game reopened:
 Queued, Checking data hosts, Building (resolve, fetch, build, report, publish), Publishing, then Published, No change
-or Failed, with a link to the run or its publish PR on GitHub; a rebuilt resort shows the same on its Ride or Download row. Anything already built or published shows Ride or Download there instead. A guest, or the game
+or Failed, with a link to the run or its publish PR on GitHub; a rebuilt resort shows the same on its Ride or Download row. When the build is published, the game downloads the pack on its own and a toast on the right says
+"<Resort> is ready" with **Ride** and a close button, over the menu or while you ride (it never pauses the ride or
+takes the keys or the controller; click it with the mouse). Ride reloads the page into that resort at its start, as
+Change resort does; the resort is a Ride row in the picker from then on. A pack in another format says "needs a newer
+game" or "needs rebuild" instead, with no Ride, and a build with no change or a failed one gets a toast too (the
+failed one links its run). A new release of the resort you are riding is not swapped in under you: its toast offers
+**Download and ride**. A preview pack (it did not pass the resort quality gate) carries a Preview badge on the toast,
+its picker row and the menu's resort card. Each build is announced once, also across reloads. Anything already built or published shows Ride or Download there instead. A guest, or the game
 served by `npm run host` or the launcher, gets the filter only. To ride a pack you built in MapPacker before it is published, copy it in:
 
 ```

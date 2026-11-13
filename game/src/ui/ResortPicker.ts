@@ -22,7 +22,8 @@ import { BUILD_CLOCK_SLACK_MS, buildLabel, buildLink, isOpenBuild, type BuildInf
  * closed) shows again, named from its slug.
  */
 interface CatalogEntry { slug: string; name: string; status: string; pack: { version: number; formatVersion: number; bytes: number } }
-interface LocalPack { name: string; formatVersion: number; version?: number }
+/** status: the catalog's, for a pack downloaded from it (FEAT-248: 'preview' did not pass the DATA-022 gate) */
+interface LocalPack { name: string; formatVersion: number; version?: number; status?: string }
 interface CatalogReply { formatVersion: number; catalog: { resorts?: CatalogEntry[] } | null; local: Record<string, LocalPack> }
 interface Job { phase: 'download' | 'unzip' | 'done' | 'error'; received: number; total: number; error?: string }
 /** one match of `resort.py search --json` (MapPacker FEAT-279) */
@@ -34,11 +35,32 @@ const mb = (b: number) => `${Math.max(1, Math.round(b / 1e6))} MB`;
 const api = (p: string) => `${import.meta.env.BASE_URL}__packs/${p}`;
 const resortsApi = (p: string) => `${import.meta.env.BASE_URL}api/resorts/${p}`;
 export const SEARCH_MIN = 3;
+/** FEAT-248: the window event ReleaseToast sends when it has installed a pack */
+export const PACK_INSTALLED = 'sba-pack-installed';
 export const SEARCH_PAUSE_MS = 300;
 
 /** a build's line on its row: what it is doing, and the run or publish PR it links to */
 export interface RowBuild { label: string; href: string; link: string; kind: 'open' | 'done' | 'failed' }
-export type Row = { slug: string; name: string; note: string; act: 'load' | 'get' | 'none' | 'build'; on: boolean; detail?: string; build?: RowBuild };
+export type Row = { slug: string; name: string; note: string; act: 'load' | 'get' | 'none' | 'build'; on: boolean; detail?: string; build?: RowBuild; preview?: boolean };
+
+/** FEAT-248: the badge on a `preview` pack (status "preview" in the catalog: it did not pass the DATA-022 gate) */
+export const PREVIEW_BADGE = '<span class="badge-preview" title="Did not pass the resort quality gate yet">Preview</span>';
+
+/**
+ * FEAT-248: the status the catalog gave a pack downloaded from it ('preview', 'playable'), which get_pack.mjs keeps
+ * with the download (GET __packs/local); '' for a pack built on this PC or copied in, one downloaded before FEAT-248,
+ * or a server without the pack routes. Asked only where they exist (the dev server, `npm run host`, the launcher), so
+ * a static server logs no 404.
+ */
+export async function packStatus(slug: string): Promise<string> {
+  if (!import.meta.env.DEV && !import.meta.env.VITE_HOST_NAME && !import.meta.env.VITE_HOSTED) return '';
+  try {
+    const r = await fetch(api('local'), { cache: 'no-store' });
+    if (!r.ok || !(r.headers.get('content-type') ?? '').includes('json')) return '';
+    const j = await r.json() as { local?: Record<string, LocalPack> };
+    return j.local?.[slug]?.status ?? '';
+  } catch { return ''; }
+}
 
 /** lower case, no accents: "Sölden" finds "solden" */
 const fold = (s: string) => s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -56,7 +78,7 @@ export function nameMatches(query: string, name: string, slug = ''): boolean {
 const builds = new Map<string, { match: SearchMatch; state: 'starting' | 'started' | 'failed'; why?: string; at: number }>();
 
 function rowHtml(r: Row): string {
-  const head = `<button class="course${r.on ? ' on' : ''}" data-pack="${esc(r.slug)}" data-act="${r.act}"${r.act === 'none' ? ' disabled' : ''}${r.build ? ` data-build="${r.build.kind}"` : ''}><span class="cn">${esc(r.name)}</span>`;
+  const head = `<button class="course${r.on ? ' on' : ''}" data-pack="${esc(r.slug)}" data-act="${r.act}"${r.act === 'none' ? ' disabled' : ''}${r.build ? ` data-build="${r.build.kind}"` : ''}><span class="cn">${esc(r.name)}${r.preview ? PREVIEW_BADGE : ''}</span>`;
   // FEAT-247: the run or publish PR, on its own line under the row (a link can't go inside a button)
   const link = r.build ? `<a class="build-link" data-nav href="${esc(r.build.href)}" target="_blank" rel="noopener noreferrer">${esc(r.build.link)}</a>` : '';
   // a search match or a build: its place and size (when known), then Build it or how the build is going
@@ -79,14 +101,15 @@ function rows(current: string, built: { slug: string; name: string }[], reply: C
     if (l && l.formatVersion < PACK_FORMAT) return { note: 'needs rebuild', act: 'load' };
     return { note: '', act: 'load' };
   };
-  for (const r of built) out.push({ ...r, ...localNote(r.slug), on: r.slug === current });
+  const preview = (slug: string) => local[slug]?.status === 'preview';
+  for (const r of built) out.push({ ...r, ...localNote(r.slug), on: r.slug === current, preview: preview(r.slug) });
   // a resort downloaded from the catalog that the game's own list (resorts.ts) doesn't know yet
-  for (const c of cat) if (local[c.slug] && !built.some((b) => b.slug === c.slug)) out.push({ slug: c.slug, name: c.name, ...localNote(c.slug), on: c.slug === current });
+  for (const c of cat) if (local[c.slug] && !built.some((b) => b.slug === c.slug)) out.push({ slug: c.slug, name: c.name, ...localNote(c.slug), on: c.slug === current, preview: preview(c.slug) });
   for (const c of cat) {
     if (local[c.slug]) continue;
     const f = c.pack.formatVersion;
-    const note = f < PACK_FORMAT ? 'needs rebuild' : f > PACK_FORMAT ? 'needs a newer game' : `Download (${mb(c.pack.bytes)}${c.status === 'preview' ? ', preview' : ''})`;
-    out.push({ slug: c.slug, name: c.name, note, act: f === PACK_FORMAT ? 'get' : 'none', on: false });
+    const note = f < PACK_FORMAT ? 'needs rebuild' : f > PACK_FORMAT ? 'needs a newer game' : `Download (${mb(c.pack.bytes)})`;
+    out.push({ slug: c.slug, name: c.name, note, act: f === PACK_FORMAT ? 'get' : 'none', on: false, preview: c.status === 'preview' });
   }
   return out;
 }
@@ -103,7 +126,7 @@ export function rowBuild(b: BuildInfo): RowBuild {
 }
 
 /** "boston-mills" -> "Boston Mills", for a build whose resort the page knows only by its slug */
-const slugName = (slug: string) => slug.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+export const slugName = (slug: string) => slug.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
 /** the server's build of `slug` when it is this resort's latest: not older than a Build it this page started */
 function liveBuild(slug: string, srv: BuildInfo | undefined): BuildInfo | undefined {
@@ -320,6 +343,9 @@ export function fillResortPicker(host: HTMLElement, current: string, built: { sl
     });
     void watch.refresh();
   }
+  // FEAT-248: a release the page downloaded on its own (ui/ReleaseToast.ts) is a Ride row now
+  const installed = () => { if (!live()) { window.removeEventListener(PACK_INSTALLED, installed); return; } void loadCatalog(); };
+  window.addEventListener(PACK_INSTALLED, installed);
   draw();
   void loadCatalog().then(() => settled?.());
 }
