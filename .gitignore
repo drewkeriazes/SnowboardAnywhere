@@ -56,6 +56,9 @@ npm-debug.log*
 # Headless test output
 game/shots*/
 
+# Render comparison baselines: an old commit's build and its pack, kept at the main checkout (game/tools/compare.mjs)
+baselines/
+
 # Music: the shipped CC BY set in game/public/music is committed (28 MB); keep additions small
 
 # Firebase Admin SDK keys (FEAT-273): never committed
