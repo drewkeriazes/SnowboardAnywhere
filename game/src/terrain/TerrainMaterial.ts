@@ -156,6 +156,9 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     uForestDrawn: { value: 0.7 },
     /** BUG-081: where the generated stems stop (Vegetation, set by Terrain.update); past it uForestDrawn rises to FOREST_DRAWN_FAR */
     uStemReach: { value: 1e8 },
+    /** FEAT-292: the clump impostors' band (where they take over from the drawn trees, the fade's half-width, the share
+     *  of the canopy they cover, 1 = on); set by Terrain.update */
+    uClump: { value: new THREE.Vector4(0, 0, 0, 0) },
     /** BUG-121: where the drawn trees end (m, horizontal, from where they start to go to none), so the shade map's shadows of the trees past it go with them */
     uTreeEnd: { value: new THREE.Vector2(1e8, 1e8 + 1) },
     uCanopySun: { value: 0.22 },
@@ -222,6 +225,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         uniform float uWrap, uGlint, uFlat, uAO;
         uniform vec4 uDebugFar;
         uniform float uForestDrawn, uCanopySun, uLiftNear, uTimberMix, uStemReach;
+        uniform vec4 uClump;
         uniform vec2 uTreeEnd;
         uniform vec4 uTreeRect;
         #define AO_POW 2.6
@@ -531,6 +535,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         // carry nearly all the canopy there, and the ground no longer lays a flat timber tone between them
         float rho = mix(uForestDrawn, ${FOREST_DRAWN_FAR.toFixed(2)}, smoothstep(uStemReach, uStemReach * 1.5, dist))
           * treeHere * (1.0 - smoothstep(uLiftNear - 800.0, uLiftNear, dist));
+        // FEAT-292: past the drawn trees the clump impostors carry the canopy, inside the pack's trees or not
+        if (uClump.w > 0.5) rho = mix(rho, uClump.z, smoothstep(uClump.x - uClump.y, uClump.x + uClump.y, dist) * (1.0 - smoothstep(uLiftNear - 800.0, uLiftNear, dist)));
         float sK = min(forestK, 0.999);
         float seen = 1.0 - pow((1.0 - sK) / (1.0 - rho * sK), (1.0 + TREE_ASPECT * sqrt(1.0 - viewMu * viewMu)) / viewMu);
         float fd = mix(1.0, smoothstep(FOREST_NEAR, FOREST_FULL, dist), treeHere) * seen;

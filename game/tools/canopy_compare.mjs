@@ -3,12 +3,12 @@
 // node tools/canopy_compare.mjs <pack> <outDir> [--views tools/canopy-views.json] [--presets high,medium,low]
 //   [--times 12,7.6] [--sizes 1920x1080,2560x1440] [--only view,view] [--weather clear] [--frames 30] [--no-shots] [--gpu | --headed]
 //   (after `npx vite build`; SHOT_DIST=<dist> serves another build, SHOT_PACKS=<dir> another packs folder,
-//    SHOT_QUERY="&canopy=shell" adds URL parameters, e.g. a candidate's flag)
+//    SHOT_QUERY="&noclumps" adds URL parameters: FEAT-292's clump impostors off, the far forest as before them)
 // Writes <outDir>/<preset>/<view>-<time>h-<W>x<H>.png and <outDir>/stats.json, and prints per still: the GPU-synced
 // frame time (median of --frames frames, each finished with a readPixels), draw calls and triangles, the trees'
 // share of both (the same frame with the tree group hidden), and an estimate of the scene's GPU memory (every
-// geometry's buffers and every texture's pixels reachable from the scene, counted once). A candidate can publish
-// its own numbers on window.__canopy (for example { buildMs, tiles, bytes }): they are copied into the stats.
+// geometry's buffers and every texture's pixels reachable from the scene, counted once). The clump impostors' own
+// numbers (Vegetation.clumps.stats: bake and placement ms, clumps drawn, bytes) are copied into the stats.
 // Auto quality is off and the preset's fields are seeded into the saved settings before the page loads, so every
 // build is shot at the same settings; the weather is forced (default clear) so the light matches.
 import { launchBrowser } from './browser.mjs';
@@ -66,7 +66,7 @@ const settle = async (page) => {
       const s = window.__sim, p = s.pack;
       const pend = [p.fine, p.mid, p.far, p.mask].reduce((n, t) => n + (t?.pending?.size ?? 0), 0);
       const veg = [...(s.veg.cells?.values?.() ?? [])].filter((c) => c.loading).length;
-      return pend + veg + s.terrain.stats.builds + (window.__canopy?.busy ?? 0);
+      return pend + veg + s.terrain.stats.builds + (s.veg.clumps?.busy ?? 0);
     });
     quiet = busy === 0 ? quiet + 1 : 0;
   }
@@ -154,7 +154,7 @@ const measure = (page) => page.evaluate((frames) => {
     ms: r2(all.ms), calls: all.calls, trisM: r2(all.tris / 1e6),
     treeMs: noTrees ? r2(all.ms - noTrees.ms) : null, treeCalls: noTrees ? all.calls - noTrees.calls : null, treeTrisM: noTrees ? r2((all.tris - noTrees.tris) / 1e6) : null,
     geoMB: r2(geo / 2 ** 20), texMB: r2(tex / 2 ** 20), programs: r.info.programs?.length ?? null,
-    canopy: window.__canopy ? JSON.parse(JSON.stringify({ ...window.__canopy, busy: undefined })) : null,
+    canopy: s.veg.clumps ? { ...s.veg.clumps.stats, conservative: s.veg.clumps.conservative } : null,
   };
 }, frames);
 
@@ -183,7 +183,7 @@ for (const preset of presets) {
   fs.mkdirSync(out, { recursive: true });
   all[preset] ??= {};
   all[preset].loadMs = loadMs;
-  all[preset].canopyAtLoad = await page.evaluate(() => (window.__canopy ? JSON.parse(JSON.stringify(window.__canopy)) : null));
+  all[preset].canopyAtLoad = await page.evaluate(() => (window.__sim.veg.clumps ? { ...window.__sim.veg.clumps.stats } : null));
   console.log(`${preset}: loaded in ${loadMs} ms${all[preset].canopyAtLoad ? ` canopy ${JSON.stringify(all[preset].canopyAtLoad)}` : ''}`);
   for (const [w, h] of sizes) {
     await page.setViewportSize({ width: w, height: h });

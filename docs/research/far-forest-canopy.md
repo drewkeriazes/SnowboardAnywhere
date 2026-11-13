@@ -14,6 +14,39 @@ Numbers against `main` (1080p, ground / aerial; two alternating passes per build
 
 What the build card has to add (from the prototype's gaps, below): more than one species mix (one conifer stand today; species per cell from MapPacker would allow mixed stands); conservative depth so the cards keep early-Z (`gl_FragDepth` today); the bake off the load path (90 to 140 ms, synchronous); the dawn tone (still darker than High's warm-lit crowns); a slightly greener, smoother look than High's impostors past 2.5 km on High; the reach on Low and Medium (6 km; 9 km keeps the furthest ridges textured at dawn for about +0.5 ms on Low); a check of the handover and runtime setting changes in a real ride; render-budget and synth-pack coverage. Related next step, not part of this card: precomputed mountain shading at low sun (FEAT-290, #639).
 
+## Built (FEAT-292)
+
+The pick is on `main`'s path as FEAT-292 ([#641](https://github.com/drewkeriazes/SnowboardAnywhere/issues/641)): `game/src/world/trees/clumps.ts`, on by default on every pack with cover levels, `?noclumps` for the far forest as before. How it works is in `docs/developer-guide.md` (Far forest). What changed from the prototype, against the gaps listed under Recommendation:
+
+- **Depth.** The card is rasterised on the camera side of everything its texels hold and the fragment depth only moves away (`EXT_conservative_depth`), so the early depth test still rejects a card behind a ridge. The clumps' own cost from the snow fell from about +0.7 ms to +0.3 ms on Low (9 km of them costs less than the prototype's 6 km did). The extension is there on ANGLE D3D11 and on SwiftShader; without it the old path runs.
+- **Reach.** 9 km on every preset: about 0.1 ms more than 6 km from the snow and 0.2 ms from the air.
+- **The bake** runs as steps behind the loading screen: about 45 ms of work over 11 to 16 frames at the loading screen's budget, the worst step 8 to 13 ms, then the 285 blocks' placement at most 5 ms a frame, all inside 0.7 s. The first step also compiles the three bake shaders (45 to 115 ms once).
+- **Species.** The stand patches are built from the pack's own mix (`meta.vegetation`): Vail 34% spruce, 33% fir, 24% lodgepole, 10% aspen; Ohio Hills 90% bare hardwood, 10% hemlock. One mix per pack; a stand type per cell is MapPacker's FEAT-295 (MapPacker#102).
+- **The dawn tone, and High's look.** The cause was the lighting, not the tint: where the atlas is minified its normals average to straight up, so a far stand was lit like flat ground and lost 43% of its light from noon to dawn where `main` High's trees lose 20%. The crown dither now gives each far pixel a crown: a tapered cell on the card with a crown's roundness (a lit and a shaded side), its own tone and snow, doubling in size with distance so it stays over 2 px wide. Low, Medium and High now track `main` High from noon to dawn: the forest's mean brightness in the four views is within 1 to 14% of `main` High's (the aerial at noon is the 14%), and its texture (mean step between neighbouring pixels) is 85 to 145% of it, where `main` Low had 6 to 30%. The prototype's fade of the dither under 2 px is gone with the growing cells.
+- **Packs without crowns** place from a cover level's forest share, as the prototype did; checked on Crystal Mountain (Silver trees). A pack with no cover levels has no clumps.
+- **Checks.** `tools/clumpcheck.mjs` (in CI's browser checks) and, so CI draws the clumps at all, cover levels in the synthetic pack (MapPacker's FEAT-294, MapPacker#101).
+
+Numbers on Vail, RTX 2070 SUPER, 1080p, the four views at noon and 7.6 h, against the same build with `?noclumps` (`tools/gpu_ab.mjs`: the GPU was shared with another session, so it takes a low percentile of interleaved bursts):
+
+| | GPU ms, mean of 8 | from the snow | from the air | tree draw calls (aerial) | geometry |
+|---|---|---|---|---|---|
+| High | 11.65 to 10.98 (-0.66) | -0.2 to -0.9 | -1.2 | 96 to 31 | 279 to 240 MB |
+| Medium | 10.45 to 10.56 (+0.11) | +0.1 to +0.2 | +0.2 | 50 to 23 | 217 to 205 MB |
+| Low | 9.39 to 10.20 (+0.81) | +0.4 to +0.9 | +1.4 | 15 to 16 | +3 MB |
+
+Low is inside the card's 1 ms from the snow and over it from the air, where forest fills the frame. "From the air" here, and in every aerial still and number in this document, is 200 m over the snow, not the 700 m `canopy-views.json` asks for: the eye camera clamps its height to 200 m (BUG-126, #650). The clumps have not been judged or timed from higher up. The atlases are 24 MB on every preset. Ride clip down The Slot (`canopy_clip.mjs`), flicker and pops: Low 4.39 and 53 (`main` 3.86 and 75; top-left third 5 against 19), High 4.73 and 57 (`main` 4.89 and 58). Low's flicker is above the prototype's 3.96 because the far forest has texture again; it stays under `main` High's, which is the look it now matches.
+
+Each grid: `main` and FEAT-292, High above and Low below.
+
+| View | Noon | Low sun (7.6 h) |
+|---|---|---|
+| The Slot corner | ![](../screenshots/far-forest-clumps/slot-corner-12h.jpg) | ![](../screenshots/far-forest-clumps/slot-corner-7.6h.jpg) |
+| Below the sign | ![](../screenshots/far-forest-clumps/sign-sunup-12h.jpg) | ![](../screenshots/far-forest-clumps/sign-sunup-7.6h.jpg) |
+| Lower toward Sun Up | ![](../screenshots/far-forest-clumps/lower-sunup-12h.jpg) | ![](../screenshots/far-forest-clumps/lower-sunup-7.6h.jpg) |
+| Aerial | ![](../screenshots/far-forest-clumps/aerial-12h.jpg) | ![](../screenshots/far-forest-clumps/aerial-7.6h.jpg) |
+
+Still open: from the air at noon the far forest is about 14% darker than `main` High's; the stands are rounder than High's grown spires up close to the handover; on a bare hardwood pack the ground under the far crowns keeps the conifer timber tone (FEAT-254, #581); the first bake step compiles its shaders in one frame.
+
 ## The problem
 
 At mid distance dense forest reads as flat dark blotches. Thick forest doesn't remove the snow under it; it hides it behind crowns. Past the drawn trees the terrain paints forested ground a flat `timber` colour (`TerrainMaterial.ts`), which has no height, no uneven crown tops and no white between them. On High (Trees and Forest 100%, about 2.1M trees) it looks right, because the trees do the hiding. The Low preset draws trees only to 600 m (`setVegetationBudget(250, 600, false)`), so everything past that is the flat colour: the stills below show it as a navy slab with the ski trails cut into it. Medium scales the reach by 0.6 and looks close to High in these views.

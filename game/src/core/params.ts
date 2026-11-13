@@ -50,6 +50,11 @@ export interface Params {
   nomoguls: boolean;
   /** FEAT-159: one snowpack depth everywhere (m) for burying the shrubs, instead of the season's */
   snowdepth: number | null;
+  /** FEAT-292 ?noclumps: no clump impostors; the far forest as before them (per-tree impostors to their far edge, the
+   *  ground's flat timber past it), for a before / after */
+  noclumps: boolean;
+  /** FEAT-292 ?clumpfar=<m>: how far the clump impostors reach at least (default 9000) */
+  clumpfar: number | null;
 }
 
 export function parseParams(search: string, hosted = !!(import.meta.env.VITE_HOST_NAME || import.meta.env.VITE_HOSTED)): Params {
@@ -85,5 +90,7 @@ export function parseParams(search: string, hosted = !!(import.meta.env.VITE_HOS
     nocsm: p.has('nocsm'),
     nomoguls: p.has('nomoguls'),
     snowdepth: num('snowdepth'),
+    noclumps: p.has('noclumps'),
+    clumpfar: num('clumpfar'),
   };
 }

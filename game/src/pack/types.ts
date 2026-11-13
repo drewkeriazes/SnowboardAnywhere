@@ -105,6 +105,10 @@ export interface PackMeta {
   instances?: InstancesMeta;
   /** DATA-020: 2 = tree species ids 0..7, FEAT-233: 3 = 0..9 (see MapPacker's docs/pack-format.md); absent = 0..2 */
   treeSpecies?: number;
+  /** what the pipeline's species pass found (a log): the share of the pack's trees per species name (MapPacker
+   *  pipeline/species.py SPECIES_NAMES), the same for the far tree ring, and the region. FEAT-292 builds the far
+   *  forest's stands from the shares; absent in older packs */
+  vegetation?: { region?: string; treeSpecies?: Record<string, number>; farTreeSpecies?: Record<string, number> };
   /** FEAT-074: stand density per 4 m cell (stands/<cx>_<cy>.png per tree cell); absent in older packs */
   stands?: StandsMeta;
   /**
