@@ -78,6 +78,9 @@ try {
   answer = () => ({ code: 1, stdout: '', stderr: 'Traceback...\nsearch: cannot read the OpenSkiData ski areas index: offline\n' });
   r = await req('GET', '/api/resorts/search?q=boston', { token: 'tok-drew' }); calls.length = 0;
   ok(r.status === 502 && r.json?.error === 'search: cannot read the OpenSkiData ski areas index: offline', 'resort.py failing: 502 with its last stderr line');
+  answer = () => ({ code: 2, stdout: '', stderr: "usage: resort.py [-h] {resolve,plan,compare,add} ...\nresort.py: error: argument cmd: invalid choice: 'search' (choose from resolve, plan, compare, add)\n" });
+  r = await req('GET', '/api/resorts/search?q=boston', { token: 'tok-drew' }); calls.length = 0;
+  ok(r.status === 502 && r.json?.error === `The MapPacker clone at ${mp} has no resort search yet: pull its main.`, 'a clone with no search command (older than FEAT-279): 502 naming the clone and the pull (BUG-119)');
   answer = () => ({ code: 0, stdout: 'usage: resort.py [-h] {resolve,plan,compare,add} ...', stderr: '' });
   r = await req('GET', '/api/resorts/search?q=boston', { token: 'tok-drew' }); calls.length = 0;
   ok(r.status === 502 && /FEAT-279/.test(r.json?.error), 'an answer that is not the search JSON (a clone older than FEAT-279): 502');
