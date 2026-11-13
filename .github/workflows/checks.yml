@@ -15,7 +15,8 @@
 #   The synthetic pack is downloaded, not built (FEAT-241): MapPacker publishes it as release synth-v<N>
 #   (`publish_pack.py --synth` there). The pipeline itself lives in MapPacker (EPIC-16) and runs its own checks.
 #   repo-rules        no em dashes in added Markdown, plain commit messages,         always
-#                     docs-travel warning, stale main menu still warning (FEAT-177)
+#                     docs-travel warning, stale main menu still warning (FEAT-177),
+#                     the tools/ helpers' Python tests (tools/test_*.py, BUG-122)
 #   public-guards     no Spotify code, no .env files, images <= 1 MB in the right    always
 #                     folders, gitleaks on the PR's commits
 #
@@ -463,6 +464,16 @@ jobs:
           fi
           base=${{ github.event_name == 'push' && github.event.before || format('origin/{0}', github.base_ref || 'main') }}
           node game/tools/attract_look.mjs --check --base "$base" || echo "::warning::attract_look.mjs --check exited $?; the main menu still check did not run."
+      # BUG-122: the tools/ helpers' own tests (standard library, card_id.py's run on a fake gh, no network).
+      # A branch cut before tools/test_card_id.py has none to run.
+      - name: Tools tests
+        if: always()
+        run: |
+          if ! ls tools/test_*.py > /dev/null 2>&1; then
+            echo "::notice::No tools/test_*.py on this branch."
+            exit 0
+          fi
+          python -m unittest discover -s tools -p 'test_*.py' -v
 
   public-guards:
     runs-on: ubuntu-latest
