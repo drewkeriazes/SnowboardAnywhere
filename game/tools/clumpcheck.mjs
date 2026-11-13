@@ -6,7 +6,8 @@
 //   - the handover has no hole and no double forest: the tree impostors dissolve out where the clumps dissolve in, no
 //     tree cell is loaded past it, and the terrain's canopy lift starts where the clumps end
 //   - the stands are built from the pack's own species (meta.vegetation) and the shares add up
-//   - a change to High (Settings > Graphics > Apply) moves the band at once: every clump it needs is already placed
+//   - the presets (BUG-130): High keeps its own far trees and draws no clumps, on Medium the clumps dissolve in over the
+//     trees' own end, and back on Low they return with every clump already placed
 // node tools/clumpcheck.mjs [pack] [--headed | --gpu | --cpu]   (run after `npx vite build`; exit 1 on a failed check)
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
@@ -130,17 +131,26 @@ if (!info.cover) {
   });
   check('the clump material compiles', shaderMsgs.length === 0, `${st.conservative ? 'conservative depth' : 'plain gl_FragDepth (no EXT_conservative_depth here)'}${other.flipped ? ' and the other path' : ''}${shaderMsgs.length ? `: ${shaderMsgs[0]}` : ''}`);
 
-  // Settings > Graphics > Apply to High: the band moves out with the trees, and nothing is left to place
-  const hi = await page.evaluate(() => {
-    const s = window.__sim, c = s.veg.clumps, before = { near: c.band.value.y, packs: c.stats.packs, blocks: c.stats.blocks };
-    Object.assign(s.settings, { quality: 'high', treeDensity: 1, forestDensity: 1 });
+  // Settings > Graphics > Apply (BUG-130). High: the per-tree trees reach as far as the clumps would, so there are none
+  // and the trees end as without them. Medium: the trees keep their own end and the clumps dissolve in over it. Back
+  // to Low: the clumps return with nothing left to place.
+  const preset = (q, trees) => page.evaluate(({ q, trees }) => {
+    const s = window.__sim, c = s.veg.clumps;
+    Object.assign(s.settings, { quality: q, treeDensity: trees, forestDensity: trees });
     s.applySettings('quality');
     const cp = s.cam.camera.position;
     s.veg.update(s.rider.x, s.rider.y, s.rider.x, s.rider.y, cp);
-    return { before, near: c.band.value.y, busy: c.busy, packs: c.stats.packs, blocks: c.stats.blocks, imp: s.veg.kit.bands.imp.value.toArray(), band: c.band.value.toArray() };
-  });
-  check('a change to High moves the handover out', hi.near > hi.before.near + 500 && Math.abs(hi.imp[3] - hi.band[1]) < 0.5, `handover ends ${hi.before.near.toFixed(0)} m on Low, ${hi.near.toFixed(0)} m on High`);
-  check('and finds every clump placed', hi.busy === 0 && hi.blocks === hi.before.blocks && hi.packs === hi.before.packs + 1, `${hi.busy} blocks to place, one repack`);
+    s.terrain.update(cp.x, -cp.z, cp.y);
+    const u = s.terrain.material.userData.uniforms;
+    return { visible: c.mesh.visible, busy: c.busy, pending: s.veg.pending, band: c.band.value.toArray(), imp: s.veg.kit.bands.imp.value.toArray(), uClump: u.uClump.value.w, treeEnd: u.uTreeEnd.value.toArray(), count: c.mesh.geometry.instanceCount };
+  }, { q, trees });
+  const hi = await preset('high', 1);
+  check('High keeps its own far trees: no clumps', !hi.visible && hi.uClump === 0 && hi.imp[2] > 1e7 && hi.treeEnd[1] > 9000, `clumps hidden, trees end ${hi.treeEnd.map((v) => v.toFixed(0)).join('..')} m`);
+  const med = await preset('medium', 0.6);
+  check('Medium: clumps dissolve in over the end of its own trees', med.uClump === 1 && med.imp[2] > 1e7 && Math.abs(med.band[0] - med.treeEnd[0]) < 0.5 && Math.abs(med.band[1] - med.treeEnd[1]) < 0.5 && med.band[3] >= 9000 - 0.5,
+    `trees end ${med.treeEnd.map((v) => v.toFixed(0)).join('..')} m, clumps in ${med.band[0].toFixed(0)}..${med.band[1].toFixed(0)} m, out by ${med.band[3].toFixed(0)} m`);
+  const lo = await preset('low', 0.3);
+  check('back on Low the clumps return with nothing left to place', lo.visible && lo.busy === 0 && lo.count > 0 && Math.abs(lo.imp[3] - lo.band[1]) < 0.5, `${lo.count} clumps, handover ends ${lo.band[1].toFixed(0)} m`);
 }
 check('no page errors', errors.length === 0, errors[0] ?? '');
 await browser.close();

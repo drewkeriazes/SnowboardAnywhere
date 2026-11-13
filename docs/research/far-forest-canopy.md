@@ -16,6 +16,8 @@ What the build card has to add (from the prototype's gaps, below): more than one
 
 ## Built (FEAT-292)
 
+**Changed after Drew rode it (BUG-130, #655; BUG-127, #652):** the clumps now take over from the trees only on the Low preset. On High the far forest is drawn as before FEAT-292 (no clumps), and on Medium the clumps only fill in past the trees' own end (about 5 km out). At the game's 68 degree camera High's own far trees (tall separate spires, a spiky skyline) looked better than the clumps' smoother canopy; the stills and numbers below were taken at 50 degrees with no new snow and understated that, and the High and Medium rows of the table no longer apply (both now cost what `main` did before, plus Medium's far band). The clumps also stayed dark under fresh snow, fixed in BUG-127.
+
 The pick is on `main`'s path as FEAT-292 ([#641](https://github.com/drewkeriazes/SnowboardAnywhere/issues/641)): `game/src/world/trees/clumps.ts`, on by default on every pack with cover levels, `?noclumps` for the far forest as before. How it works is in `docs/developer-guide.md` (Far forest). What changed from the prototype, against the gaps listed under Recommendation:
 
 - **Depth.** The card is rasterised on the camera side of everything its texels hold and the fragment depth only moves away (`EXT_conservative_depth`), so the early depth test still rejects a card behind a ridge. The clumps' own cost from the snow fell from about +0.7 ms to +0.3 ms on Low (9 km of them costs less than the prototype's 6 km did). The extension is there on ANGLE D3D11 and on SwiftShader; without it the old path runs.
