@@ -9,7 +9,7 @@
 // and "tuck" (ArrowUp held). Per window: frame interval median / p95 / p99 / max and frames over 33 ms; main-thread
 // time per frame (the game's requestAnimationFrame callbacks) and its share per system (terrain, trees, render
 // submit, ...: their methods on window.__sim timed in place); draw calls, triangles, chunks, tree instances, JS heap.
-// Auto quality is turned off for the run, so the settings stay at their defaults (high) throughout.
+// The frame cap is turned off for the run (the settings stay at their defaults, high), so the interval is what the GPU allows.
 // Slow frames (over 33 ms) are matched against what changed in them: new shader programs, geometries, textures, tree
 // repacks and cells, decoded tiles, terrain builds. --ablate then poses the eye camera at the spot and times the frame
 // with each scene group hidden in turn, and without the shadow map pass (the cost of each, GPU included).
@@ -57,7 +57,7 @@ await page.goto(`http://localhost:${server.address().port}/index.html?pack=${pac
 await page.waitForFunction(() => window.__sim && window.__sim.state === 'attract', null, { timeout: 180000 });
 page.setDefaultTimeout(300000);
 const gpu = await page.evaluate(() => { const gl = window.__sim.renderer.getContext(), e = gl.getExtension('WEBGL_debug_renderer_info'); return e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : ''; });
-await page.evaluate(() => { window.__sim.settings.autoQuality = false; });
+await page.evaluate(() => { window.__sim.settings.targetFps = 0; });
 // the menu's focused Ride button
 await page.keyboard.press('Enter');
 await page.waitForFunction(() => window.__sim.state === 'riding', null, { timeout: 120000 });
@@ -196,7 +196,7 @@ if (cdp) {
 }
 
 const f = (v) => v.toFixed(1);
-console.log(`GPU: ${gpu}, 1920 x 1080, ${vsync ? 'vsync on' : 'vsync and frame cap off'}, auto quality off`);
+console.log(`GPU: ${gpu}, 1920 x 1080, ${vsync ? 'vsync on' : 'vsync and frame cap off'}, game frame cap off`);
 for (const [label, r] of [['stand', stand], ['tuck', tuck]]) {
   console.log(`${label}: ${r.frames} frames, frame ms median ${f(r.frame.median)}, p95 ${f(r.frame.p95)}, p99 ${f(r.frame.p99)}, max ${f(r.frame.max)}, over 33 ms ${r.over33}; main thread median ${f(r.cpu.median)}, p95 ${f(r.cpu.p95)}, max ${f(r.cpu.max)}`);
   console.log(`  per frame (mean ms): ${Object.entries(r.sysPerFrame).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}`);

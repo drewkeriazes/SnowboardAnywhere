@@ -73,6 +73,8 @@ No pack rebuild: the `moguls` tiles are now read as field strength (0..1) and th
 
 ## 2026-11-08: adaptive quality (FEAT-062)
 
+Removed 2026-11-13 (FEAT-284, #626): it changed resolution, trees, clouds and snow on its own mid-run, which read as unsteady and was a suspect in BUG-114. The settings the player picks are what renders; `targetFps` (Settings > Graphics > Frame cap: 30, 60 or Uncapped) is a plain cap in `core/GameLoop.ts`, and old saves drop `autoQuality` on load. The note below is the history.
+
 `game/src/ui/AutoQuality.ts` holds the target frame rate by stepping through five cumulative levels (render resolution, cloud steps one preset lower, tree density, snowfall), cheapest visual loss first. It steps down after 2 s below 92% of the target and tries back up after 8 s at target, with a doubling wait (up to 2 min) if the step back up relapses. `main.ts` applies the level in `applySettings` and `applyAuto`. New settings: Auto quality (`autoQuality`, on by default) and Target FPS (`targetFps`: 30, 60 or 0 = uncapped; auto quality aims for 60 when it is 0; 30 also skips display frames). The HUD stats line shows the current level text from `auto.describe()` whenever the level is above 0. Not yet tuned by hand on the real GPU: the thresholds and `LEVELS` are the first things to play with.
 
 ## 2026-11-07: ollie and nollie body (FEAT-125)

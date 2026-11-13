@@ -39,8 +39,8 @@ export interface Settings {
   forestDensity: number;
   pixelRatio: number; // 0.5 .. 2 (capped by the device)
   fov: number; // base chase FOV, 50 .. 100
-  /** FEAT-062: adaptive quality on, and the frame rate it holds (30, 60 or 0 = uncapped; main.ts makes auto quality aim for 60 when it is 0) */
-  autoQuality: boolean; targetFps: number;
+  /** the frame cap (30, 60 or 0 = the display's rate; FEAT-284) */
+  targetFps: number;
   /** FEAT-045 speed feel, each can be turned off: FOV widening with speed, camera rumble and landing shake, speed lines */
   speedFov: boolean; camShake: boolean; speedLines: boolean;
   invertSteer: boolean;
@@ -162,7 +162,7 @@ export function migrateKeys(raw: Record<string, unknown> | undefined): { keys: R
 
 const DEFAULTS: Settings = {
   v: 1, sfx: 0.8, music: 0.5, mute: false, musicSource: 'files', playlist: 'Lofi hip-hop', playlistDefault: 2, quality: 'high', shadows: true, csmExperimental: false, clouds: 'scattered', valleyFog: false, newSnow: 'none', snowDay: 'mid', snowDeform: true, treeDensity: 1, forestDensity: 1, pixelRatio: Math.min(2, window.devicePixelRatio || 1),
-  fov: 68, autoQuality: true, targetFps: 60, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', seeThroughTrees: true, fpVignette: true, goggleStrength: 0.6, goggleLens: 'rose', lensStrength: 1, fpShake: 0.3, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, pressBalance: 'on', outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', stance: 'regular', fallLine: 'real', timeOfDay: 'pack', month: 2, units: 'imperial', keys: migrateKeys(undefined).keys,
+  fov: 68, targetFps: 60, speedFov: true, camShake: true, speedLines: true, invertSteer: false, camera: 'chase', seeThroughTrees: true, fpVignette: true, goggleStrength: 0.6, goggleLens: 'rose', lensStrength: 1, fpShake: 0.3, showMarkers: true, showLabels: true, roadsOnSnow: false, liftLines: true, timeTrials: false, pressBalance: 'on', outfit: { ...OUTFIT_PRESETS['Classic red'] }, discipline: 'board', stance: 'regular', fallLine: 'real', timeOfDay: 'pack', month: 2, units: 'imperial', keys: migrateKeys(undefined).keys,
   outrun: { difficulty: 'normal', escape: 'base', gentle: false },
   padKeys: migratePadKeys(undefined), rumble: true, vibration: 0.8, padDead: 0.18, padTrigDead: 0.3, lookSens: 1, invertLookY: false,
   padTriggers: false, padLightbar: true, padGyro: false, gyroSens: 1,
@@ -180,6 +180,7 @@ export function loadSettings(): Settings {
       if (raw.playlist === 'Hip-hop') raw.playlist = 'Lofi hip-hop';
       // saves from before the Lofi hip-hop default carry the old Ska-punk default: switch them once
       if (raw.playlistDefault !== 2) { if (raw.playlist === 'Ska-punk') raw.playlist = 'Lofi hip-hop'; raw.playlistDefault = 2; }
+      delete raw.autoQuality; // FEAT-284: auto quality is gone; old saves drop the field
       const mk = migrateKeys(raw.keys);
       return { ...DEFAULTS, ...raw, keys: mk.keys, keysNote: raw.keysNote ?? (mk.custom ? true : undefined), padKeys: migratePadKeys(raw.padKeys), outfit: { ...DEFAULTS.outfit, ...(raw.outfit ?? {}) }, outrun: { ...DEFAULTS.outrun, ...(raw.outrun ?? {}) } };
     }

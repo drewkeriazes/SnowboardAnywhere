@@ -1,5 +1,5 @@
 /**
- * FEAT-160: the frame loop. requestAnimationFrame, the 30 fps cap (FEAT-062) and the headless hooks the
+ * FEAT-160: the frame loop. requestAnimationFrame, the frame cap (FEAT-062, FEAT-284) and the headless hooks the
  * test tools drive (window.__step, window.__shot). It knows nothing about snowboarding: each frame it
  * hands the session a dt. The rider's own 1/120 s fixed steps and interpolation live in sim/Rider.ts.
  */
@@ -8,7 +8,7 @@ export interface LoopHooks {
   everyFrame(): void;
   /** one drawn frame; `stepped` is true under window.__step (an exact dt from a test tool) */
   tick(dt: number, stepped: boolean): void;
-  /** the frame rate to hold, 30 for the cap, anything else for the display's rate */
+  /** the frame cap in frames per second; 0 draws at the display's rate */
   targetFps(): number;
 }
 
@@ -44,12 +44,15 @@ export class GameLoop {
     if (!this.running) return;
     this.hooks.everyFrame();
     const now = performance.now();
-    // FEAT-062: a 30 fps target skips display frames (a millisecond of slack for timer jitter)
-    // against a running deadline so the average hits 30 even when the refresh rate does not divide evenly (75, 100 Hz)
-    const capped = !this.headless && !this.fixedDt && this.hooks.targetFps() === 30;
-    if (capped && now < this.lastDraw - 1) { requestAnimationFrame(this.frame); return; }
+    // FEAT-062, FEAT-284: a frame cap below the refresh rate skips display frames against a running deadline, so the
+    // average hits the cap even when the refresh rate does not divide evenly (75, 100, 144 Hz). The slack (up to 4 ms)
+    // absorbs timer jitter, so a 60 cap on a 60 Hz display never drops a frame.
+    const target = this.hooks.targetFps();
+    const capped = !this.headless && !this.fixedDt && target > 0;
+    const interval = capped ? 1000 / target : 0;
+    if (capped && now < this.lastDraw - Math.min(4, interval / 4)) { requestAnimationFrame(this.frame); return; }
     // lastDraw holds the next deadline; reset it to now if we fell more than a frame behind
-    this.lastDraw = capped ? (now - this.lastDraw > 1000 / 30 ? now : this.lastDraw) + 1000 / 30 : now;
+    this.lastDraw = capped ? (now - this.lastDraw > interval ? now : this.lastDraw) + interval : now;
     const dt = this.fixedDt ?? Math.min(MAX_DT, (now - this.last) / 1000);
     this.last = now;
     this.hooks.tick(dt, this.fixedDt !== null);

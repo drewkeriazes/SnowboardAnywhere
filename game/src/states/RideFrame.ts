@@ -21,7 +21,6 @@ import type { ChaseCamera } from '../world/ChaseCamera';
 import type { SunClock } from '../world/SunClock';
 import type { CloudCover } from '../world/Clouds';
 import type { GoggleView } from '../ui/GoggleView';
-import type { AutoQuality } from '../ui/AutoQuality';
 import type { RunCard } from '../ui/RunCard';
 import type { SpeedLines } from '../ui/SpeedLines';
 import type { ResortMap } from '../ui/ResortMap';
@@ -92,13 +91,11 @@ export interface RideParts extends World {
   goggles: GoggleView; lens: GoggleLens; runStats: RunStats; runCard: RunCard; speedLines: SpeedLines; replay: Replay;
   /** FEAT-164: Free ride, Time trial, Outrun */
   modes: Modes; map: ResortMap; labels: Labels; sun: SunClock;
-  auto: AutoQuality; keyLabels: KeyLabels; pressMeter: PressMeter; fps: FpsMeter; sky: SkyState;
+  keyLabels: KeyLabels; pressMeter: PressMeter; fps: FpsMeter; sky: SkyState;
   /** FEAT-177: the conditions drawn (the main menu shot's while it holds them, else the settings) */
   conditions(): Conditions;
   /** mouse movement to hand to the cameras this frame (px); the right stick and the gyro add to it */
   look: { dx: number; dy: number };
-  /** re-apply what the adaptive quality level scales */
-  applyAuto(): void;
   /** the main render (with the first-person body pass and the lens) */
   draw(): void;
   showToast(text: string, ms?: number): void;
@@ -160,10 +157,8 @@ export class RideFrame {
 
   /** Everything but the render, in order. */
   update(dt: number, stepped: boolean, plan: FramePlan): void {
-    const { params, settings, auto, touch, cam } = this.p;
+    const { touch, cam } = this.p;
     this.dt = dt;
-    // 1. FEAT-062: feed the frame time; a level change re-applies the scaled settings
-    if (!params.headless && !stepped && auto.frame(dt, settings.autoQuality ? (settings.targetFps || 60) : 0)) this.p.applyAuto();
     touch?.setVisible(plan.touch);
     this.elapsed += dt;
     this.boardMsgT -= dt;
@@ -187,7 +182,7 @@ export class RideFrame {
 
   /** The render, then the frame closed: the P-key shot, the input frame, the replayed pose undone, the frame rate, the HUD line. */
   draw(): void {
-    const { canvas, controls, replay, rider, fps, settings, runStats, terrain, veg, cam, auto, params } = this.p;
+    const { canvas, controls, replay, rider, fps, settings, runStats, terrain, veg, cam, params } = this.p;
     this.p.draw();
     // the drawing buffer is only readable in the same task as the render
     if (this.shotPending) { this.shotPending = false; this.p.saveShot(canvas.toDataURL('image/png'), canvas.toDataURL('image/jpeg', 0.9)); }
@@ -196,7 +191,7 @@ export class RideFrame {
     fps.tick(this.dt);
     this.hud.innerHTML = hudLine({
       rider, runStats, metric: settings.units === 'metric', fps: fps.fps, chunks: terrain.stats.chunks, triangles: terrain.stats.triangles, trees: veg.stats.instances,
-      camMode: cam.mode, auto: auto.level ? auto.describe() : '', debug: params.debugHud,
+      camMode: cam.mode, debug: params.debugHud,
     });
   }
 
