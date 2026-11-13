@@ -33,7 +33,9 @@ export const BUILD_WORKFLOW = 'build-pack.yml';
 
 // the shapes MapPacker's tools/ci/build_pack_ci.py check_inputs accepts (FEAT-245); the workflow checks again
 export const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-export const OSM_RE = /^((way|relation)\/)?[1-9][0-9]{0,15}$/;
+/** MapPacker's build_pack_ci.py OSM_RE: an OSM way or relation, or (MapPacker FEAT-286) `skimap/<n>` for a ski area
+ *  OpenSkiData knows only from Skimap.org, as Beaver Creek */
+export const OSM_RE = /^((way|relation|skimap)\/)?[1-9][0-9]{0,15}$/;
 export const REQUESTED_BY_RE = /^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$/;
 export const MAX_SLUG = 60;
 export const MAX_NAME = 100;
@@ -100,7 +102,7 @@ export function buildInputError(b) {
   const s = slug.trim(), n = name.trim(), o = osm.trim();
   if (!SLUG_RE.test(s) || s.length > MAX_SLUG) return `slug is not lower-case letters, digits and single hyphens (at most ${MAX_SLUG})`;
   if (!n || n.length > MAX_NAME || /[\u0000-\u001f\u007f]/.test(n) || n.startsWith('-')) return `name is empty, longer than ${MAX_NAME} characters, has control characters or starts with -`;
-  if (!OSM_RE.test(o)) return 'osm_id is not an OSM id (123, way/123 or relation/123)';
+  if (!OSM_RE.test(o)) return 'osm_id is not an OSM or Skimap.org id (123, way/123, relation/123 or skimap/123)';
   return null;
 }
 
