@@ -187,6 +187,8 @@ const DITHER = knob('clumpdither', 1);
 const CROWN_CELL = knob('clumpcell', 4.5);
 /** FEAT-278 refine: how white a snowy crown draws in the dither (its chance scales so the mean holds) */
 const SNOW_PEAK = knob('clumpspeak', 0.4);
+/** FEAT-278 refine: the dither fades out as a crown cell shrinks from DITHER_PX1 to DITHER_PX0 pixels (0, 0: never) */
+const DITHER_PX0 = knob('clumpdpx0', 1.2), DITHER_PX1 = knob('clumpdpx1', 2.5);
 /** the share of the canopy the clumps carry: the terrain under them adds what they miss (TerrainMaterial uClump) */
 export const CLUMP_RHO = knob('clumprho', 0.7);
 
@@ -546,7 +548,9 @@ export class ClumpCanopy {
           // worst at dawn); there a pixel is one crown instead, drawn per crown cell with the averaged chance, so the mean
           // holds and the speckle the drawn trees make comes back
           vec3 hc = cHash3(floor(Pt.xz / ${CROWN_CELL.toFixed(2)}));
-          float dk = mk * ${DITHER.toFixed(2)};
+          // ... but a cell under about 2 px flips as the camera moves (shimmer): there the dither fades back to the average
+          float cellPx = ${CROWN_CELL.toFixed(2)} / max(length(fwidth(Pt.xz)), 1e-3);
+          float dk = mk * ${DITHER.toFixed(2)} * smoothstep(${DITHER_PX0.toFixed(2)}, ${DITHER_PX1.toFixed(2)}, cellPx);
           scov = mix(scov, step(hc.x, scov / ${SNOW_PEAK.toFixed(2)}) * ${SNOW_PEAK.toFixed(2)}, dk);
           // (a stand's needles read darker and bluer than one tree's: the light between the crowns is shade; matched to High's stills)
           vec3 needle = albT * vTint * ${FAR_GAIN.toFixed(2)} * vec3(0.7, 0.78, 0.92) * mix(1.0, 0.7 + 0.6 * hc.z, dk);
