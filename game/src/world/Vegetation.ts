@@ -7,6 +7,7 @@ import { TreeKit, SPECIES_COUNT, VARIANTS, speciesFor, variantFor, crownRadius, 
 import { treelineOf } from '../pack/treeline';
 import { TreeShade } from './TreeShade';
 import { crownOverlap, type CrownHit } from './TreeBrush';
+import { ClumpCanopy } from './trees/clumps';
 
 /**
  * Streams tree instances per 1 km cell around the rider and draws them with the FEAT-156 tree kit
@@ -61,8 +62,14 @@ const STAND_HYST = 250;
 const STAND_COLLIDE = 150;
 /** FEAT-074: draw this share (0..1) of the pack's stand density; the detected crowns always draw */
 export function setStandDensity(k: number): void { STAND_K = Math.max(0, Math.min(1, k)); }
-/** FEAT-153: how far the tree impostors reach (m), where the terrain's canopy lift takes over */
-export function vegetationFarRadius(): number { return FAR_RADIUS; }
+/** FEAT-278 prototype (?canopy=clumps): the clump band, set by the Vegetation that draws them (null: off) */
+let CLUMP_BAND: { near: number; fade: number; far: number } | null = null;
+/** FEAT-278: the clumps reach at least this far (m), past the Low preset's 600 m trees */
+const CLUMP_FAR_MIN = (() => { try { return Number(new URLSearchParams(location.search).get('clumpfar')) || 6000; } catch { return 6000; } })();
+/** FEAT-153: how far the tree impostors reach (m), where the terrain's canopy lift takes over (FEAT-278: the clumps' reach when they draw) */
+export function vegetationFarRadius(): number { return CLUMP_BAND ? CLUMP_BAND.far : FAR_RADIUS; }
+/** FEAT-278 prototype: where the clumps take over from the trees and how far they reach (m), or null without them */
+export function vegetationClumpBand(): { near: number; fade: number; far: number } | null { return CLUMP_BAND; }
 /** FEAT-159: the near radius (1500 m at full density); the shrubs scale their 300 m reach by it */
 export function vegetationNearRadius(): number { return NEAR_RADIUS; }
 /** BUG-081: where the generated stems stop (m), past which the crowns grow to stand in for them */
@@ -231,6 +238,8 @@ export class Vegetation {
   private readonly tileIds = new Map<number, number>();
   /** FEAT-074: the tree cells with a stand image */
   private readonly standCells: Set<string>;
+  /** FEAT-278 prototype: the far forest as clump impostors (`?canopy=clumps`), null when off */
+  clumps: ClumpCanopy | null = null;
 
   constructor(pack: Pack, collider: Collider | null) {
     this.pack = pack;
@@ -251,6 +260,15 @@ export class Vegetation {
     this.impostorsOn = on;
     this.bandSeen = -1;
   }
+  /** FEAT-278 prototype: draw the far forest as clump impostors past the trees (bakes the stand atlases; after enableImpostors) */
+  enableClumps(renderer: THREE.WebGLRenderer): void {
+    if (this.clumps) return;
+    this.clumps = new ClumpCanopy(this.pack);
+    this.clumps.bake(renderer, this.kit.atlas.texture, this.kit.geo.lod0);
+    this.group.add(this.clumps.mesh);
+    this.bandSeen = -1;
+  }
+
   /** Light the far LODs like the meshes: the sun (direction toward it) and the hemisphere light. */
   setLight(sunDir: THREE.Vector3, sunColor: THREE.Color, sunIntensity: number, hemiSky: THREE.Color, hemiGround: THREE.Color, hemiIntensity: number): void {
     this.kit.setLight(sunDir, sunColor, sunIntensity, hemiSky, hemiGround, hemiIntensity);
@@ -285,7 +303,18 @@ export class Vegetation {
     }
     const b0 = band[0], b1 = band[1], b2 = band[2];
     const cs = inst.cellSize;
-    const r = FAR_RADIUS;
+    // FEAT-278 prototype: with the clumps the trees stop where their full density does (the stems' reach, or the
+    // preset's far edge if nearer), the impostors fade out there and the clumps fade in over the same metres
+    let reachR = FAR_RADIUS;
+    if (this.clumps) {
+      const stemsOn = !!this.pack.meta.stands && STAND_K > 0;
+      const c0 = Math.min(FAR_RADIUS, stemsOn ? NEAR_RADIUS + STAND_MID : FAR_RADIUS), fc = Math.max(40, 0.08 * c0);
+      CLUMP_BAND = { near: c0, fade: fc, far: Math.max(FAR_RADIUS, CLUMP_FAR_MIN) };
+      if (this.impostorsOn) { this.kit.bands.imp.value.z = c0 - fc; this.kit.bands.imp.value.w = c0 + fc; }
+      reachR = Math.min(FAR_RADIUS, c0 + fc + 100);
+      this.clumps.update(cpx, cpy, c0, fc, CLUMP_BAND.far, this.budgetMs > 0 ? 2 : 0);
+    }
+    const r = reachR;
     // BUG-081: the far tree ring runs `treeRing` cells past the grid on every side
     const ring = inst.farTreeCells?.length ? (inst.treeRing ?? 0) : 0;
     const cx0 = Math.max(-ring, Math.floor((Math.min(x, ax) - r - inst.minX) / cs)), cx1 = Math.min(inst.cellsX - 1 + ring, Math.floor((Math.max(x, ax) + r - inst.minX) / cs));
@@ -303,7 +332,7 @@ export class Vegetation {
       for (let cx = cx0; cx <= cx1; cx++) {
         const ccx = inst.minX + (cx + 0.5) * cs, ccy = inst.minY + (cy + 0.5) * cs;
         const d = Math.min(Math.hypot(ccx - x, ccy - y), Math.hypot(ccx - ax, ccy - ay)) - cs * 0.71;
-        if (d > FAR_RADIUS) continue;
+        if (d > reachR) continue;
         const key = `${cx}_${cy}`;
         keep.add(key);
         let cell = this.cells.get(key);

@@ -50,6 +50,8 @@ export interface Params {
   nomoguls: boolean;
   /** FEAT-159: one snowpack depth everywhere (m) for burying the shrubs, instead of the season's */
   snowdepth: number | null;
+  /** FEAT-278 prototype ?canopy=clumps: the far forest as clump impostors; null for the trees as on main */
+  canopy: string | null;
 }
 
 export function parseParams(search: string, hosted = !!(import.meta.env.VITE_HOST_NAME || import.meta.env.VITE_HOSTED)): Params {
@@ -85,5 +87,6 @@ export function parseParams(search: string, hosted = !!(import.meta.env.VITE_HOS
     nocsm: p.has('nocsm'),
     nomoguls: p.has('nomoguls'),
     snowdepth: num('snowdepth'),
+    canopy: p.get('canopy'),
   };
 }
