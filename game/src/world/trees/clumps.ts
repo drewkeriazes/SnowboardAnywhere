@@ -451,7 +451,9 @@ export class ClumpCanopy {
           for (const [name, rt] of [['albedo', albedo], ['normal', normal], ['snow', snow]] as const) {
             scene.overrideMaterial = mats[name];
             if (name === 'normal') clear.setRGB(0.5, 0.8, 0.8, THREE.LinearSRGBColorSpace);
-            else if (name === 'snow') clear.setRGB(0, 0, 0.5, THREE.LinearSRGBColorSpace);
+            // (about a crown's mean cover at the two loads under the cutout, as the kit's own snow atlas: with none there
+            // the mips diluted a stand's snow by its gaps, and a loaded forest stayed dark far off)
+            else if (name === 'snow') clear.setRGB(0.3, 0.6, 0.5, THREE.LinearSRGBColorSpace);
             else clear.copy(c0);
             rt.viewport.set(i * TILE, row * TILE, TILE, TILE);
             rt.scissor.set(i * TILE, row * TILE, TILE, TILE);
@@ -741,7 +743,7 @@ export class ClumpCanopy {
           scov = mix(scov, max(scov, sm.g), vSnowGhost);
           float dk = mk;
           // a crown holds more or less snow than the stand's mean (the mean holds), none in the gap
-          scov = mix(scov, clamp(scov * (${(1 - 0.5 * SNOW_VAR).toFixed(2)} + ${SNOW_VAR.toFixed(2)} * hc.x), 0.0, ${SNOW_PEAK.toFixed(2)}) * inC, dk);
+          scov = mix(scov, clamp(scov * (${(1 - 0.5 * SNOW_VAR).toFixed(2)} + ${SNOW_VAR.toFixed(2)} * hc.x), 0.0, mix(${SNOW_PEAK.toFixed(2)}, 1.0, smoothstep(0.45, 0.9, load))) * mix(inC, 1.0, 0.6 * smoothstep(0.45, 0.9, load)), dk);
           // the needles (gain and tint matched to High's per-tree impostors in the FEAT-278 views, noon and dawn), each
           // crown its own tone and the gap beside it darker
           vec3 needle = albT * vTint * ${FAR_GAIN.toFixed(2)} * vec3(${TINT.map((c) => c.toFixed(2)).join(', ')}) * mix(1.0, (${(1 - TONE_VAR).toFixed(2)} + ${(2 * TONE_VAR).toFixed(2)} * hc.z) * mix(${GAP_TONE.toFixed(2)}, 1.0, inC), dk);
