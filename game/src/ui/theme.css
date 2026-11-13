@@ -149,6 +149,20 @@
 #menu .pop button.arr { width: calc(32px * var(--ui-scale)); height: calc(32px * var(--ui-scale)); padding: 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: transparent; font-size: var(--fs-xl); line-height: 1; }
 #menu .pop button.primary { width: 100%; min-height: var(--row-h); margin-top: var(--sp-3); border: 0; border-radius: var(--r-md); font: 800 var(--fs-lg) var(--font-display); text-transform: uppercase; letter-spacing: .05em; }
 #menu .dim { color: var(--dim); }
+/* FEAT-274: the account panel, under the corner line that opens it */
+#menu .pop.acct { left: auto; right: var(--sp-6); top: calc(var(--sp-6) + 84px * var(--ui-scale)); bottom: auto; width: calc(380px * var(--ui-scale)); max-height: calc(100vh - 2 * var(--sp-6) - 84px * var(--ui-scale)); }
+#menu .pop .acct-who { margin-top: var(--sp-2); font: 600 var(--fs-md) var(--font-body); overflow-wrap: anywhere; }
+#menu .pop .acct-or, #menu .pop .acct-sub { margin: var(--sp-4) 0 var(--sp-2); font: 700 var(--fs-xs) var(--font-display); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+#menu .pop .acct-form { display: flex; flex-direction: column; gap: var(--sp-2); margin: 0; }
+#menu .pop .acct-form input { min-height: calc(40px * var(--ui-scale)); box-sizing: border-box; padding: 0 var(--sp-3); border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--fill); color: var(--text); font: 500 var(--fs-md) var(--font-body); }
+#menu .pop .acct-form input.nav-focus { box-shadow: 0 0 0 2px var(--accent); background-image: none; }
+#menu .pop .acct-row { display: flex; gap: var(--sp-2); }
+#menu .pop button.acct-btn { flex: 1; min-height: var(--row-h); margin: 0; padding: 0 var(--sp-3); border: 1px solid var(--line-strong); border-radius: var(--r-md); background-color: var(--fill); font: 700 var(--fs-md) var(--font-display); text-transform: uppercase; letter-spacing: .05em; }
+#menu .pop > button.acct-btn { width: 100%; margin-top: var(--sp-2); }
+#menu .pop button.acct-btn:disabled, #menu .pop button.primary:disabled, #menu .pop .acct-form input:disabled { opacity: .55; cursor: default; }
+#menu .pop > button.acct-out { margin-top: var(--sp-4); background-color: transparent; }
+#menu .pop p.acct-note { margin: var(--sp-3) 0 0; color: #ffb4a8; }
+#menu .pop p.acct-note.ok { color: var(--accent); }
 body.settings-open #menu > :not(.still):not(.shade) { visibility: hidden; }
 /* BUG-105: the first-run screen (ui/FirstRun.ts), no resort to load: the title, then the resort list in the panel's look */
 #menu.first-run .facts { max-width: 64ch; line-height: 1.4; overflow-wrap: anywhere; }
@@ -167,6 +181,7 @@ body.attract #touch, body.attract #run-card, body.attract #outrun-card, body.att
   #menu .gap { display: none; }
   #menu .loadbar { top: auto; bottom: var(--sp-4); right: var(--sp-4); }
   #menu .pop { left: var(--sp-4); bottom: calc(var(--sp-4) + 170px * var(--ui-scale)); }
+  #menu .pop.acct { left: var(--sp-4); right: var(--sp-4); top: calc(var(--sp-4) + 48px * var(--ui-scale)); bottom: auto; width: auto; }
 }
 @media (max-height: 480px) {
   #menu { padding: var(--sp-3) var(--sp-4); gap: var(--sp-2) var(--sp-4); }

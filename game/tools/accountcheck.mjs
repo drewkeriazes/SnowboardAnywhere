@@ -1,6 +1,7 @@
 // Accounts check (FEAT-273): the public Firebase web config reader, no browser, no network.
 // A config is complete only when all four VITE_FIREBASE_* names are set and not blank; values are
-// trimmed. Later tasks add the account state, token and role checks here.
+// trimmed. Then the claim rule, the account states, the fakes and (FEAT-274) email and password sign-in,
+// verification and adding a method, all on the in-memory fake project.
 // node tools/accountcheck.mjs        (exit code 1 if a check fails)
 import { build } from 'esbuild';
 import path from 'node:path';
@@ -156,14 +157,137 @@ createAccount({ env: full, fake: null, hosted: false, headless: false, loadPort 
 // FEAT-273 Task 4: the account line's view table
 const { accountLineView } = await load('ui/AccountLine.ts', 'accountline');
 let v = accountLineView({ kind: 'guest' }, true, '');
-ok(v.who === 'Playing as guest' && v.action === 'sign-in' && v.label === 'Sign in with GitHub' && !v.disabled, 'guest, sign-in set up: an enabled Sign in with GitHub');
+ok(v.who === 'Playing as guest' && v.action === 'open' && v.label === 'Sign in' && !v.disabled, 'guest, sign-in set up: an enabled Sign in (opens the account panel)');
 v = accountLineView({ kind: 'guest' }, false, 'Sign-in is not set up in this build.');
 ok(v.disabled && v.note === 'Sign-in is not set up in this build.', 'guest, not set up: disabled, the reason as the note');
 ok(accountLineView({ kind: 'signed-in', player: FAKE_PLAYER }, true, '').who === 'Test <i>player</i> · player 0', 'player 0 reads "· player 0"');
 ok(accountLineView({ kind: 'signed-in', player: { ...FAKE_PLAYER, playerNumber: null } }, true, '').who === 'Test <i>player</i>', 'no number: just the name');
 ok(accountLineView({ kind: 'signed-in', player: FAKE_MAINTAINER }, true, '').who === 'Test maintainer · player 1 · maintainer', 'maintainer: "· maintainer"');
 ok(accountLineView({ kind: 'pending' }, true, '').action === null, 'pending: hidden');
-ok(accountLineView({ kind: 'signed-in', player: FAKE_PLAYER }, true, '').action === 'sign-out', 'signed in: Sign out');
+{ const w = accountLineView({ kind: 'signed-in', player: FAKE_PLAYER }, true, ''); ok(w.action === 'open' && w.label === 'Account', 'signed in: Account (opens the account panel)'); }
+
+// FEAT-274: email and password, verification, and adding a method only from a signed-in session
+const { needsVerification } = await load('account/Account.ts', 'account2');
+ok(needsVerification({ providerIds: ['password'], emailVerified: false }), 'password only, unverified: held back');
+ok(!needsVerification({ providerIds: ['password'], emailVerified: true }), 'password only, verified: opens');
+ok(!needsVerification({ providerIds: ['github.com', 'password'], emailVerified: false }), 'GitHub and password, unverified: opens (GitHub opened it)');
+ok(!needsVerification({ providerIds: ['github.com'], emailVerified: false }), 'GitHub only: never held back');
+const { EMAIL_IN_USE, BAD_CREDENTIALS } = await load('account/errors.ts', 'errors2');
+ok(EMAIL_IN_USE.includes('Sign in the way you usually do, then add this method from your account.'), 'the email-in-use refusal is the card message');
+for (const c of ['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found', 'auth/invalid-login-credentials'])
+  ok(signInFailure(c, { method: 'password' }).code === 'bad-credentials' && signInFailure(c, { method: 'password' }).message === BAD_CREDENTIALS, `password ${c}: bad-credentials, the one message`);
+ok(signInFailure('auth/email-already-in-use', { method: 'password' }).message === EMAIL_IN_USE && signInFailure('auth/account-exists-with-different-credential').message === EMAIL_IN_USE, 'sign-up or GitHub sign-in with a taken email: the card message');
+ok(signInFailure('auth/email-already-in-use', { method: 'password', adding: true }).message.startsWith('That email already belongs to another account, so it cannot be added'), 'adding a password with a taken email: cannot be added');
+ok(signInFailure('auth/credential-already-in-use', { method: 'github', adding: true }).message.startsWith('That GitHub account already belongs to another account'), 'adding a GitHub that opens another account: cannot be added');
+ok(signInFailure('auth/operation-not-allowed', { method: 'password' }).message === 'Email and password sign-in is not turned on for this game.', 'password not turned on in the console: says so');
+for (const [c, want] of [['auth/weak-password', 'weak-password'], ['auth/password-does-not-meet-requirements', 'weak-password'], ['auth/invalid-email', 'invalid-email'], ['auth/too-many-requests', 'too-many-requests'], ['auth/provider-already-linked', 'already-added']])
+  ok(signInFailure(c, { method: 'password' }).code === want, `${c} maps to ${want}`);
+ok(signInFailure('auth/invalid-credential').code === 'unknown', 'invalid-credential on GitHub is not the password message');
+
+const { memoryAccount, MemoryAuth, FAKE_PASSWORD_RIDER, FAKE_RIDER } = await load('account/fakeAccount.ts', 'fake2');
+const settle = () => new Promise((r) => setTimeout(r, 5));
+{ // sign up, the verification gate, sign in once verified
+  const a = memoryAccount({ session: null }); await a.ready();
+  const kinds = []; a.onChange((x) => kinds.push(x.kind));
+  let r = await a.signIn({ method: 'password', email: ' new@example.test ', password: 'secret-123', create: true }); await settle();
+  ok(!r.ok && r.code === 'unverified' && r.message === 'Account made. We sent a link to new@example.test: open it, then sign in here.' && a.state().kind === 'guest' && (await a.idToken()) === null && kinds.length === 0, 'sign up: account made, a link sent, still a guest (never signed in, no change)');
+  ok(a.auth.sent.join() === 'new@example.test', 'sign up: one verification email to the trimmed address');
+  r = await a.signIn({ method: 'password', email: 'new@example.test', password: 'secret-123', create: false }); await settle();
+  ok(!r.ok && r.code === 'unverified' && r.message.startsWith('Verify your email first: we sent a new link') && a.state().kind === 'guest' && a.auth.sent.length === 2, 'unverified sign-in: refused with a new link, still a guest');
+  a.auth.verify('new@example.test');
+  r = await a.signIn({ method: 'password', email: 'NEW@example.test', password: 'secret-123', create: false }); await settle();
+  ok(r.ok && a.state().kind === 'signed-in' && a.state().player.providers.join() === 'password' && a.state().player.role === 'player' && (await a.idToken()) === `fake:${r.player.uid}`, 'verified: signs in, a player, a token');
+  await a.signOut();
+  r = await a.signIn({ method: 'password', email: 'new2@example.test', password: 'abc', create: true });
+  ok(!r.ok && r.code === 'weak-password', 'sign up with a short password: weak-password');
+}
+{ // a wrong password and no such account read the same
+  const a = memoryAccount({ session: null }); await a.ready();
+  const wrong = await a.signIn({ method: 'password', email: FAKE_PASSWORD_RIDER.email, password: 'nope-nope', create: false });
+  const none = await a.signIn({ method: 'password', email: 'nobody@example.test', password: 'nope-nope', create: false });
+  ok(!wrong.ok && !none.ok && wrong.code === 'bad-credentials' && none.code === 'bad-credentials' && wrong.message === none.message, 'wrong password and no such account: the same refusal');
+  const blank = await a.signIn({ method: 'password', email: '  ', password: 'x', create: false });
+  ok(!blank.ok && blank.code === 'invalid-email' && a.state().kind === 'guest', 'a blank email never goes to Firebase');
+  const ok1 = await a.signIn({ method: 'password', ...FAKE_PASSWORD_RIDER, create: false });
+  ok(ok1.ok && a.state().player.uid === FAKE_RIDER.uid, 'the verified password rider signs in');
+}
+{ // Done when 3: signing up with the email on player 1's GitHub account neither joins nor opens it
+  const a = memoryAccount({ session: null }); await a.ready();
+  const before = a.auth.users.length;
+  const r = await a.signIn({ method: 'password', email: 'player1@example.test', password: 'attacker-pass', create: true }); await settle();
+  const p1 = a.auth.user('fake-maintainer');
+  ok(!r.ok && r.code === 'email-in-use' && r.message === EMAIL_IN_USE, 'sign up with the email of player 1: refused with the card message');
+  ok(a.state().kind === 'guest' && (await a.idToken()) === null && p1.password === null && a.auth.users.length === before && a.auth.sent.length === 0, 'nothing joined, nothing opened, no account made, no email sent');
+  const s2 = await a.signIn({ method: 'password', email: 'player1@example.test', password: 'attacker-pass', create: false });
+  ok(!s2.ok && s2.code === 'bad-credentials' && a.state().kind === 'guest', 'sign in with the email of player 1 and a guessed password: refused, still a guest');
+}
+{ // Done when 2: player 1, signed in with GitHub, adds email and password; both then open the same account
+  const a = memoryAccount({ session: 'fake-maintainer', github: 'fake-maintainer' }); await a.ready();
+  const r = await a.addMethod({ method: 'password', email: 'player1@example.test', password: 'drew-pass-1' });
+  ok(r.ok && a.state().player.providers.join() === 'github.com,password' && isMaintainer(a.state()) && r.note.includes('player1@example.test'), 'add email and password from the signed-in session: both methods, still the maintainer, a verification note');
+  await a.signOut();
+  const pw = await a.signIn({ method: 'password', email: 'player1@example.test', password: 'drew-pass-1', create: false });
+  ok(pw.ok && pw.player.uid === 'fake-maintainer' && isMaintainer(a.state()) && (await a.idToken()) === 'fake:fake-maintainer', 'then email and password opens the same account (an unverified email is fine: GitHub opened it)');
+  await a.signOut();
+  const gh = await a.signIn({ method: 'github' });
+  ok(gh.ok && gh.player.uid === 'fake-maintainer', 'and GitHub still opens it');
+  const again = await a.addMethod({ method: 'password', email: 'player1@example.test', password: 'other-pass' });
+  ok(!again.ok && again.code === 'already-added', 'adding a method the account has: already-added');
+}
+{
+  const a = memoryAccount({ session: null }); await a.ready();
+  const r = await a.addMethod({ method: 'password', email: 'x@example.test', password: 'secret-123' });
+  ok(!r.ok && r.code === 'not-signed-in' && a.state().kind === 'guest', 'a guest cannot add a method');
+}
+{ // a method that belongs to another account is never joined
+  const a = memoryAccount({ session: 'fake-player', github: 'fake-player' }); await a.ready();
+  const r = await a.addMethod({ method: 'password', email: 'player1@example.test', password: 'secret-123' });
+  ok(!r.ok && r.code === 'email-in-use' && a.state().player.providers.join() === 'github.com' && a.auth.user('fake-maintainer').password === null, 'adding a password with the email of another account: refused, neither account changed');
+  const b = memoryAccount({ session: 'fake-rider', github: 'fake-player' }); await b.ready();
+  const g = await b.addMethod({ method: 'github' });
+  ok(!g.ok && g.code === 'email-in-use' && b.state().player.providers.join() === 'password', 'adding a GitHub that opens another account: refused, the rider unchanged');
+  const c = memoryAccount({ session: 'fake-rider', github: null }); await c.ready();
+  const g2 = await c.addMethod({ method: 'github' });
+  ok(g2.ok && c.state().player.providers.join() === 'github.com,password' && c.state().player.uid === FAKE_RIDER.uid, 'a password rider adds a new GitHub: both methods, same account');
+  await c.signOut(); const g3 = await c.signIn({ method: 'github' });
+  ok(g3.ok && g3.player.uid === FAKE_RIDER.uid, 'then GitHub opens the rider account');
+}
+{ // sign-out while a link runs: nothing reported added to a session that is gone
+  const m = new MemoryAuth({ session: 'fake-maintainer', github: 'fake-maintainer' });
+  let release = () => {}; const gate = new Promise((r) => { release = r; });
+  const link = m.linkPassword.bind(m); m.linkPassword = async (...args) => { await gate; return link(...args); };
+  const a = new FirebaseAccount(Promise.resolve(m)); await a.ready();
+  const pr = a.addMethod({ method: 'password', email: 'player1@example.test', password: 'drew-pass-1' });
+  await settle(); await a.signOut(); release();
+  const r = await pr;
+  ok(!r.ok && r.code === 'cancelled' && a.state().kind === 'guest', 'sign-out during an add: cancelled, guest');
+}
+{ // a restored session of an unverified password-only account never opens; a verification email that does not go out says so
+  const s = stubPort({}); const a = new FirebaseAccount(Promise.resolve(s.port));
+  let signedOut = 0; s.port.signOut = async () => { signedOut++; };
+  s.fire({ uid: 'u-new', displayName: null, providerIds: ['password'], email: 'x@example.test', emailVerified: false });
+  ok((await a.ready()).kind === 'guest' && (await a.idToken()) === null, 'restored unverified password session: a guest');
+  await settle(); ok(signedOut === 1, 'and the SDK session is signed out');
+  const m = new MemoryAuth({ session: null }); m.sendVerification = async () => { throw Object.assign(new Error('x'), { code: 'auth/too-many-requests' }); };
+  const b = new FirebaseAccount(Promise.resolve(m)); await b.ready();
+  const r = await b.signIn({ method: 'password', email: 'y@example.test', password: 'secret-123', create: true });
+  ok(!r.ok && r.code === 'unverified' && r.message.includes('did not go out') && b.state().kind === 'guest', 'sign up whose verification email fails: says so, still a guest');
+}
+// the dev server turns away an unverified password-only token too
+const { heldForVerification } = await import(pathToFileURL(path.join(GAME, 'tools', 'accounts', 'verifier.mjs')).href);
+ok(heldForVerification({ email_verified: false, firebase: { identities: { email: ['x@example.test'] } } }), 'server: unverified password-only token held back');
+ok(!heldForVerification({ email_verified: true, firebase: { identities: { email: ['x@example.test'] } } }), 'server: verified password token passes');
+ok(!heldForVerification({ email_verified: false, firebase: { identities: { 'github.com': ['1'], email: ['x@example.test'] } } }), 'server: GitHub and password, unverified: passes');
+ok(!heldForVerification({ firebase: {} }) && !heldForVerification({}), 'server: no identities: not this rule (the role check still applies)');
+
+const { accountPanelView } = await load('ui/AccountPanel.ts', 'panel');
+ok(accountPanelView({ kind: 'guest' }).kind === 'sign-in' && accountPanelView({ kind: 'pending' }).kind === 'none', 'panel: a guest gets the sign-in choices');
+{
+  const m = accountPanelView({ kind: 'signed-in', player: FAKE_MAINTAINER });
+  ok(m.kind === 'account' && m.methods.join() === 'GitHub' && m.add.join() === 'password' && m.email === 'player1@example.test', 'panel: a GitHub account lists GitHub, offers email and password with its email');
+  ok(accountPanelView({ kind: 'signed-in', player: FAKE_RIDER }).add.join() === 'github', 'panel: a password account offers GitHub');
+  ok(accountPanelView({ kind: 'signed-in', player: { ...FAKE_RIDER, providers: ['github.com', 'password'] } }).add.length === 0, 'panel: both methods, nothing to add');
+}
 
 fs.rmSync(dir, { recursive: true, force: true });
 process.exit(fails ? 1 : 0);

@@ -33,6 +33,15 @@ export function accountFromClaims(decoded) {
   };
 }
 
+/** FEAT-274: a token of an account whose only way in is an email and password that was never verified. The game
+ *  never opens such an account (src/account/Account.ts needsVerification); this turns away a token got some other
+ *  way (Firebase's REST API) too. An account with another method linked was opened by that method and passes.
+ *  @param {{ email_verified?: unknown; firebase?: { identities?: Record<string, unknown> } }} decoded @returns {boolean} */
+export function heldForVerification(decoded) {
+  const ids = Object.keys(decoded.firebase?.identities ?? {});
+  return decoded.email_verified !== true && ids.length > 0 && ids.every((k) => k === 'email');
+}
+
 /** The real one: the Admin SDK over the key file. configured is whether the file is there (read on each use, so a
  *  key put in place later works without restarting the server).
  *  @param {string} [file] @returns {TokenVerifier} */
@@ -59,6 +68,7 @@ export function firebaseVerifier(file = keyPath()) {
         auth.catch((e) => { auth = null; console.warn(`[accounts] the Firebase Admin key at ${file} did not load: ${e?.message ?? e}`); });
       }
       const decoded = await (await auth).verifyIdToken(token, true);
+      if (heldForVerification(decoded)) throw new Error('email not verified');
       return accountFromClaims(decoded);
     },
   };

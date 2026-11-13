@@ -11,7 +11,7 @@ export function createAccount(o: { env: Record<string, unknown>; fake: string | 
     if (f) return f;
     console.warn(`Unknown ?account=${o.fake}; ignored.`);
   }
-  if (o.headless) return new FakeAccount({ available: false, reason: 'Sign-in is off on a headless page.' });
+  if (o.headless) return new FakeAccount({ reason: 'Sign-in is off on a headless page.' });
   const { config, missing } = readFirebaseConfig(o.env);
   if (!config) {
     if (missing.length > 0 && missing.length < 4) console.warn(`Sign-in is off: the Firebase web config is missing ${missing.join(', ')}.`);
