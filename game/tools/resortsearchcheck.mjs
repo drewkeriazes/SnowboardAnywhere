@@ -115,7 +115,7 @@ try {
   ok(r.status === 202, 'the same slug again after the gap: 202');
   const bad = [
     [{ ...BM, slug: 'Brandywine' }, 'an upper-case slug'], [{ ...BM, slug: 'brandy--wine' }, 'a double hyphen'], [{ ...BM, slug: 'a'.repeat(61) }, 'a slug over 60'],
-    [{ ...BM, slug: '../vail' }, 'a path'], [{ ...BM, osm_id: 'node/1' }, 'a node id'], [{ ...BM, osm_id: 'way/0' }, 'way/0'], [{ ...BM, osm_id: '1; gh repo delete' }, 'an osm id with a command'],
+    [{ ...BM, slug: '../vail' }, 'a path'], [{ ...BM, osm_id: 'node/1' }, 'a node id'], [{ ...BM, osm_id: 'way/0' }, 'way/0'], [{ ...BM, osm_id: '1; gh repo delete' }, 'an osm id with a command'], [{ ...BM, osm_id: 'skimap.org/497' }, 'skimap.org/497'], [{ ...BM, osm_id: 'skimap/0' }, 'skimap/0'],
     [{ ...BM, osm_id: '' }, 'no osm id'], [{ ...BM, name: '--help' }, 'a name that starts with -'], [{ ...BM, name: 'a\nb' }, 'a name with a newline'],
     [{ ...BM, name: 'x'.repeat(101) }, 'a name over 100'], [{ ...BM, name: ' ' }, 'a blank name'], [{ ...BM, slug: 5 }, 'a number for the slug'], [{ slug: 'brandywine' }, 'no name or osm id'],
     [[BM], 'an array'], ['not json', 'a body that is not JSON'],
@@ -140,7 +140,7 @@ try {
   ok((await req('GET', '/api/other')).text === 'next', 'any other URL goes on to next()');
 
   // ---------------------------------------------------------------- the pure checks and the real runner
-  ok(buildInputError({ slug: ' brandywine ', name: ' Brandywine ', osm_id: ' 391698033 ' }) === null && buildInputError({ ...BM, osm_id: 'relation/22' }) === null, 'buildInputError: trimmed, a bare way number and a relation pass');
+  ok(buildInputError({ slug: ' brandywine ', name: ' Brandywine ', osm_id: ' 391698033 ' }) === null && buildInputError({ ...BM, osm_id: 'relation/22' }) === null && buildInputError({ ...BM, osm_id: 'skimap/497' }) === null, 'buildInputError: trimmed, a bare way number, a relation and a Skimap.org id (FEAT-286) pass');
   ok(queryError('bos') === null && queryError('bo') !== null && queryError(null) !== null, 'queryError: 3 characters at least');
   {
     const e = await execRun(process.execPath, ['-e', 'process.stdout.write(process.argv[1])', 'a b; echo "c" && d | e']);
