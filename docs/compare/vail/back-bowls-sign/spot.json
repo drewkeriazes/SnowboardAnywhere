@@ -1,0 +1,27 @@
+{
+  "name": "Back Bowls sign, on The Slot looking toward Sun Up and Over Yonder (BUG-074, FEAT-278)",
+  "proposed": "FEAT-278 (#614): a far forest comparison view (game/tools/canopy-views.json); no Street View photo yet",
+  "latlon": [
+    39.60432,
+    -106.3557074
+  ],
+  "maps": "https://www.google.com/maps/@39.6043200,-106.3557074,17z",
+  "game": {
+    "x": -690,
+    "y": 470
+  },
+  "weather": "clear",
+  "views": [
+    {
+      "id": "over-yonder",
+      "heading": 149.1,
+      "pitch": -5.0,
+      "fov": 50.0,
+      "streetview": "",
+      "x": -690.0,
+      "y": 470.0,
+      "h": 150.0,
+      "game": "http://localhost:5173/?pack=vail&x=-690&y=470&h=150&pitch=-5.0&fov=50.0&cam=eye&spot=back-bowls-sign/over-yonder&weather=clear"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "The Slot, lower down toward Sun Up (FEAT-278: far ridges that look right)",
+  "proposed": "FEAT-278 (#614): a far forest comparison view (game/tools/canopy-views.json); no Street View photo yet",
+  "latlon": [
+    39.6016714,
+    -106.3518122
+  ],
+  "maps": "https://www.google.com/maps/@39.6016714,-106.3518122,17z",
+  "game": {
+    "x": -360,
+    "y": 171
+  },
+  "weather": "clear",
+  "views": [
+    {
+      "id": "sun-up",
+      "heading": 124.1,
+      "pitch": -2.0,
+      "fov": 50.0,
+      "streetview": "",
+      "x": -360.0,
+      "y": 171.0,
+      "h": 125.0,
+      "game": "http://localhost:5173/?pack=vail&x=-360&y=171&h=125&pitch=-2.0&fov=50.0&cam=eye&spot=the-slot-lower/sun-up&weather=clear"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "The Slot, coming round the corner toward Sun Up (FEAT-278)",
+  "proposed": "FEAT-278 (#614): a far forest comparison view (game/tools/canopy-views.json); no Street View photo yet",
+  "latlon": [
+    39.6034079,
+    -106.3551072
+  ],
+  "maps": "https://www.google.com/maps/@39.6034079,-106.3551072,17z",
+  "game": {
+    "x": -640,
+    "y": 368
+  },
+  "weather": "clear",
+  "views": [
+    {
+      "id": "sun-up",
+      "heading": 111.1,
+      "pitch": -4.0,
+      "fov": 50.0,
+      "streetview": "",
+      "x": -640.0,
+      "y": 368.0,
+      "h": 112.0,
+      "game": "http://localhost:5173/?pack=vail&x=-640&y=368&h=112&pitch=-4.0&fov=50.0&cam=eye&spot=the-slot-corner/sun-up&weather=clear"
+    }
+  ]
+}
