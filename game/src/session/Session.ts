@@ -430,6 +430,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       goggles.destroy();
       lens.dispose();
       veg.shade?.dispose(); veg.shade = null; // FEAT-171: its own scene and render target, outside the main scene
+      veg.clumps?.dispose(); veg.clumps = null; // FEAT-292: the stand atlases (a render target and two data textures, 24 MB) are not reached by the traverse below
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
         if (m.geometry) m.geometry.dispose();
