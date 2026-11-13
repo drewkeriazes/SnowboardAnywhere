@@ -16,6 +16,7 @@ import { startPadNav } from '../ui/PadNav';
 import { createSession } from '../session/Session';
 import type { Params } from './params';
 import { Events } from './Events';
+import { coverOpts } from '../pack/CoverSet';
 
 /**
  * FEAT-160: boot. Picks and loads the pack, applies the URL overrides to the saved settings, creates the
@@ -28,6 +29,7 @@ export class Game {
   async start(): Promise<void> {
     const { params } = this;
     const { headless } = params;
+    coverOpts.heightInAlpha = params.canopy === 'crowns'; // FEAT-278 prototype: the crowns read the canopy height
     const status = document.getElementById('status')!;
     // no ?pack: last resort played if it is built, else the first built real resort, else the synthetic mountain
     const resorts = await availableResorts(import.meta.env.BASE_URL);

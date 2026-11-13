@@ -4,6 +4,7 @@ import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from './rockShader';
 import { DEFORM_GLSL, deformUniforms } from '../world/Deform';
 import { SNOW_SHADE_TINT } from '../world/snowLook';
 import { SNOWPACK_GLSL, snowpackState, snowpackUniform } from '../sim/Snowpack';
+import { CROWNS_GLSL } from './canopyCrowns';
 
 /**
  * Snow / rock / scree / groomed material. Per-vertex class weights arrive in the color attribute
@@ -111,7 +112,13 @@ function coverUniforms() {
   };
 }
 
-export function createTerrainMaterial(): THREE.MeshStandardMaterial {
+/** FEAT-278 prototype: `crowns` fakes the far forest's crowns in the shader (canopyCrowns.ts, `?canopy=crowns`); off, the shader is main's */
+export interface TerrainMaterialOptions { crowns?: boolean }
+
+export function createTerrainMaterial(opts: TerrainMaterialOptions = {}): THREE.MeshStandardMaterial {
+  const crowns = !!opts.crowns;
+  // FEAT-278: the crown code is only spliced in with the flag, so without it the source is main's byte for byte
+  const ifCrowns = (on: string, off = ''): string => (crowns ? on : off);
   const mat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     vertexColors: true,
@@ -119,6 +126,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     metalness: 0.0,
     flatShading: false,
   });
+  if (crowns) mat.defines = { CANOPY_CROWNS: '' };
   // uniforms live outside the hook so settings (flat light) can change them before the first compile
   const uniforms = {
     uTime: { value: 0 },
@@ -188,7 +196,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         // FEAT-153: forested ground stands up by its canopy past the instanced trees, so ridges read as treed
         if (lift > 0.0) {
           vec3 wl = (modelMatrix * vec4(transformed, 1.0)).xyz;
-          transformed.y += lift * smoothstep(uLiftNear, uLiftNear + ${LIFT_RAMP.toFixed(1)}, distance(cameraPosition, wl));
+          transformed.y += lift * smoothstep(${ifCrowns('max(uLiftNear, 3000.0)', 'uLiftNear')}, ${ifCrowns('max(uLiftNear, 3000.0)', 'uLiftNear')} + ${LIFT_RAMP.toFixed(1)}, distance(cameraPosition, wl));
         }
         // FEAT-044: the snow sags softly around the tracks and prints inside the deformation window
         if (uDeformWin.w > 0.0) {
@@ -319,6 +327,10 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           if (e2 > 0.0) s += e2 * shadeAt(p, uShadeRect[2], 2.0);
           return vec2(s, e0 + e1 + e2);
         }
+        ${ifCrowns(`${CROWNS_GLSL}
+        // FEAT-278: the crowns' share of the pixel and their normal (for the normal pass), the sun share a forested
+        // pixel takes, and the crowns' shadow on it (for the light pass)
+        float gCrownW; vec3 gCrownN; float gCanopySun; float gCrownSh;`)}
         // set in main() before lighting, read by the snow terms in RE_Direct_Physical
         float gSnowW;
         vec3 gGlintN;
@@ -537,6 +549,52 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float stand = vnoise(wp * 0.007 + 5.1);
         vec3 timber = mix(vec3(0.016, 0.034, 0.036), vec3(0.04, 0.07, 0.066), mix(0.4, crown, crownK) * 0.75 + stand * 0.25);
         timber = mix(timber, snow * 0.8, smoothstep(0.62, 0.9, crown) * crownK * 0.6); // snowy gaps between crowns
+        ${ifCrowns(`
+        // FEAT-278: crowns in the shader (canopyCrowns.ts) where a pixel is small enough to show them (4 m crowns,
+        // then 8 m clumps), the flat canopy beyond. A crown stands up, so what matters is the pixel's size square to
+        // the view at its distance (not its stretched footprint on a slope seen edge on)
+        vec3 crV = normalize(wp - cameraPosition), crDx = dFdx(wp);
+        float crFoot = length(crDx - crV * dot(crDx, crV));
+        float crD0 = 1.0 - smoothstep(CR_FOOT_LO, CR_FOOT_HI, crFoot);
+        float crDetail = (1.0 - smoothstep(2.0 * CR_FOOT_LO, 2.0 * CR_FOOT_HI, crFoot)) * (1.0 - uDebugFar.x);
+        float crRamp = mix(1.0, smoothstep(FOREST_NEAR, FOREST_FULL, dist), treeHere);
+        gCrRho = rho;
+        gCrReach = treeHere * (1.0 - smoothstep(uLiftNear - 800.0, uLiftNear, dist));
+        gCrSPix = forestV;
+        gCrTM = covW(pxyF, uTreeMapRect);
+        gCrFarK = smoothstep(STAND_NEAR, STAND_FAR, dist);
+        gCrRamp = crRamp;
+        vec4 crPix = texture2D(uTreeMap, covUV(pxyF, uTreeMapRect));
+        gCrHPix = mix(14.0, crPix.a * 40.0, gCrTM * step(0.02, crPix.a));
+        gCrownW = 0.0; gCrownN = ngW; gCrownSh = 0.0;
+        float crA = 0.0; vec3 crAlb = CR_ALB;
+        if (crDetail > 0.0 && crRamp > 0.0) {
+          // any forest along the walk? one look at a coarse mip round its middle (off the map, this pixel's share)
+          float crAny = gCrTM > 0.0
+            ? textureLod(uTreeMap, covUV(pxyF + normalize(vec2(-crV.x, crV.z) + 1e-5) * 40.0, uTreeMapRect), 5.0).r
+            : sK;
+          if (crAny > 0.004) {
+            vec3 alb0 = CR_ALB, alb1 = CR_ALB, n0 = ngW, n1 = ngW;
+            float a0 = 0.0, a1 = 0.0, sh0 = 0.0, sh1 = 0.0;
+            if (crD0 > 0.0) a0 = crownsLevel(0.0, pxyF, crV, ngW, crFoot, alb0, n0, sh0);
+            if (crD0 < 1.0) a1 = crownsLevel(1.0, pxyF, crV, ngW, crFoot, alb1, n1, sh1);
+            float w0 = a0 * crD0, w1 = a1 * (1.0 - crD0);
+            crA = w0 + w1;
+            if (crA > 1e-4) {
+              crAlb = (alb0 * w0 + alb1 * w1) / crA;
+              gCrownN = normalize(n0 * w0 + n1 * w1);
+            }
+            gCrownSh = mix(sh1, sh0, crD0) * crDetail * (1.0 - uFlat);
+            gCrownW = crA * crDetail;
+          }
+        }
+        float fdFar = fd;
+        fd = mix(fdFar, crA, crDetail);
+        gCanopySun = mix(uCanopySun, CR_SUN, crDetail);
+        // the crowns' own colour where they show, the timber tone where they have faded to the flat canopy
+        float crMix = fd > 1e-4 ? crA * crDetail / fd : 0.0;
+        timber = mix(timber, crAlb, clamp(crMix, 0.0, 1.0));
+        `)}
         base = mix(base, timber, fd * uTimberMix);
         gSnowW = wSnow * (1.0 - fd);
         // FEAT-168: no shadows in flat light, none on the canopy itself, none inside the shadow map's reach
@@ -556,7 +614,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           vec2 sm = treeShadeMap(pxyF, pixGround);
           float coarse = (1.0 - sm.y) * (1.0 - smoothstep(2.0, 3.0, cellPx));
           treeShade = sm.x + (coarse > 0.001 ? coarse * treeShadow(pxyF, dist, treeG) : 0.0);
-          treeShade *= shadeGate * (1.0 - fd) * (1.0 - uFlat);
+          treeShade *= shadeGate * (1.0 - fd) * (1.0 - uFlat)${ifCrowns(' * gCrReach')};
         }
         gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd) * (1.0 - vegK) * (1.0 - 0.6 * uSpring); // wet spring snow sparkles less
         diffuseColor.rgb = base;
@@ -626,6 +684,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           if (gMogA > 0.005) nn = normalize(t * gMogN.x + nn * gMogN.y + b * gMogN.z);
           // rock and talus carry their own photo normals
           nn = normalize(nn * max(wSnow, 1e-3) + rockN * rockCov + screeN * screeCov);
+          ${ifCrowns('nn = normalize(mix(nn, gCrownN, gCrownW)); // FEAT-278: lit as the crowns it shows')}
           // flat light: under overcast the eye loses the snow's shape; pull snow normals toward up
           // (much less on moguls, BUG-062, so the bumps keep some shape to ride by)
           nn = normalize(mix(nn, vec3(0.0, 1.0, 0.0), 0.6 * uFlat * snowW * (1.0 - 0.6 * gMogK)));
@@ -639,13 +698,14 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           float aoK = uAO * (1.0 - smoothstep(3500.0, 5000.0, dist));
           // FEAT-092: a steeper curve so gullies read in depth (was pow 1.8)
           float aoT = mix(1.0, pow(vAO, AO_POW), aoK) * (1.0 - 0.28 * forestV * (1.0 - fd));
-          reflectedLight.indirectDiffuse *= aoT * mix(vec3(1.0), uShadeTint, wSnow * (1.0 - 0.6 * uFlat));
+          reflectedLight.indirectDiffuse *= aoT * mix(vec3(1.0), uShadeTint, wSnow * (1.0 - 0.6 * uFlat)${ifCrowns(' * (1.0 - fd)')});
           reflectedLight.indirectSpecular *= aoT;
           // gullies and couloirs read in depth in sun too, and it stands in for self-shadowing past the shadow maps
           reflectedLight.directDiffuse *= mix(1.0, aoT, AO_DIRECT);
           // FEAT-154: sunlit canopy is mostly shaded needles and the shadow sides of crowns, so the forest
           // takes a fraction of the sun the bare slope would (without it sunlit timber read mid grey)
-          reflectedLight.directDiffuse *= mix(1.0, uCanopySun, fd);
+          reflectedLight.directDiffuse *= mix(1.0, ${ifCrowns('gCanopySun', 'uCanopySun')}, fd);
+          ${ifCrowns('reflectedLight.directDiffuse *= 1.0 - CR_SHADOW * gCrownSh; // FEAT-278: shadows of the crowns')}
           // FEAT-168: the drawn trees' shadows past the shadow map
           reflectedLight.directDiffuse *= 1.0 - 0.85 * treeShade;
         }`)

@@ -61,6 +61,8 @@ const STAND_HYST = 250;
 const STAND_COLLIDE = 150;
 /** FEAT-074: draw this share (0..1) of the pack's stand density; the detected crowns always draw */
 export function setStandDensity(k: number): void { STAND_K = Math.max(0, Math.min(1, k)); }
+/** FEAT-278: the share of the stand density drawn now */
+export function vegetationStandDensity(): number { return STAND_K; }
 /** FEAT-153: how far the tree impostors reach (m), where the terrain's canopy lift takes over */
 export function vegetationFarRadius(): number { return FAR_RADIUS; }
 /** FEAT-159: the near radius (1500 m at full density); the shrubs scale their 300 m reach by it */

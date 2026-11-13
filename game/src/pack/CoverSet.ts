@@ -10,6 +10,9 @@ import { decodeRGBA } from './MaskSet';
  * four channels per vertex from a half-resolution CPU copy. Finer levels fade in over `blend` metres inside
  * their edges, so the pack's lidar canopy hands over to the land cover around it without a seam.
  */
+/** FEAT-278 prototype: with the crowns canopy (`?canopy=crowns`) the trees texture's A holds the canopy height (set before the pack loads) */
+export const coverOpts = { heightInAlpha: false };
+
 export class CoverLevel {
   readonly meta: CoverLevelMeta;
   /** pack-frame rectangle: minX, minY, maxX, maxY */
@@ -56,7 +59,7 @@ export class CoverLevel {
     const r = new Uint8Array(w * h * n);
     for (let i = 0; i < w * h; i++) {
       r[i * n] = px[i * 4]; r[i * n + 1] = near ? near[i * 4] : px[i * 4];
-      if (trees) { r[i * n + 2] = trees[i * 4 + 1]; r[i * n + 3] = 255; }
+      if (trees) { r[i * n + 2] = trees[i * 4 + 1]; r[i * n + 3] = coverOpts.heightInAlpha ? px[i * 4 + 1] : 255; }
     }
     this.hasTrees = !!trees;
     const tex = new THREE.DataTexture(r, w, h, trees ? THREE.RGBAFormat : THREE.RGFormat, THREE.UnsignedByteType);

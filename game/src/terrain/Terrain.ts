@@ -3,7 +3,7 @@ import { type Pack, MOGUL_MAX_RES, MOGUL_SHADE_MAX_RES } from '../pack/Pack';
 import { treelineOf } from '../pack/treeline';
 import { MOGUL_FALL_D } from './Moguls';
 import { createTerrainMaterial, COVER_SLOTS, EMPTY_RECT } from './TerrainMaterial';
-import { vegetationFarRadius, vegetationStemReach } from '../world/Vegetation';
+import { vegetationFarRadius, vegetationStandDensity, vegetationStemReach } from '../world/Vegetation';
 import type { TreeShade } from '../world/TreeShade';
 import { snowpackUniform, type SnowpackState } from '../sim/Snowpack';
 
@@ -97,10 +97,17 @@ export class Terrain {
   /** BUG-063: selected chunks still unbuilt or waiting on a rebuild after the last update (0 = settled) */
   pending = 0;
 
-  constructor(pack: Pack) {
+  /** FEAT-278 prototype: the far forest's crowns faked in the shader (`?canopy=crowns`) */
+  private readonly crowns: boolean;
+
+  constructor(pack: Pack, opts: { crowns?: boolean } = {}) {
+    this.crowns = !!opts.crowns;
     this.pack = pack;
     this.treeline = treelineOf(pack.meta);
-    this.material = createTerrainMaterial();
+    this.material = createTerrainMaterial({ crowns: this.crowns });
+    // FEAT-278: what the candidate costs beyond the shader: nothing is built and no GPU memory is added (the canopy
+    // height rides in the trees texture's spare A channel)
+    if (this.crowns) (window as unknown as { __canopy: unknown }).__canopy = { mode: 'crowns', buildMs: 0, bytes: 0, tiles: 0, busy: 0 };
     this.blankTreeMap = (this.material.userData.uniforms as { uTreeMap: { value: THREE.Texture } }).uTreeMap.value;
     const far = pack.meta.terrain.far ?? pack.meta.terrain.mid ?? pack.meta.terrain.fine!;
     this.rootMinX = far.minX;
@@ -302,6 +309,10 @@ export class Terrain {
     (this.material.userData.uniforms as { uLiftNear: { value: number } }).uLiftNear.value = vegetationFarRadius();
     // BUG-081: past the stems' reach the grown crowns carry the forest (packs with stands only, as Vegetation)
     (this.material.userData.uniforms as { uStemReach: { value: number } }).uStemReach.value = this.stemsDrawn ? vegetationStemReach() : 1e8;
+    // FEAT-278 (BUG-114): the drawn trees' share of the canopy follows the Forest setting (and Auto quality's cut of
+    // it): on Vail the detected crowns are 0.064 of the ground and the stems at full density 0.28, so the crowns in
+    // the shader fill in what the thinned stems leave
+    if (this.crowns) (this.material.userData.uniforms as { uForestDrawn: { value: number } }).uForestDrawn.value = 0.7 * (this.stemsDrawn ? 0.186 + 0.814 * vegetationStandDensity() : 1);
   }
 
   private isAncestor(a: Chunk, d: Chunk): boolean {

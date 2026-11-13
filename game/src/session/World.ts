@@ -45,7 +45,7 @@ export function buildWorld(ctx: GameContext) {
   add('clouds', clouds.mesh);
   const snow = new Snow();
   add('snowfall', snow.points);
-  const terrain = new Terrain(pack);
+  const terrain = new Terrain(pack, { crowns: params.canopy === 'crowns' }); // FEAT-278 prototype
   if (params.debugHud && params.debug === 'moguls') terrain.setMogulDebug(true); // BUG-062
   add('terrain', terrain.group);
   const collider = new Collider();
