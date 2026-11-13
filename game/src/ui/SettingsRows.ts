@@ -160,8 +160,7 @@ export const SECTIONS: Section[] = [
       desc: 'Sets the options under Advanced together. Ultra is High plus cascaded shadows at full resolution. Changing an advanced option shows Custom.' },
   ] },
   { cat: 'graphics', title: 'Frame rate', rows: [
-    toggle('autoQuality', 'Auto quality', 'Lowers resolution, trees, clouds and snowfall on its own when the frame rate drops below the target, and raises them again when there is room.'),
-    seg('targetFps', 'Target FPS', [[30, '30'], [60, '60'], [0, 'Uncapped']], 'The frame rate auto quality holds. 30 also caps the frame rate (saves battery); Uncapped aims for 60.'),
+    seg('targetFps', 'Frame cap', [[30, '30'], [60, '60'], [0, 'Uncapped']], 'The most frames drawn each second. 30 saves battery; Uncapped draws as fast as the display refreshes. Nothing else changes with it: what you set is what is drawn.'),
   ] },
   { cat: 'graphics', title: 'Advanced', rows: [
     { ...seg('quality', 'Detail', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']], 'The base detail level: shadow map size, snowflake count and the tree budget. Changing it moves Shadows, Trees, Forest and Resolution with it.'), set: (s: Settings, v: V) => applyQuality(s, v as Settings['quality']) } as Row,

@@ -7,7 +7,6 @@ import { setVegetationBudget, setVegetationDensity, setStandDensity } from '../w
 import { treeFadeUniforms } from '../world/TreeFade';
 import { GoggleView } from '../ui/GoggleView';
 import { GoggleLens } from '../world/Lens';
-import { AutoQuality } from '../ui/AutoQuality';
 import { RunStats } from '../sim/RunStats';
 import { RunCard } from '../ui/RunCard';
 import { Replay, type ReplaySample } from '../sim/Replay';
@@ -142,27 +141,12 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     /** the weather drawn, and FEAT-105's new snow, 0..1, shared by the terrain rock and the boulder caps (FEAT-106): a
      *  storm adds 1 per 10 min, flurries a fifth of that (states/RideFrame.ts), it never melts in a session; the New snow setting sets it */
     const sky: SkyState = { weather: 'scattered', snowCover: 0 };
-    // FEAT-062: adaptive quality; its level scales resolution, cloud steps, trees and snowfall in applySettings
-    const auto = new AutoQuality();
-    const autoClouds = (q: 'high' | 'medium' | 'low'): 'high' | 'medium' | 'low' => auto.current.cloudsDown ? (q === 'high' ? 'medium' : 'low') : q;
-    /** FEAT-044: the deformation window and the spray budget from the preset, the Snow dents setting, ?nodeform and the auto level */
+    /** FEAT-044: the deformation window and the spray budget from the preset, the Snow dents setting and ?nodeform */
     const applyDeform = (s: Settings): void => {
-      const q = auto.current;
-      deform.enabled = s.snowDeform !== false && s.quality !== 'low' && !params.nodeform && q.deform > 0;
-      const small = q.deform < 1 || s.quality === 'medium';
+      deform.enabled = s.snowDeform !== false && s.quality !== 'low' && !params.nodeform;
+      const small = s.quality === 'medium';
       deform.configure(small ? 256 : 512, small ? 48 : 64);
-      riderView.spray.setCount((s.quality === 'high' ? 8192 : s.quality === 'medium' ? 4096 : 2048) * q.snow);
-    };
-    /** apply only what the auto level scales (applySettings also does this, scaled, on any settings change) */
-    const applyAuto = (): void => {
-      const s = settings, q = auto.current;
-      applyDeform(s);
-      clouds.configure(sky.weather, autoClouds(s.quality));
-      renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2) * q.res);
-      if (s.quality !== 'low') setVegetationDensity(s.treeDensity * q.trees);
-      setStandDensity((s.forestDensity ?? 1) * q.trees); // FEAT-074
-      const flakes = s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500;
-      snow.setCount(Math.round((sky.weather === 'storm' ? flakes : flakes / 6) * q.snow));
+      riderView.spray.setCount(s.quality === 'high' ? 8192 : s.quality === 'medium' ? 4096 : 2048);
     };
     const applySettings = (s: Settings, what: string): void => {
       if (shotCond && (what === 'reset' || (CONDITION_FIELDS as readonly string[]).includes(what))) {
@@ -176,7 +160,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       const weather = currentWeather();
       sky.weather = weather;
       if (what === 'newSnow' || what === 'init' || what === 'reset') sky.snowCover = NEW_SNOW[c.newSnow ?? 'none'] ?? 0; // FEAT-105: pick a look without waiting
-      clouds.configure(weather, autoClouds(s.quality));
+      clouds.configure(weather, s.quality);
       const storm = weather === 'storm', overcast = isOvercast(weather);
       env.setBluebird(!storm && !overcast); // deep blue sky behind the clouds too; storm and overcast are grey
       env.setStorm(storm);
@@ -188,7 +172,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       // falling snow: the storm, or light flurries under overcast (a sixth of the flakes, no visibility cut)
       snow.points.visible = storm || weather === 'flurries';
       const flakes = s.quality === 'high' ? 16000 : s.quality === 'medium' ? 9000 : 4500;
-      snow.setCount(Math.round((storm ? flakes : flakes / 6) * auto.current.snow));
+      snow.setCount(Math.round(storm ? flakes : flakes / 6));
       applyDeform(s);
       // old tracks and boot prints fill in faster while it snows (FEAT-107)
       setTrackFillRate(storm ? FILL_RATE.storm : weather === 'flurries' ? FILL_RATE.flurries : FILL_RATE.clear);
@@ -197,15 +181,15 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       audio.setVolumes(s.mute ? 0 : s.sfx, s.mute ? 0 : s.music);
       audio.setSource(s.musicSource);
       audio.setPlaylist(s.playlist);
-      renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2) * auto.current.res); // FEAT-062: auto quality scales it
+      renderer.setPixelRatio(Math.min(s.pixelRatio, window.devicePixelRatio || 1, 2));
       if (renderer.shadowMap.enabled !== s.shadows) { renderer.shadowMap.enabled = s.shadows; renderer.shadowMap.needsUpdate = true; scene.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) m.needsUpdate = true; }); }
       const wantSize = (s.csmExperimental || params.csm) && !params.nocsm ? (s.quality === 'high' ? 2048 : 1024) : 0;
       if (csmSize !== wantSize) { csmSize = wantSize; if (wantSize) env.enableCSM(cam.camera, wantSize, 3); else env.disableCSM(); }
       env.sun.visible = wantSize === 0;
       env.sun.shadow.mapSize.set(s.quality === 'high' ? 4096 : 2048, s.quality === 'high' ? 4096 : 2048);
       env.setShadows(s.shadows);
-      if (s.quality === 'low') setVegetationBudget(250, 600, false); else setVegetationDensity(s.treeDensity * auto.current.trees); // FEAT-158: Low has no LOD0 cards
-      setStandDensity((s.forestDensity ?? 1) * auto.current.trees); // FEAT-074: only the generated stems
+      if (s.quality === 'low') setVegetationBudget(250, 600, false); else setVegetationDensity(s.treeDensity); // FEAT-158: Low has no LOD0 cards
+      setStandDensity(s.forestDensity ?? 1); // FEAT-074: only the generated stems
       cam.baseFov = s.fov;
       controls.keymap = { ...s.keys };
       controls.invertSteer = s.invertSteer;
@@ -395,7 +379,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     const draw = (): void => { veg.cull(cam.camera, renderer.shadowMap.enabled && env.sun.visible && !env.csm ? env.sun : null); sceneRender.render(cam.camera, cam.firstPerson); }; // FEAT-158: the near trees culled to this view
     const frame = new RideFrame({
       ...world, params, settings, pack, renderer, canvas, audio, events, rider, liftRide, prefetch, cam, controls, touch, goggles, lens, runStats, runCard, speedLines, replay,
-      modes, map, labels, sun, auto, keyLabels, pressMeter, fps, sky, look, applyAuto, draw, showToast, saveShot, conditions,
+      modes, map, labels, sun, keyLabels, pressMeter, fps, sky, look, draw, showToast, saveShot, conditions,
     });
     if (settings.keysNote) { frame.boardNote = 'New default key layout available: Settings > Controls > Reset keys'; settings.keysNote = false; saveSettings(settings); }
     const restartRing = new RestartRing();

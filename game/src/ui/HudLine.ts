@@ -10,12 +10,11 @@ export interface HudState {
   runStats: RunStats;
   metric: boolean;
   fps: number;
-  /** terrain chunks and triangles, tree instances, camera mode, the auto quality line ('' at level 0) */
+  /** terrain chunks and triangles, tree instances, camera mode */
   chunks: number;
   triangles: number;
   trees: number;
   camMode: string;
-  auto: string;
   /** BUG-053 ?debug: the edge model's numbers */
   debug: boolean;
 }
@@ -34,7 +33,7 @@ export function hudLine(s: HudState): string {
     // FEAT-055: the run so far
     (runStats.active ? `</b><br><span class="dim">${runStats.current ? runStats.current + ' &middot; ' : ''}top ${fmtSpeed(runStats.topSpeed, metric)} &middot; ${altStr(runStats.vertical)} vert &middot; ${fmtDistance(runStats.distance, metric)}</span><b>` : '') +
     `<br><span class="dim">${s.fps.toFixed(0)} fps &middot; ${s.chunks} chunks &middot; ${(s.triangles / 1000).toFixed(0)}k tris &middot; trees ${s.trees} &middot; cam ${s.camMode}` +
-    ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}${s.auto ? ' &middot; ' + s.auto : ''}</span>` +
+    ` &middot; pos ${rider.x.toFixed(0)}, ${rider.y.toFixed(0)}</span>` +
     // BUG-053 ?debug: the edge model's numbers for tuning (edge angle, the lateral acceleration it balances, turn radius and rate, the brake's cut and swing)
     (s.debug ? `<br><span class="dim">edge ${(rider.edge * 180 / Math.PI).toFixed(0)}&deg; &middot; aLat ${rider.carveAcc.toFixed(1)} m/s&sup2; (${rider.lateralG.toFixed(2)} g) &middot; R ${Number.isFinite(rider.turnRadius) ? rider.turnRadius.toFixed(0) + ' m' : '&infin;'} &middot; ${(rider.turnRate * 180 / Math.PI).toFixed(0)}&deg;/s` +
       (rider.hardCarve > 0 ? ` &middot; hard ${rider.hardCarve.toFixed(2)} short ${rider.carveShort.toFixed(2)} g wash ${rider.washout.toFixed(2)}` : '') + // FEAT-148
