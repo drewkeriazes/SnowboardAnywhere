@@ -159,6 +159,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
     /** FEAT-292: the clump impostors' band (where they take over from the drawn trees, the fade's half-width, the share
      *  of the canopy they cover, 1 = on); set by Terrain.update */
     uClump: { value: new THREE.Vector4(0, 0, 0, 0) },
+    /** BUG-121: where the drawn trees end (m, horizontal, from where they start to go to none), so the shade map's shadows of the trees past it go with them */
+    uTreeEnd: { value: new THREE.Vector2(1e8, 1e8 + 1) },
     uCanopySun: { value: 0.22 },
     uTimberMix: { value: 0.97 },
     /** FEAT-154: the rectangle (pack minX, minY, maxX, maxY) holding tree instances; none by default */
@@ -224,6 +226,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         uniform vec4 uDebugFar;
         uniform float uForestDrawn, uCanopySun, uLiftNear, uTimberMix, uStemReach;
         uniform vec4 uClump;
+        uniform vec2 uTreeEnd;
         uniform vec4 uTreeRect;
         #define AO_POW 2.6
         #define AO_DIRECT 0.6
@@ -254,7 +257,10 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         float covW(vec2 p, vec4 r) { vec2 d = min(p - r.xy, r.zw - p); return smoothstep(0.0, uCovBlend, min(d.x, d.y)); }
         vec2 covUV(vec2 p, vec4 r) { return vec2((p.x - r.x) / (r.z - r.x), (r.w - p.y) / (r.w - r.y)); }
         // BUG-069: G of a level is its forest under closed stands of drawn trees only, shown while single
-        // trees read (to STAND_NEAR m); R, the forest as a mass, takes over by STAND_FAR
+        // trees read (to STAND_NEAR m); R, the forest as a mass, takes over by STAND_FAR. BUG-120: and not before
+        // the generated stems end (uStemReach, R full by 1.5 times it, as the crowns grow to stand in for them):
+        // while the stems are drawn the trees carry a sparse stand on white snow, and R (which counts a tree every
+        // 10 m as forest) laid timber under the Back Bowls' sparse stands from 1.2 km, grey from the air
         // a conifer's side silhouette over its plan area: in a slanted view tall trees close the gaps sooner
         #define TREE_ASPECT 2.5
         #define STAND_NEAR 1200.0
@@ -262,7 +268,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         // forest share (x) blended finest over coarsest, and how much of it is data (y). All three are
         // sampled unconditionally so the mip selection never sits in non-uniform control flow.
         vec2 coverForest(vec2 p, float dist) {
-          float farK = smoothstep(STAND_NEAR, STAND_FAR, dist);
+          float stemR = uStemReach < 1e7 ? uStemReach : 0.0; // 1e8: no stems drawn, the BUG-069 distances alone
+          float farK = smoothstep(max(STAND_NEAR, stemR), max(STAND_FAR, 1.5 * stemR), dist);
           vec2 t0 = texture2D(uCov0, covUV(p, uCovRect[0])).rg;
           vec2 t1 = texture2D(uCov1, covUV(p, uCovRect[1])).rg;
           vec2 t2 = texture2D(uCov2, covUV(p, uCovRect[2])).rg;
@@ -561,7 +568,7 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
         if (shadeGate > 0.0 && uFlat < 0.99 && fd < 0.99 && uSunDir.y >= 0.02) {
           vec2 sm = treeShadeMap(pxyF, pixGround);
           float coarse = (1.0 - sm.y) * (1.0 - smoothstep(2.0, 3.0, cellPx));
-          treeShade = sm.x + (coarse > 0.001 ? coarse * treeShadow(pxyF, dist, treeG) : 0.0);
+          treeShade = sm.x * (1.0 - smoothstep(uTreeEnd.x, uTreeEnd.y, length(wp.xz - cameraPosition.xz))) + (coarse > 0.001 ? coarse * treeShadow(pxyF, dist, treeG) : 0.0);
           treeShade *= shadeGate * (1.0 - fd) * (1.0 - uFlat);
         }
         gGlintW *= wSnow * (1.0 - wGroom * 0.6) * (1.0 - fd) * (1.0 - vegK) * (1.0 - 0.6 * uSpring); // wet spring snow sparkles less

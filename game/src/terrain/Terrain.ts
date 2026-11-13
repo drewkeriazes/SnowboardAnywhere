@@ -3,7 +3,7 @@ import { type Pack, MOGUL_MAX_RES, MOGUL_SHADE_MAX_RES } from '../pack/Pack';
 import { treelineOf } from '../pack/treeline';
 import { MOGUL_FALL_D } from './Moguls';
 import { createTerrainMaterial, COVER_SLOTS, EMPTY_RECT } from './TerrainMaterial';
-import { vegetationFarRadius, vegetationStemReach, vegetationClumpBand } from '../world/Vegetation';
+import { vegetationFarRadius, vegetationStemReach, vegetationClumpBand, vegetationTreeEnd } from '../world/Vegetation';
 import { CLUMP_RHO } from '../world/trees/clumps';
 import type { TreeShade } from '../world/TreeShade';
 import { snowpackUniform, type SnowpackState } from '../sim/Snowpack';
@@ -306,6 +306,9 @@ export class Terrain {
     // FEAT-292: in the clump band the clumps carry the canopy instead of the ground's timber tone
     const cb = vegetationClumpBand();
     (this.material.userData.uniforms as { uClump: { value: THREE.Vector4 } }).uClump.value.set(cb?.near ?? 0, cb?.fade ?? 0, CLUMP_RHO, cb ? 1 : 0);
+    // BUG-121: the shade map holds every tree of the loaded cells; past where the trees end their shadows go too
+    const [e0, e1] = vegetationTreeEnd();
+    (this.material.userData.uniforms as { uTreeEnd: { value: THREE.Vector2 } }).uTreeEnd.value.set(e0, e1);
   }
 
   private isAncestor(a: Chunk, d: Chunk): boolean {
