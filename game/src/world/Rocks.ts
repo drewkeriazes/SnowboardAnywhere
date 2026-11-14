@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
 import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from '../terrain/rockShader';
+import type { Ground } from '../terrain/Terrain';
 
 const RADIUS = 2500;
 const VARIANTS = 4;
 
-interface Cell { cx: number; cy: number; meshes: THREE.InstancedMesh[]; loading: boolean; missing: boolean }
+/** `shown`: the cell's meshes are drawn (BUG-088: they wait until the ground under the cell is real) */
+interface Cell { cx: number; cy: number; meshes: THREE.InstancedMesh[]; loading: boolean; missing: boolean; shown: boolean }
 
 /**
  * Instanced rocks streamed per cell. Each rock picks one of four noise-displaced low-poly
@@ -24,6 +26,8 @@ export class Rocks {
   private readonly pack: Pack;
   private readonly collider: Collider | null;
   private readonly cells = new Map<string, Cell>();
+  /** BUG-088: the terrain; a loaded cell is drawn once the ground under it has its real heights (null: at once) */
+  ground: Ground | null = null;
   private readonly geos: THREE.BufferGeometry[] = [];
   private readonly mat: THREE.MeshStandardMaterial;
   get material(): THREE.MeshStandardMaterial { return this.mat; }
@@ -110,10 +114,20 @@ export class Rocks {
       for (let cx = cx0; cx <= cx1; cx++) {
         const key = `${cx}_${cy}`;
         keep.add(key);
-        if (!this.cells.has(key)) {
-          const cell: Cell = { cx, cy, meshes: [], loading: true, missing: false };
+        let cell = this.cells.get(key);
+        if (!cell) {
+          cell = { cx, cy, meshes: [], loading: true, missing: false, shown: false };
           this.cells.set(key, cell);
           this.load(cell);
+        }
+        // BUG-088: rocks sit at their real heights, so before the terrain under them has loaded they would hang
+        // over the flat sheet that stands in for it: show the cell once the ground there is real
+        if (!cell.shown && !cell.loading && cell.meshes.length) {
+          const x0 = inst.minX + cx * cs, y0 = inst.minY + cy * cs;
+          if (!this.ground || this.ground.groundReady(x0, y0, x0 + cs, y0 + cs)) {
+            cell.shown = true;
+            for (const m of cell.meshes) m.visible = true;
+          }
         }
       }
     }
@@ -175,6 +189,7 @@ export class Rocks {
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
         mesh.computeBoundingSphere();
+        mesh.visible = false; // BUG-088: update() shows it once the ground under the cell is real
         cell.meshes.push(mesh);
         this.group.add(mesh);
       }

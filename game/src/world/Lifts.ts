@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { LiftFeature } from '../pack/types';
 import type { Pack } from '../pack/Pack';
+import type { Ground } from '../terrain/Terrain';
 import { LOAD_OFFSET, rideLength, type LiftKind, type LiftLine, type LiftNetwork, type Vec3 } from '../sim/LiftLine';
 import { towerGeometry, towerHeadGeometry, footingGeometry, chairGeometry, gondolaGeometry, surfaceHangerGeometry, terminalGeometry, carpetGeometry } from './LiftModels';
 
@@ -92,13 +93,18 @@ export class Lifts implements LiftNetwork<LiftRuntime> {
   /** terrain level each lift was built on: 0 none (station heights only), 1 mid (16 m), 2 fine (1 m) */
   private readonly level: number[] = [];
   private maintainAcc = 0;
+  /** BUG-088: the terrain; a lift is drawn once the ground along it has its real heights (null: at once) */
+  ground: Ground | null = null;
+  /** BUG-088: per lift, drawn yet (its towers stand on the real ground, so before it loads they would float) */
+  private readonly shown: boolean[] = [];
 
   constructor(pack: Pack) {
     this.pack = pack;
     for (const lift of pack.features.lifts) {
       if (lift.stations.length < 2) continue;
       const { rt, group } = this.build(lift);
-      this.lifts.push(rt); this.liftGroups.push(group); this.level.push(0);
+      this.lifts.push(rt); this.liftGroups.push(group); this.level.push(0); this.shown.push(false);
+      group.visible = false;
       this.group.add(group);
     }
   }
@@ -279,6 +285,7 @@ export class Lifts implements LiftNetwork<LiftRuntime> {
     Object.assign(rt, fresh, { offset });
     this.liftGroups[i] = group;
     this.level[i] = level;
+    group.visible = this.shown[i];
     this.group.add(group);
     this.placeMarker(rt);
     this.placeCarriers(rt, this.time, null); // this frame's update has run: don't draw the new carriers at the origin
@@ -410,7 +417,20 @@ export class Lifts implements LiftNetwork<LiftRuntime> {
   /** Move the carriers. `hide`: the rider's own chair position; the line's carrier nearest it is hidden. */
   update(time: number, hide: THREE.Vector3 | null = null): void {
     this.time = time;
+    this.reveal();
     for (const l of this.lifts) this.placeCarriers(l, time, hide);
+  }
+
+  /** BUG-088: show each lift still hidden once the terrain under its whole line is real (its cable's box, pack metres) */
+  reveal(): void {
+    for (let i = 0; i < this.lifts.length; i++) {
+      if (this.shown[i]) continue;
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const p of this.lifts[i].curve) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, -p.z); y1 = Math.max(y1, -p.z); }
+      if (this.ground && !this.ground.groundReady(x0, y0, x1, y1)) continue;
+      this.shown[i] = true;
+      this.liftGroups[i].visible = true;
+    }
   }
 
   /** sim time of the last update(), for carriers placed by a rebuild */

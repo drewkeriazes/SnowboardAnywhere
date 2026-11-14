@@ -35,6 +35,14 @@ export class HeightSet {
     return ty * 4096 + tx;
   }
 
+  /** BUG-088: the point is inside this set but its tile has not loaded (and is not known missing): its height is still to come */
+  waiting(x: number, y: number): boolean {
+    if (!this.contains(x, y)) return false;
+    const [tx, ty] = this.tileCoord(x, y);
+    const k = this.key(tx, ty);
+    return !this.tiles.get(k) && !this.missing.has(k);
+  }
+
   tileCoord(x: number, y: number): [number, number] {
     return [Math.floor((x - this.meta.minX) / this.size), Math.floor((y - this.meta.minY) / this.size)];
   }

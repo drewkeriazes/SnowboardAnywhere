@@ -71,6 +71,8 @@ export function buildWorld(ctx: GameContext) {
   add('buildings', buildings.group);
   const roads = new Roads(pack, settings.roadsOnSnow);
   add('roads', roads.group);
+  // BUG-088: props stand at their real heights, so they wait until the terrain under them is real
+  rocks.ground = terrain; veg.ground = terrain; buildings.ground = terrain; lifts.ground = terrain;
   const landmarks = new Landmarks(pack, collider); // FEAT-132: hand-placed signs (the Back Bowls gateway)
   add('landmarks', landmarks.group);
   const bridges = new Bridges(pack, collider, params.bridgeguess); // BUG-022: OSM-tagged bridges and creek-bed dips; ?bridgeguess adds segment chords
@@ -79,6 +81,7 @@ export function buildWorld(ctx: GameContext) {
   const ls = landmarkStart(pack.meta.slug);
   const people = new StaticPeople(pack, collider, parsePeopleMode(params.people), [[pack.meta.start.x, pack.meta.start.y], ...(ls ? [[ls.x, ls.y] as [number, number]] : []), ...landmarks.list.map((l) => [l.x, l.y] as [number, number])]);
   add('people', people.group);
+  people.ground = terrain; // BUG-088
   const tracks = new Tracks(pack);
   add('tracks', tracks.group);
   const bootprints = new Bootprints(pack);

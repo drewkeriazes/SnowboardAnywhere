@@ -103,8 +103,15 @@ export class Pack {
       const h = s.sample(x, y);
       if (!Number.isNaN(h)) return h;
     }
+    if (this.sets.some((s) => s.waiting(x, y))) this.waitingSamples++;
     return this.meta.zRange[0];
   }
+
+  /**
+   * BUG-088: count of height() calls that found no data yet because the tiles there are still to load (the
+   * floor of the range stands in). The terrain diffs it per chunk build to know a chunk is not the real ground.
+   */
+  waitingSamples = 0;
 
   /**
    * Count of terrainHeight() calls that wanted a finer set (the point is inside it) but had to
