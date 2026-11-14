@@ -57,7 +57,11 @@ export function jump(r: Rider, dt: number, input: Input, n: [number, number, num
     // FEAT-112: popped off a loaded tail (ollie) or nose (nollie): the board's spring
     const flex = Math.abs(r.lean) > 0.5 ? P.ollie : 1;
     const pop = (P.base + P.charge * r.jumpCharge) * spring * flex;
-    r.vx += n[0] * pop; r.vy += n[1] * pop; r.vz = n[2] * pop + Math.max(0, -(r.vx * n[0] + r.vy * n[1]));
+    // FEAT-311: the pop adds to the velocity along the snow, so on a slope you leave it at the pop's speed off
+    // the surface whatever your speed. Arcade keeps the old launch, which dropped the downhill fall (vz set
+    // from the pop alone), so a pop at speed down a slope went far higher: its big air.
+    if (P.slopeKick) { r.vx += n[0] * pop; r.vy += n[1] * pop; r.vz = n[2] * pop + Math.max(0, -(r.vx * n[0] + r.vy * n[1])); }
+    else { r.vx += n[0] * pop; r.vy += n[1] * pop; r.vz += n[2] * pop; }
     r.onGround = false; r.airTime = 0; r.spin = 0; r.flip = 0; r.flipRate = 0; r.jumpCharge = 0;
     r.flipRate = flex > 1 ? r.lean * P.pitch : 0; // an ollie leaves you rotating back a little, a nollie forward
     r.tuckDir = 0; // the W / S still down tucks from the takeoff (airStep)

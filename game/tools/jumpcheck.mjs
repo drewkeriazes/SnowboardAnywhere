@@ -15,6 +15,23 @@ const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'jumpcheck-')), 'rid
 await build({ entryPoints: [path.join(GAME, 'src', 'sim', 'Rider.ts')], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error' });
 const { Rider } = await import(pathToFileURL(out).href);
 
+/** an exact plane falling toward +y at `deg` degrees */
+function plane(deg) {
+  const t = Math.tan(deg * Math.PI / 180), k = 1 / Math.hypot(t, 1);
+  return { mask: null, coarseFallbacks: 0, groundHeight: (x, y) => -t * y, groundNormal: (x, y, o = [0, 0, 1]) => { o[0] = 0; o[1] = t * k; o[2] = k; return o; } };
+}
+/** a full charge riding straight down a `deg` slope at `v` m/s: the most clearance off the slope (m, measured
+ *  square to it) and the air time (s) */
+function slopePop(mode, deg, v) {
+  const a = deg * Math.PI / 180, t = Math.tan(a), c = Math.cos(a);
+  const r = new Rider(plane(deg), null);
+  r.jumpMode = mode; r.reset(0, 0, 0); r.vy = v * c; r.vz = -v * Math.sin(a);
+  for (let i = 0; i < 60; i++) r.update(FRAME, input({ jumpHeld: true }));
+  r.update(FRAME, input({ jumpReleased: true }));
+  let clear = 0, k = 0;
+  for (; k < 900 && !r.onGround; k++) { clear = Math.max(clear, (r.z + t * r.y) * c); r.update(FRAME, input()); }
+  return { clear, air: k * FRAME };
+}
 const flat = { mask: null, coarseFallbacks: 0, groundHeight: () => 0, groundNormal: (x, y, o = [0, 0, 1]) => { o[0] = 0; o[1] = 0; o[2] = 1; return o; } };
 const FRAME = 1 / 60;
 const input = (o = {}) => ({ steer: 0, tuck: false, brake: false, jumpHeld: false, jumpReleased: false, grab: false, squat: false, lean: 0, ...o });
@@ -108,4 +125,9 @@ for (const mode of ['real', 'arcade']) {
 const s1 = spin('real', false), s2 = spin('real', true);
 check('real: a full charge spins a 180', s1 > Math.PI, deg(s1));
 check('real: no 360 off flat snow, even from a squat ollie', s2 < 300 * Math.PI / 180, deg(s2));
+// FEAT-311: on Realistic the pop adds to the velocity along the snow, so a pop down a slope leaves it the same at
+// any speed (the old launch dropped the downhill fall: about 5 m off a 20 deg slope at 20 m/s); Arcade keeps that
+const slow = slopePop('real', 20, 5), fast = slopePop('real', 20, 20), arc = slopePop('arcade', 20, 20);
+check('real: a pop down a 20 deg slope at 20 m/s clears about what it does slowly', fast.clear < 0.65 && fast.clear < slow.clear + 0.1, `${m(fast.clear)} at 20 m/s, ${m(slow.clear)} at 5 m/s, ${fast.air.toFixed(2)} s of air`);
+check('arcade: keeps the big air down a slope at speed', arc.clear > 5, `${m(arc.clear)}`);
 process.exit(fails ? 1 : 0);
