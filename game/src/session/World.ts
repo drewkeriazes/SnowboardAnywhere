@@ -5,6 +5,7 @@ import { Collider } from '../sim/Collider';
 import { buildCourses } from '../sim/Courses';
 import { Bridges } from '../world/Bridges';
 import { Landmarks } from '../world/Landmarks';
+import { SlowSigns } from '../world/SlowSigns';
 import { Clouds } from '../world/Clouds';
 import { Snow } from '../world/Snow';
 import { Vegetation, setLod0Reach } from '../world/Vegetation';
@@ -72,6 +73,8 @@ export function buildWorld(ctx: GameContext) {
   add('roads', roads.group);
   const landmarks = new Landmarks(pack, collider); // FEAT-132: hand-placed signs (the Back Bowls gateway)
   add('landmarks', landmarks.group);
+  const slowSigns = new SlowSigns(pack, collider); // FEAT-306: SLOW signs at the bottom of some green and blue runs
+  add('slow signs', slowSigns.group);
   const bridges = new Bridges(pack, collider, params.bridgeguess); // BUG-022: OSM-tagged bridges and creek-bed dips; ?bridgeguess adds segment chords
   add('bridges', bridges.group);
   const tracks = new Tracks(pack);
@@ -112,12 +115,13 @@ export function buildWorld(ctx: GameContext) {
   for (const m of Object.values(monsters.materials)) env.registerMaterial(m);
   for (const m of eat.materials) env.registerMaterial(m);
   for (const m of landmarks.materials) env.registerMaterial(m);
+  for (const m of slowSigns.materials) env.registerMaterial(m);
   veg.enableImpostors(renderer, !params.noimpostors, params.lowgfx ? 1024 : 2048); // FEAT-156: bakes the LOD2 / impostor atlases either way
   if (params.lod0 != null) setLod0Reach(params.lod0); // BUG-107
   if (!params.noclumps) veg.enableClumps(renderer, params.clumpfar ?? undefined); // FEAT-292: the far forest as clump impostors past the drawn trees
   terrain.setTreeShade(veg.shade); // FEAT-171: the drawn trees' shadows past the shadow map
   return {
-    zr, env, clouds, snow, terrain, collider, veg, shrubs, treeFade, rocks, lifts, liftLines, resortTop, runs, buildings, roads, landmarks, bridges,
+    zr, env, clouds, snow, terrain, collider, veg, shrubs, treeFade, rocks, lifts, liftLines, resortTop, runs, buildings, roads, landmarks, slowSigns, bridges,
     tracks, bootprints, riderChair, puffs, particleLight, bigprints, deform, monsters, eat, courses, trialWorld, riderView, treeBrush,
   };
 }
