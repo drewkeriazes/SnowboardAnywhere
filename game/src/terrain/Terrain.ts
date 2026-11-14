@@ -63,10 +63,15 @@ interface Chunk {
   res: number;
   mesh: THREE.Mesh | null;
   dataRes: number; // finest source resolution available when built
+  /** BUG-088: built before the height tiles under it arrived, so parts of it are the flat floor of the range, not the ground */
+  blank: boolean;
   lastUsed: number;
 }
 
-export class Terrain {
+/** BUG-088: the drawn terrain, asked whether the ground over a rect (pack metres) has its real heights yet */
+export interface Ground { groundReady(minX: number, minY: number, maxX: number, maxY: number): boolean }
+
+export class Terrain implements Ground {
   readonly group = new THREE.Group();
   readonly material: THREE.MeshStandardMaterial;
   private readonly pack: Pack;
@@ -97,6 +102,15 @@ export class Terrain {
   budgetMs = 0;
   /** BUG-063: selected chunks still unbuilt or waiting on a rebuild after the last update (0 = settled) */
   pending = 0;
+  /**
+   * BUG-088: chunks the camera wants that are not the ground yet (their rect, pack metres: minX, minY, size): still
+   * to build (a hole, or a coarser ancestor standing in), or built before their height tiles arrived (partly the
+   * flat floor of the range). Headless runs build ten chunks a frame from the first one with no warm-up, so for
+   * their first hundred frames most of the view is like this.
+   */
+  private readonly notGround: number[] = [];
+  /** BUG-088: update() has run (before it there is no ground at all) */
+  private updated = false;
 
   constructor(pack: Pack) {
     this.pack = pack;
@@ -255,6 +269,9 @@ export class Terrain {
     const want = new Set<string>();
     let builds = 0, pending = 0;
     const t0 = performance.now();
+    const held = this.notGround;
+    held.length = 0;
+    this.updated = true;
     for (const c of this.visible) {
       want.add(c.key);
       c.lastUsed = this.frame;
@@ -275,6 +292,7 @@ export class Terrain {
           builds++;
         } else pending++;
       }
+      if (!c.mesh || c.blank) held.push(c.minX, c.minY, c.size); // BUG-088: a hole or a coarse stand-in, or the flat floor
     }
     this.stats.builds = builds;
     this.pending = pending;
@@ -311,6 +329,21 @@ export class Terrain {
     (this.material.userData.uniforms as { uTreeEnd: { value: THREE.Vector2 } }).uTreeEnd.value.set(e0, e1);
   }
 
+  /**
+   * BUG-088: whether the ground drawn over a rect (pack metres) is the real terrain: every chunk the camera wants
+   * over it is built, from loaded heights (not a hole, not a coarse stand-in, not the flat floor of the range).
+   * Props placed at their real heights (rocks, trees, buildings) wait for it, so they never hang in the sky over a
+   * ground still to come.
+   */
+  groundReady(minX: number, minY: number, maxX: number, maxY: number): boolean {
+    if (!this.updated) return false;
+    const b = this.notGround;
+    for (let i = 0; i < b.length; i += 3) {
+      if (b[i] < maxX && b[i] + b[i + 2] > minX && b[i + 1] < maxY && b[i + 1] + b[i + 2] > minY) return false;
+    }
+    return true;
+  }
+
   private isAncestor(a: Chunk, d: Chunk): boolean {
     return d.minX >= a.minX && d.minY >= a.minY && d.minX + d.size <= a.minX + a.size && d.minY + d.size <= a.minY + a.size;
   }
@@ -337,7 +370,7 @@ export class Terrain {
     const key = `${level}/${x}/${y}`;
     let c = this.chunks.get(key);
     if (!c) {
-      c = { key, level, x, y, minX, minY, size, res, mesh: null, dataRes: Infinity, lastUsed: this.frame };
+      c = { key, level, x, y, minX, minY, size, res, mesh: null, dataRes: Infinity, blank: false, lastUsed: this.frame };
       this.chunks.set(key, c);
     }
     this.visible.push(c);
@@ -378,6 +411,7 @@ export class Terrain {
     const heights = new Float32Array((n + 2) * (n + 2)); // with a 1-sample border for normals
     // sample base heights (no mogul bumps) including border
     let dataRes = Infinity;
+    const waiting0 = pack.waitingSamples;
     for (let j = -1; j <= n; j++) {
       const y = c.minY + j * res;
       for (let i = -1; i <= n; i++) {
@@ -385,7 +419,10 @@ export class Terrain {
         heights[(j + 1) * (n + 2) + (i + 1)] = pack.height(x, y, res, false);
       }
     }
-    dataRes = pack.finestRes(c.minX + c.size / 2, c.minY + c.size / 2, res);
+    // BUG-088: a chunk built while some of its tiles are still loading is not the ground yet: it rebuilds on any tile
+    // that lands under it (finestRes would claim the far set's resolution, so the far tile itself would not rebuild it)
+    c.blank = pack.waitingSamples > waiting0;
+    dataRes = c.blank ? Infinity : pack.finestRes(c.minX + c.size / 2, c.minY + c.size / 2, res);
     const resB = Math.max(res, MOGUL_MAX_RES * 2); // auxiliary samples (ridges, talus, fall line) without the mogul bumps
     const useMask = !!pack.mask && res <= 8;
     // FEAT-153: coarser chunks take forest, rock and canopy height from the cover levels where they have

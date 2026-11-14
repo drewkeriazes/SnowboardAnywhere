@@ -70,6 +70,8 @@ export function buildWorld(ctx: GameContext) {
   add('buildings', buildings.group);
   const roads = new Roads(pack, settings.roadsOnSnow);
   add('roads', roads.group);
+  // BUG-088: props stand at their real heights, so they wait until the terrain under them is real
+  rocks.ground = terrain; veg.ground = terrain; buildings.ground = terrain; lifts.ground = terrain;
   const landmarks = new Landmarks(pack, collider); // FEAT-132: hand-placed signs (the Back Bowls gateway)
   add('landmarks', landmarks.group);
   const bridges = new Bridges(pack, collider, params.bridgeguess); // BUG-022: OSM-tagged bridges and creek-bed dips; ?bridgeguess adds segment chords

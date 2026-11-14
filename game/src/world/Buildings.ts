@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { BuildingFeature } from '../pack/types';
 import type { Collider } from '../sim/Collider';
+import type { Ground } from '../terrain/Terrain';
 
 /**
  * Buildings extruded from OSM footprints in features.json. Walls and a snow-covered roof are
@@ -63,6 +64,10 @@ export class Buildings {
   get material(): THREE.MeshStandardMaterial { return this.mat; }
 
   private readonly collider: Collider | null;
+  /** BUG-088: the terrain; a 1 km cell's buildings are drawn once the ground under it has its real heights (null: at once) */
+  ground: Ground | null = null;
+  /** BUG-088: cells still hidden, waiting for their ground: the mesh and its cell's rect (pack metres) */
+  private waiting: { mesh: THREE.Mesh; minX: number; minY: number }[] = [];
   /** FEAT-071: the lowest building base in the pack (the village floor) */
   private readonly valleyFloor: number;
 
@@ -92,8 +97,25 @@ export class Buildings {
       const mesh = new THREE.Mesh(geo, this.mat);
       mesh.name = `buildings ${key}`;
       mesh.castShadow = true; mesh.receiveShadow = true;
+      mesh.visible = false;
+      const [kx, ky] = key.split('_').map(Number);
+      this.waiting.push({ mesh, minX: kx * 1000, minY: ky * 1000 });
       this.group.add(mesh);
     }
+  }
+
+  /**
+   * BUG-088: show each cell's buildings once the terrain under it is real. They stand on the pipeline's ground
+   * heights, so on the first frames, before the tiles there have loaded, they would float over the flat sheet.
+   * A footprint can reach past its cell (it is binned by its first point), so the rect is grown by 200 m.
+   */
+  update(): void {
+    if (!this.waiting.length) return;
+    this.waiting = this.waiting.filter((w) => {
+      if (this.ground && !this.ground.groundReady(w.minX - 200, w.minY - 200, w.minX + 1200, w.minY + 1200)) return true;
+      w.mesh.visible = true;
+      return false;
+    });
   }
 
   private extrude(pack: Pack, b: BuildingFeature, pos: number[], nor: number[], col: number[], idx: number[]): void {

@@ -8,6 +8,7 @@ import { treelineOf } from '../pack/treeline';
 import { TreeShade } from './TreeShade';
 import { crownOverlap, type CrownHit } from './TreeBrush';
 import { ClumpCanopy } from './trees/clumps';
+import type { Ground } from '../terrain/Terrain';
 
 /**
  * Streams tree instances per 1 km cell around the rider and draws them with the FEAT-156 tree kit
@@ -201,6 +202,8 @@ interface Cell {
   missing: boolean;
   /** FEAT-171: handed to the shade map */
   shaded: boolean;
+  /** BUG-088: the ground under the cell is real, so its trees are drawn (before, they would hang over the flat sheet) */
+  grounded: boolean;
 }
 
 /**
@@ -248,6 +251,8 @@ export class Vegetation {
   private readonly pack: Pack;
   private readonly collider: Collider | null;
   private readonly cells = new Map<string, Cell>();
+  /** BUG-088: the terrain; a cell's trees are drawn once the ground under it has its real heights (null: at once) */
+  ground: Ground | null = null;
   /** instances: in loaded cells; lod0 / lod1: in the near buffers (after culling); far: in the far buffers; *Packs: buffer refills so far */
   readonly stats = { cells: 0, instances: 0, lod0: 0, lod1: 0, far: 0, nearPacks: 0, farPacks: 0, stems: 0, stemGens: 0 };
   /** BUG-063: stop building cell meshes after this many ms per update (0 = no limit; headless keeps 0) */
@@ -402,12 +407,17 @@ export class Vegetation {
         keep.add(key);
         let cell = this.cells.get(key);
         if (!cell) {
-          cell = { key, cx, cy, data: null, base: null, stand: null, standState: 0, gen: 0, col: null, sp: null, va: null, cr: null, yaw: null, tint: null, thin: null, order: null, tileStart: null, zMin: 0, zMax: 0, lod2: null, imp: null, loading: false, missing: false, shaded: false };
+          cell = { key, cx, cy, data: null, base: null, stand: null, standState: 0, gen: 0, col: null, sp: null, va: null, cr: null, yaw: null, tint: null, thin: null, order: null, tileStart: null, zMin: 0, zMax: 0, lod2: null, imp: null, loading: false, missing: false, shaded: false, grounded: false };
           this.cells.set(key, cell);
         }
         if (!cell.data && !cell.loading && !cell.missing) this.load(cell);
         if (cell.loading) pending++;
         if (!cell.data) continue;
+        // BUG-088: the trees stand at their real heights; until the terrain under the cell is real they would float
+        if (!cell.grounded && (!this.ground || this.ground.groundReady(inst.minX + cx * cs, inst.minY + cy * cs, inst.minX + (cx + 1) * cs, inst.minY + (cy + 1) * cs))) {
+          cell.grounded = true;
+          for (const n of this.near) n.dirty = true;
+        }
         if (stands) {
           // FEAT-074: the stand's stems in the near and mid rings, solid round the rider
           const want = d < (cell.gen > 0 ? standReach + STAND_HYST : standReach) ? STAND_K : 0;
@@ -438,8 +448,8 @@ export class Vegetation {
           else pending++;
         }
         // a far mesh repacks its tiles when its band has come to reach one it left out (cheap: no build budget)
-        if (cell.lod2) { if (wantLod2) this.checkFar(cell, cell.lod2, lo2, hi2); cell.lod2.mesh.visible = wantLod2 && cell.lod2.count > 0; if (cell.lod2.mesh.visible) farCount += cell.lod2.count; }
-        if (cell.imp) { if (wantImp) this.checkFar(cell, cell.imp, loImp, hiImp); cell.imp.mesh.visible = wantImp && cell.imp.count > 0; if (cell.imp.mesh.visible) farCount += cell.imp.count; }
+        if (cell.lod2) { if (wantLod2) this.checkFar(cell, cell.lod2, lo2, hi2); cell.lod2.mesh.visible = cell.grounded && wantLod2 && cell.lod2.count > 0; if (cell.lod2.mesh.visible) farCount += cell.lod2.count; }
+        if (cell.imp) { if (wantImp) this.checkFar(cell, cell.imp, loImp, hiImp); cell.imp.mesh.visible = cell.grounded && wantImp && cell.imp.count > 0; if (cell.imp.mesh.visible) farCount += cell.imp.count; }
       }
     }
     for (const [key, cell] of this.cells) {
@@ -843,7 +853,7 @@ export class Vegetation {
     const cellRefs: Cell[] = [];
     let tiles = n.tiles, tc = 0;
     for (const cell of this.cells.values()) {
-      if (!cell.order) continue;
+      if (!cell.order || !cell.grounded) continue; // BUG-088: not until the ground under it is real
       const minX = inst.minX + cell.cx * cs, minY = inst.minY + cell.cy * cs;
       if (x + radius < minX || x - radius > minX + cs || y + radius < minY || y - radius > minY + cs) continue;
       const ci = cellRefs.push(cell) - 1, d = cell.data!;

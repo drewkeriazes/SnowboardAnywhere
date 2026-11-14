@@ -308,7 +308,7 @@ export class RideFrame {
 
   /** 11. Streaming around the rider (or the camera when detached), the snow on the ground, lifts and landmarks, the live sun */
   private streaming(dt: number): void {
-    const { cam, terrain, rider, liftRide, prefetch, pack, veg, shrubs, rocks, sky, snow, settings, sun, params, zr, resortTop, roads, riderChair, lifts, bridges, liftLines, landmarks, map } = this.p;
+    const { cam, terrain, rider, liftRide, prefetch, pack, veg, shrubs, rocks, buildings, sky, snow, settings, sun, params, zr, resortTop, roads, riderChair, lifts, bridges, liftLines, landmarks, map } = this.p;
     const onLift = this.onLift, detached = this.detached;
     const cond = this.p.conditions();
     const cp = cam.camera.position;
@@ -319,6 +319,7 @@ export class RideFrame {
     prefetch.update(pack, fx, fy, dt, liftTop);
     veg.update(fx, fy, prefetch.ax, prefetch.ay, cp);
     rocks.update(fx, fy, prefetch.ax, prefetch.ay);
+    buildings.update(); // BUG-088
     shrubs.update(fx, fy, prefetch.ax, prefetch.ay, cp);
     if (sky.weather === 'storm') sky.snowCover = Math.min(1, sky.snowCover + dt / 600);
     else if (sky.weather === 'flurries') sky.snowCover = Math.min(1, sky.snowCover + dt / 3000);
