@@ -62,6 +62,7 @@ type RideState = Pick<LiftRide, 'riding' | 'lift' | 'up' | 'fast'>;
 const SAMPLE_DT = 0.25;
 const MAX_CRUMBS = 600; // 150 s of trail
 const SIGHT = 60; // m: charges straight with line of sight inside this
+const CHASE_MIN = 20, CHASE_GRADE = 0.8; // FEAT-305 startChase: the nearest spawn (m), and the climb (rise over run) it stops short of
 const CATCH = 2.4; // m
 const CLOSE_IN = 10, CLOSE_OUT = 25; // m: a close call is inside CLOSE_IN then back past CLOSE_OUT
 const FAR = 200; // m: catch-up bonus beyond this
@@ -114,6 +115,8 @@ export class Outrun {
   private liftUpLast = 0;
   private wasRiding = false;
   private readonly rng = () => Math.random();
+  /** false for the out of bounds yeti (FEAT-305): its runs keep no best score */
+  keepBest = true;
 
   constructor(private readonly pack: Pack, private readonly lifts: LiftNetwork) {}
 
@@ -132,11 +135,42 @@ export class Outrun {
     this.adrenaline = 0; this.boostT = 0; this.events = [];
     this.crumbs = []; this.sLast = 0; this.sampleAcc = 0; this.riderAvg = rider.speed;
     this.lastZ = rider.z; this.closeState = false; this.wasAir = false; this.secondDone = false;
-    this.wasRiding = false;
+    this.wasRiding = false; this.keepBest = true;
     this.base = cfg.escape === 'base' ? this.findBase(rider) : null;
     this.baseMissing = cfg.escape === 'base' && !this.base;
     this.best = this.loadBest();
     this.pushCrumb(rider, 0);
+  }
+
+  /**
+   * FEAT-305, the out of bounds yeti: straight into the chase with no countdown or head start, the monster `back` m
+   * behind the rider (against its travel, or uphill when it is standing still) on a trail it walks down to the rider,
+   * nearer (down to CHASE_MIN m) where a crest would hide it or the ground that way climbs steeper than CHASE_GRADE.
+   * No base, no second monster worth waiting for, no best score.
+   */
+  startChase(cfg: OutrunConfig, rider: Rider, back: number): void {
+    this.start({ ...cfg, escape: 'endless' }, rider);
+    this.keepBest = false; this.best = null;
+    this.phase = 'chase'; this.t = 0;
+    const sp = Math.hypot(rider.vx, rider.vy);
+    let ux: number, uy: number;
+    if (sp > 2) { ux = -rider.vx / sp; uy = -rider.vy / sp; }
+    else { const n = this.pack.groundNormal(rider.x, rider.y) as number[], h = Math.hypot(n[0], n[1]); ux = h > 0.02 ? -n[0] / h : 0; uy = h > 0.02 ? -n[1] / h : 1; }
+    // walk out in 5 m steps and stop at the last spot the rider can see the yeti from (its head over every ground
+    // sample nearer in, so not behind a crest) and that climbs no steeper than CHASE_GRADE from the rider (a wall at the
+    // rope's edge), at least CHASE_MIN m off
+    let d = Math.min(CHASE_MIN, back), occl = -Infinity;
+    for (let t = 5; t <= back; t += 5) {
+      const g = this.pack.groundHeight(rider.x + ux * t, rider.y + uy * t);
+      if (Number.isNaN(g)) break;
+      const rise = g - rider.z;
+      if (t > d && (rise > t * CHASE_GRADE || (rise + 2 - 1.5) / t < occl)) break; // yeti head 2 m, rider eye 1.5 m
+      occl = Math.max(occl, (rise - 1.5) / t);
+      if (t > d) d = t;
+    }
+    const x = rider.x + ux * d, y = rider.y + uy * d, c0 = this.crumbs[0];
+    this.crumbs.unshift({ x, y, z: this.ground(x, y, rider.z), s: c0.s - d, t: c0.t });
+    this.spawn(d);
   }
 
   stop(): void { this.phase = 'off'; this.monsters = []; this.dist = Infinity; this.nearest = null; this.boostT = 0; this.events = []; }
@@ -152,6 +186,7 @@ export class Outrun {
   private bestKey(): string { return `outrun:${this.pack.meta.slug}:${this.cfg.difficulty}:${this.cfg.escape}`; }
   loadBest(): Best | null { try { return JSON.parse(localStorage.getItem(this.bestKey()) ?? 'null'); } catch { return null; } }
   private saveBest(): void {
+    if (!this.keepBest) return;
     if (this.best && this.best.score >= this.score) return;
     this.best = { score: Math.round(this.score), time: this.time, date: new Date().toISOString().slice(0, 10) };
     this.isBest = true;

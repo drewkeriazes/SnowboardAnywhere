@@ -22,7 +22,7 @@
 #
 # Check tools that stay local (they need Vail / Breckenridge or a real GPU, or are too slow on software
 # rendering for a runner; run them on Drew's PC and say so in the PR):
-#   need a real pack: lenscheck, outruncheck, snowcheck, treefadecheck, shoot_spots, aerial, views, treeperf
+#   need a real pack: lenscheck, outruncheck, oobcheck (runs on synth too; not timed on a runner yet), snowcheck, treefadecheck, shoot_spots, aerial, views, treeperf
 #   too slow on SwiftShader (minutes per check): see BROWSER_LOCAL below
 #   no pass / fail exit code (they print numbers or save shots for a person to read): leancheck, rider, shoot,
 #   carveshot, brakeshot
@@ -61,7 +61,7 @@ env:
   PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
   BASE_REF: ${{ github.base_ref || 'main' }}
   # Node-only check tools: exit 1 on a failed check, need neither a pack nor a browser
-  PHYSICS_CHECKS: accountcheck brakecheck buildprogresscheck carvecheck climbcheck conditionscheck fakiecheck fallcheck gatecheck getpackcheck hardcarvecheck jumpcheck lipcheck mogulcheck origincheck presscheck resortsearchcheck shrubcheck standcheck treepuffcheck
+  PHYSICS_CHECKS: accountcheck brakecheck buildprogresscheck carvecheck climbcheck conditionscheck fakiecheck fallcheck gatecheck getpackcheck hardcarvecheck jumpcheck lipcheck mogulcheck origincheck presscheck resortsearchcheck shrubcheck standcheck treepuffcheck boundarycheck
   # Browser check tools that pass on the synthetic pack under SwiftShader within a few minutes
   BROWSER_CHECKS: switchcheck crashcheck glancecheck hardposecheck padcheck accountmenucheck releasecheck clumpcheck
   # BROWSER_LOCAL (timed on a runner for FEAT-172: they draw every frame, and SwiftShader takes minutes per check):

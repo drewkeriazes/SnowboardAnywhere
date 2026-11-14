@@ -133,7 +133,7 @@ export class RideFrame {
   private readonly eye = new THREE.Vector3();
   private readonly pressHead = new THREE.Vector3();
   /** FEAT-164: one reused frame for modes.update (a mutable ModeFrame), so the frame allocates nothing */
-  private readonly modeFrame: { -readonly [K in keyof ModeFrame]: ModeFrame[K] } = { dt: 0, tuck: false, onLift: false, frozen: false, elapsed: 0 };
+  private readonly modeFrame: { -readonly [K in keyof ModeFrame]: ModeFrame[K] } = { dt: 0, tuck: false, onLift: false, frozen: false, elapsed: 0, detached: false };
   private readonly hud = document.getElementById('hud')!;
   private readonly prompt = document.getElementById('prompt')!;
   private readonly helpEl = document.getElementById('help');
@@ -170,7 +170,7 @@ export class RideFrame {
     this.syncView(dt, runs);
     // 7. FEAT-164: the modes (Outrun's chase and eat, the trial gates) and their HUDs
     const mf = this.modeFrame;
-    mf.dt = dt; mf.tuck = this.input.tuck; mf.onLift = this.onLift; mf.frozen = !runs.trial; mf.elapsed = this.elapsed;
+    mf.dt = dt; mf.tuck = this.input.tuck; mf.onLift = this.onLift; mf.frozen = !runs.trial; mf.elapsed = this.elapsed; mf.detached = this.detached;
     this.p.modes.update(mf);
     this.p.audio.update(this.p.rider, this.input.tuck, this.onLift, dt, this.p.liftRide.passedTower);
     this.p.rider.lastHit = ''; this.p.rider.hitSpeed = 0;
@@ -308,7 +308,7 @@ export class RideFrame {
 
   /** 11. Streaming around the rider (or the camera when detached), the snow on the ground, lifts and landmarks, the live sun */
   private streaming(dt: number): void {
-    const { cam, terrain, rider, liftRide, prefetch, pack, veg, shrubs, rocks, sky, snow, settings, sun, params, zr, resortTop, roads, riderChair, lifts, bridges, liftLines, landmarks, people, map } = this.p;
+    const { cam, terrain, rider, liftRide, prefetch, pack, veg, shrubs, rocks, sky, snow, settings, sun, params, zr, resortTop, roads, riderChair, lifts, bridges, liftLines, landmarks, people, map, boundaryRope } = this.p;
     const onLift = this.onLift, detached = this.detached;
     const cond = this.p.conditions();
     const cp = cam.camera.position;
@@ -355,6 +355,7 @@ export class RideFrame {
     }
     rocks.setSnow(Math.min(1, snowCover * 3), snow.wind.x, snow.wind.y); // boulder tops fill three times faster than the slopes
     roads.update(fx, fy);
+    boundaryRope.update(dt, fx, fy); // FEAT-305
     const carried = onLift && liftRide.airborneRide ? liftRide.lift : null;
     riderChair.update(carried, rider.x, rider.y, rider.z, rider.heading, liftRide.cableY);
     lifts.update(this.elapsed, carried ? this.chairPos.set(rider.x, rider.z, -rider.y) : null);

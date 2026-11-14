@@ -492,7 +492,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
         : null,
       ready: () => {
         status.textContent = '';
-        installSimDebug({ events, ghosts, menu, shot, rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, shrubs: world.shrubs, treeBrush: world.treeBrush, people: world.people, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, scene, eyeAt, outrun: modes.outrun.sim, monsters, startOutrun: () => modes.outrun.start(), stopOutrun: () => modes.outrun.end(), treeFadeUniforms,
+        installSimDebug({ events, ghosts, menu, shot, rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, shrubs: world.shrubs, treeBrush: world.treeBrush, people: world.people, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, scene, eyeAt, outrun: modes.outrun.sim, monsters, egg: modes.egg, boundary: world.boundary, boundaryRope: world.boundaryRope, startOutrun: () => modes.outrun.start(), stopOutrun: () => modes.outrun.end(), treeFadeUniforms,
           /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
           setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
           /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */

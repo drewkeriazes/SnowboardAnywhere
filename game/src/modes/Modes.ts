@@ -8,6 +8,7 @@ import type { MenuChoice } from '../ui/MainMenu';
 import { FreeRide } from './FreeRide';
 import { TimeTrialMode } from './TimeTrialMode';
 import { OutrunMode } from './OutrunMode';
+import { YetiEgg } from './YetiEgg';
 import type { OutrunUI } from '../ui/OutrunUI';
 import type { RideDeps, ModeFrame, RideMode } from './RideMode';
 
@@ -20,13 +21,16 @@ export class Modes {
   readonly free = new FreeRide();
   readonly trials: TimeTrialMode;
   readonly outrun: OutrunMode;
+  /** FEAT-305: the out of bounds yeti (not a mode: a 1 in 30 roll on ducking the boundary rope in any of them) */
+  readonly egg: YetiEgg;
   /** the update order: Outrun's monsters move before the trial reads the gates */
   private readonly order: RideMode[];
 
   constructor(ctx: GameContext, world: World, private readonly d: RideDeps, outrunUI: OutrunUI) {
     const trials = this.trials = new TimeTrialMode(ctx, world, d);
     const outrun = this.outrun = new OutrunMode(ctx, world, d, outrunUI);
-    outrun.onStart = () => trials.cancel('Outrun');
+    this.egg = new YetiEgg(ctx, world, d);
+    outrun.onStart = () => { trials.cancel('Outrun'); this.egg.end(); };
     this.order = [this.free, outrun, trials];
   }
 
@@ -58,15 +62,16 @@ export class Modes {
     else if (mode.kind === 'outrun') this.outrun.start();
   }
   /** Restart: an Outrun ends, a trial run stops */
-  restart(): void { if (this.outrun.on) this.outrun.end(); this.trials.cancel('Restarted'); }
+  restart(): void { if (this.outrun.on) this.outrun.end(); this.egg.moved(); this.trials.cancel('Restarted'); }
   /** Quit to main menu: ends an Outrun or time trial */
   quit(): void {
     this.outrun.afterMap = false;
     if (this.outrun.on) this.outrun.end();
+    this.egg.moved();
     this.trials.cancel('Quit'); this.trials.end();
   }
   /** the rider was moved or stopped riding (map pick, replay, rewind, unstrapped): a trial run stops */
-  interrupt(why: string): void { this.trials.cancel(why); }
+  interrupt(why: string): void { this.trials.cancel(why); if (why !== 'Unstrapped') this.egg.moved(); }
   /** the map has closed: a chase picked with it starts now */
   mapClosed(): void { this.outrun.startAfterMap(); }
   /** FEAT-163: the modes' own reactions to their news on the bus (called after the audio and the rumble listen) */
@@ -79,9 +84,9 @@ export class Modes {
 
   // ---- the world frame (states/RideFrame.ts), in order
   /** after the rider view is synced: each mode's update, then its HUD */
-  update(f: ModeFrame): void { for (const m of this.order) { m.update(f); m.hud(f); } }
+  update(f: ModeFrame): void { for (const m of this.order) { m.update(f); m.hud(f); } this.egg.update(f, this.outrun.on, f.detached); }
   /** after the camera has moved */
-  afterCamera(camera: THREE.PerspectiveCamera): void { this.outrun.afterCamera(camera); }
+  afterCamera(camera: THREE.PerspectiveCamera): void { this.outrun.afterCamera(camera); this.egg.afterCamera(camera); }
   applySettings(s: Settings, what: string): void { this.trials.applySettings(s, what); }
 
   // ---- what the frame and the states ask
@@ -101,5 +106,5 @@ export class Modes {
   /** metres to the nearest monster while the chase runs (pad rumble), else Infinity */
   get monsterDist(): number { return this.outrun.running ? this.outrun.sim.dist : Infinity; }
 
-  dispose(): void { for (const m of this.order) m.dispose(); }
+  dispose(): void { this.egg.end(); for (const m of this.order) m.dispose(); }
 }
