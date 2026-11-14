@@ -7,13 +7,20 @@ import * as THREE from 'three';
  * turns do not sweep it side to side, plus a slower point that keeps the old line faded for a moment
  * after a turn. In the vertex shader each tree's trunk-to-top line and the run are taken into the
  * camera's view plane: a tree fades when its silhouette overlaps the run there (with a RUN_HALF margin
- * either side of the line) and it stands in front of the stretch of run it covers. A faded tree
- * discards a share of its fragments in a stable screen-space Bayer pattern (dithered transparency: no
- * sorting, depth write on, the shadow pass draws the tree whole). A tree within about 1 m of where the board will be in the next half second stays solid. Uniforms only:
+ * either side of the line) and it stands in front of the stretch of run it covers. A faded tree keeps
+ * only a share of itself (no sorting, depth write on, the shadow pass draws the tree whole). BUG-125:
+ * with MSAA (the canvas and the goggle lens target both have it) the near trees' alpha-to-coverage
+ * keeps that share of each pixel's samples, so the resolve blends the tree over what is behind it like
+ * real translucency; a screen-door pattern instead read as white speckle against the snow. Without
+ * MSAA, and on the LOD1 trees (no alpha-to-coverage), it discards whole fragments in an interleaved
+ * gradient noise pattern, fixed to the screen. A tree within about 1 m of where the board will be in the next half second stays solid. Uniforms only:
  * no per-tree CPU work.
  */
 
-/** the share of a fully faded tree's fragments that are discarded (crowns; trunks keep more, TRUNK_KEEP) */
+/**
+ * the share of a fully faded tree that is dropped (crowns; trunks keep more, TRUNK_KEEP). 0.75 keeps exactly one of
+ * 4 MSAA samples, an even veil; a share between the coverage steps gets the GPU's own dither (BUG-125).
+ */
 const MAX_DISCARD = 0.75;
 /** the lowest part of the tree (trunk and lower boughs) fades this much less than the crown */
 const TRUNK_KEEP = 0.3;
@@ -44,6 +51,8 @@ export const treeFadeUniforms = {
   uFadeNext: { value: new THREE.Vector3() },
   /** 0..1: how much the fade applies (eases with the setting and the camera mode) */
   uFadeK: { value: 0 },
+  /** 1 when the frame draws into a multisampled buffer: the fade goes through alpha-to-coverage (SceneRender sets it) */
+  uFadeMsaa: { value: 0 },
 };
 
 /** vertex shader helpers (the tree kit's materials, trees/materials.ts); `treeFade(base, height, crown, localY)` is 0 (solid) .. 1 (fully faded). three.js world coordinates (y up). */
@@ -98,14 +107,30 @@ export const TREE_FADE_VERT = /* glsl */ `
   }
 `;
 
-/** fragment shader: discard the faded share of the tree in an 8x8 Bayer pattern, fixed to the screen */
+/**
+ * fragment shader. HEAD also holds the 8x8 Bayer matrix the LOD crossfade (trees/materials.ts) uses. BODY goes before
+ * the alpha test and drops the faded share of fragments in an interleaved gradient noise pattern when there is no
+ * alpha-to-coverage; ALPHA goes after it and scales the coverage instead when there is.
+ */
 export const TREE_FADE_FRAG_HEAD = /* glsl */ `
-  varying float vTreeFade;
+  varying float vTreeFade; uniform float uFadeMsaa;
   float treeBayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
   float treeBayer8(vec2 a) { return treeBayer2(0.25 * a) * 0.0625 + treeBayer2(0.5 * a) * 0.25 + treeBayer2(a); }
+  // Jimenez's interleaved gradient noise: no repeating grid for the eye to pick out
+  float treeIgn(vec2 a) { a = floor(a); return fract(52.9829189 * fract(dot(a, vec2(0.06711056, 0.00583715)))); }
 `;
 export const TREE_FADE_FRAG_BODY = /* glsl */ `
-  if (vTreeFade > 0.001 && treeBayer8(gl_FragCoord.xy) < vTreeFade * ${MAX_DISCARD.toFixed(2)}) discard;
+  #ifdef ALPHA_TO_COVERAGE
+    bool treeA2c = uFadeMsaa > 0.5;
+  #else
+    bool treeA2c = false;
+  #endif
+  if (!treeA2c && vTreeFade > 0.001 && treeIgn(gl_FragCoord.xy) < vTreeFade * ${MAX_DISCARD.toFixed(2)}) discard;
+`;
+export const TREE_FADE_FRAG_ALPHA = /* glsl */ `
+  #ifdef ALPHA_TO_COVERAGE
+    if (treeA2c) diffuseColor.a *= 1.0 - vTreeFade * ${MAX_DISCARD.toFixed(2)};
+  #endif
 `;
 
 export interface FadeRider { x: number; y: number; z: number; vx: number; vy: number }
