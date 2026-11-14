@@ -2,6 +2,19 @@ import * as THREE from 'three';
 import { CSM } from 'three/examples/jsm/csm/CSM.js';
 import { Atmosphere } from './Atmosphere';
 
+/** FEAT-304: half the side of the sun's shadow box (m); inside it every tree casts a real shadow */
+export const SHADOW_HALF = 260;
+/**
+ * FEAT-304: how far ahead of the rider (or the detached camera), along the camera's horizontal view, the shadow box is
+ * centred (m), so real shadows reach SHADOW_HALF + this forward and SHADOW_HALF - this behind for the same map and
+ * texel size. `?shadowahead=<m>` overrides it (0: centred on the rider, as before).
+ */
+export const SHADOW_AHEAD = 200;
+/** FEAT-304: time constant (s) the box's offset follows the view with, so a quick look round does not swing it across */
+const SHADOW_AHEAD_TAU = 0.8;
+/** FEAT-304: a jump of the rider or camera further than this in a frame (m) places the box at once (a teleport, a new spot) */
+const SHADOW_JUMP = 150;
+
 /** FEAT-092: the most the sun's colour may depart from neutral: (max - min) / max of the RGB */
 const SUN_TINT_MAX = 0.32;
 /** Lift a colour's weaker channels toward its brightest until its saturation is at most `max` (the brightness, its max, is kept). */
@@ -50,7 +63,7 @@ export class Environment {
     this.sun.shadow.mapSize.set(4096, 4096);
     const cam = this.sun.shadow.camera;
     cam.near = 1; cam.far = 2500;
-    cam.left = -260; cam.right = 260; cam.top = 260; cam.bottom = -260;
+    cam.left = -SHADOW_HALF; cam.right = SHADOW_HALF; cam.top = SHADOW_HALF; cam.bottom = -SHADOW_HALF;
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.6;
     scene.add(this.sun);
@@ -181,10 +194,51 @@ export class Environment {
   /** Per frame: keep the sky box and storm dome around the camera. */
   followCamera(p: THREE.Vector3): void { this.sky.position.copy(p); this.stormDome.position.copy(p); }
 
-  /** Keep the shadow frustum centred on the rider. */
-  update(x: number, y: number, z: number): void {
-    this.sun.target.position.set(x, y, z);
-    this.sun.position.copy(this.sunDir).multiplyScalar(1200).add(this.sun.target.position);
+  /** FEAT-304: how far ahead of the rider the shadow box is centred (m); SHADOW_AHEAD unless `?shadowahead=` set it */
+  shadowAhead = SHADOW_AHEAD;
+  /** the box's smoothed offset from the rider (three.js x, z; m) and the point it was last measured from (NaN: none yet) */
+  private readonly ahead = new THREE.Vector2();
+  private readonly lastBase = new THREE.Vector3(NaN, NaN, NaN);
+  private readonly basisX = new THREE.Vector3();
+  private readonly basisY = new THREE.Vector3();
+
+  /**
+   * Per frame: place the sun's shadow box around the rider at (x, y, z) (three.js world; the camera when detached).
+   * FEAT-304: with the camera's view direction `view` it is centred `shadowAhead` m ahead along the view's horizontal,
+   * the offset following the view over SHADOW_AHEAD_TAU s, at the ground there (`groundY(x, z)`, three.js world) so the
+   * box sits on the slope the camera looks at (`y` without it). The centre is snapped to whole shadow texels across the sun, so the box
+   * moving (the rider riding, the view turning) does not make the shadow edges crawl.
+   */
+  update(x: number, y: number, z: number, dt = 0, view: THREE.Vector3 | null = null, groundY: ((x: number, z: number) => number) | null = null): void {
+    const lb = this.lastBase;
+    const jump = !(Math.hypot(x - lb.x, z - lb.z) < SHADOW_JUMP);
+    lb.set(x, y, z);
+    let tx = 0, tz = 0;
+    if (view && this.shadowAhead > 0) {
+      const h = Math.hypot(view.x, view.z);
+      // looking steeply down (a top-down eye camera) the view's own ground is under the camera: no offset
+      const k = Math.min(1, Math.max(0, (h - 0.15) / 0.35));
+      if (h > 1e-6) { tx = view.x / h * this.shadowAhead * k; tz = view.z / h * this.shadowAhead * k; }
+    }
+    if (jump || dt <= 0) this.ahead.set(tx, tz);
+    else { const a = 1 - Math.exp(-dt / SHADOW_AHEAD_TAU); this.ahead.x += (tx - this.ahead.x) * a; this.ahead.y += (tz - this.ahead.y) * a; }
+    const cx = x + this.ahead.x, cz = z + this.ahead.y;
+    let cy = y;
+    // on the ground, also under a detached camera high up (before, the box sat at the camera's height there, so from
+    // the air its square landed on the snow shifted away from the sun)
+    if (groundY) { const g = groundY(cx, cz); if (Number.isFinite(g)) cy = g; }
+    const t = this.sun.target.position.set(cx, cy, cz);
+    // the shadow camera looks from the sun at the target with +Y up (DirectionalLightShadow.updateMatrices): its
+    // x and y axes across the sun; move the target along them onto whole texels (along the sun it changes nothing)
+    const bx = this.basisX.crossVectors(this.sun.shadow.camera.up, this.sunDir);
+    if (bx.lengthSq() > 1e-8) {
+      bx.normalize();
+      const by = this.basisY.crossVectors(this.sunDir, bx).normalize();
+      const texel = 2 * SHADOW_HALF / Math.max(1, this.sun.shadow.mapSize.x);
+      const px = t.dot(bx), py = t.dot(by);
+      t.addScaledVector(bx, Math.round(px / texel) * texel - px).addScaledVector(by, Math.round(py / texel) * texel - py);
+    }
+    this.sun.position.copy(this.sunDir).multiplyScalar(1200).add(t);
     this.sun.target.updateMatrixWorld();
   }
 }

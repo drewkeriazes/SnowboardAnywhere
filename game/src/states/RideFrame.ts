@@ -126,6 +126,9 @@ export class RideFrame {
   // this frame, shared by the steps
   private onLift = false;
   private detached = false;
+  /** FEAT-304: the camera's view direction, and the ground height at a three.js world point, for the sun's shadow box */
+  private readonly viewDir = new THREE.Vector3();
+  private readonly groundAt = (x: number, z: number): number => this.p.pack.terrainHeight(x, -z);
   private fx = 0;
   private fy = 0;
   private liftTop: [number, number, number] | null = null;
@@ -387,7 +390,8 @@ export class RideFrame {
       if (h !== this.helpShown) { this.helpShown = h; this.helpEl.innerHTML = h; }
     }
     const cp = cam.camera.position;
-    env.update(fx, detached ? cp.y : rider.z, -fy);
+    // FEAT-304: the sun's shadow box sits ahead along the view, on the ground there
+    env.update(fx, detached ? cp.y : rider.z, -fy, dt, cam.camera.getWorldDirection(this.viewDir), this.groundAt);
     if (pack.fine && terrain.stats.builds === 0) pack.fine.evictBeyond(fx, fy, 3000, this.liftTop);
     map.riderPos = [rider.x, rider.y, rider.z];
     if (plan.fullMap) { if (fps.n % 10 === 0) map.drawFull(); }

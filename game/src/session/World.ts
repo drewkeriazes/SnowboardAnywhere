@@ -40,6 +40,7 @@ export function buildWorld(ctx: GameContext) {
   const { params, renderer, scene, pack, settings } = ctx;
   const zr = pack.meta.zRange ?? [0, 3000];
   const env = new Environment(scene, renderer, pack.meta.sun.azimuth, pack.meta.sun.elevation, zr[0], (zr[0] + zr[1]) / 2);
+  if (params.shadowahead != null) env.shadowAhead = Math.max(0, Math.min(250, params.shadowahead)); // FEAT-304
   // names show up in the Three.js DevTools scene tree and in scene.getObjectByName()
   const add = (name: string, o: THREE.Object3D) => { o.name = name; scene.add(o); };
   const clouds = new Clouds();

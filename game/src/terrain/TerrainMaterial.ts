@@ -280,8 +280,8 @@ export function createTerrainMaterial(): THREE.MeshStandardMaterial {
           f = mix(f, f2, w2); c = mix(c, 1.0, w2);
           return vec2(c > 1e-4 ? f / c : 0.0, c);
         }
-        // FEAT-168: shadows of the drawn trees on the snow past the shadow map (which reaches about 260 m
-        // around the rider): the snow down-sun of a tree darkens, found by stepping toward the sun through
+        // FEAT-168: shadows of the drawn trees on the snow past the shadow map (which reaches SHADOW_HALF, 260 m,
+        // each side of a centre SHADOW_AHEAD, 200 m, ahead of the rider: FEAT-304): the snow down-sun of a tree darkens, found by stepping toward the sun through
         // the map of where trees stand (4 m cells). TREE_SHADOW_H is the tree height the length stands for
         // (as SHADOW_H in MapPacker-SnowboardAnywhere/pipeline/cover.py), capped at TREE_SHADOW_MAX m of shadow so the steps stay a texel or so apart.
         uniform sampler2D uTreeMap;
