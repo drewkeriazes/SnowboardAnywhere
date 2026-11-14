@@ -45,6 +45,9 @@ await page.addInitScript(() => {
   navigator.getGamepads = () => [{ id: 'menucheck pad', index: 0, connected: true, mapping: 'standard', timestamp: performance.now(), buttons, axes: window.__pad.axes, vibrationActuator: null }];
   if (!sessionStorage.getItem('menucheck')) { localStorage.clear(); sessionStorage.setItem('menucheck', '1'); }
 });
+// BUG-128: WebGL errors (a draw dropped for a deleted buffer, say) come as console warnings, not errors
+const glWarnings = [];
+page.on('console', (m) => { if (/WebGL: |GL_INVALID|toNonIndexed/.test(m.text())) glWarnings.push(m.text()); });
 await page.goto(url);
 await page.waitForSelector('#menu .title', { timeout: 60000 });
 // FEAT-128: the menu shows at once (over the shot's still) while the session loads behind it
@@ -513,6 +516,11 @@ check('Quit pressed twice goes to the main menu', await page.evaluate(() => getC
   const rode = await eye.evaluate(() => !window.__sim.attract);
   check('eye link, then Quit: the menu is ready and RIDE goes', st.attract && st.live && st.shown && rode, JSON.stringify({ ...st, rode }));
   await eye.close();
+}
+{
+  const kinds = {};
+  for (const w of glWarnings) kinds[w.slice(0, 100)] = (kinds[w.slice(0, 100)] ?? 0) + 1;
+  check('no WebGL warnings', glWarnings.length === 0, Object.entries(kinds).map(([k, n]) => `${n}x ${k}`).join(' / '));
 }
 check('no console errors', errors.length === 0, errors.slice(0, 3).join(' / '));
 await browser.close();
