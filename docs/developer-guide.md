@@ -71,7 +71,7 @@ URL parameters and the milestone history. The pipeline that builds resort packs 
 - `raw/` downloaded source data (gitignored), which MapPacker builds from until it moves there (`SBA_RAW_ROOT` on Drew's PC points at this checkout's)
 - `packs/` resort packs (gitignored): `npm run get` downloads them, or copies one from MapPacker's `packs/` (`--from`); the dev server serves them at `/packs/`
 - `docs/` plans, handoff, board, research and data notes
-- `tools/` repo helpers: `card_id.py` (next free card id, duplicate ids; set `PYTHONUTF8=1` on Windows; reads each repo until two reads in a row agree, so an issue filed mid-read is neither counted twice nor missed, BUG-122; tests in `test_card_id.py`), `gmaps2game.py` (Street View URL to an eye-camera link), `propose_spots.py` (proposed compare spots from a pack's OSM features, FEAT-175)
+- `tools/` repo helpers: `card_id.py` (next free card id, duplicate ids; set `PYTHONUTF8=1` on Windows; reads each repo until two reads in a row agree, so an issue filed mid-read is neither counted twice nor missed, BUG-122; tests in `test_card_id.py`), `gmaps2game.py` (Street View URL to an eye-camera link), `propose_spots.py` (proposed compare spots from a pack's OSM features, FEAT-175), `rm_worktree.mjs <worktree> [--force] [--dry-run]` (BUG-093: removes a linked worktree without emptying the folders its junctions point at; it walks the worktree without entering links, unlinks every junction and symlink, `fs.unlinkSync` then a non-recursive `fs.rmdirSync`, checks each is gone, then runs `git worktree remove` from the main checkout; it refuses the main checkout, a path that is not a worktree's top, and a current folder inside the worktree, and stops before git if a link is left)
 
 ### States
 
