@@ -3,7 +3,9 @@
 // snow kind and weights, the speed reached running the fall line for 12 s, the turn radius of a full
 // carve at about 12 m/s, and whether a stopped rider gets going again. Checks that a groomer is
 // faster than a north-facing powder face, that powder turns wider, that spring-morning ice holds
-// less than the same groomer at 1 pm, and that chop rattles where powder does not.
+// less than the same groomer at 1 pm, and that chop rattles where powder does not. BUG-084: also
+// reloads with ?time=7 on "Resort default" and checks the snow follows the URL hour like the sun does
+// (spring-morning ice on Simba), and that "Resort default" alone still reads the 1 pm snow.
 // node tools/snowcheck.mjs [pack] [--headed]   (run after `npx vite build`; exit 1 on a failed check)
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
@@ -32,6 +34,7 @@ const check = (name, ok, detail) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${nam
 const SPOTS = {
   vail: [
     { id: 'simba13', name: 'Simba groomer 1 pm', x: -3420, y: 2317, h: 321, hour: 13, day: 'mid', weather: null },
+    { id: 'simbaDefault', name: 'Simba groomer on Resort default', x: -3420, y: 2317, h: 321, hour: 'pack', day: 'mid', weather: null },
     { id: 'simba7s', name: 'Simba groomer 7 am spring', x: -3420, y: 2317, h: 321, hour: 7, day: 'spring', weather: 'clear' },
     { id: 'simbaStorm', name: 'Simba groomer in a storm, powder day', x: -3420, y: 2317, h: 321, hour: 13, day: 'mid', weather: 'storm', newSnow: 'powder' },
     { id: 'prima13', name: 'Prima Browns Face (N, open) 1 pm', x: -734, y: 1728, h: 20, hour: 13, day: 'mid', weather: null },
@@ -52,9 +55,13 @@ const page = await browser.newPage({ viewport: { width: 640, height: 480 }, devi
 const errors = [];
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
-await page.goto(`http://localhost:${server.address().port}/index.html?pack=${pack}&headless&lowgfx${process.env.SHOT_QUERY ?? ''}`);
-await page.waitForFunction(() => window.__step, null, { timeout: 90000 });
-page.setDefaultTimeout(300000);
+/** load the game, with extra URL parameters (BUG-084: `&time=7`) */
+const load = async (extra = '') => {
+  await page.goto(`http://localhost:${server.address().port}/index.html?pack=${pack}&headless&lowgfx${extra}${process.env.SHOT_QUERY ?? ''}`);
+  await page.waitForFunction(() => window.__step, null, { timeout: 90000 });
+  page.setDefaultTimeout(300000);
+};
+await load();
 
 /** move the rider, set the day, wait for the 1 m tiles under it, and run the page's frame once so main.ts pushes the day into rider.snowWorld */
 const place = async (sp) => {
@@ -116,9 +123,20 @@ for (const sp of spots) {
   const r = results[sp.id];
   console.log(`${sp.name.padEnd(40)} ${r.kind.padEnd(8)} g${r.w[0]} p${r.w[1]} c${r.w[2]} i${r.w[3]} s${r.w[4]} r${r.w[5]}  slope ${r.slope.toFixed(0)}  top ${r.top.toFixed(1)} m/s  carve ${(r.turned * 180 / Math.PI).toFixed(0)} deg R ${Number.isFinite(r.R) ? r.R.toFixed(0) : 'inf'} m skid ${r.skidPeak.toFixed(2)}  chop ${r.chopPeak.toFixed(2)}  restart ${r.restart.toFixed(1)} m/s sink ${r.sink.toFixed(2)}${r.crashed ? '  CRASHED' : ''}${r.kinds.length > 1 ? '  kinds ' + r.kinds.join('/') : ''}`);
 }
+// BUG-084: ?time=7 with the setting on Resort default: the snow takes the URL's hour, as the sun does
+let urlSnow = null;
+if (pack === 'vail') {
+  await load('&time=7');
+  await place({ x: -3420, y: 2317, h: 321, hour: 'pack', day: 'spring', weather: 'clear' });
+  const at = (await ride(10))[0];
+  urlSnow = { kind: at.kind, grip: at.grip, hour: await page.evaluate(() => window.__sim.rider.snowWorld.hour) };
+  console.log(`${'Simba ?time=7, Resort default, spring'.padEnd(40)} ${at.kind.padEnd(8)} g${at.w[0]} p${at.w[1]} c${at.w[2]} i${at.w[3]} s${at.w[4]} r${at.w[5]}  snow hour ${urlSnow.hour}`);
+}
 const R = results;
 check('Simba groomer reads Groomed at 1 pm', R.simba13.kind === 'groomed');
 check('Simba is Ice at 7 am in spring and holds less', R.simba7s.kind === 'ice' && R.simba7s.grip < R.simba13.grip - 0.15, `grip ${R.simba7s.grip.toFixed(2)} vs ${R.simba13.grip.toFixed(2)}`);
+check('Resort default reads the same 1 pm snow as the 1 pm setting', R.simbaDefault.kind === R.simba13.kind && Math.abs(R.simbaDefault.grip - R.simba13.grip) < 1e-6, `${R.simbaDefault.kind} grip ${R.simbaDefault.grip.toFixed(2)} vs ${R.simba13.kind} ${R.simba13.grip.toFixed(2)}`);
+if (urlSnow) check('?time=7 moves the snow too: Simba is Ice on a spring morning from the URL', urlSnow.hour === 7 && urlSnow.kind === 'ice', `snow hour ${urlSnow.hour}, ${urlSnow.kind} grip ${urlSnow.grip.toFixed(2)}`);
 check('ice skids in a carve the groomer holds', R.simba7s.skidPeak > R.simba13.skidPeak + 0.1, `skid ${R.simba7s.skidPeak.toFixed(2)} vs ${R.simba13.skidPeak.toFixed(2)}`);
 check('a storm on a powder day makes the groomer soft with more drag', R.simbaStorm.w[1] > 0.3 && R.simbaStorm.drag > R.simba13.drag * 1.2, `p ${R.simbaStorm.w[1]}, drag at 10 m/s ${R.simbaStorm.drag.toFixed(2)} vs ${R.simba13.drag.toFixed(2)}`);
 check('the north face is Powder at 1 pm', R.prima13.kind === 'powder', R.prima13.kind);
