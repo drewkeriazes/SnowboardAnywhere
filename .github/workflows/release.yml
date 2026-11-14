@@ -2,7 +2,8 @@
 # never release. It reads the latest release's tag (X.Y.Z, no v: 0.0.1 is the first), bumps it, builds the Windows
 # zip at the commit it ran on (npm run package, FEAT-261, which stamps the version into the exe and the game), then
 # creates the tag and the release with SnowboardAnywhere-win.zip attached and notes from the PRs merged since the
-# last tag. An existing tag stops it before the build: a release is never overwritten.
+# last tag, under Drew's own `notes` when he types any (FEAT-317). An existing tag stops it before the build: a
+# release is never overwritten.
 name: Release
 
 on:
@@ -13,6 +14,11 @@ on:
         type: choice
         options: [patch, minor, major]
         default: patch
+      notes:
+        description: 'Optional: what this release adds, shown above the generated list of merged PRs (type \n for a new line)'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -123,8 +129,19 @@ jobs:
         env:
           LAST: ${{ steps.v.outputs.last }}
           VER: ${{ steps.v.outputs.ver }}
+          # through env, never ${{ }} in the script, so quotes or $( ) in the text stay text
+          NOTES: ${{ inputs.notes }}
         run: |
           set -euo pipefail
+          # FEAT-317: Drew's own notes go above the generated ones (gh prepends --notes-file to --generate-notes);
+          # the Run workflow box is one line, so a typed \n is a line break
+          extra=()
+          if [ -n "${NOTES//[[:space:]]/}" ]; then
+            esc='\n'
+            printf '%s\n' "${NOTES//"$esc"/$'\n'}" > "$RUNNER_TEMP/notes.md"
+            extra=(--notes-file "$RUNNER_TEMP/notes.md")
+            echo "Custom notes:"; cat "$RUNNER_TEMP/notes.md"
+          fi
           gh release create "$VER" game/release/SnowboardAnywhere-win.zip --target "$GITHUB_SHA" \
-            --title "$VER" --generate-notes --notes-start-tag "$LAST"
+            --title "$VER" --generate-notes --notes-start-tag "$LAST" "${extra[@]}"
           echo "Released [$VER](https://github.com/$GH_REPO/releases/tag/$VER) at ${GITHUB_SHA:0:7}, notes since $LAST." >> "$GITHUB_STEP_SUMMARY"
