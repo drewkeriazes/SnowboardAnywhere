@@ -59,6 +59,8 @@ export interface Params {
   lod0: number | null;
   /** FEAT-304 ?shadowahead=<m>: how far ahead along the view the sun's shadow box is centred (default 200; 0 on the rider) */
   shadowahead: number | null;
+  /** FEAT-307 ?people=center|sitters|off: every static-people spot a skier pair across the middle of its run, or a sitting snowboarder, or none (null: as planned) */
+  people: string | null;
 }
 
 export function parseParams(search: string, hosted = !!(import.meta.env.VITE_HOST_NAME || import.meta.env.VITE_HOSTED)): Params {
@@ -98,5 +100,6 @@ export function parseParams(search: string, hosted = !!(import.meta.env.VITE_HOS
     clumpfar: num('clumpfar'),
     lod0: num('lod0'),
     shadowahead: num('shadowahead'),
+    people: p.get('people'),
   };
 }

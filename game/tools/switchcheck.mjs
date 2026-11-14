@@ -69,11 +69,13 @@ for (const stance of ['regular', 'goofy']) {
   }, [n, steer, frame]);
   const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   const maxStep = (ss) => ss.slice(1).reduce((m, s, i) => Math.max(m, Math.abs(wrap(s.yaw - ss[i].yaw))), 0);
-  /** jump, spin with `steer` held for `ms`, then ride on until landed and 0.5 s more; also the spin and
-   *  the state on the landing frame, for the failure detail */
-  const spin = async (steer, ms) => {
+  /** jump, spin with `steer` held until the board has turned 180 deg (the air spin rate depends on the jump
+   *  mode, FEAT-311), then ride on until landed and 0.5 s more; also the spin and the state on the landing
+   *  frame, for the failure detail */
+  const spin = async (steer) => {
     await page.evaluate(() => { const r = window.__sim.rider; r.onGround = false; r.vz = 9; r.z += 0.1; r.airTime = 0; r.spin = 0; r.flip = 0; r.flipRate = 0; });
-    let a = await ride(Math.round(ms * 60 / 1000), steer);
+    let a = await ride(1, steer);
+    for (let k = 0; k < 240 && Math.abs(a[a.length - 1].spin) < Math.PI - 0.03; k++) a = a.concat(await ride(1, steer));
     for (let k = 0; k < 60 && !a[a.length - 1].ground; k++) a = a.concat(await ride(10));
     const land = a.findIndex((x) => x.ground);
     const at = land > 0 ? a[land - 1] : null;
@@ -98,7 +100,7 @@ for (const stance of ['regular', 'goofy']) {
   check('rides the normal stance, toe side as the stance has it', !last(s).sw && !last(s).hud && Math.sign(last(s).toe) === (goofy ? -1 : 1), `toe ${last(s).toe.toFixed(2)}, speed ${last(s).speed.toFixed(1)}`);
 
   const before = last(s).yaw;
-  s = await spin(1, 900);
+  s = await spin(1);
   let L = last(s);
   check('the 180 lands clean', L.ground && L.crashed <= 0, L.detail);
   check('rides away switch', L.sw && L.hud, L.detail);
@@ -118,7 +120,7 @@ for (const stance of ['regular', 'goofy']) {
   s = await ride(60);
   check('still switch before the second jump', last(s).sw && last(s).crashed <= 0, `switch ${last(s).sw}, crashed ${last(s).crashed.toFixed(2)}, speed ${last(s).speed.toFixed(1)}`);
 
-  s = await spin(-1, 900);
+  s = await spin(-1);
   L = last(s);
   check('a second 180 back to the normal stance', !L.sw && !L.hud && L.crashed <= 0, L.detail);
   check('looks ahead again back in the normal stance', L.look > 0.3, `head to travel ${L.look.toFixed(2)}`);

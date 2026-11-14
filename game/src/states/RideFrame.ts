@@ -311,7 +311,7 @@ export class RideFrame {
 
   /** 11. Streaming around the rider (or the camera when detached), the snow on the ground, lifts and landmarks, the live sun */
   private streaming(dt: number): void {
-    const { cam, terrain, rider, liftRide, prefetch, pack, veg, shrubs, rocks, sky, snow, settings, sun, params, zr, resortTop, roads, riderChair, lifts, bridges, liftLines, landmarks, map } = this.p;
+    const { cam, terrain, rider, liftRide, prefetch, pack, veg, shrubs, rocks, sky, snow, settings, sun, params, zr, resortTop, roads, riderChair, lifts, bridges, liftLines, landmarks, people, map } = this.p;
     const onLift = this.onLift, detached = this.detached;
     const cond = this.p.conditions();
     const cp = cam.camera.position;
@@ -366,6 +366,7 @@ export class RideFrame {
     liftLines.maintain(rider.x, rider.y);
     const passed = landmarks.maintain(rider.x, rider.y);
     if (passed) this.p.events.emit({ type: 'landmark', name: passed.name });
+    people.maintain(fx, fy); // FEAT-307
     sun.update(dt, this.p.conditions());
     lifts.updateMarkers(this.elapsed, rider.x, rider.y, liftRide.canBoard ? liftRide.nearby : null);
     map.liftMarker = liftRide.nearby ? [liftRide.nearby.bottom[0], liftRide.nearby.bottom[1]] : null;

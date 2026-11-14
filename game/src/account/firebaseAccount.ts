@@ -2,9 +2,9 @@
 // small AuthPort below, so this file has no SDK import and tools/accountcheck.mjs can run it on a stub.
 // Fail closed: anything unreadable is a player, never a maintainer; a guest and a pending state never are.
 // FEAT-274: email and password, and a second method added from a signed-in session (never by matching emails).
-import { needsVerification, PROVIDER_GITHUB, PROVIDER_PASSWORD, type AccountService, type AccountState, type AddMethodRequest, type SignInRequest, type SignInResult } from './Account';
+import { needsVerification, PROVIDER_GITHUB, PROVIDER_PASSWORD, type AccountService, type AccountState, type AddMethodRequest, type ResetResult, type SignInRequest, type SignInResult } from './Account';
 import { playerFromUser } from './claims';
-import { signInFailure } from './errors';
+import { RESET_SENT, resetFailure, signInFailure } from './errors';
 
 export interface PortUser { uid: string; displayName: string | null; providerIds: string[]; email: string | null; emailVerified: boolean }
 export interface AuthPort {
@@ -22,6 +22,8 @@ export interface AuthPort {
   linkPassword(u: PortUser, email: string, password: string): Promise<PortUser>;
   /** linkWithPopup(user, GithubAuthProvider) */
   linkGithub(u: PortUser): Promise<PortUser>;
+  /** sendPasswordResetEmail(auth, email); with email enumeration protection it resolves for an address with no account too */
+  sendPasswordReset(email: string): Promise<void>;
   signOut(): Promise<void>;
   /** getIdTokenResult(user, refresh).claims */
   claims(u: PortUser, refresh: boolean): Promise<Record<string, unknown>>;
@@ -173,6 +175,17 @@ export class FirebaseAccount implements AccountService {
     this.user = u;
     this.set({ kind: 'signed-in', player });
     return { ok: true, player, note };
+  }
+
+  /** FEAT-283: a blank or malformed address never goes to Firebase; anything that went in reads RESET_SENT. */
+  async sendPasswordReset(email: string): Promise<ResetResult> {
+    const e = email.trim();
+    if (e === '') return { ok: false, code: 'invalid-email', message: 'Type your email address above, then press Forgot your password? again.' };
+    if (!/^[^@\s]+@[^@\s]+$/.test(e)) return { ok: false, code: 'invalid-email', message: 'That is not an email address.' };
+    const port = await this.portReady;
+    if (!port) return { ok: false, code: 'unavailable', message: this.reason };
+    try { await port.sendPasswordReset(e); } catch (err) { return resetFailure(codeOrMessage(err)); }
+    return { ok: true, note: RESET_SENT };
   }
 
   async signOut(): Promise<void> {
