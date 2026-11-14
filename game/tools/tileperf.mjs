@@ -174,6 +174,10 @@ const startSnap = await page.evaluate(() => window.__snap());
 const startClass = await page.evaluate(() => window.__classify());
 const startLog = await page.evaluate(() => Object.fromEntries(Object.entries(window.__sets).filter(([, s]) => s).map(([n, s]) => [n, s.stats.log.slice()])));
 
+// BUG-100: coarse height fallbacks, physics (the rider's step) and everything else (shadow march, cameras, ...) apart
+const fallbacks = () => page.evaluate(() => { const s = window.__sim; return { phys: s.pack.coarseFallbacks, other: s.pack.otherFallbacks, steps: s.rider.steps, coarseSteps: s.rider.coarseSteps }; });
+const fbLoad = await fallbacks();
+
 // ---- ride
 const rideT0 = await page.evaluate(() => performance.now());
 await page.keyboard.down('ArrowUp');
@@ -195,6 +199,7 @@ for (let b = 0; b < batches; b++) {
 }
 if (carve) await page.keyboard.up(carve);
 await page.keyboard.up('ArrowUp');
+const fbRide = await fallbacks();
 await page.evaluate(() => { window.__resetWin(); window.__step(60, 1 / 60); });
 const endSnap = await page.evaluate(() => window.__snap());
 const endClass = await page.evaluate(() => window.__classify());
@@ -230,6 +235,7 @@ const peak = Math.max(...track.map((t) => t.fine));
 const dist = track.reduce((n, t, i) => n + (i ? Math.hypot(t.x - track[i - 1].x, t.y - track[i - 1].y) : 0), 0);
 const top = Math.max(...track.map((t) => t.speed));
 console.log(`ride: ${f1(dist)} m, top ${f1(top * 3.6)} km/h, crashed in ${track.filter((t) => t.crashed).length} batches, fine resident peak ${peak}, mask peak ${Math.max(...track.map((t) => t.mask))}, dir peak ${Math.max(...track.map((t) => t.dir))}`);
+console.log(`coarse height fallbacks (BUG-100): load to ride start physics ${fbLoad.phys}, other ${fbLoad.other}; ride physics ${fbRide.phys - fbLoad.phys} (${fbRide.coarseSteps - fbLoad.coarseSteps}/${fbRide.steps - fbLoad.steps} steps on a coarser set), other (shadow march, cameras, tracks) ${fbRide.other - fbLoad.other}`);
 const bms = track.map((t) => t.ms / 15).sort((a, b) => a - b);
 console.log(`ride frame ms (15-frame batch means): median ${f1(bms[bms.length >> 1])}, p95 ${f1(bms[Math.floor(bms.length * 0.95)])}, max ${f1(bms[bms.length - 1])}`);
 // every tile fetched over the whole run, by what ever asked for it
