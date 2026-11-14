@@ -181,16 +181,17 @@ export const HARD_DEEP = 0.3;
 export const HARD_STEER = 0.3, HARD_MIN_SPEED = 3;
 
 // ---- squat (FEAT-111) and flips (FEAT-110)
-/** FEAT-111 deep squat: ease time (s), extra grip, share of the tuck's drag cut, jump bonus and its window after letting go (s) */
+/** FEAT-111 deep squat: ease time (s), extra grip, share of the tuck's drag cut, and the jump bonus's window after letting go (s; the bonus is JUMP_POP's squat) */
 export const SQUAT_IN = 0.25;
 export const SQUAT_GRIP = 0.08;
 export const SQUAT_AERO = 0.3;
-export const SQUAT_POP = 1.15;
-/** Pop speed (m/s) off flat snow: base + charge x jump charge (0 .. 1), before the squat and ollie
- *  multipliers. Arcade (BUG-055) is the old pop: a 0.1 s tap 0.57 m, a full charge 2.5 m. FEAT-311 Real:
- *  a full charge peaks at the old tap's 0.57 m, a tap at about 0.2 m (tools/jumpcheck.mjs). Lips, rollers and
- *  kickers still send you from speed, not this. */
-export const JUMP_POP = { arcade: { base: 2.5, charge: 4.5 }, real: { base: 1.6, charge: 1.62 } } as const;
+/** Pop speed (m/s) off flat snow: (base + charge x jump charge (0 .. 1)), times `squat` from a deep squat
+ *  (FEAT-111) and `ollie` off a loaded tail or nose (FEAT-112). Arcade (BUG-055) is the old pop: a 0.1 s tap
+ *  0.57 m, a full charge 2.5 m, a squat ollie 5.6 m. FEAT-311 Real: the high end of expert snowboarders'
+ *  measured ollies (29 to 36 cm on average, List et al., ISBS 2012): a full charge 0.43 m, an ollie 0.51 m, a
+ *  squat ollie 0.6 m, a tap 0.16 m; at most 0.7 s of air, too little for a flip off flat snow (tools/jumpcheck.mjs).
+ *  Lips, rollers and kickers still send you from speed, not this. */
+export const JUMP_POP = { arcade: { base: 2.5, charge: 4.5, squat: 1.15, ollie: 1.3 }, real: { base: 1.3, charge: 1.46, squat: 1.1, ollie: 1.1 } } as const;
 export type JumpMode = keyof typeof JUMP_POP;
 export const SQUAT_SPRING_WINDOW = 0.25;
 /** FEAT-110 flips: full-input pitch rate (1.1 rotations a second), how fast it builds and decays (1/s),
@@ -209,9 +210,9 @@ export const SWITCH_GRIP = 0.04;
 /** FEAT-085 skating: mean push (m/s^2) from a standstill, top skating speed (m/s), steepest slope it works on (deg), stroke period (s) */
 export const SKATE_ACC = 4.2, SKATE_MAX = 5.5, SKATE_SLOPE = 10, SKATE_PERIOD = 0.6;
 
-/** FEAT-112 lean: ease time (s), grip lost and drag added (per m/s) on a full press, pop multiplier for an
- * ollie / nollie (|lean| > 0.5 at release), and the pitch rate it leaves (rad/s per unit lean) */
-export const LEAN_IN = 0.2, PRESS_GRIP = 0.35, PRESS_DRAG = 0.05, OLLIE_POP = 1.3, OLLIE_PITCH = 1.2;
+/** FEAT-112 lean: ease time (s), grip lost and drag added (per m/s) on a full press, and the pitch rate an
+ * ollie / nollie (|lean| > 0.5 at release; its pop is JUMP_POP's ollie) leaves (rad/s per unit lean) */
+export const LEAN_IN = 0.2, PRESS_GRIP = 0.35, PRESS_DRAG = 0.05, OLLIE_PITCH = 1.2;
 
 // ---- leaving the snow off lips and side hits (FEAT-277)
 /** the margin (m/s per step) by which the ground has to drop away faster than you fall before you leave
