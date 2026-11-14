@@ -186,6 +186,12 @@ export const SQUAT_IN = 0.25;
 export const SQUAT_GRIP = 0.08;
 export const SQUAT_AERO = 0.3;
 export const SQUAT_POP = 1.15;
+/** Pop speed (m/s) off flat snow: base + charge x jump charge (0 .. 1), before the squat and ollie
+ *  multipliers. Arcade (BUG-055) is the old pop: a 0.1 s tap 0.57 m, a full charge 2.5 m. FEAT-311 Real:
+ *  a full charge peaks at the old tap's 0.57 m, a tap at about 0.2 m (tools/jumpcheck.mjs). Lips, rollers and
+ *  kickers still send you from speed, not this. */
+export const JUMP_POP = { arcade: { base: 2.5, charge: 4.5 }, real: { base: 1.6, charge: 1.62 } } as const;
+export type JumpMode = keyof typeof JUMP_POP;
 export const SQUAT_SPRING_WINDOW = 0.25;
 /** FEAT-110 flips: full-input pitch rate (1.1 rotations a second), how fast it builds and decays (1/s),
  * and the landing windows (rad): within FLIP_CLEAN of upright is clean, up to FLIP_CRASH a wobble, past it a crash */

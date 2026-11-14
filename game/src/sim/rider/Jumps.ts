@@ -1,7 +1,7 @@
 /** Jumps, the air and leaving the snow (split from sim/Rider.ts, FEAT-165) */
 import type { Rider } from '../Rider';
 import type { Input } from './types';
-import { FLIP_DECAY, FLIP_EASE, FLIP_RATE, G, HARD_IN, LIP_BEND0, LIP_BEND1, LIP_FLEX, LIP_LIFT, LIP_PRELOAD, LIP_RISE, LIP_SAMPLES, LIP_SPAN, OLLIE_PITCH, OLLIE_POP, SQUAT_POP, SQUAT_SPRING_WINDOW, TAKEOFF_LIFT } from './tuning';
+import { FLIP_DECAY, FLIP_EASE, FLIP_RATE, G, HARD_IN, LIP_BEND0, LIP_BEND1, LIP_FLEX, LIP_LIFT, LIP_PRELOAD, LIP_RISE, LIP_SAMPLES, LIP_SPAN, JUMP_POP, OLLIE_PITCH, OLLIE_POP, SQUAT_POP, SQUAT_SPRING_WINDOW, TAKEOFF_LIFT } from './tuning';
 import { poseBoard } from './Brake';
 import { endPress } from './Press';
 import { land } from './Tricks';
@@ -45,7 +45,8 @@ export function jump(r: Rider, dt: number, input: Input, n: [number, number, num
     const spring = r.squat >= 0.6 || r.squatUp < SQUAT_SPRING_WINDOW ? SQUAT_POP : 1;
     // FEAT-112: popped off a loaded tail (ollie) or nose (nollie): the board's spring
     const flex = Math.abs(r.lean) > 0.5 ? OLLIE_POP : 1;
-    const pop = (2.5 + 4.5 * r.jumpCharge) * spring * flex;
+    const P = JUMP_POP[r.jumpMode]; // FEAT-311: Real pops small, Arcade keeps the big air
+    const pop = (P.base + P.charge * r.jumpCharge) * spring * flex;
     r.vx += n[0] * pop; r.vy += n[1] * pop; r.vz = n[2] * pop + Math.max(0, -(r.vx * n[0] + r.vy * n[1]));
     r.onGround = false; r.airTime = 0; r.spin = 0; r.flip = 0; r.flipRate = 0; r.jumpCharge = 0;
     if (flex > 1) r.flipRate = r.lean * OLLIE_PITCH; // an ollie leaves you rotating back a little, a nollie forward
