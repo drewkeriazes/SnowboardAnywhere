@@ -207,6 +207,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       rider.discipline = s.discipline;
       rider.goofy = s.stance === 'goofy'; // FEAT-139 (the rider view follows it)
       rider.fallLine = FALL_LINE[s.fallLine] ?? 1; // FEAT-134
+      rider.jumpMode = s.jumpMode === 'arcade' ? 'arcade' : 'real'; // FEAT-311
       labels.visible = s.showLabels && !storm; // peaks are hidden in the storm
       map.metric = s.units === 'metric';
       if (what === 'camera' || what === 'reset') cam.mode = s.camera;
@@ -491,7 +492,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
         : null,
       ready: () => {
         status.textContent = '';
-        installSimDebug({ events, ghosts, menu, shot, rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, shrubs: world.shrubs, slowSigns: world.slowSigns, treeBrush: world.treeBrush, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, scene, eyeAt, outrun: modes.outrun.sim, monsters, startOutrun: () => modes.outrun.start(), stopOutrun: () => modes.outrun.end(), treeFadeUniforms,
+        installSimDebug({ events, ghosts, menu, shot, rider, riderView, controls, padFx, trialWorld, terrain, pack, cam, veg, shrubs: world.shrubs, slowSigns: world.slowSigns, treeBrush: world.treeBrush, people: world.people, map, liftRide, lifts, setSpawn, settings, bootprints, tracks, deform, renderer, scene, eyeAt, outrun: modes.outrun.sim, monsters, startOutrun: () => modes.outrun.start(), stopOutrun: () => modes.outrun.end(), treeFadeUniforms,
           /** shoot_spots.mjs: a spot's weather, or null for the page's own (?weather= else the setting) */
           setWeather: (w: string | null) => { weatherOverride = parseWeather(w) ?? initialWeather; applySettings(settings, 'weather'); },
           /** snowcheck.mjs: apply a settings field changed in place (for example 'newSnow') as the settings panel would */

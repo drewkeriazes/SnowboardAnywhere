@@ -177,6 +177,10 @@
 #menu .pop button.acct-btn { flex: 1; min-height: var(--row-h); margin: 0; padding: 0 var(--sp-3); border: 1px solid var(--line-strong); border-radius: var(--r-md); background-color: var(--fill); font: 700 var(--fs-md) var(--font-display); text-transform: uppercase; letter-spacing: .05em; }
 #menu .pop > button.acct-btn { width: 100%; margin-top: var(--sp-2); }
 #menu .pop button.acct-btn:disabled, #menu .pop button.primary:disabled, #menu .pop .acct-form input:disabled { opacity: .55; cursor: default; }
+#menu .pop button.acct-link { align-self: flex-start; min-height: 0; margin: 0; padding: var(--sp-1); border: 0; background: none; color: var(--dim); font: 500 var(--fs-sm) var(--font-body); text-transform: none; letter-spacing: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+#menu .pop button.acct-link:hover, #menu .pop button.acct-link.nav-focus, #menu .pop button.acct-link:focus-visible { color: var(--text); }
+#menu .pop button.acct-link.nav-focus { box-shadow: 0 0 0 2px var(--accent); border-radius: var(--r-sm); background-image: none; }
+#menu .pop button.acct-link:disabled { opacity: .55; cursor: default; }
 #menu .pop > button.acct-out { margin-top: var(--sp-4); background-color: transparent; }
 #menu .pop p.acct-note { margin: var(--sp-3) 0 0; color: #ffb4a8; }
 #menu .pop p.acct-note.ok { color: var(--accent); }

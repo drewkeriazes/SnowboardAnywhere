@@ -181,16 +181,34 @@ export const HARD_DEEP = 0.3;
 export const HARD_STEER = 0.3, HARD_MIN_SPEED = 3;
 
 // ---- squat (FEAT-111) and flips (FEAT-110)
-/** FEAT-111 deep squat: ease time (s), extra grip, share of the tuck's drag cut, jump bonus and its window after letting go (s) */
+/** FEAT-111 deep squat: ease time (s), extra grip, share of the tuck's drag cut, and the jump bonus's window after letting go (s; the bonus is JUMP_POP's squat) */
 export const SQUAT_IN = 0.25;
 export const SQUAT_GRIP = 0.08;
 export const SQUAT_AERO = 0.3;
-export const SQUAT_POP = 1.15;
+/** Pop speed (m/s) off flat snow: (base + charge x jump charge (0 .. 1)), times `squat` from a deep squat
+ *  (FEAT-111) and `ollie` off a loaded tail or nose (FEAT-112), which leaves `pitch` rad/s per unit lean of rotation (back off
+ *  an ollie, forward off a nollie; Real's lands about 10 deg off level), and `spin` the air spin rate at full steer
+ *  (rad/s): Real's 370 deg/s turns a full charge's 0.56 s of air into a 180 (a flat 180 is an early trick; riders
+ *  spin about 360 deg/s), and no flat 360. `slopeKick`: Arcade's old launch, which drops the downhill fall speed at the pop, so
+ *  the faster down a slope the higher (about 10 m off a 20 deg slope at 20 m/s); Real adds the pop to the velocity
+ *  along the snow, the same 0.4 m off the slope at any speed. Arcade (BUG-055) is the old pop: a 0.1 s tap
+ *  0.57 m, a full charge 2.5 m, a squat ollie 5.6 m. FEAT-311 Real: the high end of expert snowboarders'
+ *  measured ollies (29 to 36 cm on average, List et al., ISBS 2012): a full charge 0.43 m, an ollie 0.51 m, a
+ *  squat ollie 0.6 m, a tap 0.16 m; at most 0.7 s of air, too little for a flip off flat snow (tools/jumpcheck.mjs).
+ *  Lips, rollers and kickers still send you from speed, not this. */
+export const JUMP_POP = { arcade: { base: 2.5, charge: 4.5, squat: 1.15, ollie: 1.3, pitch: 1.2, spin: 3.5, slopeKick: true }, real: { base: 1.3, charge: 1.46, squat: 1.1, ollie: 1.1, pitch: 0.6, spin: 6.5, slopeKick: false } } as const;
+export type JumpMode = keyof typeof JUMP_POP;
 export const SQUAT_SPRING_WINDOW = 0.25;
 /** FEAT-110 flips: full-input pitch rate (1.1 rotations a second), how fast it builds and decays (1/s),
  * and the landing windows (rad): within FLIP_CLEAN of upright is clean, up to FLIP_CRASH a wobble, past it a crash */
 export const FLIP_RATE = 1.1 * Math.PI * 2;
 export const FLIP_EASE = 6, FLIP_DECAY = 4;
+/** FEAT-311 the tuck after an ollie / nollie with the key still held: the rider's moment of inertia about the
+ *  pitch axis (kg m^2) open (about 14 for an adult laid out, plus the board at the feet) and tucked (about 4, plus
+ *  the board), and the time to pull the knees in (s). The air can't add rotation, only the tuck speeds up what the
+ *  pop left, I_OPEN / I_TUCK = 3.4 times. A real knee tuck takes about 0.3 s, about the apex of a Realistic ollie
+ *  (0.27 to 0.33 s: vz / g); Drew's call is 0.2 s, a snappier feel, so a held ollie starts to flip just before the top. */
+export const I_OPEN = 16, I_TUCK = 4.7, TUCK_TIME = 0.2;
 export const FLIP_CLEAN = 35 * Math.PI / 180, FLIP_CRASH = 60 * Math.PI / 180;
 
 // ---- switch (FEAT-139), skating (FEAT-085), the press lean (FEAT-112)
@@ -203,9 +221,9 @@ export const SWITCH_GRIP = 0.04;
 /** FEAT-085 skating: mean push (m/s^2) from a standstill, top skating speed (m/s), steepest slope it works on (deg), stroke period (s) */
 export const SKATE_ACC = 4.2, SKATE_MAX = 5.5, SKATE_SLOPE = 10, SKATE_PERIOD = 0.6;
 
-/** FEAT-112 lean: ease time (s), grip lost and drag added (per m/s) on a full press, pop multiplier for an
- * ollie / nollie (|lean| > 0.5 at release), and the pitch rate it leaves (rad/s per unit lean) */
-export const LEAN_IN = 0.2, PRESS_GRIP = 0.35, PRESS_DRAG = 0.05, OLLIE_POP = 1.3, OLLIE_PITCH = 1.2;
+/** FEAT-112 lean: ease time (s), grip lost and drag added (per m/s) on a full press (an ollie / nollie is
+ * |lean| > 0.5 at release; its pop and pitch are JUMP_POP's) */
+export const LEAN_IN = 0.2, PRESS_GRIP = 0.35, PRESS_DRAG = 0.05;
 
 // ---- leaving the snow off lips and side hits (FEAT-277)
 /** the margin (m/s per step) by which the ground has to drop away faster than you fall before you leave

@@ -75,10 +75,10 @@ export function gfxPresetOf(s: Settings): GfxPreset | 'custom' {
   return 'custom';
 }
 export type FeelPreset = 'arcade' | 'realistic';
-/** Feel presets set the gameplay feel options together: press balance and the fall line (FEAT-134; jump mode joins as it lands).
+/** Feel presets set the gameplay feel options together: press balance, the fall line (FEAT-134) and the jump mode (FEAT-311).
  *  Two, by Drew's call: Arcade forgives, Realistic is the defaults (Hard press balance stays a manual pick) */
 const FEEL: Record<FeelPreset, Partial<Settings>> = {
-  arcade: { pressBalance: 'easy', fallLine: 'off' }, realistic: { pressBalance: 'on', fallLine: 'real' },
+  arcade: { pressBalance: 'easy', fallLine: 'off', jumpMode: 'arcade' }, realistic: { pressBalance: 'on', fallLine: 'real', jumpMode: 'real' },
 };
 export function applyFeelPreset(s: Settings, p: FeelPreset): void { Object.assign(s, FEEL[p]); }
 export function feelPresetOf(s: Settings): FeelPreset | 'custom' {
@@ -99,6 +99,7 @@ export const SECTIONS: Section[] = [
       desc: 'Sets the feel options together. Arcade forgives more, Realistic asks more of you. Changing an option below shows Custom.' },
     pick('pressBalance', 'Press balance', [['easy', 'Easy'], ['on', 'Normal'], ['hard', 'Hard'], ['off', 'Off']], 'Holding a nose or tail press is a balancing act: steer to keep the balance point centred. Easy drifts slowly, Hard fast, Off holds the press as long as the key.'),
     seg('fallLine', 'Fall line', [['real', 'Realistic'], ['assist', 'Assisted'], ['off', 'Off']], 'How hard the hill works on a flat board. Realistic: it drifts down and comes round toward the fall line unless you hold the uphill edge, a board let go across the hill side-slips, and sliding sideways onto the edge you are sliding toward catches it. Assisted: half the pull and no edge catches. Off: a flat board holds a traverse on rails.'),
+    seg('jumpMode', 'Jump height', [['real', 'Realistic'], ['arcade', 'Arcade']], 'How high a jump pops you off flat snow. Realistic: a full charge clears about knee height, a tap is a small hop. Arcade: big air, a full charge about 2.5 m. Kickers, lips and rollers launch you from your speed either way.'),
   ] },
   { cat: 'gameplay', title: 'Rider', rows: [
     seg('discipline', 'Ride', [['board', 'Snowboard'], ['ski', 'Skis']], () => `Snowboard or skis. ${keyName(MENU_KEYS.discipline[0])} on the main menu switches too.`),
