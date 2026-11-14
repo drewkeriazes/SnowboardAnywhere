@@ -90,6 +90,8 @@ export class Rider {
   /** FEAT-110: pitch rotation in the air (rad, + = front flip, nose down) and its rate */
   flip = 0;
   flipRate = 0;
+  /** FEAT-311: the W / S held for an ollie (-1) or nollie (+1) is spent on the pop: in the air it flips only once let go and pressed again */
+  flipLatch = 0;
   /** FEAT-112: the board's lean, eased: -1 nose up (tail loaded) .. +1 tail up (nose loaded) */
   lean = 0;
   // ---- FEAT-140 press balance
