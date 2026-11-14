@@ -20,10 +20,11 @@ const src = (p) => JSON.stringify(path.join(GAME, 'src', p).replace(/\\/g, '/'))
 fs.writeFileSync(entry, `export { Boundary, SPACING } from ${src('sim/Boundary.ts')};
 export { OutOfBounds, ODDS, COOLDOWN } from ${src('sim/OutOfBounds.ts')};
 export { YetiEgg, OOB_TOAST } from ${src('modes/YetiEgg.ts')};
+export { Outrun } from ${src('sim/Outrun.ts')};
 `);
 const out = path.join(tmp, 'oob.mjs');
 await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error' });
-const { Boundary, SPACING, OutOfBounds, ODDS, COOLDOWN, YetiEgg, OOB_TOAST } = await import(pathToFileURL(out).href);
+const { Boundary, SPACING, OutOfBounds, ODDS, COOLDOWN, YetiEgg, OOB_TOAST, Outrun } = await import(pathToFileURL(out).href);
 
 let fails = 0;
 const ok = (c, m) => { if (!c) { fails++; console.error('FAIL', m); } else console.log('ok  ', m); };
@@ -63,6 +64,13 @@ ok(b.crossing(-100, 0, 100, 0) === 0, 'a move inside: no crossing');
 ok(b.crossing(0, -640, 0, -700) === 0, 'over the road gap: no crossing');
 const viaPack = Boundary.fromFeatures({ ...features, boundary: [{ name: 'area', points: [[-500, -700], [500, -700], [500, 700], [-500, 700]] }] }, bounds);
 ok(viaPack.source === 'pack' && viaPack.crossing(0, 690, 0, 710) === 1 && viaPack.crossing(0, 0, 10, 0) === 0, "the pack's own boundary polygon wins when it has one");
+// a pack polygon with a hole (an enclave): the inner ring, given counter-clockwise like the outer, reads as out of bounds
+const withHole = Boundary.fromFeatures({ ...features, boundary: [
+  { name: 'area', points: [[-500, -700], [500, -700], [500, 700], [-500, 700]] },
+  { name: 'enclave', points: [[-100, -100], [100, -100], [100, 100], [-100, 100]] },
+] }, bounds);
+ok(withHole.rings.length === 2 && withHole.crossing(0, -110, 0, -90) === 1 && withHole.crossing(0, 90, 0, 110) === -1 && withHole.crossing(0, 690, 0, 710) === 1,
+  'a ring inside the outer one is a hole: into it is out (+1), out of it is back in (-1), the outer rope still out');
 
 // ---- the dice: a rider going out over the top rope, 2 s a crossing
 function crossOut(d, wait) {
@@ -134,6 +142,18 @@ function crossOut(d, wait) {
   const egg0 = new YetiEgg({ ...ctx, params: { yetiodds: 0 } }, world, { rider, toast: (t) => toasts.push(t) });
   rider.y = 560; rider.vy = 12; egg0.update(frame, false, false); ride(egg0, 10);
   ok(egg0.wakes === 0 && egg0.last !== 'hit', '?yetiodds=0: never');
+}
+
+// ---- the chase spawn from a standstill below a crest 30 m uphill: at 45 m the yeti would be hidden behind it
+{
+  const crest = (x, y) => (y < 30 ? Math.max(0, y) * 0.5 : 15 - (y - 30));
+  const pack = { meta: { slug: 'test' }, features, groundHeight: crest, terrainHeight: crest,
+    groundNormal: (x, y, o = [0, 0, 1]) => { const k = 1 / Math.hypot(0.5, 1); o[0] = 0; o[1] = -0.5 * k; o[2] = k; return o; } };
+  const sim = new Outrun(pack, { rideLength: () => 0, seatAt: () => ({ x: 0, y: 0, z: 0 }) });
+  const r = { x: 0, y: 0, z: 0, vx: 0, vy: 0, speed: 0, onGround: true, edgeAngle: 0, crashed: 0, landingShock: 0, spin: 0 };
+  sim.startChase({ difficulty: 'chill', escape: 'endless', gentle: false }, r, 45);
+  const m = sim.monsters[0], d = m ? Math.hypot(m.x - r.x, m.y - r.y) : NaN;
+  ok(m && m.y > 0 && d >= 19 && d <= 31, `standing below a crest, the yeti starts uphill on this side of it (${d.toFixed(0)} m away, not 45)`);
 }
 
 // ---- a real pack, if given

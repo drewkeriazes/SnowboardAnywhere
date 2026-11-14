@@ -10,7 +10,8 @@ import type { Features } from '../pack/types';
  * Areas under MIN_AREA (a lone track off in the valley) are left out. The outline is traced with marching squares,
  * smoothed, and cut into spans of about SPACING m: one post per vertex, and the rope runs post to post.
  *
- * Rings are counter-clockwise, so in bounds is on the left of each span; `crossing` uses that to say which way the
+ * Outer rings are counter-clockwise and holes (a pack ring inside an odd number of the others) clockwise, so in bounds
+ * is on the left of each span; `crossing` uses that to say which way the
  * rider went over the rope. Spans with a post in a building or on a road (the base village, where the outline cuts
  * through town) are open: no rope there, and crossing them does not count.
  */
@@ -28,6 +29,8 @@ export class Boundary {
   private readonly hash = new Map<number, number[]>();
   /** per ring, per span (post i to post i + 1): 1 where there is no rope */
   readonly open: Uint8Array[];
+  /** `crossing`'s span dedupe across buckets, kept so the per-frame call allocates nothing */
+  private readonly seen = new Set<number>();
 
   constructor(readonly rings: Ring[], readonly source: 'pack' | 'runs') {
     this.open = rings.map((r) => new Uint8Array(r.length / 2));
@@ -57,16 +60,19 @@ export class Boundary {
    */
   crossing(x0: number, y0: number, x1: number, y1: number): number {
     let net = 0;
-    const seen = new Set<number>();
+    const seen = this.seen;
+    seen.clear();
     const bx0 = Math.floor(Math.min(x0, x1) / BUCKET), bx1 = Math.floor(Math.max(x0, x1) / BUCKET);
     const by0 = Math.floor(Math.min(y0, y1) / BUCKET), by1 = Math.floor(Math.max(y0, y1) / BUCKET);
+    const multi = bx0 !== bx1 || by0 !== by1;
     for (let by = by0; by <= by1; by++) for (let bx = bx0; bx <= bx1; bx++) {
       const a = this.hash.get(key(bx, by));
       if (!a) continue;
       for (let k = 0; k < a.length; k += 2) {
         const ri = a[k], i = a[k + 1], id = ri * 1e7 + i;
-        if (seen.has(id) || this.open[ri][i]) continue;
-        seen.add(id);
+        if (this.open[ri][i]) continue;
+        if (multi) { if (seen.has(id)) continue; seen.add(id); } // one bucket (the usual frame) holds each span once
+
         const r = this.rings[ri], n = r.length / 2, j = (i + 1) % n;
         const ax = r[2 * i], ay = r[2 * i + 1], ex = r[2 * j] - ax, ey = r[2 * j + 1] - ay;
         const s0 = ex * (y0 - ay) - ey * (x0 - ax), s1 = ex * (y1 - ay) - ey * (x1 - ax);
@@ -85,7 +91,13 @@ export class Boundary {
   static fromFeatures(f: Features, bounds: { minX: number; minY: number; maxX: number; maxY: number }): Boundary | null {
     const given = (f.boundary ?? []).filter((b) => b.points && b.points.length >= 3);
     if (given.length) {
-      const rings = given.map((b) => resample(ccw(Float64Array.from(b.points.flatMap((p) => [p[0], p[1]]))), SPACING)).filter((r) => r.length >= 6);
+      // a ring inside an odd number of the others is a hole (an enclave, a multipolygon's inner ring): wound clockwise,
+      // so in bounds stays on the left of its spans and the hole reads as out of bounds
+      const hole = given.map((b, i) => given.reduce((c, o, j) => c + (j !== i && inPolygon(o.points, b.points[0][0], b.points[0][1]) ? 1 : 0), 0) % 2 === 1);
+      const rings = given.map((b, i) => {
+        const r = ccw(Float64Array.from(b.points.flatMap((p) => [p[0], p[1]])));
+        return resample(hole[i] ? reverse(r) : r, SPACING);
+      }).filter((r) => r.length >= 6);
       if (rings.length) return new Boundary(rings, 'pack').gaps(f);
     }
     const lines: number[][] = [];
@@ -288,8 +300,11 @@ function ccw(r: Ring): Ring {
   const n = r.length / 2;
   let a = 0;
   for (let i = 0; i < n; i++) { const j = (i + 1) % n; a += r[2 * i] * r[2 * j + 1] - r[2 * j] * r[2 * i + 1]; }
-  if (a >= 0) return r;
-  const o = new Float64Array(r.length);
+  return a >= 0 ? r : reverse(r);
+}
+
+function reverse(r: Ring): Ring {
+  const n = r.length / 2, o = new Float64Array(r.length);
   for (let i = 0; i < n; i++) { o[2 * i] = r[2 * (n - 1 - i)]; o[2 * i + 1] = r[2 * (n - 1 - i) + 1]; }
   return o;
 }
