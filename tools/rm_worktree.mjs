@@ -85,6 +85,15 @@ if (dryRun) {
   process.exit(0);
 }
 
+// ---- let git's own refusal happen before anything is unlinked ---------------------------------------
+// Without --force, git would refuse a dirty worktree after the links were gone, leaving it unbuildable.
+// Ignored folders (a junctioned node_modules) do not show in porcelain output.
+if (!force) {
+  const dirty = git(wt, 'status', '--porcelain');
+  if (dirty === null) die(`could not read git status of ${wt}`);
+  if (dirty) die(`${wt} has untracked or changed files, so git would refuse; nothing was unlinked (add --force to remove it anyway):\n${dirty}`);
+}
+
 // ---- remove only the links --------------------------------------------------------------------------
 const left = [];
 for (const p of links) {
