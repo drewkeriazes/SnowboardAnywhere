@@ -83,9 +83,9 @@ export class StaticPeople {
   private readonly frame = new THREE.Matrix4();
   private readonly tmpM = new THREE.Matrix4();
 
-  constructor(private readonly pack: Pack, private readonly collider: Collider | null, mode: PeopleMode = 'on', avoid: [number, number][] = []) {
+  constructor(private readonly pack: Pack, private readonly collider: Collider | null, mode: PeopleMode = 'on', avoid: [number, number][] = [], signs: [number, number][] = []) {
     this.group.name = 'static people';
-    const plan = mode === 'off' ? [] : planPeople(pack.features, pack.meta.slug, { force: mode === 'on' ? undefined : mode, avoid });
+    const plan = mode === 'off' ? [] : planPeople(pack.features, pack.meta.slug, { force: mode === 'on' ? undefined : mode, avoid, signs });
     this.spots = plan.map((p) => ({ plan: p, state: 'planned', x: p.x, y: p.y, z: p.z, fx: p.dx, fy: p.dy, slope: 0, res: Infinity, turn: p.seed < 0.5 ? 1 : -1, mesh: null, parts: [], cyl: [], tops: [] }));
     if (mode === 'off') this._visible = false;
     this.group.visible = this._visible;

@@ -8,6 +8,7 @@ sits taking in the view: ride round them, since hitting one crashes you like a t
 
 Built with Three.js, TypeScript and Vite. Resorts so far: Vail, Breckenridge and Big Sky (Change resort on the main menu).
 Modes: free ride, time trials and Outrun, picked on the main menu's cards or in Esc > Mode (time trial gates can also stay on all the time: Settings > Gameplay).
+Around the runs: a few yellow SLOW signs stand at the side of green and blue runs where they merge into another run or come into the base area (never on blacks, never up high).
 
 ## Play
 

@@ -32,6 +32,8 @@ export interface PlanOptions {
   force?: 'center' | 'sitters';
   /** points to keep clear (the Free ride start, landmarks), pack metres */
   avoid?: [number, number][];
+  /** FEAT-306: the SLOW signs' sites on their runs' lines (pack metres): nobody within SIGN_CLEAR of one */
+  signs?: [number, number][];
 }
 
 /** runs shorter than this get nobody (m); a short one (to LONG_RUN) at most one */
@@ -40,6 +42,8 @@ export const MIN_RUN = 150, LONG_RUN = 300;
 export const LIFT_CLEAR = 18, BOTTOM_CLEAR = 70, TOP_CLEAR = 40;
 /** keep clear of the Free ride start and the landmarks (m), and of another planned person (m) */
 export const AVOID_CLEAR = 80, PEOPLE_GAP = 60;
+/** keep clear of a SLOW sign's site (m): both stand out toward a run's edge, so this is measured along the lines */
+export const SIGN_CLEAR = 40;
 /** 1 in this many pairs stands dead centre */
 export const CENTER_ONE_IN = 10;
 /** terrain parks and features: runs whose name says so get nobody (the packs carry no jumps of their own) */
@@ -109,7 +113,7 @@ export function countFor(length: number, r: number): number {
  */
 export function planPeople(features: Features, slug: string, opts: PlanOptions = {}): PlannedPerson[] {
   const out: PlannedPerson[] = [];
-  const avoid = opts.avoid ?? [];
+  const avoid = opts.avoid ?? [], signs = opts.signs ?? [];
   features.runs.forEach((run, ri) => {
     if (run.area || run.points.length < 2 || PARK_RE.test(run.name ?? '')) return;
     const cum = [0];
@@ -130,6 +134,7 @@ export function planPeople(features: Features, slug: string, opts: PlanOptions =
       const p = along(run, cum, t * len);
       if (nearLift(features, p.x, p.y)) continue;
       if (avoid.some(([ax, ay]) => Math.hypot(p.x - ax, p.y - ay) < AVOID_CLEAR)) continue;
+      if (signs.some(([sx, sy]) => Math.hypot(p.x - sx, p.y - sy) < SIGN_CLEAR)) continue;
       if (out.some((o) => Math.hypot(o.x - p.x, o.y - p.y) < PEOPLE_GAP)) continue;
       const f = opts.force;
       out.push({ id: `${ri}.${k}`, run: ri, runName: run.name, kind: f === 'center' ? 'pair' : f === 'sitters' ? 'sitter' : kind, center: f === 'center' ? true : f === 'sitters' ? false : center, side, frac, ...p, seed });
