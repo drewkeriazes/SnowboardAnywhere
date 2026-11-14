@@ -5,6 +5,7 @@
 // cylinder that was there before the trees and rocks streamed in stay put; the collider holds the same count
 // after each return; each rock is held once (rocks used to be added again on every return). A pack with no
 // rocks (the synthetic mountain) gets a few dozen made up around the start, served in place of rocks/<cell>.bin.
+// The static people (FEAT-307) settled first keep their cylinders through every drop too.
 // Also prints how long the update that drops the cells takes.
 // node tools/collidercheck.mjs [pack] [--headed]   (run after `npx vite build`; exit 1 on a failed check)
 import { launchBrowser } from './browser.mjs';
@@ -77,6 +78,24 @@ await page.evaluate(() => {
 const home = await page.evaluate(() => { const r = window.__sim.rider; return { x: r.x, y: r.y }; });
 const farX = home.x + 60000, farY = home.y + 60000;
 
+// 0. FEAT-307's static people: the spots nearest the start settled (each at its own spot, with its tiles in) so they
+// add their cylinders (held by the spot, never by a cell) before anything is measured; they count among the fixed
+// cylinders every drop below must leave alone
+const people = await page.evaluate(async ([hx, hy]) => {
+  const s = window.__sim, pp = s.people;
+  if (!pp) return { n: 0, cyl: 0 };
+  const near = [...pp.spots].sort((a, b) => Math.hypot(a.x - hx, a.y - hy) - Math.hypot(b.x - hx, b.y - hy));
+  for (const sp of near) {
+    if (pp.spots.filter((q) => q.cyl.length).length >= 2) break;
+    const R = 400;
+    s.pack.fine?.request(sp.x - R, sp.y - R, sp.x + R, sp.y + R); s.pack.mask?.request(sp.x - R, sp.y - R, sp.x + R, sp.y + R);
+    for (let i = 0; i < 400 && sp.state === 'planned'; i++) { pp.maintain(sp.x, sp.y); await new Promise((r) => setTimeout(r, 25)); }
+  }
+  window.__ccPeople = pp.spots.flatMap((q) => q.cyl);
+  return { n: pp.spots.filter((q) => q.cyl.length).length, cyl: window.__ccPeople.length };
+}, [home.x, home.y]);
+console.log(`${people.n} static people settled, ${people.cyl} cylinders`);
+
 // 1. everything streamed out: what is left is the session's fixed cylinders (landmark and building posts)
 let r = await page.evaluate(([x, y]) => window.__cc.at(x, y), [farX, farY]);
 check('settles far away', r.settled, `${r.count} cylinders`);
@@ -126,7 +145,7 @@ const rockPts = (all = false) => page.evaluate(([fake, key, all]) => {
 }, [rocks.fake ? rocks.data : null, rocks.cell.key, all]);
 const fixedKept = () => page.evaluate(() => {
   const now = new Set(window.__cc.all());
-  return { fixed: window.__ccFixed.filter((e) => !now.has(e)).length, post: now.has(window.__ccPost) };
+  return { fixed: window.__ccFixed.filter((e) => !now.has(e)).length, post: now.has(window.__ccPost), people: window.__ccPeople.filter((e) => !now.has(e)).length };
 });
 
 let homeN = null;
@@ -164,6 +183,7 @@ for (let trip = 1; trip <= 2; trip++) {
   console.log(`     dropping the cells took ${r.first.toFixed(1)} ms (the update that unloads ${homeN - fixedN - 1} trunk, stem and rock cylinders)`);
   check(`far away (${trip}): trees and rocks gone, only the fixed cylinders and the post left`, r.count === fixedN + 1, `${r.count} cylinders, want ${fixedN + 1}`);
   check(`far away (${trip}): the post and the fixed cylinders stay`, f.post && f.fixed === 0, `post ${f.post}, ${f.fixed} of ${fixedIds} fixed missing`);
+  check(`far away (${trip}): the static people's cylinders stay`, f.people === 0, `${f.people} of ${people.cyl} missing`);
 }
 // the removal itself, on a copy: every cell's own trunks added to a new collider, then removed cell by cell
 const rm = await page.evaluate(async ([x, y]) => {
@@ -178,6 +198,7 @@ console.log(`     removing ${rm.n} trunks from ${rm.cells} cells, a cell at a ti
 check('removeAll leaves nothing behind', rm.left === 0 && rm.n > 0, `${rm.left} of ${rm.n} left`);
 check('the start streamed trees into the collider', homeN > fixedN + 1 + (rocks.fake ? rocks.data.length / 6 : 0), `${homeN} at home, ${fixedN} fixed`);
 check('the post stands in a tree cell', treeCell, rocks.cell.key);
+check('static people settled (their cylinders checked through every drop)', people.cyl > 0, `${people.n} placed, ${people.cyl} cylinders`);
 check('the post is a cylinder at its point', (await page.evaluate((p) => window.__cc.held([p]), post))[0] === 1);
 check('no console errors', errors.length === 0, errors.slice(0, 3).join(' | ').slice(0, 300));
 
