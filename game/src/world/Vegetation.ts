@@ -14,7 +14,7 @@ import { ClumpCanopy } from './trees/clumps';
  * (trees/): ten species, four variants each, and four LODs picked per tree by its distance from the
  * camera, with a dither crossfade at each edge:
  *   LOD0 branch cards  0..800 m     one InstancedMesh per species x variant, from the trees near the camera
- *   LOD1 cones         80..400 m    the same, from a wider ring
+ *   LOD1 cones         b0..b1       the same, from a wider ring (80..400 m originally; none left on High and Medium, where LOD0 reaches the LOD1 edge)
  *   LOD2 crossed quads 400..1500 m  one mesh per cell (all species), from the baked impostor atlas
  *   impostors          1500..4500 m one mesh per cell, camera-facing quads from the same atlas
  * The two near sets are rebuilt on the CPU when the camera has moved part of their margin; the far
