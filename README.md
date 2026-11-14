@@ -6,6 +6,8 @@ take the chairs back up, race your own ghost, or outrun the snow monster.
 
 Built with Three.js, TypeScript and Vite. Resorts so far: Vail, Breckenridge and Big Sky (Change resort on the main menu).
 Modes: free ride, time trials and Outrun, picked on the main menu's cards or in Esc > Mode (time trial gates can also stay on all the time: Settings > Gameplay).
+An orange rope on posts marks the resort's outer edge. You can duck it, but now and then (about 1 in 30
+times) something notices.
 
 ## Play
 

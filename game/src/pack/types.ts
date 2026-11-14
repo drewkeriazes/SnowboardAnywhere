@@ -191,4 +191,6 @@ export interface Features {
   water: { name?: string; points: [number, number][]; z: number }[];
   peaks: PeakFeature[];
   labels: { name: string; kind: string; x: number; y: number; z: number }[];
+  /** FEAT-305 / MapPacker FEAT-313 (optional, not in packs yet): the ski area's outer rings, local metres */
+  boundary?: { name?: string | null; points: [number, number][] }[];
 }

@@ -114,6 +114,8 @@ export class Outrun {
   private liftUpLast = 0;
   private wasRiding = false;
   private readonly rng = () => Math.random();
+  /** false for the out of bounds yeti (FEAT-305): its runs keep no best score */
+  keepBest = true;
 
   constructor(private readonly pack: Pack, private readonly lifts: LiftNetwork) {}
 
@@ -132,11 +134,29 @@ export class Outrun {
     this.adrenaline = 0; this.boostT = 0; this.events = [];
     this.crumbs = []; this.sLast = 0; this.sampleAcc = 0; this.riderAvg = rider.speed;
     this.lastZ = rider.z; this.closeState = false; this.wasAir = false; this.secondDone = false;
-    this.wasRiding = false;
+    this.wasRiding = false; this.keepBest = true;
     this.base = cfg.escape === 'base' ? this.findBase(rider) : null;
     this.baseMissing = cfg.escape === 'base' && !this.base;
     this.best = this.loadBest();
     this.pushCrumb(rider, 0);
+  }
+
+  /**
+   * FEAT-305, the out of bounds yeti: straight into the chase with no countdown or head start, the monster `back` m
+   * behind the rider (against its travel, or uphill when it is standing still) on a trail it walks down to the rider.
+   * No base, no second monster worth waiting for, no best score.
+   */
+  startChase(cfg: OutrunConfig, rider: Rider, back: number): void {
+    this.start({ ...cfg, escape: 'endless' }, rider);
+    this.keepBest = false; this.best = null;
+    this.phase = 'chase'; this.t = 0;
+    const sp = Math.hypot(rider.vx, rider.vy);
+    let ux: number, uy: number;
+    if (sp > 2) { ux = -rider.vx / sp; uy = -rider.vy / sp; }
+    else { const n = this.pack.groundNormal(rider.x, rider.y) as number[], h = Math.hypot(n[0], n[1]); ux = h > 0.02 ? -n[0] / h : 0; uy = h > 0.02 ? -n[1] / h : 1; }
+    const x = rider.x + ux * back, y = rider.y + uy * back, c0 = this.crumbs[0];
+    this.crumbs.unshift({ x, y, z: this.ground(x, y, rider.z), s: c0.s - back, t: c0.t });
+    this.spawn(back);
   }
 
   stop(): void { this.phase = 'off'; this.monsters = []; this.dist = Infinity; this.nearest = null; this.boostT = 0; this.events = []; }
@@ -152,6 +172,7 @@ export class Outrun {
   private bestKey(): string { return `outrun:${this.pack.meta.slug}:${this.cfg.difficulty}:${this.cfg.escape}`; }
   loadBest(): Best | null { try { return JSON.parse(localStorage.getItem(this.bestKey()) ?? 'null'); } catch { return null; } }
   private saveBest(): void {
+    if (!this.keepBest) return;
     if (this.best && this.best.score >= this.score) return;
     this.best = { score: Math.round(this.score), time: this.time, date: new Date().toISOString().slice(0, 10) };
     this.isBest = true;

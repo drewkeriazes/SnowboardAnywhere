@@ -30,6 +30,8 @@ export interface ModeFrame {
   readonly frozen: boolean;
   /** seconds of world frames this session (the trial route's pulse runs on it) */
   readonly elapsed: number;
+  /** the camera is off the rider (free fly, eye): the rider stands still */
+  readonly detached: boolean;
 }
 
 /** The session's riding pieces the modes use. */
