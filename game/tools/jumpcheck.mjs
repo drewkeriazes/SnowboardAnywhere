@@ -130,4 +130,22 @@ check('real: no 360 off flat snow, even from a squat ollie', s2 < 300 * Math.PI 
 const slow = slopePop('real', 20, 5), fast = slopePop('real', 20, 20), arc = slopePop('arcade', 20, 20);
 check('real: a pop down a 20 deg slope at 20 m/s clears about what it does slowly', fast.clear < 0.65 && fast.clear < slow.clear + 0.1, `${m(fast.clear)} at 20 m/s, ${m(slow.clear)} at 5 m/s, ${fast.air.toFixed(2)} s of air`);
 check('arcade: keeps the big air down a slope at speed', arc.clear > 5, `${m(arc.clear)}`);
+// FEAT-311 review: the tuck only speeds rotation the same way. W to S mid-flip eases round as before (no dead stop),
+// and W let go and pressed again mid-flip doesn't tuck past FLIP_RATE
+{
+  const go = (mid) => {
+    const r = new Rider(flat, null);
+    r.jumpMode = 'arcade'; r.reset(0, 0, 0); r.vy = 8; r.onGround = false; r.vz = 12; r.z = 0.1; r.airTime = 0;
+    for (let i = 0; i < 60; i++) r.update(FRAME, input({ tuck: true }));
+    const before = r.flipRate;
+    let top = 0;
+    r.update(FRAME, mid);
+    const after = r.flipRate;
+    for (let i = 0; i < 30 && !r.onGround; i++) { r.update(FRAME, input({ tuck: true })); top = Math.max(top, r.flipRate); }
+    return { before, after, top };
+  };
+  const rev = go(input({ brake: true })), again = go(input());
+  check('W to S mid-flip eases the rotation round, no dead stop', rev.after > 0.7 * rev.before, `${deg(rev.before)}/s to ${deg(rev.after)}/s in a frame`);
+  check('W let go and pressed again mid-flip stays at the flip rate', again.top < 1.1 * 2.2 * Math.PI, `top ${deg(again.top)}/s`);
+}
 process.exit(fails ? 1 : 0);

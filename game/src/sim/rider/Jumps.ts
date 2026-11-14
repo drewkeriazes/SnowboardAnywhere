@@ -28,11 +28,13 @@ export function airStep(r: Rider, dt: number, input: Input): void {
   // in over TUCK_TIME. The air can't add rotation, so the tuck only speeds up the rotation there was when it
   // started (the pop's, on an ollie), by I_OPEN / I(t), angular momentum conserved; once tucked (about the apex
   // of an ollie) a key still held drives the flip. Let go and the body opens: the rotation dies away.
-  if (want !== r.tuckDir) { r.tuckDir = want; r.tuckT = 0; r.tuckRate = want * Math.max(0, want * r.flipRate); }
+  // Only a tuck into no rotation or the same way: against the rotation (W to S mid-flip) the drive eases it
+  // round as before, and a tuck never takes the rate past FLIP_RATE (pressed again mid-flip, already spinning).
+  if (want !== r.tuckDir) { r.tuckDir = want; r.tuckT = want * r.flipRate >= 0 ? 0 : TUCK_TIME; r.tuckRate = Math.abs(r.flipRate); }
   if (want !== 0 && r.tuckT < TUCK_TIME) {
     r.tuckT += dt;
     const t = Math.min(1, r.tuckT / TUCK_TIME), s = t * t * (3 - 2 * t);
-    r.flipRate = r.tuckRate * I_OPEN / (I_OPEN + (I_TUCK - I_OPEN) * s);
+    r.flipRate = want * Math.min(FLIP_RATE, r.tuckRate * I_OPEN / (I_OPEN + (I_TUCK - I_OPEN) * s));
   } else if (want !== 0) r.flipRate += (want * FLIP_RATE - r.flipRate) * Math.min(1, dt * FLIP_EASE);
   else r.flipRate *= Math.exp(-dt * FLIP_DECAY);
   r.flip += r.flipRate * dt;
