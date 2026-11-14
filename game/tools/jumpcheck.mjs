@@ -40,7 +40,7 @@ function pop(mode, hold, { lean = 0, squat = false } = {}) {
 /** squat nollie (W, as the keyboard sends it: tuck plus the lean), then W in the air: 'again' let go for a frame and
  *  held again, 'held' kept down from the pop, 'off' let go. The most front flip (rad) reached, the flip at `at` s of
  *  air, and the pitch and crash at the landing */
-function nollie(mode, how, at = 0.25) {
+function nollie(mode, how, at = 0.15) {
   const r = new Rider(flat, null), o = { lean: 1, squat: true }; // the lean only while charging, as Controls sends it
   r.jumpMode = mode; r.reset(0, 0, 0); r.vy = 8;
   for (let i = 0; i < 60; i++) r.update(FRAME, input({ squat: true }));
@@ -98,7 +98,7 @@ check('arcade: a front flip off flat snow still goes round', fa > 2 * Math.PI, d
 // FEAT-311: W still down from the nollie tucks first (the pop's rotation, sped up only by the tuck, I_OPEN / I_TUCK),
 // so the flip starts about the apex; let go at the pop and the nollie lands near level
 const held = nollie('real', 'held');
-check('real: W kept down from a nollie barely turns before the tuck is in (under 18 deg at 0.25 s)', held.fAt < 18 * Math.PI / 180, deg(held.fAt));
+check('real: W kept down from a nollie barely turns before the tuck is in (under 12 deg at 0.15 s)', held.fAt < 12 * Math.PI / 180, deg(held.fAt));
 check('real: and then flips on, too late to land off flat snow (you land on your face)', held.crashed && held.last > 60 * Math.PI / 180, `${deg(held.last)} at the landing`);
 for (const mode of ['real', 'arcade']) {
   const h = nollie(mode, 'off');
