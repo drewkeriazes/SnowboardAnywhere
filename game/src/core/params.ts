@@ -55,6 +55,8 @@ export interface Params {
   noclumps: boolean;
   /** FEAT-292 ?clumpfar=<m>: how far the clump impostors reach at least (default 9000) */
   clumpfar: number | null;
+  /** BUG-107 ?lod0=<m>: how far the LOD0 branch-card trees reach at full tree density */
+  lod0: number | null;
 }
 
 export function parseParams(search: string, hosted = !!(import.meta.env.VITE_HOST_NAME || import.meta.env.VITE_HOSTED)): Params {
@@ -92,5 +94,6 @@ export function parseParams(search: string, hosted = !!(import.meta.env.VITE_HOS
     snowdepth: num('snowdepth'),
     noclumps: p.has('noclumps'),
     clumpfar: num('clumpfar'),
+    lod0: num('lod0'),
   };
 }
