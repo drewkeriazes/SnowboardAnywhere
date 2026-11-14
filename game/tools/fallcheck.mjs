@@ -13,6 +13,9 @@ import { pathToFileURL } from 'node:url';
 const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fallcheck-')), 'rider.mjs');
 await build({ entryPoints: [path.join(GAME, 'src', 'sim', 'Rider.ts')], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error' });
 const { Rider } = await import(pathToFileURL(out).href);
+const outC = path.join(path.dirname(out), 'collider.mjs');
+await build({ entryPoints: [path.join(GAME, 'src', 'sim', 'Collider.ts')], bundle: true, format: 'esm', platform: 'node', outfile: outC, logLevel: 'error' });
+const { Collider } = await import(pathToFileURL(outC).href);
 
 const D = Math.PI / 180;
 /** plane falling toward +y (north) at `deg` degrees; the fall line is heading 0 */
@@ -267,6 +270,13 @@ check('off: a flat board traverses on rails as before', off30.toFall > 85 && Mat
   const trunk = slide(20, 20, 0, 1, null, tree);
   console.log(`  blue with a trunk 20 m down: ${fmt(trunk)}, furthest ${trunk.maxY.toFixed(1)} m down`);
   check('a crash into a trunk still stops at the trunk', trunk.maxY < TREE_Y && trunk.dist < TREE_Y + 1, `furthest ${trunk.maxY.toFixed(1)} m down, ends ${trunk.r.y.toFixed(1)} m`);
+  // FEAT-307: a sitting snowboarder 20 m down, the parts StaticPeople puts in the real Collider (kind 0, like a trunk)
+  const people = new Collider(), sz = -Math.tan(20 * D) * TREE_Y;
+  people.add(0, TREE_Y, 0.45, sz - 1, sz + 1.1, 0);
+  people.add(0.6, TREE_Y + 0.42, 0.3, sz - 1, sz + 0.35, 0); people.add(-0.6, TREE_Y + 0.42, 0.3, sz - 1, sz + 0.35, 0);
+  const person = slide(20, 20, 0, 1, null, people);
+  console.log(`  blue with a sitting person 20 m down: ${fmt(person)}, furthest ${person.maxY.toFixed(1)} m down`);
+  check('a crash into a static person stops at the person, like a trunk', person.maxY < TREE_Y && person.dist < TREE_Y + 1, `furthest ${person.maxY.toFixed(1)} m down, ends ${person.r.y.toFixed(1)} m`);
   // a 20 deg slope with a 12 m cliff band 15 m down
   const t20 = Math.tan(20 * D), k20 = 1 / Math.hypot(t20, 1), CLIFF_Y = 15;
   const cliff = {

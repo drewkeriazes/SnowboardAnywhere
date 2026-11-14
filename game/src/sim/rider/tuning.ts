@@ -303,3 +303,11 @@ export const CRASH_ARREST_T = 4, CRASH_ARREST = 8, CRASH_MAX = 6;
 export const CRASH_ASSIST_MU = 0.6;
 /** a crashed body leaves the snow where the ground steps down more than this (m) below where it falls in one step */
 export const CRASH_DROP = 0.3;
+/** a landing in the crash slide keeps 1 - CRASH_LAND_DRAG x the speed into the snow (m/s) of the slide; past
+ *  CRASH_ROLLOVER_SPEED (m/s) a rollover too sharp to follow lifts the body off the snow */
+export const CRASH_LAND_DRAG = 0.03, CRASH_ROLLOVER_SPEED = 3;
+/** a trunk, rock, wall or person hit in the slide: the share of the rest lost on a square hit, and the speed
+ *  into it (m/s) past which it counts as a wall hit (lastHit, hitSpeed) */
+export const CRASH_HIT_LOSS = 0.8, CRASH_WALL_SPEED = 3;
+/** the rider's body radius against trunks, rocks, walls and people (m), riding and crashed */
+export const BODY_R = 0.4;

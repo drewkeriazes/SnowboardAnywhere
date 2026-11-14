@@ -4,7 +4,7 @@ import { groundAt } from './Collision';
 import {
   CRASH_ARREST, CRASH_ARREST_T, CRASH_ASSIST_MU, CRASH_DRAG, CRASH_LOSS, CRASH_MAX, CRASH_MU_SLIDE, CRASH_MU_SNOW,
   CRASH_MU_TUMBLE, CRASH_TUMBLE_EASE, CRASH_TUMBLE_T, CRASH_UP_SPEED, G, TAKEOFF_LIFT,
-  CRASH_DROP,
+  CRASH_DROP, CRASH_LAND_DRAG, CRASH_ROLLOVER_SPEED, CRASH_HIT_LOSS, CRASH_WALL_SPEED, BODY_R,
 } from './tuning';
 
 /**
@@ -52,7 +52,7 @@ export function crashStep(r: Rider, dt: number, n: readonly number[]): void {
       const n2 = r.pack.groundNormal(r.x, r.y, undefined, r.z) as number[];
       const vn = r.vx * n2[0] + r.vy * n2[1] + r.vz * n2[2];
       if (vn < 0) { r.vx -= vn * n2[0]; r.vy -= vn * n2[1]; }
-      const keep = Math.max(0, 1 - 0.03 * Math.max(0, -vn));
+      const keep = Math.max(0, 1 - CRASH_LAND_DRAG * Math.max(0, -vn));
       r.vx *= keep; r.vy *= keep;
       r.z = g; r.crashAir = false;
       r.vz = -(r.vx * n2[0] + r.vy * n2[1]) / Math.max(0.2, n2[2]);
@@ -75,7 +75,7 @@ export function crashStep(r: Rider, dt: number, n: readonly number[]): void {
     const vzSurf = -(vx * n2[0] + vy * n2[1]) / Math.max(0.2, n2[2]);
     const ballistic = r.vz - G * dt;
     // a rollover too sharp to follow at this speed, or a step down (a cliff, a wall's top) deeper than the fall this step
-    const rollover = ballistic > vzSurf + TAKEOFF_LIFT && spd > 3;
+    const rollover = ballistic > vzSurf + TAKEOFF_LIFT && spd > CRASH_ROLLOVER_SPEED;
     const drop = g2 < r.z + ballistic * dt - CRASH_DROP;
     if (!first && (rollover || drop)) {
       r.crashAir = true;
@@ -83,9 +83,9 @@ export function crashStep(r: Rider, dt: number, n: readonly number[]): void {
       r.z = Math.max(r.z + r.vz * dt, g2 + 0.02);
     } else { r.z = g2; r.vz = vzSurf; }
   }
-  // trunks, rocks and walls: push out and take the speed into them, and most of the rest on a square hit
+  // trunks, rocks, walls and people (FEAT-307, kind 0 like a trunk): push out and take the speed into them, and most of the rest on a square hit
   if (r.collider) {
-    const hit = r.collider.resolve(r.x, r.y, r.z, 0.4);
+    const hit = r.collider.resolve(r.x, r.y, r.z, BODY_R);
     if (hit) {
       r.x = hit.x; r.y = hit.y;
       const vn = r.vx * hit.nx + r.vy * hit.ny;
@@ -93,8 +93,8 @@ export function crashStep(r: Rider, dt: number, n: readonly number[]): void {
         const spd = Math.hypot(r.vx, r.vy) || 1;
         const headOn = -vn / spd;
         r.vx -= vn * hit.nx; r.vy -= vn * hit.ny;
-        r.vx *= 1 - 0.8 * headOn; r.vy *= 1 - 0.8 * headOn;
-        if (-vn > 3) { r.lastHit = 'wall'; r.hitSpeed = Math.max(r.hitSpeed, -vn); }
+        r.vx *= 1 - CRASH_HIT_LOSS * headOn; r.vy *= 1 - CRASH_HIT_LOSS * headOn;
+        if (-vn > CRASH_WALL_SPEED) { r.lastHit = 'wall'; r.hitSpeed = Math.max(r.hitSpeed, -vn); }
       }
     }
   }

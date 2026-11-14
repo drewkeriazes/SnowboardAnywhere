@@ -1,6 +1,6 @@
 /** Ground height and collisions (split from sim/Rider.ts, FEAT-165) */
 import type { Rider } from '../Rider';
-import { STEP_UP } from './tuning';
+import { BODY_R, STEP_UP } from './tuning';
 
 /** BUG-045: terrain or a bridge deck, or the top of a building the rider is standing on */
 export function groundAt(r: Rider, x: number, y: number, z: number): number {
@@ -14,7 +14,7 @@ export function groundAt(r: Rider, x: number, y: number, z: number): number {
 export function rideCollide(r: Rider): void {
   // collisions with trees and rocks
   if (r.collider) {
-    const hit = r.collider.resolve(r.x, r.y, r.z, 0.4);
+    const hit = r.collider.resolve(r.x, r.y, r.z, BODY_R);
     if (hit) {
       // started inside a building: always take the pushed-out position, even when already moving out
       if (hit.inside) { r.x = hit.x; r.y = hit.y; }
