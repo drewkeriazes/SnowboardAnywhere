@@ -59,7 +59,7 @@ export function carve(r: Rider, c: RideStep, dt: number, input: Input): boolean 
     if (r.washout >= 1) {
       // the edge lets go: down on the inside of the turn, on the butt heelside or the hip toeside
       const side = Math.sign(r.edge) || 1;
-      r.crashed = 1.3; r.crashSide = side; r.crashFall = 0;
+      r.crash(1.3); r.crashSide = side; r.crashFall = 0;
       r.onWashout?.(side * r.toeSign);
       r.hardCarve = r.hardDrive = r.carveShort = r.washout = 0;
       r.edge *= 0.3; r.edgeTarget = 0;
@@ -172,7 +172,7 @@ export function grip(r: Rider, c: RideStep, dt: number): void {
       const bare = (1 - dig) * (1 - Math.min(1, Math.max(0, -lead / CATCH_GUARD)));
       const rough = CATCH_ROUGH + snow.jolt + Math.min(1, r.surface.moguls / 0.4);
       r.catchRisk = (CATCH_DIG * dig + CATCH_FLAT * bare * rough) * exposed;
-      if (r.rng.next() < r.catchRisk * dt) { r.crashed = 1.3; r.crashSide = Math.sign(vLat); r.crashFall = 0; r.lastHit = 'catch'; }
+      if (r.rng.next() < r.catchRisk * dt) { r.crash(1.3); r.crashSide = Math.sign(vLat); r.crashFall = 0; r.lastHit = 'catch'; }
     }
   }
   ax += latAcc * lx; ay += latAcc * ly;
