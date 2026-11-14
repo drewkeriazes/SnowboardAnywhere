@@ -63,7 +63,7 @@ env:
   # Node-only check tools: exit 1 on a failed check, need neither a pack nor a browser
   PHYSICS_CHECKS: accountcheck brakecheck buildprogresscheck carvecheck climbcheck conditionscheck fakiecheck fallcheck gatecheck getpackcheck hardcarvecheck lipcheck mogulcheck origincheck presscheck resortsearchcheck shrubcheck standcheck treepuffcheck
   # Browser check tools that pass on the synthetic pack under SwiftShader within a few minutes
-  BROWSER_CHECKS: switchcheck glancecheck hardposecheck padcheck accountmenucheck releasecheck clumpcheck
+  BROWSER_CHECKS: switchcheck glancecheck hardposecheck padcheck accountmenucheck releasecheck clumpcheck collidercheck
   # BROWSER_LOCAL (timed on a runner for FEAT-172: they draw every frame, and SwiftShader takes minutes per check):
   #   powdercheck (over 7 min), menucheck (times out), leadcheck, trailcheck, statecheck (10+ min on SwiftShader), treeshot
 

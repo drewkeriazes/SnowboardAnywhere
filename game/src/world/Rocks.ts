@@ -6,7 +6,8 @@ import { NOISE_GLSL, ROCK_GLSL, rockUniforms } from '../terrain/rockShader';
 const RADIUS = 2500;
 const VARIANTS = 4;
 
-interface Cell { cx: number; cy: number; meshes: THREE.InstancedMesh[]; loading: boolean; missing: boolean }
+/** `col`: the rocks' collider entries, removed when the cell drops (BUG-082); `dropped`: left before its load finished, so the load adds nothing */
+interface Cell { cx: number; cy: number; meshes: THREE.InstancedMesh[]; col: Float32Array[]; loading: boolean; missing: boolean; dropped: boolean }
 
 /**
  * Instanced rocks streamed per cell. Each rock picks one of four noise-displaced low-poly
@@ -111,7 +112,7 @@ export class Rocks {
         const key = `${cx}_${cy}`;
         keep.add(key);
         if (!this.cells.has(key)) {
-          const cell: Cell = { cx, cy, meshes: [], loading: true, missing: false };
+          const cell: Cell = { cx, cy, meshes: [], col: [], loading: true, missing: false, dropped: false };
           this.cells.set(key, cell);
           this.load(cell);
         }
@@ -120,6 +121,10 @@ export class Rocks {
     for (const [key, cell] of this.cells) {
       if (keep.has(key)) continue;
       for (const m of cell.meshes) { this.group.remove(m); m.dispose(); }
+      // BUG-082: the cylinders go with the meshes, or each return would add them again
+      if (this.collider && cell.col.length) this.collider.removeAll(cell.col);
+      cell.col.length = 0; cell.meshes.length = 0;
+      cell.dropped = true;
       this.cells.delete(key);
     }
   }
@@ -131,6 +136,7 @@ export class Rocks {
       const resp = await fetch(`${this.pack.baseUrl}/rocks/${cell.cx}_${cell.cy}.bin`);
       if (!resp.ok) { cell.missing = true; return; }
       const d = new Float32Array(await resp.arrayBuffer());
+      if (cell.dropped) return; // BUG-082: the rider left before it arrived; a later visit loads a new cell
       const n = d.length / 6;
       if (n === 0) return;
       // bucket by variant
@@ -170,7 +176,7 @@ export class Rocks {
           this.c.setRGB(tk * (0.98 + 0.05 * u), tk, tk * (1.0 + 0.05 * (1 - u)));
           mesh.setColorAt(k, this.c);
           // tall boulders are walls; slabs, talus and small boulders can be ridden up and launched off
-          if (this.collider && size > 0.9) this.collider.add(x, y, size * 0.55, z - 1, z + size * 0.6, type === 1 && size > 2.2 ? 0 : 1);
+          if (this.collider && size > 0.9) cell.col.push(this.collider.add(x, y, size * 0.55, z - 1, z + size * 0.6, type === 1 && size > 2.2 ? 0 : 1));
         });
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
