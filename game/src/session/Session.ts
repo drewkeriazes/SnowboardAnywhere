@@ -207,6 +207,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
       rider.discipline = s.discipline;
       rider.goofy = s.stance === 'goofy'; // FEAT-139 (the rider view follows it)
       rider.fallLine = FALL_LINE[s.fallLine] ?? 1; // FEAT-134
+      rider.jumpMode = s.jumpMode === 'arcade' ? 'arcade' : 'real'; // FEAT-311
       labels.visible = s.showLabels && !storm; // peaks are hidden in the storm
       map.metric = s.units === 'metric';
       if (what === 'camera' || what === 'reset') cam.mode = s.camera;
