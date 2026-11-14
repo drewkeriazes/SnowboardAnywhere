@@ -57,6 +57,8 @@ export interface Params {
   clumpfar: number | null;
   /** BUG-107 ?lod0=<m>: how far the LOD0 branch-card trees reach at full tree density */
   lod0: number | null;
+  /** FEAT-307 ?people=center|sitters|off: every static-people spot a skier pair across the middle of its run, or a sitting snowboarder, or none (null: as planned) */
+  people: string | null;
 }
 
 export function parseParams(search: string, hosted = !!(import.meta.env.VITE_HOST_NAME || import.meta.env.VITE_HOSTED)): Params {
@@ -95,5 +97,6 @@ export function parseParams(search: string, hosted = !!(import.meta.env.VITE_HOS
     noclumps: p.has('noclumps'),
     clumpfar: num('clumpfar'),
     lod0: num('lod0'),
+    people: p.get('people'),
   };
 }

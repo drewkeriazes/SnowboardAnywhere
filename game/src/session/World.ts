@@ -4,7 +4,8 @@ import { Terrain } from '../terrain/Terrain';
 import { Collider } from '../sim/Collider';
 import { buildCourses } from '../sim/Courses';
 import { Bridges } from '../world/Bridges';
-import { Landmarks } from '../world/Landmarks';
+import { Landmarks, landmarkStart } from '../world/Landmarks';
+import { StaticPeople, parsePeopleMode } from '../world/StaticPeople';
 import { Clouds } from '../world/Clouds';
 import { Snow } from '../world/Snow';
 import { Vegetation, setLod0Reach } from '../world/Vegetation';
@@ -74,6 +75,10 @@ export function buildWorld(ctx: GameContext) {
   add('landmarks', landmarks.group);
   const bridges = new Bridges(pack, collider, params.bridgeguess); // BUG-022: OSM-tagged bridges and creek-bed dips; ?bridgeguess adds segment chords
   add('bridges', bridges.group);
+  // FEAT-307: skier pairs and sitting snowboarders on the runs, kept clear of the start and the landmarks
+  const ls = landmarkStart(pack.meta.slug);
+  const people = new StaticPeople(pack, collider, parsePeopleMode(params.people), [[pack.meta.start.x, pack.meta.start.y], ...(ls ? [[ls.x, ls.y] as [number, number]] : []), ...landmarks.list.map((l) => [l.x, l.y] as [number, number])]);
+  add('people', people.group);
   const tracks = new Tracks(pack);
   add('tracks', tracks.group);
   const bootprints = new Bootprints(pack);
@@ -112,12 +117,13 @@ export function buildWorld(ctx: GameContext) {
   for (const m of Object.values(monsters.materials)) env.registerMaterial(m);
   for (const m of eat.materials) env.registerMaterial(m);
   for (const m of landmarks.materials) env.registerMaterial(m);
+  env.registerMaterial(people.material);
   veg.enableImpostors(renderer, !params.noimpostors, params.lowgfx ? 1024 : 2048); // FEAT-156: bakes the LOD2 / impostor atlases either way
   if (params.lod0 != null) setLod0Reach(params.lod0); // BUG-107
   if (!params.noclumps) veg.enableClumps(renderer, params.clumpfar ?? undefined); // FEAT-292: the far forest as clump impostors past the drawn trees
   terrain.setTreeShade(veg.shade); // FEAT-171: the drawn trees' shadows past the shadow map
   return {
-    zr, env, clouds, snow, terrain, collider, veg, shrubs, treeFade, rocks, lifts, liftLines, resortTop, runs, buildings, roads, landmarks, bridges,
+    zr, env, clouds, snow, terrain, collider, veg, shrubs, treeFade, rocks, lifts, liftLines, resortTop, runs, buildings, roads, landmarks, bridges, people,
     tracks, bootprints, riderChair, puffs, particleLight, bigprints, deform, monsters, eat, courses, trialWorld, riderView, treeBrush,
   };
 }
