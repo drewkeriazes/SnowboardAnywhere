@@ -10,6 +10,7 @@ export { kitUniforms, treeMaterial, treeDepthMaterial, newBand } from './materia
 export { SHRUBS, SHRUB_KINDS, WILLOW, JUNIPER, SAGE, YOUNG_CONIFER, OAK, buildShrubGeometries, type ShrubKind, type ShrubGeometrySet } from './shrubs';
 export { treeSnowState, winterDepth, setGhostBand, type TreeSnowState } from './snow';
 export { generateStems, type StandGrid } from './stands';
+export { crownWidthsOf, type CrownWidthsMeta } from './widths';
 
 /**
  * FEAT-156: the procedural tree kit. Builds the atlas, every species x variant x LOD geometry and the

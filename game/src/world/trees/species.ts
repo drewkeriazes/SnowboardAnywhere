@@ -88,9 +88,13 @@ export function variantFor(species: number, x: number, y: number): number {
   return VARIANTS - 1;
 }
 
-/** the crown radius (m) to draw for a pack tree of height h and crown radius `crown`: the species shape, nudged by the pack's crown */
-export function crownRadius(species: number, h: number, crown: number): number {
+/**
+ * The crown radius (m) to draw for a pack tree of height h and crown radius `crown`: the species shape, nudged by the
+ * pack's crown (0.85 to 1.25 of it). FEAT-298: with `drawn` (the pack has `instances.crownWidths`, trees/widths.ts) the
+ * record is the radius to draw, kept within 0.5 to 3 of the species' own; 0 still means the species' own.
+ */
+export function crownRadius(species: number, h: number, crown: number, drawn = false): number {
   const nat = SPECIES[species].radius * h;
   const k = nat > 0 && crown > 0 ? crown / nat : 1;
-  return nat * Math.max(0.85, Math.min(1.25, k));
+  return drawn ? nat * Math.max(0.5, Math.min(3, k)) : nat * Math.max(0.85, Math.min(1.25, k));
 }

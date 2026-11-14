@@ -1,10 +1,11 @@
-import { hash01 } from './species';
+import { SPECIES, SPECIES_COUNT, hash01 } from './species';
+import { WIDTH_STEP, widthDraw, type CrownWidthsMeta } from './widths';
 
 /**
  * FEAT-074: the stems a tree cell's stand density asks for, generated when the cell loads near the camera.
  * The pack keeps the detected crowns (trees/) and, per 1 km cell, stands/<cx>_<cy>.png
  * (MapPacker-SnowboardAnywhere/pipeline/stands.py): per 4 m cell the chance of one stem (R), the stand height (G) and species (B), and
- * in the lower half the ground height (R high byte, G low). Every draw is a hash of the 4 m cell's centre,
+ * in the lower half the ground height (R high byte, G low) and (FEAT-298, packs with `crownWidths`) the width factor in B. Every draw is a hash of the 4 m cell's centre,
  * so a cell generates the same stems every time, and a lower density keeps a subset of a higher one.
  */
 
@@ -51,9 +52,10 @@ function groundAt(g: StandGrid, x: number, y: number): number {
 
 /**
  * The generated stems of a cell at `density` (0..1 of the stand's full density), as pack tree records
- * (x, y, z, height, crown 0 = the species' own, species id).
+ * (x, y, z, height, crown, species id). The crown is 0 (the species' own) unless the pack has `crownWidths`
+ * (FEAT-298), when it is the radius to draw: the species' times the cell's width factor times the stem's own draw.
  */
-export function generateStems(g: StandGrid, density: number): Float32Array {
+export function generateStems(g: StandGrid, density: number, widths: CrownWidthsMeta | null = null): Float32Array {
   const n = g.size, res = g.res, top = g.minY + n * res, px = g.px;
   if (density <= 0) return new Float32Array(0);
   let count = 0;
@@ -74,8 +76,11 @@ export function generateStems(g: StandGrid, density: number): Float32Array {
     const z = groundAt(g, x, y);
     const b = k * 6;
     out[b] = x; out[b + 1] = y; out[b + 2] = Number.isNaN(z) ? g.zBase : z;
-    out[b + 3] = px[o + 1] * g.hStep * (0.75 + 0.25 * hash01(cx, cy, S_H));
-    out[b + 4] = 0; out[b + 5] = px[o + 2];
+    const h = px[o + 1] * g.hStep * (0.75 + 0.25 * hash01(cx, cy, S_H)), s = px[o + 2];
+    out[b + 3] = h; out[b + 5] = s;
+    // FEAT-298: the cell's width factor (lower half B) times the stem's own draw, as the radius to draw
+    const wb = widths ? px[(n * n + i) * 4 + 2] : 0;
+    out[b + 4] = widths && s < SPECIES_COUNT ? SPECIES[s].radius * h * (wb ? wb / WIDTH_STEP : 1) * widthDraw(widths, s, x, y) : 0;
     k++;
   }
   return out;
