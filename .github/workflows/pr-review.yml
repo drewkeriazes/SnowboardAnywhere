@@ -11,6 +11,7 @@
 # Skip: PRs with the `review loop` label get no automatic review (FEAT-117).
 #
 # Manual review: Actions tab > Claude PR review > Run workflow, enter the PR number.
+# Update README (readme-update.yml) starts one the same way on its PR, as github-actions[bot] (BUG-099).
 # Or from a terminal: gh workflow run pr-review.yml -f pr_number=123
 #
 # Loop guard (automatic runs only; manual runs always do a full review):
@@ -162,6 +163,11 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # BUG-099 (MapPacker#50): readme-update.yml starts this review with the workflow's own token, so the run's
+          # actor is github-actions[bot] and the action would stop on a non-human actor. Allow that one bot, and only
+          # on a manual (workflow_dispatch) run, which only Drew or a workflow in this repo can start; a pull_request
+          # run keeps the action's default of no bots.
+          allowed_bots: ${{ github.event_name == 'workflow_dispatch' && 'github-actions[bot]' || '' }}
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ env.PR_NUMBER }}
