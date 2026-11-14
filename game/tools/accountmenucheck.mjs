@@ -2,7 +2,9 @@
 // Guest play is never gated: the line is the whole start flow. Uses the ?account= fakes, never the network.
 // FEAT-274: the account panel the line opens: GitHub and email and password sign-in, sign-up and its verification
 // gate, the refusals, and adding a method from a signed-in session (the fakes are the real account logic in memory).
-// node tools/accountmenucheck.mjs [pack] [--gpu | --headed | --cpu]   (run after `npx vite build`; exit 1 on a failed check)
+// FEAT-283: the sign-in form's "Forgot your password?" link, reached by the menu's navigation, with one line either way.
+// node tools/accountmenucheck.mjs [pack] [--gpu | --headed | --cpu] [--shot=<png>]   (run after `npx vite build`; exit 1 on a failed check)
+// --shot saves the sign-in panel with the reset line showing.
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -10,6 +12,7 @@ import path from 'node:path';
 import { DIST, PACKS } from './paths.mjs';
 
 const pack = process.argv.slice(2).filter((a) => !a.startsWith('--'))[0] ?? 'synth';
+const shot = process.argv.slice(2).find((a) => a.startsWith('--shot='))?.slice('--shot='.length) ?? null;
 const t0 = Date.now();
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.png': 'image/png', '.webp': 'image/webp', '.css': 'text/css', '.woff2': 'font/woff2' };
 const server = http.createServer((req, res) => {
@@ -142,6 +145,37 @@ const BAD_CREDENTIALS = 'That email and password do not open an account. Check t
   await p.press('Sign in with GitHub');
   check('Sign in with GitHub: panel closed, player 0 reads', await p.closed() && (await c.text()).includes('· player 0'));
   check('name is text', (await c.text()).includes('<i>player</i>') && (await c.page.$('#menu .account i')) === null);
+  await c.page.close();
+}
+{ // &account=guest: Forgot your password? (FEAT-283)
+  const RESET_SENT = 'If that email has an account, a reset link is on its way.';
+  const c = await open('&account=guest');
+  const p = panel(c);
+  await p.open('Sign in');
+  const link = p.pop.locator('button[data-act=forgot]');
+  check('sign-in form: a Forgot your password? link', (await link.count()) === 1 && (await link.textContent()) === 'Forgot your password?');
+  const act = () => c.page.evaluate(() => document.activeElement?.getAttribute('data-act') ?? document.activeElement?.getAttribute('name'));
+  // the menu's navigation reaches it: Down from the Sign in button (MenuNav; the controller's d-pad is the same intent)
+  await p.pop.locator('button[data-act=signin]').focus();
+  await c.page.keyboard.press('ArrowDown');
+  check('Down from Sign in reaches the link', (await act()) === 'forgot', `focused ${await act()}`);
+  await c.page.keyboard.press('Enter');
+  await c.page.waitForFunction(() => (document.querySelector('#menu .pop .acct-note')?.textContent ?? '') !== '', null, { timeout: 15000 });
+  check('Enter on the link with no email: asks for it, focus on the email field', (await p.note()).startsWith('Type your email address') && (await act()) === 'email');
+  const resetFor = async (email) => { await p.pop.locator('input[name=email]').fill(email); await p.press('Forgot your password[?]'); return p.note(); };
+  const has = await resetFor('rider@example.test');
+  check('reset for a password account: the one line', has === RESET_SENT, has);
+  check('the line reads as good news, focus stays on the link, still a guest', await c.page.evaluate(() => document.querySelector('#menu .pop .acct-note').classList.contains('ok')) && (await act()) === 'forgot' && (await c.text()).includes('Playing as guest'));
+  check('reset for an address with no account: the same line', (await resetFor('nobody@example.test')) === has);
+  const bad = await resetFor('not-an-email');
+  check('reset for a malformed email: says so', bad === 'That is not an email address.', bad);
+  if (shot) {
+    await resetFor('rider@example.test');
+    fs.mkdirSync(path.dirname(path.resolve(shot)), { recursive: true });
+    await c.page.screenshot({ path: shot });
+    console.log(`saved ${path.resolve(shot)}`);
+  }
+  check('no request leaves for a sign-in service', !c.requests.some((u) => /googleapis|firebase|identitytoolkit/.test(u) && !/firebasePort-/.test(u)));
   await c.page.close();
 }
 { // &account=guest, a verified password account signs in
