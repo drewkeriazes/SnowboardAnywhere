@@ -45,12 +45,16 @@ export function land(r: Rider, ground: number, input: Input): void {
   const flipped = Math.round(Math.abs(r.flip) / (Math.PI * 2));
   const sketchy = flipOff > FLIP_CLEAN && flipOff <= FLIP_CRASH;
   const clean = (align > 0.6 || spinOff < 0.6) && flipOff <= FLIP_CLEAN;
-  const penalty = (clean ? 0.08 : sketchy ? 0.3 : 0.5) + impact * (clean ? 0.012 : 0.03);
-  r.vx *= Math.max(0, 1 - penalty); r.vy *= Math.max(0, 1 - penalty);
+  // a slam (too hard, or landed on the head or the back) crashes; FEAT-288: it takes the crash's one speed
+  // cut and the body slides on, where a landing that holds pays the landing's own penalty
+  const slam = impact > 16 || (!clean && !sketchy && impact > 8 && !input.grab) || flipOff > FLIP_CRASH;
+  if (slam) r.crash(1.3);
+  else {
+    const penalty = (clean ? 0.08 : sketchy ? 0.3 : 0.5) + impact * (clean ? 0.012 : 0.03);
+    r.vx *= Math.max(0, 1 - penalty); r.vy *= Math.max(0, 1 - penalty);
+  }
   r.landingShock = Math.min(1, impact / 12);
-  if (impact > 16 || (!clean && !sketchy && impact > 8 && !input.grab)) r.crashed = 1.3;
-  if (flipOff > FLIP_CRASH) r.crashed = 1.3; // landed on the head or the back
-  else if (sketchy) r.landingShock = Math.max(r.landingShock, 0.6); // a wobble
+  if (sketchy) r.landingShock = Math.max(r.landingShock, 0.6); // a wobble
   // FEAT-139: a spin on its own is a trick too, and either is "Switch ..." taken off riding switch
   // (the stance cannot change in the air, so it is still the takeoff's here)
   if (r.crashed <= 0) {

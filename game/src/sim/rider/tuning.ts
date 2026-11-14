@@ -263,3 +263,25 @@ export const PB_LAND_WINDOW = 0.5;
 export const PB_POWDER = 0.55, PB_POWDER_FAST = 0.4, PB_POWDER_STEADY = 0.4, PB_POWDER_CALM = 0.25;
 /** FEAT-140: a press held shorter than this (s) ends without a report */
 export const PRESS_MIN_REPORT = 0.5;
+
+// ---- the crash slide (FEAT-288): a crashed body is a sliding object, a = g (sin a - mu cos a) - k v^2
+/** body-on-snow friction tumbling (the first CRASH_TUMBLE_T s, eased into sliding over CRASH_TUMBLE_EASE s)
+ *  and sliding once the body is flat on the snow. Starting values from the card, to tune, not measured */
+export const CRASH_MU_TUMBLE = 0.5, CRASH_MU_SLIDE = 0.3, CRASH_TUMBLE_T = 1.5, CRASH_TUMBLE_EASE = 0.5;
+/** friction by snow: groomed, powder, chop, ice, slush, rock (a body ploughs into powder and slush, skates on ice) */
+export const CRASH_MU_SNOW = { groomed: 1, powder: 1.4, chop: 1.15, ice: 0.55, slush: 1.3, rock: 1.5 };
+/** air and snow drag on the tumbling body (m/s^2 per (m/s)^2), so a slide can't run away */
+export const CRASH_DRAG = 0.01;
+/** speed cut once when a crash starts (a landing slam, a caught edge, a washout, a press slam; a trunk,
+ *  rock or wall hit keeps the bounce Collision.ts already takes) */
+export const CRASH_LOSS = 0.25;
+/** stay down until slower than this (m/s) and the crash's minimum time has passed */
+export const CRASH_UP_SPEED = 2;
+/** self-arrest: from CRASH_ARREST_T s the rider digs in, the extra braking ramping to CRASH_ARREST m/s^2
+ *  over a second; at CRASH_MAX s the slide stops whatever (no soft lock on a steep icy face) */
+export const CRASH_ARREST_T = 4, CRASH_ARREST = 8, CRASH_MAX = 6;
+/** fall line setting below Realistic (FEAT-134 Assisted 0.5, Off 0): the friction scales up by this share
+ *  of what is missing (Off is 1.6x), a shorter, more forgiving slide */
+export const CRASH_ASSIST_MU = 0.6;
+/** a crashed body leaves the snow where the ground steps down more than this (m) below where it falls in one step */
+export const CRASH_DROP = 0.3;

@@ -269,6 +269,11 @@ until the snow builds back over a few minutes; a tree you just shook has less to
 trunk and the whole tree shakes off every bit of its snow. Settings > Graphics > Snow dents turns the sag off (the Low preset turns it off
 too).
 
+Crash at speed and you keep it: the body tumbles and slides on down the hill, a long way on a steep
+pitch, sooner to a stop on a gentle one or on the flat, further on ice and less in powder or slush. A
+trunk or a rock still stops you, and off a cliff band you fall. You get up once the slide has slowed
+to a walk (or after about 6 s at most). The Assisted and Off fall line settings shorten the slide.
+
 In first person you look through goggle lenses (Settings > Camera > Goggle lens). In flat light
 (a storm, overcast, deep shade) the snow's bumps, rollers and dips are hard to see; a warm lens (Rose,
 Orange, Yellow) cuts the blue and brings their shape back, Yellow most of all in a storm. The mirrored

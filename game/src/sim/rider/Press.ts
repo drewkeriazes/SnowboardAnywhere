@@ -62,7 +62,7 @@ export function pressStep(r: Rider, dt: number, input: Input): void {
   if (over >= 1) {
     // over-pressed: the loaded end catches; slow, the board just stops
     if (spd < PB_STALL) { r.vx *= 0.2; r.vy *= 0.2; r.speed *= 0.2; endPress(r, 'stall'); }
-    else { r.crashed = 1.3; r.crashFall = r.pressDir; endPress(r, 'slam'); }
+    else { r.crash(1.3); r.crashFall = r.pressDir; endPress(r, 'slam'); }
   } else if (over <= -1) endPress(r, 'flat'); // under-pressed: the board drops flat
 }
 

@@ -14,8 +14,13 @@ import { BONES, setWorldQuat, type BoneName, type RiderRig } from './RiderRig';
  * All in three.js world space (x east, y up, z = -north).
  */
 const STEP = 1 / 120, ITER = 8, G = 9.81, DAMP = 0.995;
-/** snow friction on particles touching the ground (fraction of the slide kept per step) */
-const GROUND_KEEP = 0.93;
+/**
+ * FEAT-288: snow friction on particles touching the ground is the sim's own body-on-snow friction
+ * (Rider.crashMu, rider/Crash.ts): each step a touching particle's slide along the snow loses mu g
+ * STEP of speed (Coulomb, never past a stop), so the body and the sim slow down together. It was a
+ * fixed 0.93 kept per step, which took half the slide in 0.08 s: the body braked on the spot.
+ */
+const DEFAULT_MU = 0.3;
 /** pull of the whole body toward the sim's crash position (1/s), so the rider gets up where the sim is */
 const TETHER = 2.5;
 /** blend from the last ragdoll pose back to the animated pose (s) */
@@ -60,6 +65,10 @@ export class Ragdoll {
   /** [a, b, rest length, min only] */
   private links: [number, number, number, boolean][] = [];
   private acc = 0;
+  /** the body-on-snow friction this step (FEAT-288) */
+  private mu = DEFAULT_MU;
+  /** particles that have taken this step's friction already */
+  private readonly rubbed = new Uint8Array(N);
   /** the bind direction of each aimed bone toward its child, in the bone's own frame */
   private readonly bindDir = new Map<BoneName, THREE.Vector3>();
   private readonly v1 = new THREE.Vector3(); private readonly v2 = new THREE.Vector3(); private readonly v3 = new THREE.Vector3();
@@ -111,8 +120,9 @@ export class Ragdoll {
     this.active = true;
   }
 
-  /** Step the particles; `tether` is the sim's crash position (world) that the body is pulled toward. */
-  step(dt: number, tether: THREE.Vector3): void {
+  /** Step the particles; `tether` is the sim's crash position (world) that the body is pulled toward, `mu` the sim's body-on-snow friction. */
+  step(dt: number, tether: THREE.Vector3, mu = DEFAULT_MU): void {
+    this.mu = mu;
     this.acc += Math.min(dt, 0.1);
     while (this.acc >= STEP) { this.acc -= STEP; this.tick(tether); }
   }
@@ -121,6 +131,7 @@ export class Ragdoll {
     const p = this.p, o = this.o;
     const hips = p[IDX('Hips')];
     const pullX = (tether.x - hips.x) * TETHER * STEP, pullZ = (tether.z - hips.z) * TETHER * STEP;
+    this.rubbed.fill(0);
     for (let i = 0; i < N; i++) {
       const vx = (p[i].x - o[i].x) * DAMP, vy = (p[i].y - o[i].y) * DAMP, vz = (p[i].z - o[i].z) * DAMP;
       o[i].copy(p[i]);
@@ -142,13 +153,18 @@ export class Ragdoll {
 
   private collide(): void {
     const p = this.p, o = this.o;
+    const fric = this.mu * G * STEP * STEP;
     for (let i = 0; i < N; i++) {
       const q = p[i], r = RADIUS(i);
       const g = this.pack.groundHeight(q.x, -q.z) + r;
       if (q.y < g) {
         q.y = g;
-        // friction: lose most of the slide along the snow this step
-        o[i].x = q.x - (q.x - o[i].x) * GROUND_KEEP; o[i].z = q.z - (q.z - o[i].z) * GROUND_KEEP;
+        // friction: the slide along the snow loses mu g STEP of speed (as displacement per step, mu g STEP^2), not past a stop
+        const sx = q.x - o[i].x, sz = q.z - o[i].z, s = Math.hypot(sx, sz);
+        // collide runs ITER times a step: the friction is taken once, at the particle's first touch
+        const keep = this.rubbed[i] ? 1 : s > 1e-9 ? Math.max(0, s - fric) / s : 0;
+        this.rubbed[i] = 1;
+        o[i].x = q.x - sx * keep; o[i].z = q.z - sz * keep;
         if (o[i].y < q.y - 0.02) o[i].y = q.y - 0.02; // a little bounce, no more
       }
       if (this.collider && (i === IDX('Hips') || i === IDX('Head') || i === IDX('Spine2') || i === IDX('LeftFoot') || i === IDX('RightFoot'))) {
