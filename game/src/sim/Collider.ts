@@ -62,11 +62,41 @@ export class Collider {
     return e;
   }
 
-  /** Remove a cylinder `add` returned (no-op when its cell was cleared already). */
+  /** Remove a cylinder `add` returned (no-op when it was removed already). */
   remove(e: Float32Array): void {
-    const arr = this.cells.get(this.key(Math.floor(e[0] / CELL), Math.floor(e[1] / CELL)));
+    const k = this.key(Math.floor(e[0] / CELL), Math.floor(e[1] / CELL));
+    const arr = this.cells.get(k);
     const i = arr ? arr.indexOf(e) : -1;
-    if (i >= 0) arr!.splice(i, 1);
+    if (i < 0) return;
+    arr!.splice(i, 1);
+    if (arr!.length === 0) this.cells.delete(k);
+  }
+
+  /**
+   * BUG-082: remove the cylinders `add` returned for one owner (a tree or rock cell that unloads), and
+   * only those: the posts and other owners' cylinders in the same cells stay. Entries in the same 8 m
+   * cell as the one before share its lookup, so a cell's worth of trees costs about one key per cell.
+   */
+  removeAll(list: readonly Float32Array[]): void {
+    let lcx = NaN, lcy = NaN, lk = '', arr: Float32Array[] | undefined;
+    for (const e of list) {
+      const cx = Math.floor(e[0] / CELL), cy = Math.floor(e[1] / CELL);
+      if (cx !== lcx || cy !== lcy) {
+        if (arr && arr.length === 0) this.cells.delete(lk);
+        lcx = cx; lcy = cy; lk = this.key(cx, cy); arr = this.cells.get(lk);
+      }
+      if (!arr) continue;
+      const i = arr.indexOf(e);
+      if (i >= 0) arr.splice(i, 1);
+    }
+    if (arr && arr.length === 0) this.cells.delete(lk);
+  }
+
+  /** BUG-082 (collidercheck.mjs): how many cylinders the collider holds */
+  get cylinderCount(): number {
+    let n = 0;
+    for (const arr of this.cells.values()) n += arr.length;
+    return n;
   }
 
   /**
@@ -259,17 +289,6 @@ export class Collider {
       }
     }
     return best;
-  }
-
-  clearCell(cellKey: string): void {
-    this.cells.delete(cellKey);
-  }
-
-  /** Remove everything inside a rectangle (used when an instance cell unloads). */
-  clearRect(minX: number, minY: number, maxX: number, maxY: number): void {
-    for (let cy = Math.floor(minY / CELL); cy <= Math.floor(maxY / CELL); cy++) {
-      for (let cx = Math.floor(minX / CELL); cx <= Math.floor(maxX / CELL); cx++) this.cells.delete(this.key(cx, cy));
-    }
   }
 
   /** Push a circle of radius r at (x, y, z) out of any cylinder it overlaps. Returns the hit or null. */

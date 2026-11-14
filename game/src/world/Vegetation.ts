@@ -182,6 +182,10 @@ interface Cell {
   /** the density the stems in `data` were generated at (0 = none) and their collider entries (null = not solid) */
   gen: number;
   col: Float32Array[] | null;
+  /** BUG-082: the pack's own trunks' collider entries, removed one by one when the cell drops (never a whole-cell clear) */
+  own: Float32Array[] | null;
+  /** BUG-082: dropped while its records were still loading, so the load adds nothing */
+  dropped: boolean;
   /** per tree: kit species, variant, crown radius (m), yaw, colour variation (3) */
   sp: Uint8Array | null;
   va: Uint8Array | null;
@@ -402,7 +406,7 @@ export class Vegetation {
         keep.add(key);
         let cell = this.cells.get(key);
         if (!cell) {
-          cell = { key, cx, cy, data: null, base: null, stand: null, standState: 0, gen: 0, col: null, sp: null, va: null, cr: null, yaw: null, tint: null, thin: null, order: null, tileStart: null, zMin: 0, zMax: 0, lod2: null, imp: null, loading: false, missing: false, shaded: false };
+          cell = { key, cx, cy, data: null, base: null, stand: null, standState: 0, gen: 0, col: null, own: null, dropped: false, sp: null, va: null, cr: null, yaw: null, tint: null, thin: null, order: null, tileStart: null, zMin: 0, zMax: 0, lod2: null, imp: null, loading: false, missing: false, shaded: false };
           this.cells.set(key, cell);
         }
         if (!cell.data && !cell.loading && !cell.missing) this.load(cell);
@@ -446,10 +450,11 @@ export class Vegetation {
       if (keep.has(key)) continue;
       this.dropCell(cell);
       this.shade?.removeCell(key);
-      if (cell.data && this.collider) {
-        const minX = inst.minX + cell.cx * cs, minY = inst.minY + cell.cy * cs;
-        this.collider.clearRect(minX, minY, minX + cs, minY + cs);
-      }
+      // BUG-082: only this cell's own trunks and stems; the landmark and building posts and the rocks in its square kilometre stay
+      if (cell.col) this.setSolid(cell, false);
+      if (cell.own && this.collider) this.collider.removeAll(cell.own);
+      cell.own = null;
+      cell.dropped = true;
       this.cells.delete(key);
       for (const n of this.near) n.dirty = true;
     }
@@ -550,6 +555,7 @@ export class Vegetation {
         return resp.ok ? new Float32Array(await resp.arrayBuffer()) : null;
       };
       const [own, far] = await Promise.all([get('trees', ownListed), get('farTrees', farListed)]);
+      if (cell.dropped) return; // BUG-082: the rider left before it arrived; a later visit loads a new cell
       if (!own && !far) { empty(); return; }
       let data = own ?? far!;
       if (own && far) { data = new Float32Array(own.length + far.length); data.set(own); data.set(far, own.length); }
@@ -557,10 +563,10 @@ export class Vegetation {
       this.prepare(cell);
       if (this.collider && own) {
         // the far crowns stand outside the pack, where nobody rides
-        const d = own;
-        for (let i = 0; i < d.length; i += 6) {
+        const d = own, col: Float32Array[] = cell.own = new Array(d.length / 6);
+        for (let i = 0, k = 0; i < d.length; i += 6, k++) {
           const h = d[i + 3];
-          this.collider.add(d[i], d[i + 1], Math.max(0.15, h * 0.02), d[i + 2] - 1, d[i + 2] + h);
+          col[k] = this.collider.add(d[i], d[i + 1], Math.max(0.15, h * 0.02), d[i + 2] - 1, d[i + 2] + h);
         }
       }
       for (const n of this.near) n.dirty = true;
@@ -607,7 +613,7 @@ export class Vegetation {
 
   /** FEAT-074: put a cell's generated stems in the collider, or take them out */
   private setSolid(cell: Cell, on: boolean): void {
-    if (!on) { if (cell.col && this.collider) for (const e of cell.col) this.collider.remove(e); cell.col = null; return; }
+    if (!on) { if (cell.col && this.collider) this.collider.removeAll(cell.col); cell.col = null; return; }
     const col: Float32Array[] = [];
     if (this.collider) {
       const d = cell.data!;
