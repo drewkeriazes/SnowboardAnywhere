@@ -327,7 +327,7 @@ export class RideFrame {
     // FEAT-077: groomers get skied out through the day (fresh corduroy first thing, tracked out by
     // mid-afternoon); new snow covers the tracks again
     {
-      const hour = typeof cond.timeOfDay === 'number' ? cond.timeOfDay : cond.timeOfDay === 'now' ? ((new Date().getUTCHours() + new Date().getUTCMinutes() / 60 + sun.utcOff) % 24 + 24) % 24 : 13;
+      const hour = sun.hour(cond); // BUG-084: the sun's own hour, so ?time= moves the snow too
       const day = Math.max(0, Math.min(1, (hour - 8.5) / 6.5));
       const base = SKIED_BASE[cond.snowDay ?? 'mid'];
       terrain.setSkied(base * (0.15 + 0.85 * day * day * (3 - 2 * day)) * (1 - snowCover), cond.snowDay === 'spring' ? 1 : 0);
