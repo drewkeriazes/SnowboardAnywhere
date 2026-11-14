@@ -142,6 +142,13 @@
 #menu .course.on { border-color: var(--accent); }
 #menu button.course:disabled { opacity: 0.55; cursor: default; }
 #menu .course[data-act="get"] .cl { color: var(--accent); }
+/* FEAT-302: a built or catalog row with its favorite star beside it; Favorites and All resorts headings when any is starred */
+#menu .pop .rrow { display: flex; gap: var(--sp-1); align-items: stretch; }
+#menu .pop .rrow button.course { flex: 1; min-width: 0; }
+#menu .pop button.star { flex: 0 0 calc(44px * var(--ui-scale)); margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--fill); color: var(--dim); font-size: var(--fs-lg); line-height: 1; }
+#menu .pop button.star[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+#menu .pop .tier { margin: var(--sp-2) 0 0; font: 700 var(--fs-xs) var(--font-display); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+#menu .pop .tier:first-child { margin-top: 0; }
 /* FEAT-246: Find a resort over the list; a search match's place and size, then Build it */
 #menu .pop .find-row { margin: var(--sp-2) 0 var(--sp-2); }
 #menu .pop input.find { box-sizing: border-box; width: 100%; min-height: var(--row-h); margin: 0; padding: 0 var(--sp-3); border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--fill); color: var(--text); font: 500 var(--fs-md) var(--font-body); outline: none; }

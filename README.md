@@ -52,7 +52,9 @@ server can't download (a plain static host, or offline) the list is empty and th
 `npm run get vail`. A resort you downloaded shows "Update (size)" when a newer
 release is out, also when yours is an older format than the game reads. An older-format pack with no current
 release, or one you built or copied in yourself, shows "needs rebuild". `npm run get` won't replace a pack you built yourself unless you add `-- --force` (it
-deletes the old one). The **Find a resort** box at the top of the list filters it by name. Signed in as a
+deletes the old one). The star at the end of a row makes that resort a favorite: favorites list first, under
+Favorites, and stay starred after a reload (in this browser). With the keyboard or a controller, press right
+on a row to reach its star and Enter or A to star or unstar it. The **Find a resort** box at the top of the list filters it by name. Signed in as a
 maintainer on `npm run dev`, typing three or more letters also lists ski areas from OpenSkiData that are not
 packed yet, each with its region, runs and lifts and a **Build it** button that starts the build in MapPacker's
 GitHub Actions (see [developer guide > Accounts](docs/developer-guide.md#accounts-feat-273)
@@ -138,7 +140,7 @@ The main menu's Controls button opens your current bindings.
 The main menu sits over the live resort: on Vail, the ridge behind the Legendary Back Bowls gateway, with the
 title naming the place and the resort's numbers. RIDE starts the mode picked on the cards along the bottom: Free
 ride, Time trial (pick a course: you start just above its start gate) or Outrun (its options), and "or drop in from
-the map" picks a spot first. The resort card switches Snowboard / Skis; Change resort lists the built resorts.
+the map" picks a spot first. The resort card switches Snowboard / Skis; Change resort lists the built resorts, your starred favorites first.
 Settings, Controls and Credits sit in the top corner. The menu shows at once over a still of the view while the
 resort loads behind it (a slim bar in the corner), then fades into the live view once it has settled; RIDE pressed
 early waits for the load. The menu shows its view in that view's own weather and time of day (on Vail, a bluebird

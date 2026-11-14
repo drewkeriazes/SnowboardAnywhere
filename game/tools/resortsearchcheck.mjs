@@ -185,6 +185,11 @@ try {
   P.resetBuilds();
   ok(show('', null) === 'vail:load:here now | boston-mills:get:Download (80 MB) | solden:load:', 'resetBuilds clears the session\'s builds');
   ok(P.nameMatches('mont trem', 'Mont Tremblant') && !P.nameMatches('vail x', 'Vail'), 'nameMatches: every word, as a prefix or part');
+  // FEAT-302: favorites first, in list order, marked fav; the rest as they were
+  const ff = P.favoritesFirst(base, new Set(['solden', 'vail', 'gone']));
+  ok(ff.map((x) => `${x.slug}${x.fav ? '*' : ''}`).join(' ') === 'vail* solden* boston-mills', 'favoritesFirst: the favorites first in list order, a starred slug not listed ignored');
+  ok(P.favoritesFirst(base, new Set()).map((x) => x.slug).join(' ') === 'vail boston-mills solden' && !base.some((x) => x.fav), 'favoritesFirst: none starred keeps the order, and the base rows are not changed');
+  ok(P.shownRows(ff, 'bost', null).map((x) => x.slug).join() === 'boston-mills', 'the filter runs over the tiers');
 } finally {
   server.close();
   fs.rmSync(tmp, { recursive: true, force: true });
