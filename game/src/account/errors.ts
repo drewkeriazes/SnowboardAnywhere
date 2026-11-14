@@ -1,4 +1,4 @@
-import type { SignInResult } from './Account';
+import type { ResetResult, SignInResult } from './Account';
 
 type Failure = Extract<SignInResult, { ok: false }>;
 
@@ -8,6 +8,19 @@ export const EMAIL_IN_USE = 'That email already belongs to another account. Sign
 /** With email enumeration protection on, Firebase does not say whether the password was wrong or there is no such
  *  account (both are auth/invalid-credential), so this one line covers both and never tells them apart. */
 export const BAD_CREDENTIALS = 'That email and password do not open an account. Check them, or sign in the way you usually do and add a password from your account.';
+
+/** FEAT-283: the one line after a reset request that went in. With email enumeration protection on, Firebase answers
+ *  the same for an address with no account, so this line never says whether there is one. */
+export const RESET_SENT = 'If that email has an account, a reset link is on its way.';
+
+/** Maps a Firebase error from sendPasswordResetEmail. auth/user-not-found (a project with enumeration protection off)
+ *  reads as a request that went in, so the panel still never says whether the address has an account. */
+export function resetFailure(code: string): ResetResult {
+  if (code === 'auth/user-not-found' || code === 'auth/invalid-credential') return { ok: true, note: RESET_SENT };
+  const f = signInFailure(code, { method: 'password' });
+  if (f.code === 'unknown' || f.code === 'bad-credentials') return { ok: false, code: 'unknown', message: `The reset email did not go out (${code}). Try again in a minute.` };
+  return f;
+}
 
 /** Maps a Firebase auth error code to our failure code and the line shown to the player. `method` is the method
  *  being used; `adding` is true when it is being added to the signed-in account (linkWithCredential / linkWithPopup). */
