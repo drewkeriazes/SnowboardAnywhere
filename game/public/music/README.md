@@ -1,8 +1,9 @@
 # Music
 
-Five stations, picked on the main menu or in Settings > Audio (plus Shuffle all, which mixes
-every station): **Ska-punk**, **Melodic house**, **Metal**, **Lofi hip-hop** (real tracks, in `metal/`, `house/`, `hiphop/`
-and the root for ska) and **Classic ska** (always the built-in jukebox). N skips within the station.
+Four stations, picked on the main menu or in Settings > Audio (plus Shuffle all, which mixes
+every station): **Ska-punk**, **Melodic house**, **Metal** and **Lofi hip-hop**. Each station's tracks
+live in its own folder (`ska/`, `house/`, `metal/`, `hiphop/`); the two jingles are in `jingles/`.
+N skips within the station.
 All tracks are loudness-matched to about -11 LUFS, true peak -1 dB. See CREDITS.md.
 
 1. **Files**: tracks listed under the playlist's name in `playlist.json` play in order and loop.
@@ -27,10 +28,12 @@ Credited entries show up in the menu credits and the now-playing toast; plain fi
 An older flat list (`[ ... ]`) still loads as the Ska-punk playlist. Other playlist names are allowed
 and are heard under Shuffle all.
 
-Keep files under about 3 MB each (128 to 160 kbps OGG or MP3). To add a playlist, put its downloads
+Keep files under about 3 MB each (OGG, libvorbis q4). To fill a station, put its downloads
 (and a `tracks.csv` with file,title,artist,license,url) in one folder and run
-`tools/fetch-music.ps1 -Source <folder> -Playlist "Melodic house"`: it converts with ffmpeg, replaces
-that playlist in `playlist.json`, keeps the others, and regenerates `CREDITS.md`.
+`tools/fetch-music.ps1 -Source <folder> -Playlist "Melodic house"` (add `-Append` to add to the
+station instead of replacing it): it converts with ffmpeg into the station's folder as numbered,
+loudness-matched files, updates that playlist in `playlist.json`, keeps the others, and rewrites the
+track tables in `CREDITS.md` (its header and the credit notes stay).
 
 ## Licensing
 
