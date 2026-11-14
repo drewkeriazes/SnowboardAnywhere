@@ -90,10 +90,11 @@ export class Rider {
   /** FEAT-110: pitch rotation in the air (rad, + = front flip, nose down) and its rate */
   flip = 0;
   flipRate = 0;
-  /** FEAT-311: the W / S held from an ollie (-1) or nollie (+1) pop, still down: the rider is tucking (Jumps.ts airStep) */
-  flipLatch = 0;
-  /** FEAT-311: the pitch rate (rad/s) the ollie / nollie pop left, with the body open */
-  popPitch = 0;
+  /** FEAT-311: the flip key held in the air (+1 W, -1 S, 0 none), how long (s), and the pitch rate (rad/s, open body)
+   *  when it went down: for the first TUCK_TIME the rider tucks, speeding up only that rotation (Jumps.ts airStep) */
+  tuckDir = 0;
+  tuckT = 0;
+  tuckRate = 0;
   /** FEAT-112: the board's lean, eased: -1 nose up (tail loaded) .. +1 tail up (nose loaded) */
   lean = 0;
   // ---- FEAT-140 press balance

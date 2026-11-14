@@ -80,6 +80,17 @@ check('real squat ollie at an expert best (0.55 to 0.65 m)', res['real full squa
 check('real tap clearly smaller than a full charge', res['real tap'].peak < 0.5 * res['real full'].peak, `${m(res['real tap'].peak)} against ${m(res['real full'].peak)}`);
 check('real tap still pops', res['real tap'].popped && res['real tap'].peak > 0.08, m(res['real tap'].peak));
 check('real ollie still higher than a plain pop', res['real full ollie'].peak > res['real full'].peak, `${m(res['real full ollie'].peak)} against ${m(res['real full'].peak)}`);
+/** a full-charge pop (squat ollie if `big`) with full steer through the air: the spin (rad) on the landing */
+function spin(mode, big) {
+  const r = new Rider(flat, null), o = big ? { lean: -1, squat: true } : {};
+  r.jumpMode = mode; r.reset(0, 0, 0); r.vy = 8;
+  for (let i = 0; i < 60; i++) r.update(FRAME, input({ squat: !!big }));
+  for (let i = 0; i < 60; i++) r.update(FRAME, input({ ...o, jumpHeld: true }));
+  r.update(FRAME, input({ ...o, jumpReleased: true }));
+  let s = 0;
+  for (let k = 0; k < 600 && !r.onGround; k++) { s = r.spin; r.update(FRAME, input({ steer: 1 })); }
+  return Math.abs(s);
+}
 const deg = (a) => `${(a * 180 / Math.PI).toFixed(0)} deg`;
 const fr = nollie('real', 'again').f, fa = nollie('arcade', 'again').f;
 check('real: no front flip off flat snow (short of 300 deg, the crash window)', fr < 300 * Math.PI / 180, deg(fr));
@@ -93,4 +104,8 @@ for (const mode of ['real', 'arcade']) {
   const h = nollie(mode, 'off');
   check(`${mode}: a nollie with W let go at the pop lands near level`, !h.crashed && Math.abs(h.last) < 35 * Math.PI / 180, `${deg(h.last)} at the landing${h.crashed ? ', crashed' : ''}`);
 }
+// FEAT-311: Real's air is short, so it spins quicker: a full charge fits a 180 (an early trick off flat snow), a squat ollie no 360
+const s1 = spin('real', false), s2 = spin('real', true);
+check('real: a full charge spins a 180', s1 > Math.PI, deg(s1));
+check('real: no 360 off flat snow, even from a squat ollie', s2 < 300 * Math.PI / 180, deg(s2));
 process.exit(fails ? 1 : 0);

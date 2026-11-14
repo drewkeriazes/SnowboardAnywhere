@@ -18,24 +18,26 @@ export function airStep(r: Rider, dt: number, input: Input): void {
   r.hardCarve = Math.max(0, r.hardCarve - dt / HARD_IN); r.hardDrive = 0; r.carveShort = 0; // FEAT-148
   r.vz -= G * dt;
   // air control: spin with steer, slight drift
-  r.spin += input.steer * 3.5 * dt;
-  r.heading += input.steer * 3.5 * dt;
+  const spinRate = input.steer * JUMP_POP[r.jumpMode].spin; // FEAT-311: Real's short air needs a quicker spin for a 180
+  r.spin += spinRate * dt;
+  r.heading += spinRate * dt;
   // FEAT-110: Up/W pitches forward (front flip), Down/S back (backflip); the rate builds while
   // held and carries on a little after letting go, like real momentum
   let want = (input.tuck ? 1 : 0) - (input.brake ? 1 : 0);
-  // FEAT-311: the key still down from an ollie / nollie pulls the knees in over TUCK_TIME. In the air the
-  // angular momentum the pop left (popPitch x I_OPEN) is fixed, so the tuck only speeds it up, by I_OPEN / I(t);
-  // once tucked (about the apex of an ollie) a key still held drives the flip as any other. Let go first and
-  // the body opens: the rotation dies away as it does after any flip input.
-  if (r.flipLatch && (want !== r.flipLatch || r.airTime >= TUCK_TIME)) r.flipLatch = 0;
-  if (r.flipLatch) {
-    const t = r.airTime / TUCK_TIME, s = t * t * (3 - 2 * t);
-    r.flipRate = r.popPitch * I_OPEN / (I_OPEN + (I_TUCK - I_OPEN) * s);
+  // FEAT-311: pressing W / S in the air (or keeping it down from an ollie / nollie pop) first pulls the knees
+  // in over TUCK_TIME. The air can't add rotation, so the tuck only speeds up the rotation there was when it
+  // started (the pop's, on an ollie), by I_OPEN / I(t), angular momentum conserved; once tucked (about the apex
+  // of an ollie) a key still held drives the flip. Let go and the body opens: the rotation dies away.
+  if (want !== r.tuckDir) { r.tuckDir = want; r.tuckT = 0; r.tuckRate = want * Math.max(0, want * r.flipRate); }
+  if (want !== 0 && r.tuckT < TUCK_TIME) {
+    r.tuckT += dt;
+    const t = Math.min(1, r.tuckT / TUCK_TIME), s = t * t * (3 - 2 * t);
+    r.flipRate = r.tuckRate * I_OPEN / (I_OPEN + (I_TUCK - I_OPEN) * s);
   } else if (want !== 0) r.flipRate += (want * FLIP_RATE - r.flipRate) * Math.min(1, dt * FLIP_EASE);
   else r.flipRate *= Math.exp(-dt * FLIP_DECAY);
   r.flip += r.flipRate * dt;
   r.x += r.vx * dt; r.y += r.vy * dt; r.z += r.vz * dt;
-  r.travelYaw += input.steer * 3.5 * dt; // spin carries the swung board round with it
+  r.travelYaw += spinRate * dt; // spin carries the swung board round with it
   poseBoard(r);
   r.airTime += dt;
   const g2 = groundAt(r, r.x, r.y, r.z);
@@ -57,9 +59,8 @@ export function jump(r: Rider, dt: number, input: Input, n: [number, number, num
     const pop = (P.base + P.charge * r.jumpCharge) * spring * flex;
     r.vx += n[0] * pop; r.vy += n[1] * pop; r.vz = n[2] * pop + Math.max(0, -(r.vx * n[0] + r.vy * n[1]));
     r.onGround = false; r.airTime = 0; r.spin = 0; r.flip = 0; r.flipRate = 0; r.jumpCharge = 0;
-    r.flipLatch = flex > 1 ? Math.sign(r.lean) : 0;
-    r.popPitch = flex > 1 ? r.lean * P.pitch : 0;
-    r.flipRate = r.popPitch; // an ollie leaves you rotating back a little, a nollie forward
+    r.flipRate = flex > 1 ? r.lean * P.pitch : 0; // an ollie leaves you rotating back a little, a nollie forward
+    r.tuckDir = 0; // the W / S still down tucks from the takeoff (airStep)
     if (r.pressing) endPress(r, 'clean'); // FEAT-140: popped out of a press (W / S flip again at once)
     r.z = ground + 0.05;
     return true;
@@ -91,7 +92,7 @@ export function followGround(r: Rider, dt: number, spd: number, n: readonly numb
   }
   if (ballistic > vzSurf + lift && spd > 6) {
     // the ground drops away faster than we fall: airborne
-    r.onGround = false; r.airTime = 0; r.spin = 0; r.flip = 0; r.flipRate = 0;
+    r.onGround = false; r.airTime = 0; r.spin = 0; r.flip = 0; r.flipRate = 0; r.tuckDir = 0;
     r.z = Math.max(r.z, g2 + 0.02);
     // FEAT-277: keep the upward speed carried up the face (it used to be reset to the surface past the
     // lip, so a ramp dropped you off instead of sending you). At most the face's own vertical speed for
