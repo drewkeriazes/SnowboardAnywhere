@@ -20,6 +20,10 @@ import { BUILD_CLOCK_SLACK_MS, buildLabel, buildLink, isOpenBuild, type BuildInf
  * Checking data hosts, Building: <stage>, Publishing, Published, No change or Failed. The watcher asks every 15 s while
  * a build is open; the panel redraws from it while it is open. A build started before the page loaded (the tab was
  * closed) shows again, named from its slug.
+ *
+ * FEAT-302: a star at the end of each built or catalog row marks the resort a favorite. Favorites list first, under
+ * a Favorites heading, then All resorts; the starred slugs stay in localStorage (FAVORITES_KEY, this browser only).
+ * The star is its own button beside the row: the arrows reach it (right from the row) and Enter / A toggles it.
  */
 interface CatalogEntry { slug: string; name: string; status: string; pack: { version: number; formatVersion: number; bytes: number } }
 /** status: the catalog's, for a pack downloaded from it (FEAT-248: 'preview' did not pass the DATA-022 gate) */
@@ -41,7 +45,30 @@ export const SEARCH_PAUSE_MS = 300;
 
 /** a build's line on its row: what it is doing, and the run or publish PR it links to */
 export interface RowBuild { label: string; href: string; link: string; kind: 'open' | 'done' | 'failed' }
-export type Row = { slug: string; name: string; note: string; act: 'load' | 'get' | 'none' | 'build'; on: boolean; detail?: string; build?: RowBuild; preview?: boolean };
+export type Row = { slug: string; name: string; note: string; act: 'load' | 'get' | 'none' | 'build'; on: boolean; detail?: string; build?: RowBuild; preview?: boolean; fav?: boolean };
+
+/** FEAT-302: where the starred resorts' slugs are kept (a JSON array) */
+export const FAVORITES_KEY = 'favoriteResorts';
+/** the starred slugs; none when storage is blocked or holds something else */
+export function loadFavorites(): Set<string> {
+  try {
+    const a: unknown = JSON.parse(localStorage.getItem(FAVORITES_KEY) ?? '[]');
+    return new Set(Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string') : []);
+  } catch { return new Set(); }
+}
+/** star or unstar a resort; true when it is a favorite now */
+export function toggleFavorite(slug: string): boolean {
+  const f = loadFavorites();
+  const on = !f.delete(slug);
+  if (on) f.add(slug);
+  try { localStorage.setItem(FAVORITES_KEY, JSON.stringify([...f])); } catch { /* private mode: this page only */ }
+  return on;
+}
+/** the favorites first (in list order, each marked fav), then the rest; pure, tools/resortsearchcheck.mjs runs it */
+export function favoritesFirst(base: Row[], favs: ReadonlySet<string>): Row[] {
+  const fav = base.filter((r) => favs.has(r.slug)).map((r) => ({ ...r, fav: true }));
+  return [...fav, ...base.filter((r) => !favs.has(r.slug))];
+}
 
 /** FEAT-248: the badge on a `preview` pack (status "preview" in the catalog: it did not pass the DATA-022 gate) */
 export const PREVIEW_BADGE = '<span class="badge-preview" title="Did not pass the resort quality gate yet">Preview</span>';
@@ -83,8 +110,18 @@ function rowHtml(r: Row): string {
   const link = r.build ? `<a class="build-link" data-nav href="${esc(r.build.href)}" target="_blank" rel="noopener noreferrer">${esc(r.build.link)}</a>` : '';
   // a search match or a build: its place and size (when known), then Build it or how the build is going
   if (r.detail !== undefined) return `${head}<span class="cl">${esc(r.detail)}</span><span class="cb">${esc(r.note)}</span></button>${link}`;
-  // a built or catalog resort: Ride / Download as before, and how its rebuild is going
-  return `${head}<span class="cl">${esc(r.note)}</span>${r.build ? `<span class="cb">${esc(r.build.label)}</span>` : ''}</button>${link}`;
+  // a built or catalog resort: Ride / Download as before, and how its rebuild is going; FEAT-302: its star beside it
+  const what = r.fav ? `Remove ${r.name} from favorites` : `Add ${r.name} to favorites`;
+  const star = `<button class="star" data-fav="${esc(r.slug)}" aria-pressed="${r.fav ? 'true' : 'false'}" aria-label="${esc(what)}" title="${esc(what)}">${r.fav ? '&#9733;' : '&#9734;'}</button>`;
+  return `<div class="rrow">${head}<span class="cl">${esc(r.note)}</span>${r.build ? `<span class="cb">${esc(r.build.label)}</span>` : ''}</button>${star}</div>${link}`;
+}
+
+/** the rows, with the Favorites and All resorts headings when any favorite is shown (FEAT-302) */
+function listHtml(shown: Row[]): string {
+  if (!shown.some((r) => r.fav)) return shown.map(rowHtml).join('');
+  const i = shown.findIndex((r) => !r.fav);
+  const rest = i < 0 ? [] : shown.slice(i);
+  return `<div class="tier">Favorites</div>${shown.slice(0, i < 0 ? shown.length : i).map(rowHtml).join('')}${rest.length ? `<div class="tier">All resorts</div>${rest.map(rowHtml).join('')}` : ''}`;
 }
 
 function rows(current: string, built: { slug: string; name: string }[], reply: CatalogReply | null): Row[] {
@@ -185,6 +222,17 @@ export function shownRows(base: Row[], query: string, found: SearchMatch[] | nul
   return out;
 }
 
+/**
+ * FEAT-287: the line under the search matches for the ones `resort.py search` left out as unbuildable (`skipped`:
+ * no runs and no lifts, or no OpenStreetMap or Skimap.org id). '' for none (0, missing, not a count); `listed` is
+ * whether any match was listed, so the line says "more" only after some. Pure: tools/resortsearchcheck.mjs runs it.
+ */
+export function skippedNote(skipped: unknown, listed: boolean): string {
+  const n = typeof skipped === 'number' && Number.isFinite(skipped) ? Math.floor(skipped) : 0;
+  if (n <= 0) return '';
+  return `${n}${listed ? ' more' : ''} ski area${n === 1 ? '' : 's'} found that can't be built yet (no runs or lifts mapped, or no OpenStreetMap or Skimap.org id).`;
+}
+
 /** for the checks: forget the session's builds */
 export function resetBuilds(): void { builds.clear(); }
 /** for the checks: mark a build as this session's (at: when it started, default now) */
@@ -224,10 +272,18 @@ export function fillResortPicker(host: HTMLElement, current: string, built: { sl
 
   let found: SearchMatch[] | null = null;
   let foundFor = '';
+  /** FEAT-287: how many matches the last search left out as unbuildable */
+  let skipped = 0;
   const draw = () => {
-    const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('button[data-pack]')?.dataset.pack;
+    const a = document.activeElement as HTMLElement | null;
+    const focused = a?.closest<HTMLElement>('button[data-pack]')?.dataset.pack;
+    const focusedStar = a?.closest<HTMLElement>('button[data-fav]')?.dataset.fav;
     const q = input.value.trim();
-    list().innerHTML = shownRows(rows(current, built, reply), q, foundFor === q ? found : null, watch?.list() ?? []).map(rowHtml).join('');
+    const note = foundFor === q && found ? skippedNote(skipped, found.length > 0) : '';
+    list().innerHTML = listHtml(shownRows(favoritesFirst(rows(current, built, reply), loadFavorites()), q, foundFor === q ? found : null, watch?.list() ?? []))
+      + (note ? `<p class="skipped-note dim">${esc(note)}</p>` : '');
+    // FEAT-302: the star toggles the favorite; the list redraws with the row in its new tier, the focus on its star
+    list().querySelectorAll<HTMLButtonElement>('button[data-fav]').forEach((b) => b.addEventListener('click', () => { toggleFavorite(b.dataset.fav!); draw(); }));
     list().querySelectorAll<HTMLButtonElement>('button[data-pack]').forEach((b) => b.addEventListener('click', () => {
       const slug = b.dataset.pack!;
       if (b.dataset.act === 'build') { void build(slug); return; }
@@ -236,6 +292,7 @@ export function fillResortPicker(host: HTMLElement, current: string, built: { sl
     }));
     for (const [slug, b] of builds) if (b.why) list().querySelector(`button[data-pack="${CSS.escape(slug)}"]`)?.setAttribute('title', b.why);
     if (focused) list().querySelector<HTMLElement>(`button[data-pack="${CSS.escape(focused)}"]`)?.focus();
+    else if (focusedStar) list().querySelector<HTMLElement>(`button[data-fav="${CSS.escape(focusedStar)}"]`)?.focus();
   };
 
   // ---------------------------------------------------------------- search (a signed-in maintainer on the dev server)
@@ -263,9 +320,10 @@ export function fillResortPicker(host: HTMLElement, current: string, built: { sl
         say(json?.error && r.status >= 500 ? `Search is unavailable: ${json.error}` : '');
         return;
       }
-      found = json.matches; foundFor = q;
+      found = json.matches; foundFor = q; skipped = typeof json.skipped === 'number' ? json.skipped : 0;
       const listed = new Set(rows(current, built, reply).map((x) => x.slug));
-      say(found.length === 0 ? `No ski area by that name.${json.closest?.length ? ` Closest: ${json.closest.join(', ')}` : ''}`
+      // with no match but some left out, the line under the list says what was found
+      say(found.length === 0 ? (skippedNote(skipped, false) ? '' : `No ski area by that name.${json.closest?.length ? ` Closest: ${json.closest.join(', ')}` : ''}`)
         : found.every((m) => listed.has(m.slug)) ? 'Every match is in the list already.' : '');
       draw();
     } catch (e) {
@@ -274,7 +332,7 @@ export function fillResortPicker(host: HTMLElement, current: string, built: { sl
   };
   input.addEventListener('input', () => {
     const q = input.value.trim();
-    if (q !== foundFor) { found = null; foundFor = ''; }
+    if (q !== foundFor) { found = null; foundFor = ''; skipped = 0; }
     draw();
     stop();
     if (!canSearch() || q.length < SEARCH_MIN) { say(''); return; }
@@ -283,7 +341,7 @@ export function fillResortPicker(host: HTMLElement, current: string, built: { sl
   // signed out (or in) while the panel is open: the search results follow the account
   const unsub = account?.onChange(() => {
     if (!live()) { unsub?.(); return; }
-    if (!canSearch()) { stop(); found = null; foundFor = ''; say(''); draw(); }
+    if (!canSearch()) { stop(); found = null; foundFor = ''; skipped = 0; say(''); draw(); }
     else if (input.value.trim().length >= SEARCH_MIN) void search(input.value.trim());
   });
 
