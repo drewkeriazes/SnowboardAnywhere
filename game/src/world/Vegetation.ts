@@ -3,7 +3,7 @@ import type { Pack } from '../pack/Pack';
 import type { StandsMeta } from '../pack/types';
 import { decodeRGBA } from '../pack/MaskSet';
 import type { Collider } from '../sim/Collider';
-import { TreeKit, SPECIES_COUNT, VARIANTS, speciesFor, variantFor, crownRadius, hash01, fadeWidth, farFadeWidth, farAttrs, farGeometry, generateStems, setGhostBand, type FarAttrs, type StandGrid } from './trees';
+import { TreeKit, SPECIES_COUNT, VARIANTS, speciesFor, variantFor, crownRadius, hash01, fadeWidth, farFadeWidth, farAttrs, farGeometry, generateStems, setGhostBand, crownWidthsOf, kitUniforms, type FarAttrs, type StandGrid, type CrownWidthsMeta } from './trees';
 import { treelineOf } from '../pack/treeline';
 import { TreeShade } from './TreeShade';
 import { crownOverlap, type CrownHit } from './TreeBrush';
@@ -46,6 +46,8 @@ const FAR_REACH_K = 2;
  * them carry the forest (TerrainMaterial FOREST_DRAWN_FAR) instead of laying flat timber over the ground between.
  */
 const STEM_GROW = 2.2;
+// FEAT-298: a pack with crown widths holds the same canopy with wider crowns and fewer stems, so its crowns grow by
+// less: STEM_GROW / sqrt(crownWidths.crownArea), the detected crowns' drawn area over their area at the species radii
 /** LOD1 reach as a share of 400 m */
 let LOD_K = 1;
 /** BUG-107: how far the LOD0 branch cards reach (m), set by the graphics setting (`lod0ForDensity`, 200 m on Low) */
@@ -256,6 +258,8 @@ export class Vegetation {
   private impostorsOn = true;
   private readonly cam = new THREE.Vector3(NaN, 0, 0);
   private readonly legacy: boolean;
+  /** FEAT-298: the pack's crown widths (record field 4 is the radius to draw, stands carry a width factor), or null */
+  private readonly widths: CrownWidthsMeta | null;
   /** the band edges in use and the bandsVersion they were taken at (-1: redo on the next update) */
   private readonly band = [80, 400, 1500, 4500];
   private bandSeen = -1;
@@ -292,6 +296,8 @@ export class Vegetation {
     setGhostBand(treelineOf(pack.meta)); // DATA-021: the uniform is shared, so each pack sets its own
     // packs from before DATA-020 have 0 conifer, 1 aspen, 2 krummholz only
     this.legacy = pack.meta.treeSpecies === undefined;
+    this.widths = crownWidthsOf(pack.meta);
+    kitUniforms.uKitCore.value = this.widths ? 1 : 0; // FEAT-298: module state, as the radii: this pack's own
     this.standCells = new Set(pack.meta.stands?.cells ?? []);
   }
 
@@ -345,7 +351,7 @@ export class Vegetation {
       this.kit.setBands(band[0], band[1], band[2], band[3], this.impostorsOn);
       this.kit.setThin(THIN_RADIUS);
       // only a pack with stands has stems to stand in for (older packs hold fill trees instead)
-      this.kit.setStemGrow(this.pack.meta.stands && STAND_K > 0 ? NEAR_RADIUS + STAND_MID : 1e8, STEM_GROW);
+      this.kit.setStemGrow(this.pack.meta.stands && STAND_K > 0 ? NEAR_RADIUS + STAND_MID : 1e8, STEM_GROW / Math.sqrt(this.widths?.crownArea ?? 1));
       for (const n of this.near) n.dirty = true;
     }
     const b0 = band[0], b1 = band[1], b2 = band[2];
@@ -587,7 +593,7 @@ export class Vegetation {
   private regenerate(cell: Cell, k: number): void {
     const solid = cell.col !== null;
     if (solid) this.setSolid(cell, false);
-    const base = cell.base!, stems = k > 0 && cell.stand ? generateStems(cell.stand, k) : null;
+    const base = cell.base!, stems = k > 0 && cell.stand ? generateStems(cell.stand, k, this.widths) : null;
     if (stems && stems.length) { const d = new Float32Array(base.length + stems.length); d.set(base); d.set(stems, base.length); cell.data = d; }
     else cell.data = base;
     cell.gen = k;
@@ -709,7 +715,7 @@ export class Vegetation {
       const o = i * 6, x = d[o], y = d[o + 1], h = d[o + 3];
       const s = speciesFor(d[o + 5], x, y, this.legacy);
       sp[i] = s; va[i] = variantFor(s, x, y);
-      cr[i] = crownRadius(s, h, d[o + 4]);
+      cr[i] = crownRadius(s, h, d[o + 4], this.widths !== null);
       yaw[i] = s === 2 ? FLAG_YAW + (hash01(x, y, 11) - 0.5) * 0.7 : hash01(x, y, 5) * Math.PI * 2;
       // colour variation: about +-6% brightness and a slight hue shift
       const b = 0.94 + 0.12 * hash01(x, y, 13);

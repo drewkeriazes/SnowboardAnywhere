@@ -139,8 +139,10 @@ export class TreeShade {
     const n = data.length / 6;
     if (n === 0) return;
     const g = new THREE.InstancedBufferGeometry();
-    g.index = this.quad.index;
-    g.setAttribute('position', this.quad.getAttribute('position'));
+    // copies, not the quad's own: removeCell disposes this geometry, which deletes the GL buffer of every
+    // attribute on it, and a shared one would leave the other cells drawing from a deleted buffer (BUG-128)
+    g.index = this.quad.index!.clone();
+    g.setAttribute('position', (this.quad.getAttribute('position') as THREE.BufferAttribute).clone());
     g.setAttribute('iTree', new THREE.InterleavedBufferAttribute(new THREE.InstancedInterleavedBuffer(data, 6), 4, 0));
     // heights on a grid over the cell (one row and column past it), then each tree's slope from its grid square
     const m = Math.ceil(size / SLOPE_STEP) + 3, x0 = minX - SLOPE_STEP, y0 = minY - SLOPE_STEP;

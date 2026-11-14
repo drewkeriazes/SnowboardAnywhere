@@ -1,3 +1,4 @@
+import type { CrownWidthsMeta } from '../world/trees/widths';
 export interface HeightSetMeta {
   res: number;
   tileSize: number;
@@ -76,6 +77,9 @@ export interface InstancesMeta {
   treeRing?: number;
   farTreeCount?: number;
   farTreeCells?: string[];
+  /** FEAT-298: crown width by openness (world/trees/widths.ts). Present: record field 4 of trees/ and farTrees/ is the
+   * crown radius to draw (m), and B of a stand image's lower half the cell's width factor x 100 (0 = 1). Absent in older packs */
+  crownWidths?: CrownWidthsMeta;
 }
 
 export interface PackMeta {

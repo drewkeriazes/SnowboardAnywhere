@@ -195,7 +195,7 @@ function hashIndex(x: number, y: number): number { return Math.floor(hash01(x * 
  * in the shader). Unit size (about 1 m across).
  */
 function makeRock(seed: number): THREE.BufferGeometry {
-  const g = new THREE.IcosahedronGeometry(0.5, 2).toNonIndexed();
+  const g = new THREE.IcosahedronGeometry(0.5, 2); // already non-indexed (three's polyhedra are), so no toNonIndexed (BUG-128)
   const pos = g.getAttribute('position') as THREE.BufferAttribute;
   const v = new THREE.Vector3();
   const noise = (x: number, y: number, z: number, f: number) => {
