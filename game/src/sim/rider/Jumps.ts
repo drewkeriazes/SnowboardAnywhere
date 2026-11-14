@@ -1,7 +1,7 @@
 /** Jumps, the air and leaving the snow (split from sim/Rider.ts, FEAT-165) */
 import type { Rider } from '../Rider';
 import type { Input } from './types';
-import { FLIP_DECAY, FLIP_EASE, FLIP_RATE, G, HARD_IN, LIP_BEND0, LIP_BEND1, LIP_FLEX, LIP_LIFT, LIP_PRELOAD, LIP_RISE, LIP_SAMPLES, LIP_SPAN, OLLIE_PITCH, OLLIE_POP, SQUAT_POP, SQUAT_SPRING_WINDOW, TAKEOFF_LIFT } from './tuning';
+import { FLIP_DECAY, FLIP_EASE, FLIP_RATE, G, I_OPEN, I_TUCK, TUCK_TIME, HARD_IN, LIP_BEND0, LIP_BEND1, LIP_FLEX, LIP_LIFT, LIP_PRELOAD, LIP_RISE, LIP_SAMPLES, LIP_SPAN, JUMP_POP, SQUAT_SPRING_WINDOW, TAKEOFF_LIFT } from './tuning';
 import { poseBoard } from './Brake';
 import { endPress } from './Press';
 import { land } from './Tricks';
@@ -18,16 +18,28 @@ export function airStep(r: Rider, dt: number, input: Input): void {
   r.hardCarve = Math.max(0, r.hardCarve - dt / HARD_IN); r.hardDrive = 0; r.carveShort = 0; // FEAT-148
   r.vz -= G * dt;
   // air control: spin with steer, slight drift
-  r.spin += input.steer * 3.5 * dt;
-  r.heading += input.steer * 3.5 * dt;
+  const spinRate = input.steer * JUMP_POP[r.jumpMode].spin; // FEAT-311: Real's short air needs a quicker spin for a 180
+  r.spin += spinRate * dt;
+  r.heading += spinRate * dt;
   // FEAT-110: Up/W pitches forward (front flip), Down/S back (backflip); the rate builds while
   // held and carries on a little after letting go, like real momentum
-  const want = (input.tuck ? 1 : 0) - (input.brake ? 1 : 0);
-  if (want !== 0) r.flipRate += (want * FLIP_RATE - r.flipRate) * Math.min(1, dt * FLIP_EASE);
+  let want = (input.tuck ? 1 : 0) - (input.brake ? 1 : 0);
+  // FEAT-311: pressing W / S in the air (or keeping it down from an ollie / nollie pop) first pulls the knees
+  // in over TUCK_TIME. The air can't add rotation, so the tuck only speeds up the rotation there was when it
+  // started (the pop's, on an ollie), by I_OPEN / I(t), angular momentum conserved; once tucked (about the apex
+  // of an ollie) a key still held drives the flip. Let go and the body opens: the rotation dies away.
+  // Only a tuck into no rotation or the same way: against the rotation (W to S mid-flip) the drive eases it
+  // round as before, and a tuck never takes the rate past FLIP_RATE (pressed again mid-flip, already spinning).
+  if (want !== r.tuckDir) { r.tuckDir = want; r.tuckT = want * r.flipRate >= 0 ? 0 : TUCK_TIME; r.tuckRate = Math.abs(r.flipRate); }
+  if (want !== 0 && r.tuckT < TUCK_TIME) {
+    r.tuckT += dt;
+    const t = Math.min(1, r.tuckT / TUCK_TIME), s = t * t * (3 - 2 * t);
+    r.flipRate = want * Math.min(FLIP_RATE, r.tuckRate * I_OPEN / (I_OPEN + (I_TUCK - I_OPEN) * s));
+  } else if (want !== 0) r.flipRate += (want * FLIP_RATE - r.flipRate) * Math.min(1, dt * FLIP_EASE);
   else r.flipRate *= Math.exp(-dt * FLIP_DECAY);
   r.flip += r.flipRate * dt;
   r.x += r.vx * dt; r.y += r.vy * dt; r.z += r.vz * dt;
-  r.travelYaw += input.steer * 3.5 * dt; // spin carries the swung board round with it
+  r.travelYaw += spinRate * dt; // spin carries the swung board round with it
   poseBoard(r);
   r.airTime += dt;
   const g2 = groundAt(r, r.x, r.y, r.z);
@@ -42,13 +54,19 @@ export function jump(r: Rider, dt: number, input: Input, n: [number, number, num
   if (input.jumpHeld) r.jumpCharge = Math.min(1, r.jumpCharge + dt * 1.6);
   if (input.jumpReleased && r.jumpCharge > 0.1) {
     // jumping from a deep squat, or within SQUAT_SPRING_WINDOW of standing up from one: a bigger pop
-    const spring = r.squat >= 0.6 || r.squatUp < SQUAT_SPRING_WINDOW ? SQUAT_POP : 1;
+    const P = JUMP_POP[r.jumpMode]; // FEAT-311: Real pops small, Arcade keeps the big air
+    const spring = r.squat >= 0.6 || r.squatUp < SQUAT_SPRING_WINDOW ? P.squat : 1;
     // FEAT-112: popped off a loaded tail (ollie) or nose (nollie): the board's spring
-    const flex = Math.abs(r.lean) > 0.5 ? OLLIE_POP : 1;
-    const pop = (2.5 + 4.5 * r.jumpCharge) * spring * flex;
-    r.vx += n[0] * pop; r.vy += n[1] * pop; r.vz = n[2] * pop + Math.max(0, -(r.vx * n[0] + r.vy * n[1]));
+    const flex = Math.abs(r.lean) > 0.5 ? P.ollie : 1;
+    const pop = (P.base + P.charge * r.jumpCharge) * spring * flex;
+    // FEAT-311: the pop adds to the velocity along the snow, so on a slope you leave it at the pop's speed off
+    // the surface whatever your speed. Arcade keeps the old launch, which dropped the downhill fall (vz set
+    // from the pop alone), so a pop at speed down a slope went far higher: its big air.
+    if (P.slopeKick) { r.vx += n[0] * pop; r.vy += n[1] * pop; r.vz = n[2] * pop + Math.max(0, -(r.vx * n[0] + r.vy * n[1])); }
+    else { r.vx += n[0] * pop; r.vy += n[1] * pop; r.vz += n[2] * pop; }
     r.onGround = false; r.airTime = 0; r.spin = 0; r.flip = 0; r.flipRate = 0; r.jumpCharge = 0;
-    if (flex > 1) r.flipRate = r.lean * OLLIE_PITCH; // an ollie leaves you rotating back a little, a nollie forward
+    r.flipRate = flex > 1 ? r.lean * P.pitch : 0; // an ollie leaves you rotating back a little, a nollie forward
+    r.tuckDir = 0; // the W / S still down tucks from the takeoff (airStep)
     if (r.pressing) endPress(r, 'clean'); // FEAT-140: popped out of a press (W / S flip again at once)
     r.z = ground + 0.05;
     return true;
@@ -80,7 +98,7 @@ export function followGround(r: Rider, dt: number, spd: number, n: readonly numb
   }
   if (ballistic > vzSurf + lift && spd > 6) {
     // the ground drops away faster than we fall: airborne
-    r.onGround = false; r.airTime = 0; r.spin = 0; r.flip = 0; r.flipRate = 0;
+    r.onGround = false; r.airTime = 0; r.spin = 0; r.flip = 0; r.flipRate = 0; r.tuckDir = 0;
     r.z = Math.max(r.z, g2 + 0.02);
     // FEAT-277: keep the upward speed carried up the face (it used to be reset to the surface past the
     // lip, so a ramp dropped you off instead of sending you). At most the face's own vertical speed for
