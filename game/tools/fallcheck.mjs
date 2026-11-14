@@ -13,6 +13,9 @@ import { pathToFileURL } from 'node:url';
 const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fallcheck-')), 'rider.mjs');
 await build({ entryPoints: [path.join(GAME, 'src', 'sim', 'Rider.ts')], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error' });
 const { Rider } = await import(pathToFileURL(out).href);
+const outC = path.join(path.dirname(out), 'collider.mjs');
+await build({ entryPoints: [path.join(GAME, 'src', 'sim', 'Collider.ts')], bundle: true, format: 'esm', platform: 'node', outfile: outC, logLevel: 'error' });
+const { Collider } = await import(pathToFileURL(outC).href);
 
 const D = Math.PI / 180;
 /** plane falling toward +y (north) at `deg` degrees; the fall line is heading 0 */
@@ -212,6 +215,82 @@ check('off: a flat board traverses on rails as before', off30.toFall > 85 && Mat
   }
   check('linked turns finished across a steep slope never catch', steepCatches === 0, `${steepCatches} of ${steepRuns} runs caught`);
   check('linked carves scrub little extra speed with the fall line on', on.minSpeed > off.minSpeed - 1.5, `${on.minSpeed.toFixed(1)} vs ${off.minSpeed.toFixed(1)} m/s`);
+}
+{
+  // FEAT-288 the crash slide: a crashed body keeps its speed and slides down the fall line,
+  // a = g (sin a - mu cos a) - k v^2, ends once it is slow (or at the cap), still stops on a trunk, and falls off a drop
+  /** crash at `v` m/s along `dir` on a `deg` plane (or on `pack`, with `collider`); returns the slide */
+  const slide = (deg, v, dir = 0, fallLine = 1, pack = null, collider = null) => {
+    const r = new Rider(pack ?? plane(deg), collider);
+    r.fallLine = fallLine; r.surface.groomed = 1;
+    r.reset(0, 0, dir);
+    r.vx = Math.sin(dir) * v; r.vy = Math.cos(dir) * v;
+    r.crash(1.3);
+    const v0 = r.speed, z0 = r.z, inp = input();
+    let t = 0, speed1 = NaN, speed3 = NaN, maxVUp = -Infinity, wasAir = false, maxY = -Infinity;
+    const trail = [];
+    while (r.crashed > 0 && t < 10) {
+      r.update(DT, inp); t += DT;
+      if (Number.isNaN(speed1) && t >= 1) speed1 = r.speed;
+      if (Number.isNaN(speed3) && t >= 3) speed3 = r.speed;
+      maxVUp = Math.max(maxVUp, -r.vy * Math.cos(dir)); // the uphill part of the slide (dir 0 is downhill)
+      maxY = Math.max(maxY, r.y);
+      if (r.crashAir) wasAir = true;
+      trail.push(r.x, r.y, r.z);
+    }
+    return { r, t, v0, speed1, speed3, end: r.speed, dist: Math.hypot(r.x, r.y), drop: z0 - r.z, maxVUp, wasAir, maxY, trail };
+  };
+  const blue = slide(20, 20), green = slide(10, 20), black = slide(30, 20), flat = slide(0, 20), uphill = slide(20, 12, Math.PI), assist = slide(20, 20, 0, 0.5);
+  const fmt = (s) => `${s.dist.toFixed(1)} m in ${s.t.toFixed(2)} s, ${s.v0.toFixed(1)} m/s after the impact, ${Number.isNaN(s.speed1) ? '-' : s.speed1.toFixed(1)} m/s at 1 s, ${Number.isNaN(s.speed3) ? '-' : s.speed3.toFixed(1)} at 3 s, up at ${s.end.toFixed(1)} m/s`;
+  console.log('crash slide from 20 m/s straight down the fall line:');
+  for (const [k, s] of [['green 10 deg', green], ['blue 20 deg', blue], ['black 30 deg', black], ['flat', flat], ['blue, assisted', assist]]) console.log(`  ${k.padEnd(15)}: ${fmt(s)}`);
+  console.log(`  uphill on 20 deg from 12 m/s: ${fmt(uphill)}`);
+  check('the impact takes about a quarter of the speed', Math.abs(blue.v0 - 15) < 0.01, `${blue.v0.toFixed(1)} m/s from 20`);
+  check('blue: the body slides on well down the hill (tens of metres, not about 7)', blue.dist > 30 && blue.dist < 90 && blue.speed1 > 10, fmt(blue));
+  check('green: slows and stops much sooner than on the blue', green.dist < 0.7 * blue.dist && green.speed3 < 0.6 * blue.speed3 && green.t < blue.t - 0.5, `${fmt(green)}; blue ${blue.speed3.toFixed(1)} m/s at 3 s`);
+  check('black: the slide is capped, no soft lock', black.t <= 6.05 && black.end === 0 && black.dist > blue.dist, fmt(black));
+  check('flat: a crash on the flat still stops', flat.end < 2 && flat.t < 3 && flat.dist < 25, fmt(flat));
+  check('uphill: slows to a stop and is never pushed back up the hill', uphill.maxVUp <= uphill.v0 + 1e-6 && uphill.end < 2 && uphill.t < 2.5, fmt(uphill));
+  check('never up while still moving fast', [blue, green, black, flat, uphill].every((s) => s.end < 2), [blue, green, black, flat, uphill].map((s) => s.end.toFixed(1)).join(', '));
+  check('assisted: a shorter slide than realistic', assist.dist < 0.8 * blue.dist, `${assist.dist.toFixed(1)} m against ${blue.dist.toFixed(1)} m`);
+  // the same crash twice lands on the same metre (replays and recordings rerun the sim)
+  const again = slide(20, 20);
+  check('the slide is deterministic', again.trail.length === blue.trail.length && again.trail.every((v, i) => v === blue.trail[i]), `${again.trail.length / 3} and ${blue.trail.length / 3} steps`);
+  // a trunk 20 m down the fall line (radius 0.3, pushed out to 0.3 + the body's 0.4)
+  const TREE_Y = 20;
+  const tree = {
+    floorAt: () => -Infinity, brushAt: () => 0,
+    resolve: (x, y, z, rad) => {
+      const dx = x, dy = y - TREE_Y, d = Math.hypot(dx, dy), R = 0.3 + rad;
+      if (d >= R) return null;
+      const nx = d > 1e-6 ? dx / d : 0, ny = d > 1e-6 ? dy / d : -1;
+      return { x: nx * R, y: TREE_Y + ny * R, nx, ny, kind: 0, inside: false, top: z + 10, ledge: false };
+    },
+  };
+  const trunk = slide(20, 20, 0, 1, null, tree);
+  console.log(`  blue with a trunk 20 m down: ${fmt(trunk)}, furthest ${trunk.maxY.toFixed(1)} m down`);
+  check('a crash into a trunk still stops at the trunk', trunk.maxY < TREE_Y && trunk.dist < TREE_Y + 1, `furthest ${trunk.maxY.toFixed(1)} m down, ends ${trunk.r.y.toFixed(1)} m`);
+  // FEAT-307: a sitting snowboarder 20 m down, the parts StaticPeople puts in the real Collider (kind 0, like a trunk)
+  const people = new Collider(), sz = -Math.tan(20 * D) * TREE_Y;
+  people.add(0, TREE_Y, 0.45, sz - 1, sz + 1.1, 0);
+  people.add(0.6, TREE_Y + 0.42, 0.3, sz - 1, sz + 0.35, 0); people.add(-0.6, TREE_Y + 0.42, 0.3, sz - 1, sz + 0.35, 0);
+  const person = slide(20, 20, 0, 1, null, people);
+  console.log(`  blue with a sitting person 20 m down: ${fmt(person)}, furthest ${person.maxY.toFixed(1)} m down`);
+  check('a crash into a static person stops at the person, like a trunk', person.maxY < TREE_Y && person.dist < TREE_Y + 1, `furthest ${person.maxY.toFixed(1)} m down, ends ${person.r.y.toFixed(1)} m`);
+  // a 20 deg slope with a 12 m cliff band 15 m down
+  const t20 = Math.tan(20 * D), k20 = 1 / Math.hypot(t20, 1), CLIFF_Y = 15;
+  const cliff = {
+    mask: null, coarseFallbacks: 0, mogulAmp: () => 0,
+    groundHeight: (x, y) => -t20 * y - (y > CLIFF_Y ? 12 : 0),
+    groundNormal: (x, y, o = [0, 0, 1]) => { o[0] = 0; o[1] = t20 * k20; o[2] = k20; return o; },
+  };
+  const off = slide(20, 20, 0, 1, cliff);
+  const cliffTop = -t20 * CLIFF_Y;
+  // glued to the face would put the body at the foot at once; falling, it is still above the foot a step past the edge
+  let i = 0; while (i < off.trail.length && off.trail[i + 1] <= CLIFF_Y + 1) i += 3;
+  const pastZ = off.trail[i + 2], footZ = cliff.groundHeight(0, off.trail[i + 1]);
+  console.log(`  blue over a 12 m cliff band: ${fmt(off)}, ${(pastZ - footZ).toFixed(1)} m above the snow 1 m past the edge, ${off.drop.toFixed(1)} m down in all`);
+  check('a crash over a cliff falls off it instead of sticking to the face', off.wasAir && pastZ - footZ > 2 && off.drop > -cliffTop + 12, `airborne ${off.wasAir}, ${(pastZ - footZ).toFixed(1)} m above the snow past the edge`);
 }
 fs.rmSync(path.dirname(out), { recursive: true, force: true });
 console.log(fails ? `${fails} check(s) failed` : 'all fall line checks passed');

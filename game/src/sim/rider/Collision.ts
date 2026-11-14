@@ -1,6 +1,6 @@
 /** Ground height and collisions (split from sim/Rider.ts, FEAT-165) */
 import type { Rider } from '../Rider';
-import { STEP_UP } from './tuning';
+import { BODY_R, STEP_UP } from './tuning';
 
 /** BUG-045: terrain or a bridge deck, or the top of a building the rider is standing on */
 export function groundAt(r: Rider, x: number, y: number, z: number): number {
@@ -14,7 +14,7 @@ export function groundAt(r: Rider, x: number, y: number, z: number): number {
 export function rideCollide(r: Rider): void {
   // collisions with trees and rocks
   if (r.collider) {
-    const hit = r.collider.resolve(r.x, r.y, r.z, 0.4);
+    const hit = r.collider.resolve(r.x, r.y, r.z, BODY_R);
     if (hit) {
       // started inside a building: always take the pushed-out position, even when already moving out
       if (hit.inside) { r.x = hit.x; r.y = hit.y; }
@@ -43,7 +43,7 @@ export function rideCollide(r: Rider): void {
           // square hit: bounce off; fast square hits crash
           r.lastHit = 'wall'; r.hitSpeed = -vn;
           r.x = hit.x; r.y = hit.y;
-          if (-vn > 7) r.crashed = 1.2;
+          if (-vn > 7) r.crash(1.2, 0); // FEAT-288: the bounce below is the speed loss
           r.vx -= 1.4 * vn * hit.nx; r.vy -= 1.4 * vn * hit.ny;
           r.vx *= 0.6; r.vy *= 0.6;
         }

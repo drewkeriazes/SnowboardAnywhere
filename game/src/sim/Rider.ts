@@ -12,6 +12,7 @@ import { pressStep } from './rider/Press';
 import { airStep } from './rider/Jumps';
 import { strapStep, walkStep } from './rider/OnFoot';
 import { groundAt } from './rider/Collision';
+import { crashStep, startCrash } from './rider/Crash';
 export type { Input, SurfaceInfo, Discipline, PressEnd, PressMode } from './rider/types';
 export { EDGE_FULL, PLANE_SPEED, PRESS_MIN_REPORT, PRESS_RANGE, STAMINA, STRAP_TIME, UNSTRAP_TIME } from './rider/tuning';
 export { bootSink } from './rider/OnFoot';
@@ -118,7 +119,13 @@ export class Rider {
   onSkateStroke: (() => void) | null = null;
   /** FEAT-110: called on landing a flip ("Backflip", "Double front flip", "Rodeo 540"), clean or sketchy */
   onTrick: ((name: string) => void) | null = null;
-  crashed = 0; // seconds remaining in a crash
+  /** seconds remaining of a crash's minimum time; FEAT-288: held just above 0 while the body still slides (see rider/Crash.ts) */
+  crashed = 0;
+  /** FEAT-288: seconds since the crash started, and the body-on-snow friction it is sliding with (the ragdoll matches it) */
+  crashT = 0;
+  crashMu = 0.3;
+  /** FEAT-288: the crashed body has left the snow (off a drop) and is falling */
+  crashAir = false;
   /** FEAT-140: which way the crash throws the body, +1 forward along the heading, -1 back, 0 either (a press slam falls over its loaded end) */
   crashFall = 0;
   surface: SurfaceInfo = { rock: 0, scree: 0, groomed: 0, canopy: 0, moguls: 0, shrub: 0 };
@@ -227,6 +234,8 @@ export class Rider {
   stepT = 0;
   // ---- private to Rider.ts
   private accum = 0;
+  /** FEAT-288: the last step was a crashed one (a new crash restarts crashT) */
+  private crashing = false;
   private readonly maskTmp = [0, 0, 0, 0];
   private readonly coverTmp = { rock: 0, scree: 0 };
   // render interpolation: pose before the last step, pose after it (to spot external moves), and
@@ -242,6 +251,9 @@ export class Rider {
     this.pack = pack;
     this.collider = collider;
   }
+
+  /** FEAT-288: crash, down for at least `minTime` s, the speed cut once by `loss` (rider/Crash.ts) */
+  crash(minTime: number, loss?: number): void { startCrash(this, minTime, loss); }
 
   /** FEAT-139: which side of the heading the toe edge is on: +1 the right (regular, or goofy riding
    *  switch), -1 the left (goofy, or regular riding switch; the board and body are drawn turned round) */
@@ -264,7 +276,7 @@ export class Rider {
     this.x = x; this.y = y; this.z = this.pack.groundHeight(x, y) + 0.5;
     this.vx = this.vy = this.vz = 0;
     this.heading = heading; this.switch = false; this.onGround = true; this.airTime = 0; this.jumpCharge = 0;
-    this.crashed = 0; this.crashFall = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
+    this.crashed = 0; this.crashT = 0; this.crashAir = false; this.crashing = false; this.crashFall = 0; this.spin = 0; this.skid = 0; this.distance = 0; this.maxSpeed = 0;
     this.edge = 0; this.edgeTarget = 0; this.leanTarget = 0; this.lean = 0; this.pressing = false; this.pressBalance = 0; this.pressDir = 0; this.pressLock = 0; this.turnRadius = Infinity; this.turnRate = 0; this.carveAcc = 0; this.lateralG = 0; this.landingShock = 0;
     this.hardCarve = 0; this.hardDrive = 0; this.carveShort = 0; this.washout = 0; this.crashSide = 0; this.catchRisk = 0;
     this.accum = 0; this.alpha = 1; this.steps = 0; this.coarseSteps = 0;
@@ -419,19 +431,12 @@ export class Rider {
     if (this.strapState !== 'none') { strapStep(this, dt, ground); return; }
     if (this.onFoot) { walkStep(this, dt, input, n, ground); return; }
     if (this.crashed > 0) {
-      this.crashed -= dt;
-      if (this.crashed <= 0) { this.crashFall = 0; this.crashSide = 0; }
-      this.hardCarve = this.hardDrive = this.carveShort = this.washout = 0;
-      // tumble: slide to a stop
-      const f = Math.exp(-dt * 2.5);
-      this.vx *= f; this.vy *= f;
-      this.x += this.vx * dt; this.y += this.vy * dt;
-      this.z = groundAt(this, this.x, this.y, this.z);
-      this.vz = 0;
-      this.speed = Math.hypot(this.vx, this.vy);
-      this.squareBoard();
+      // FEAT-288: slide and tumble down the hill. A crash set straight on `crashed` (tools, old callers) starts its clock here
+      if (!this.crashing) { this.crashT = 0; this.crashAir = false; this.crashing = true; }
+      crashStep(this, dt, n);
       return;
     }
+    this.crashing = false;
     // ---------------------------------------------------------------- airborne (rider/Jumps.ts), else on the snow (rider/Ride.ts)
     if (!this.onGround) { airStep(this, dt, input); return; }
     rideStep(this, dt, input, n, ground);

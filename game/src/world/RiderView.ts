@@ -334,7 +334,7 @@ export class RiderView {
     if (this.ragdoll && r.crashed > 0 && !seated) {
       if (!this.ragdoll.active) { this.group.updateMatrixWorld(true); this.ragdoll.start(this.rig, this.v1.set(r.vx, r.vz, -r.vy), r.crashFall ? this.v2.set(Math.sin(r.heading) * r.crashFall, 0, -Math.cos(r.heading) * r.crashFall) : r.crashSide ? this.v2.set(Math.cos(r.heading) * r.crashSide, 0, Math.sin(r.heading) * r.crashSide) : null); } // FEAT-140: a press slam falls over its loaded end; FEAT-148: a washout to the inside of the turn
       this.group.updateMatrixWorld(true);
-      this.ragdoll.step(dt, this.v2.set(r.x, r.z, -r.y));
+      this.ragdoll.step(dt, this.v2.set(r.x, r.z, -r.y), r.crashMu); // FEAT-288: the sim's snow friction
       this.ragdoll.apply(this.rig);
       hangCarriersFromFeet(this.rig); // the board stays strapped to the feet
       this.wasSeated = true; // so the carriers go back on the next normal frame
