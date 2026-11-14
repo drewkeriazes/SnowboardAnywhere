@@ -2,7 +2,7 @@
 // FirebaseAccount over MemoryAuth, an in-memory stand-in for a Firebase project with "one account per email"
 // on and email enumeration protection on, so the checks drive the same sign-in, verification and add-a-method
 // logic the game uses, with no network.
-import { PROVIDER_GITHUB, PROVIDER_PASSWORD, type AccountService, type AccountState, type Player, type SignInResult } from './Account';
+import { PROVIDER_GITHUB, PROVIDER_PASSWORD, type AccountService, type AccountState, type Player, type ResetResult, type SignInResult } from './Account';
 import { playerFromUser } from './claims';
 import { FirebaseAccount, type AuthPort, type PortUser } from './firebaseAccount';
 
@@ -45,10 +45,13 @@ const same = (a: string | null, b: string): boolean => a !== null && a.toLowerCa
  * auth/invalid-credential whether the account exists or not (enumeration protection); a sign-up or a link whose
  * email another account has is refused, never joined. `github` is the uid whose GitHub identity the "popup" returns,
  * null for a GitHub identity no account has yet. sent lists the verification emails, verify() is clicking one.
+ * FEAT-283: resets lists the password reset emails sent; one to an address with no password account sends nothing
+ * and still resolves (enumeration protection), and resetPassword() is setting a new one through Firebase's page.
  */
 export class MemoryAuth implements AuthPort {
   readonly users: MemoryUser[] = SEED.map((r) => ({ ...r }));
   readonly sent: string[] = [];
+  readonly resets: string[] = [];
   private cb: ((u: PortUser | null) => void) | null = null;
   private current: MemoryUser | null;
   private n = 0;
@@ -61,6 +64,13 @@ export class MemoryAuth implements AuthPort {
 
   verify(email: string): void { for (const r of this.users) if (same(r.email, email) || same(r.passwordEmail, email)) r.emailVerified = true; }
   user(uid: string): MemoryUser | undefined { return this.users.find((r) => r.uid === uid); }
+  /** following the reset link: the account's new password (the link proves the address, as Firebase marks it verified) */
+  resetPassword(email: string, password: string): boolean {
+    const r = this.users.find((x) => x.password !== null && same(x.passwordEmail, email));
+    if (!r || !this.resets.some((e) => same(r.passwordEmail, e))) return false;
+    r.password = password; r.emailVerified = true;
+    return true;
+  }
 
   onUser(cb: (u: PortUser | null) => void): void {
     this.cb = cb;
@@ -119,6 +129,11 @@ export class MemoryAuth implements AuthPort {
     this.githubUid = r.uid;
     return portUser(r);
   }
+  async sendPasswordReset(email: string): Promise<void> {
+    if (!/^[^@\s]+@[^@\s]+$/.test(email)) fail('auth/invalid-email');
+    const r = this.users.find((x) => x.password !== null && same(x.passwordEmail, email));
+    if (r) this.resets.push(r.passwordEmail!);
+  }
   async signOut(): Promise<void> { this.current = null; queueMicrotask(() => this.cb?.(null)); }
   async claims(u: PortUser): Promise<Record<string, unknown>> { const r = this.user(u.uid); return r ? claimsOf(r) : {}; }
   async token(u: PortUser): Promise<string> { return `fake:${u.uid}`; }
@@ -154,6 +169,7 @@ export class FakeAccount implements AccountService {
   ready(): Promise<AccountState> { return Promise.resolve({ kind: 'guest' }); }
   async signIn(): Promise<SignInResult> { return { ok: false, code: 'unavailable', message: this.unavailableReason }; }
   async addMethod(): Promise<SignInResult> { return { ok: false, code: 'unavailable', message: this.unavailableReason }; }
+  async sendPasswordReset(): Promise<ResetResult> { return { ok: false, code: 'unavailable', message: this.unavailableReason }; }
   async signOut(): Promise<void> {}
   async idToken(): Promise<string | null> { return null; }
 }
