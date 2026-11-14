@@ -254,8 +254,8 @@ export function crownProfile(form: Species['form'], t: number): number {
     case 'douglas': return t < 0.12 ? 0.85 + 0.15 * t / 0.12 : Math.pow(1 - (t - 0.12) / 0.88, 0.8);
     case 'lodgepole': return Math.pow(Math.sin(Math.PI * Math.min(1, 0.12 + t * 0.95)), 0.7);
     case 'hemlock': return t < 0.1 ? 0.88 + 0.12 * t / 0.1 : Math.pow(1 - (t - 0.1) / 0.9, 0.85);
-    // BUG-129: a broad, rounded crown, widest a third of the way up, with a blunt top
-    case 'limber': return Math.pow(Math.sin(Math.PI * Math.min(1, 0.22 + t * 0.8)), 0.6);
+    // BUG-129: a broad crown, widest low, tapering to a blunt top (a quarter of the widest) rather than a dome
+    case 'limber': return t < 0.15 ? 0.8 + 0.2 * t / 0.15 : 0.25 + 0.75 * Math.pow(1 - (t - 0.15) / 0.85, 0.75);
     case 'hardwood': return Math.sqrt(Math.max(0, Math.sin(Math.PI * Math.min(1, 0.25 + 0.75 * t)))); // a rounded dome over the fork
     default: return 1 - t;
   }
@@ -317,7 +317,7 @@ function makePlan(sp: Species, variant: number): Plan {
     const n = Math.round(lerp(sp.whorls[0], sp.whorls[1], (variant + r()) / 4));
     const y0 = sp.crownBase + (form === 'lodgepole' ? (r() - 0.5) * 0.06 : 0), y1 = plan.crownTop - (plan.top === 'broken' ? 0 : 0.03);
     for (let i = 0; i < n; i++) {
-      if (i > 1 && i < n - 2 && r() < 0.08 + 0.04 * variant + (form === 'limber' ? 0.1 : 0)) continue; // an irregular gap
+      if (i > 1 && i < n - 2 && r() < 0.08 + 0.04 * variant + (form === 'limber' ? 0.16 : 0)) continue; // an irregular gap
       const t = (i + 0.3 + (r() - 0.5) * 0.5) / n;
       const y = lerp(y0, y1, t);
       const rr = R * crownProfile(form, clamp01(t)) * (form === 'limber' ? 0.7 + 0.6 * r() : 0.88 + 0.24 * r()); // limber: ragged
@@ -535,9 +535,11 @@ function lod1(plan: Plan, cellMean: number[], barkMean: number[]): Builder {
       let rr = 0;
       for (const w of ws) if (w.y >= ya - 0.02 && w.y < yb + 0.02) rr = Math.max(rr, w.r);
       if (rr === 0) rr = R * crownProfile(form, ta);
-      const top = k === tiers - 1 ? (plan.top === 'broken' ? y1 : 1) : lerp(y0, y1, Math.min(1, tb + 0.18));
+      const top = k === tiers - 1 ? (plan.top === 'broken' ? y1 : form === 'limber' ? y1 : 1) : lerp(y0, y1, Math.min(1, tb + 0.18));
       const droop = form === 'spruce' ? 0.35 : form === 'fir' ? 0.12 : lodge ? 0 : form === 'hemlock' ? 0.3 : form === 'limber' ? -0.05 : 0.15;
-      starCone(b, ya - (form === 'spruce' ? 0.03 : 0.015), top, rr * (lodge ? 0.9 : 0.86), 5, r() * 6.28, droop, dense, c, 0.6, 0, 0, lodge && k === 0 ? 0.1 : 0.25);
+      // BUG-129: limber's top tier is a rounded blob, so its blunt top matches LOD0 (a cone always ends in a point)
+      if (form === 'limber' && k === tiers - 1) blob(b, 0, ya, 0, rr, (top - ya) * 0.6, 0.03, 5, r() * 6.28, dense, c);
+      else starCone(b, ya - (form === 'spruce' ? 0.03 : 0.015), top, rr * (lodge ? 0.9 : 0.86), 5, r() * 6.28, droop, dense, c, 0.6, 0, 0, lodge && k === 0 ? 0.1 : 0.25);
     }
   } else if (form === 'krummholz') {
     for (const cl of plan.clumps.slice(0, 3)) blob(b, cl.x + cl.r * 0.35, cl.y * 0.55, cl.z, cl.r * 1.2, cl.y * 0.45, cl.y * 0.55, 5, r() * 6.28, dense, c);
