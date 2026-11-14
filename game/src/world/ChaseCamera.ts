@@ -11,6 +11,8 @@ const CAM_MIN = 1.5;
 const FP_ROLL_K = 0.16;
 const FP_ROLL_MAX = 10 * Math.PI / 180;
 const FP_ROLL_FULL_SPEED = 8;
+/** BUG-126: the highest the eye camera's Q / E keys raise it (m); scripted heights (setEye, ?eye=) may go higher */
+const EYE_KEY_MAX = 200;
 
 export type CameraMode = 'chase' | 'close' | 'far' | 'cine' | 'fp' | 'helmet' | 'free' | 'eye';
 
@@ -162,10 +164,13 @@ export class ChaseCamera {
   /** pack metres of the spot, eye height above the ground (m), vertical FOV (deg) */
   eyeX = 0; eyeY = 0; eyeHeight = 1.7; eyeFov = 75;
 
-  /** Place the eye camera. heading is clockwise from pack north, pitch positive up, both in degrees. */
+  /**
+   * Place the eye camera. heading is clockwise from pack north, pitch positive up, both in degrees.
+   * height is not capped (BUG-126: FEAT-154's aerial views ask for 700 m); only Q / E stop at EYE_KEY_MAX.
+   */
   setEye(x: number, y: number, headingDeg: number, pitchDeg: number, fovDeg: number, height = 1.7): void {
     this.mode = 'eye';
-    this.eyeX = x; this.eyeY = y; this.eyeHeight = height; this.eyeFov = fovDeg;
+    this.eyeX = x; this.eyeY = y; this.eyeHeight = Math.max(0.3, height); this.eyeFov = fovDeg;
     this.yaw = headingDeg * Math.PI / 180; this.pitch = pitchDeg * Math.PI / 180;
   }
 
@@ -187,7 +192,9 @@ export class ChaseCamera {
     const fx = Math.sin(this.yaw), fy = Math.cos(this.yaw);
     const fwd = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), side = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
     this.eyeX += (fx * fwd + fy * side) * step; this.eyeY += (fy * fwd - fx * side) * step;
-    this.eyeHeight = THREE.MathUtils.clamp(this.eyeHeight + ((keys.has('KeyE') ? 1 : 0) - (keys.has('KeyQ') ? 1 : 0)) * dt * 2, 0.3, 200);
+    // BUG-126: Q / E stop at EYE_KEY_MAX, but a scripted height above it (setEye / eyeAt, ?eye=) stays as asked
+    const rise = ((keys.has('KeyE') ? 1 : 0) - (keys.has('KeyQ') ? 1 : 0)) * dt * 2;
+    if (rise !== 0) this.eyeHeight = THREE.MathUtils.clamp(this.eyeHeight + rise, 0.3, Math.max(EYE_KEY_MAX, this.eyeHeight));
     this.eyeFov = THREE.MathUtils.clamp(this.eyeFov + ((keys.has('BracketRight') ? 1 : 0) - (keys.has('BracketLeft') ? 1 : 0)) * dt * 20, 10, 120);
     const g = this.pack.groundHeight(this.eyeX, this.eyeY);
     this.camera.position.set(this.eyeX, (Number.isFinite(g) ? g : 0) + this.eyeHeight, -this.eyeY);

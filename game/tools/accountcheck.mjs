@@ -292,6 +292,45 @@ ok(!heldForVerification({ email_verified: true, firebase: { identities: { email:
 ok(!heldForVerification({ email_verified: false, firebase: { identities: { 'github.com': ['1'], email: ['x@example.test'] } } }), 'server: GitHub and password, unverified: passes');
 ok(!heldForVerification({ firebase: {} }) && !heldForVerification({}), 'server: no identities: not this rule (the role check still applies)');
 
+// FEAT-283: password reset. The line is the same whether or not the address has an account; nothing malformed goes out.
+{
+  const { RESET_SENT, resetFailure } = await load('account/errors.ts', 'errors3');
+  ok(RESET_SENT === 'If that email has an account, a reset link is on its way.', 'reset: the card line');
+  ok(resetFailure('auth/user-not-found').ok && resetFailure('auth/user-not-found').note === RESET_SENT, 'reset: auth/user-not-found (enumeration protection off) reads as sent, the same line');
+  for (const [c, want] of [['auth/network-request-failed', 'network'], ['auth/too-many-requests', 'too-many-requests'], ['auth/invalid-email', 'invalid-email'], ['auth/missing-email', 'invalid-email'], ['auth/operation-not-allowed', 'not-enabled'], ['auth/zzz', 'unknown']])
+    ok(!resetFailure(c).ok && resetFailure(c).code === want, `reset: ${c} maps to ${want}`);
+  ok(resetFailure('auth/zzz').message.includes('auth/zzz') && resetFailure('auth/zzz').message.startsWith('The reset email did not go out'), 'reset: an unknown code is named, not as a sign-in failure');
+
+  const a = memoryAccount({ session: null }); await a.ready();
+  const kinds = []; a.onChange((x) => kinds.push(x.kind));
+  const has = await a.sendPasswordReset(` ${FAKE_PASSWORD_RIDER.email} `);
+  ok(has.ok && has.note === RESET_SENT && a.auth.resets.join() === FAKE_PASSWORD_RIDER.email, 'reset for a password account: the line, one reset email to the trimmed address');
+  const none = await a.sendPasswordReset('nobody@example.test');
+  ok(none.ok && none.note === has.note && a.auth.resets.length === 1, 'reset for an address with no account: the same line, no email goes out');
+  const gh = await a.sendPasswordReset('player1@example.test');
+  ok(gh.ok && gh.note === has.note && a.auth.resets.length === 1, 'reset for a GitHub-only address: the same line, no email from the fake');
+  let calls = 0; const real = a.auth.sendPasswordReset.bind(a.auth); a.auth.sendPasswordReset = async (e) => { calls++; return real(e); };
+  const blank = await a.sendPasswordReset('   ');
+  const bad = await a.sendPasswordReset('not-an-email');
+  ok(!blank.ok && blank.code === 'invalid-email' && blank.message.startsWith('Type your email address') && !bad.ok && bad.code === 'invalid-email' && calls === 0, 'reset with a blank or malformed email: refused here, never sent');
+  a.auth.sendPasswordReset = async () => { calls++; throw Object.assign(new Error('x'), { code: 'auth/network-request-failed' }); };
+  const net = await a.sendPasswordReset('rider@example.test');
+  ok(!net.ok && net.code === 'network' && net.message.startsWith('No connection') && calls === 1, 'reset offline: the network line');
+  a.auth.sendPasswordReset = real;
+  ok(a.state().kind === 'guest' && kinds.length === 0 && (await a.idToken()) === null, 'a reset never signs anyone in');
+  // Done when 1, on the fake project: the link sets a new password, which then signs in; the old one no longer does
+  ok(a.auth.resetPassword(FAKE_PASSWORD_RIDER.email, 'new-rider-pass') && !a.auth.resetPassword('nobody@example.test', 'x'), 'the reset link sets a new password (only where one was sent)');
+  const old = await a.signIn({ method: 'password', ...FAKE_PASSWORD_RIDER, create: false });
+  const fresh = await a.signIn({ method: 'password', email: FAKE_PASSWORD_RIDER.email, password: 'new-rider-pass', create: false });
+  ok(!old.ok && old.code === 'bad-credentials' && fresh.ok && fresh.player.uid === FAKE_RIDER.uid, 'then the new password signs in and the old one does not');
+  const un = await FakeAccount.fromParam('unconfigured').sendPasswordReset('rider@example.test');
+  ok(!un.ok && un.code === 'unavailable', 'reset on an unconfigured build: unavailable');
+  const dead = new FirebaseAccount(Promise.reject(Object.assign(new Error('bad key'), { code: 'auth/invalid-api-key' })));
+  await dead.ready();
+  const d = await dead.sendPasswordReset('rider@example.test');
+  ok(!d.ok && d.code === 'unavailable' && d.message === dead.unavailableReason, 'reset when the port failed to start: unavailable with its reason');
+}
+
 const { accountPanelView } = await load('ui/AccountPanel.ts', 'panel');
 ok(accountPanelView({ kind: 'guest' }).kind === 'sign-in' && accountPanelView({ kind: 'pending' }).kind === 'none', 'panel: a guest gets the sign-in choices');
 {
