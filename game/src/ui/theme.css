@@ -155,6 +155,8 @@
 #menu .pop input.find:focus, #menu .pop input.find.nav-focus { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 #menu .pop input.find::placeholder { color: var(--dim); }
 #menu .pop .find-note { margin: var(--sp-1) 0 0; }
+/* FEAT-287: under the matches, how many the search left out as unbuildable */
+#menu .pop .courses .skipped-note { margin: var(--sp-1) 0 0; }
 #menu .course[data-act="build"] .cb { color: var(--accent); font-weight: 700; }
 /* FEAT-247: how a build is going on its row, and its run or publish PR on the line under it */
 #menu button.course[data-build]:disabled { opacity: 0.85; }

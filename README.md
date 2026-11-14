@@ -58,7 +58,8 @@ on a row to reach its star and Enter or A to star or unstar it. The **Find a res
 maintainer on `npm run dev`, typing three or more letters also lists ski areas from OpenSkiData that are not
 packed yet, each with its region, runs and lifts and a **Build it** button that starts the build in MapPacker's
 GitHub Actions (see [developer guide > Accounts](docs/developer-guide.md#accounts-feat-273)
-for the setup). The row then follows the build while it runs, also with the panel closed or the game reopened:
+for the setup). Ski areas the search found but can't build yet (no runs or lifts mapped, or no OpenStreetMap or
+Skimap.org id) are counted on a line under the matches. The row then follows the build while it runs, also with the panel closed or the game reopened:
 Queued, Checking data hosts, Building (resolve, fetch, build, report, publish), Publishing, then Published, No change
 or Failed, with a link to the run or its publish PR on GitHub; a rebuilt resort shows the same on its Ride or Download row. When the build is published, the game downloads the pack on its own and a toast on the right says
 "<Resort> is ready" with **Ride** and a close button, over the menu or while you ride (it never pauses the ride or

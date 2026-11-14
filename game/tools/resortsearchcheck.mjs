@@ -65,7 +65,7 @@ try {
   // ---------------------------------------------------------------- search
   let r = await req('GET', `/api/resorts/search?q=${encodeURIComponent('boston "mills"; rm -rf / && echo $HOME')}`, { token: 'tok-drew' });
   const c = calls.shift();
-  ok(r.status === 200 && JSON.stringify(r.json) === JSON.stringify(SEARCH), 'the maintainer\'s search: 200, resort.py\'s JSON passed through');
+  ok(r.status === 200 && JSON.stringify(r.json) === JSON.stringify(SEARCH) && r.json.skipped === 1, 'the maintainer\'s search: 200, resort.py\'s JSON passed through, skipped with it (FEAT-287)');
   ok(c?.cmd === 'python' && c.cwd === mp && c.timeout > 0, 'search runs python in the MapPacker clone, with a time limit');
   ok(JSON.stringify(c?.args) === JSON.stringify([path.join('pipeline', 'resort.py'), 'search', '--json', '--', 'boston "mills"; rm -rf / && echo $HOME']), 'the query reaches Python as one argument, after --');
   ok(r.headers.get('cache-control') === 'no-store' && (r.headers.get('content-type') ?? '').includes('json'), 'the search reply is JSON, no-store');
@@ -190,6 +190,11 @@ try {
   ok(ff.map((x) => `${x.slug}${x.fav ? '*' : ''}`).join(' ') === 'vail* solden* boston-mills', 'favoritesFirst: the favorites first in list order, a starred slug not listed ignored');
   ok(P.favoritesFirst(base, new Set()).map((x) => x.slug).join(' ') === 'vail boston-mills solden' && !base.some((x) => x.fav), 'favoritesFirst: none starred keeps the order, and the base rows are not changed');
   ok(P.shownRows(ff, 'bost', null).map((x) => x.slug).join() === 'boston-mills', 'the filter runs over the tiers');
+  // FEAT-287: the line for the matches resort.py search left out as unbuildable
+  const why = "found that can't be built yet (no runs or lifts mapped, or no OpenStreetMap or Skimap.org id).";
+  ok(P.skippedNote(0, true) === '' && P.skippedNote(undefined, true) === '' && P.skippedNote('3', true) === '' && P.skippedNote(-1, false) === '' && P.skippedNote(NaN, true) === '', 'skippedNote: none for 0, a missing count or one that is not a number');
+  ok(P.skippedNote(1, true) === `1 more ski area ${why}` && P.skippedNote(3, true) === `3 more ski areas ${why}`, 'skippedNote: 1 more ski area, 3 more ski areas');
+  ok(P.skippedNote(1, false) === `1 ski area ${why}` && P.skippedNote(3, false) === `3 ski areas ${why}`, 'skippedNote: no "more" when no match was listed');
 } finally {
   server.close();
   fs.rmSync(tmp, { recursive: true, force: true });

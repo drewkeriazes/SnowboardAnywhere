@@ -222,6 +222,17 @@ export function shownRows(base: Row[], query: string, found: SearchMatch[] | nul
   return out;
 }
 
+/**
+ * FEAT-287: the line under the search matches for the ones `resort.py search` left out as unbuildable (`skipped`:
+ * no runs and no lifts, or no OpenStreetMap or Skimap.org id). '' for none (0, missing, not a count); `listed` is
+ * whether any match was listed, so the line says "more" only after some. Pure: tools/resortsearchcheck.mjs runs it.
+ */
+export function skippedNote(skipped: unknown, listed: boolean): string {
+  const n = typeof skipped === 'number' && Number.isFinite(skipped) ? Math.floor(skipped) : 0;
+  if (n <= 0) return '';
+  return `${n}${listed ? ' more' : ''} ski area${n === 1 ? '' : 's'} found that can't be built yet (no runs or lifts mapped, or no OpenStreetMap or Skimap.org id).`;
+}
+
 /** for the checks: forget the session's builds */
 export function resetBuilds(): void { builds.clear(); }
 /** for the checks: mark a build as this session's (at: when it started, default now) */
@@ -261,12 +272,16 @@ export function fillResortPicker(host: HTMLElement, current: string, built: { sl
 
   let found: SearchMatch[] | null = null;
   let foundFor = '';
+  /** FEAT-287: how many matches the last search left out as unbuildable */
+  let skipped = 0;
   const draw = () => {
     const a = document.activeElement as HTMLElement | null;
     const focused = a?.closest<HTMLElement>('button[data-pack]')?.dataset.pack;
     const focusedStar = a?.closest<HTMLElement>('button[data-fav]')?.dataset.fav;
     const q = input.value.trim();
-    list().innerHTML = listHtml(shownRows(favoritesFirst(rows(current, built, reply), loadFavorites()), q, foundFor === q ? found : null, watch?.list() ?? []));
+    const note = foundFor === q && found ? skippedNote(skipped, found.length > 0) : '';
+    list().innerHTML = listHtml(shownRows(favoritesFirst(rows(current, built, reply), loadFavorites()), q, foundFor === q ? found : null, watch?.list() ?? []))
+      + (note ? `<p class="skipped-note dim">${esc(note)}</p>` : '');
     // FEAT-302: the star toggles the favorite; the list redraws with the row in its new tier, the focus on its star
     list().querySelectorAll<HTMLButtonElement>('button[data-fav]').forEach((b) => b.addEventListener('click', () => { toggleFavorite(b.dataset.fav!); draw(); }));
     list().querySelectorAll<HTMLButtonElement>('button[data-pack]').forEach((b) => b.addEventListener('click', () => {
@@ -305,9 +320,10 @@ export function fillResortPicker(host: HTMLElement, current: string, built: { sl
         say(json?.error && r.status >= 500 ? `Search is unavailable: ${json.error}` : '');
         return;
       }
-      found = json.matches; foundFor = q;
+      found = json.matches; foundFor = q; skipped = typeof json.skipped === 'number' ? json.skipped : 0;
       const listed = new Set(rows(current, built, reply).map((x) => x.slug));
-      say(found.length === 0 ? `No ski area by that name.${json.closest?.length ? ` Closest: ${json.closest.join(', ')}` : ''}`
+      // with no match but some left out, the line under the list says what was found
+      say(found.length === 0 ? (skippedNote(skipped, false) ? '' : `No ski area by that name.${json.closest?.length ? ` Closest: ${json.closest.join(', ')}` : ''}`)
         : found.every((m) => listed.has(m.slug)) ? 'Every match is in the list already.' : '');
       draw();
     } catch (e) {
@@ -316,7 +332,7 @@ export function fillResortPicker(host: HTMLElement, current: string, built: { sl
   };
   input.addEventListener('input', () => {
     const q = input.value.trim();
-    if (q !== foundFor) { found = null; foundFor = ''; }
+    if (q !== foundFor) { found = null; foundFor = ''; skipped = 0; }
     draw();
     stop();
     if (!canSearch() || q.length < SEARCH_MIN) { say(''); return; }
@@ -325,7 +341,7 @@ export function fillResortPicker(host: HTMLElement, current: string, built: { sl
   // signed out (or in) while the panel is open: the search results follow the account
   const unsub = account?.onChange(() => {
     if (!live()) { unsub?.(); return; }
-    if (!canSearch()) { stop(); found = null; foundFor = ''; say(''); draw(); }
+    if (!canSearch()) { stop(); found = null; foundFor = ''; skipped = 0; say(''); draw(); }
     else if (input.value.trim().length >= SEARCH_MIN) void search(input.value.trim());
   });
 
