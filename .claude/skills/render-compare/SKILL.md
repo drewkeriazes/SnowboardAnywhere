@@ -19,7 +19,7 @@ node tools/compare.mjs --a here --b here --b-packs ../../MapPacker-SnowboardAnyw
 - Sides: `here` (this worktree's `dist/`), `dist:<path>` (another build folder, relative to `game/`; build an experiment with `npx vite build --outDir dist-exp` and revert the source), or `baseline:<name>`.
 - Per side: `--a-packs` / `--b-packs` (a folder holding `<slug>/meta.json`), `--a-query` / `--b-query` (URL flags), `--a-settings` / `--b-settings k=v,...` (seeded saved settings, e.g. `forestDensity=0`), and `--a-label` / `--b-label`.
 - `here` and `dist:` read packs from `SHOT_PACKS` or the repo's `packs/` (`npm run get vail` first).
-- Camera: `--shot <id>` (the menu shot, at the start of its drift and in its conditions), `--view <label>` (`tools/canopy-views.json`) or `--at x,y,h,pitch,fov,eye`. a = left / before, b = right / after.
+- Camera: `--shot <id>` (the menu shot, at the start of its drift and in its conditions), `--view <label>` (`tools/canopy-views.json`), `--at x,y,h,pitch,fov,eye`, or `--chase x,y,h[,speed]` (the rider held there riding along heading h, seen from the chase camera with see-through trees on; for the ride camera and the tree fade, which the eye camera does not show). a = left / before, b = right / after.
 - Output: `game/shots/compare/<name>/index.html`, plus `a.jpg`, `b.jpg` and `compare.json`.
 - Check the "cameras match exactly" line. `compare.json` has each side's world camera and direction, its pack build, and the drawn crown cover (crown disc area / ground) at 250, 600 and 1,500 m round the camera.
 

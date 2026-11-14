@@ -17,7 +17,9 @@
 //   --a-label / --b-label         the caption (default: the baseline's commit and date, or this worktree's HEAD)
 // Camera (one of): --shot <id> (attract/<pack>/shots.json, pose at the start of its drift, and the shot's conditions on
 //   builds that have them), --view <label> (tools/canopy-views.json), --at x,y,h,pitch,fov,eye (pack metres, degrees,
-//   eye metres over the snow). Default: the pack's first menu shot. --pack <slug> (default vail).
+//   eye metres over the snow), or --chase x,y,h[,speed] (BUG-125: the rider held at x, y heading h degrees, riding
+//   at speed m/s (default 8), seen from the chase camera with see-through trees on; the ride camera and the tree fade
+//   are what a still shows). Default: the pack's first menu shot. --pack <slug> (default vail).
 // The ground differs between packs, so the reference side (b, or --ref a) is shot first at its eye height, and the other
 // side is pinned to that camera's world height: both stills come from the exact same point. Each side's camera is
 // logged in compare.json so the match can be checked.
@@ -144,6 +146,11 @@ function side(key) {
 }
 
 function camera(pack, packsDirs) {
+  const chase = opt('chase');
+  if (chase) {
+    const [x, y, h, speed = 8] = chase.split(',').map(Number);
+    return { id: `chase ${x},${y}`, x, y, h, pitch: 0, fov: 0, eye: 0, speed, chase: true, conditions: false };
+  }
   const at = opt('at');
   if (at) {
     const [x, y, h, pitch = -5, fov = 50, eye = 1.7] = at.split(',').map(Number);
@@ -195,7 +202,7 @@ async function shoot(browser, sd, cam, pack, worldZ, outFile) {
   }
   // old builds (before the eye camera) load trees round the rider, so the rider spawns under the camera; current ones
   // read cam=eye; each ignores the other's parameters
-  await page.goto(`${srv.base}/index.html?pack=${pack}&headless&cam=eye&x=${cam.x}&y=${cam.y}&h=${cam.h}${sd.query}${process.env.SHOT_QUERY ?? ''}`);
+  await page.goto(`${srv.base}/index.html?pack=${pack}&headless${cam.chase ? '' : '&cam=eye'}&x=${cam.x}&y=${cam.y}&h=${cam.h}${sd.query}${process.env.SHOT_QUERY ?? ''}`);
   await page.waitForFunction(() => window.__step, null, { timeout: 180000 });
   page.setDefaultTimeout(300000);
   await page.evaluate(() => window.__step(1, 1 / 60));
@@ -204,6 +211,14 @@ async function shoot(browser, sd, cam, pack, worldZ, outFile) {
   if (cam.conditions && driver === 'eye') await page.evaluate(() => window.__sim.shotConditions?.());
   const pin = () => page.evaluate(([C, Z, drv]) => {
     const s = window.__sim, g = s.pack.groundHeight(C.x, C.y), z = Z ?? (Number.isFinite(g) ? g : 0) + C.eye;
+    if (C.chase) {
+      // the rider back on the spot every frame of the settle, riding along h, the chase camera behind
+      const r = s.rider, a = C.h * Math.PI / 180;
+      s.cam.mode = 'chase'; s.settings.seeThroughTrees = true;
+      for (let i = 0; i < 4; i++) { r.reset(C.x, C.y, a); r.vx = Math.sin(a) * C.speed; r.vy = Math.cos(a) * C.speed; window.__step(1, 1 / 60); }
+      r.reset(C.x, C.y, a); r.vx = Math.sin(a) * C.speed; r.vy = Math.cos(a) * C.speed;
+      return z;
+    }
     if (drv === 'eye') { s.eyeAt(C.x, C.y, C.h, C.pitch, C.fov, z - (Number.isFinite(g) ? g : 0)); return z; }
     const c = s.cam;
     if (!c.__pinned) {
@@ -262,7 +277,7 @@ async function shoot(browser, sd, cam, pack, worldZ, outFile) {
   }, url);
   fs.writeFileSync(outFile, Buffer.from(jpg.split(',')[1], 'base64'));
   await page.close(); srv.close();
-  return { ...info, driver, worldZ: z, errors };
+  return { ...info, driver: cam.chase ? 'chase' : driver, worldZ: z, errors };
 }
 
 async function compare() {
@@ -283,7 +298,8 @@ async function compare() {
   await browser.close();
   const res = { [first.key]: r1, [second.key]: r2 };
   const dp = Math.max(...[0, 1, 2].map((i) => Math.abs(r1.pos[i] - r2.pos[i]))), dd = Math.max(...[0, 1, 2].map((i) => Math.abs(r1.dir[i] - r2.dir[i])));
-  const match = dp < 0.01 && dd < 1e-4 && Math.abs(r1.fov - r2.fov) < 1e-6;
+  // the chase camera's speed FOV eases, so it lands within a hair of the same value on both sides
+  const match = dp < 0.01 && dd < 1e-4 && Math.abs(r1.fov - r2.fov) < (cam.chase ? 0.01 : 1e-6);
   console.log(match ? 'cameras match exactly' : `WARNING: cameras differ (position ${dp.toFixed(3)} m, direction ${dd.toExponential(1)})`);
   const meta = { pack, camera: cam, created: new Date().toISOString(), cameraMatch: match, sides: { a: { ...A, result: res.a }, b: { ...B, result: res.b } } };
   fs.writeFileSync(path.join(out, 'compare.json'), JSON.stringify(meta, null, 2) + '\n');

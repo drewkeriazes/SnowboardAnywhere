@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { treeFadeUniforms, TREE_FADE_VERT, TREE_FADE_FRAG_HEAD, TREE_FADE_FRAG_BODY } from '../TreeFade';
+import { treeFadeUniforms, TREE_FADE_VERT, TREE_FADE_FRAG_HEAD, TREE_FADE_FRAG_BODY, TREE_FADE_FRAG_ALPHA } from '../TreeFade';
 import { treeSnowUniforms, TREE_SNOW_VERT, TREE_SNOW_COMMON, TREE_SNOW_LIGHT } from './snow';
 
 /**
@@ -9,7 +9,7 @@ import { treeSnowUniforms, TREE_SNOW_VERT, TREE_SNOW_COMMON, TREE_SNOW_LIGHT } f
  * visibility and the incoming one keeps the rest, so the two together cover the tree once. Instances
  * outside the band collapse in the vertex shader. Shadows switch at the middle of each edge.
  *
- * LOD0 and LOD1 are MeshStandardMaterial (lit, CSM shadows, FEAT-155 see-through fade) with the atlas,
+ * LOD0 and LOD1 are MeshStandardMaterial (lit, CSM shadows, FEAT-155 see-through fade, BUG-125 through alpha-to-coverage on LOD0) with the atlas,
  * vertex colours and an alpha cutoff; back faces keep the bent crown normals instead of flipping them.
  * LOD2 (crossed quads) and the impostor billboards are one ShaderMaterial each: albedo and normal
  * atlases baked from LOD0, lit here like the standard material (Lambert sun plus the hemisphere light),
@@ -243,6 +243,7 @@ export function treeMaterial(atlas: THREE.Texture, o: TreeMaterialOpts): THREE.M
     shader.fragmentShader = TREE_FADE_FRAG_HEAD + LOD_FRAG_HEAD + SNOW_FRAG_HEAD + TREE_SNOW_LIGHT + shader.fragmentShader
       .replace('#include <clipping_planes_fragment>', `${LOD_FRAG_BODY}\n${TREE_FADE_FRAG_BODY}\n#include <clipping_planes_fragment>`)
       .replace('#include <color_fragment>', `#include <color_fragment>\n${SNOW_COLOR}`)
+      .replace('#include <alphatest_fragment>', `#include <alphatest_fragment>\n${TREE_FADE_FRAG_ALPHA}`)
       .replace('#include <normal_fragment_begin>', NORMAL_NO_FLIP)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${SNOW_NORMAL}`)
       .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>

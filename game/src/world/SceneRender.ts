@@ -2,23 +2,28 @@ import * as THREE from 'three';
 import { BODY_LAYER } from './RiderView';
 import type { Environment } from './Sky';
 import type { GoggleLens } from './Lens';
+import { treeFadeUniforms } from './TreeFade';
 
 /**
  * The frame's draw: the main render, then in first person the body again over a cleared depth buffer
  * with a close near plane (0.05 m) so knees, gloves and the board are not clipped. FEAT-130: with a lens
- * on, both go into the lens target and the lens pass draws to the screen.
+ * on, both go into the lens target and the lens pass draws to the screen. BUG-125: tells the tree fade
+ * whether this frame's buffer is multisampled (the lens target always is; the canvas when the browser gave it MSAA).
  */
 export class SceneRender {
   private readonly bodyCam = new THREE.PerspectiveCamera(70, 1, 0.05, 30);
+  private readonly canvasMsaa: boolean;
 
   constructor(private readonly renderer: THREE.WebGLRenderer, private readonly scene: THREE.Scene, private readonly env: Environment, private readonly lens: GoggleLens) {
     this.bodyCam.layers.set(BODY_LAYER);
     env.sun.layers.enable(BODY_LAYER); env.hemi.layers.enable(BODY_LAYER);
+    this.canvasMsaa = renderer.getContext().getContextAttributes()?.antialias === true;
   }
 
   render(camera: THREE.PerspectiveCamera, firstPerson: boolean): void {
     const { renderer, lens } = this;
     const lensOn = lens.active;
+    treeFadeUniforms.uFadeMsaa.value = lensOn || this.canvasMsaa ? 1 : 0;
     if (lensOn) lens.begin(renderer, firstPerson ? 2 : 1);
     renderer.render(this.scene, camera);
     if (firstPerson) this.renderBody(camera, lensOn);
