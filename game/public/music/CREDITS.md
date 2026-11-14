@@ -1,21 +1,21 @@
 # Music credits
 
-Every track below ships with the game. CC0 tracks are public domain (https://creativecommons.org/publicdomain/zero/1.0/) and credited anyway. CC BY 4.0 tracks are used under https://creativecommons.org/licenses/by/4.0/ and credited here and in the in-game credits. Classic ska has no files: it plays the built-in procedural jukebox.
+Every track below ships with the game. CC0 tracks are public domain (https://creativecommons.org/publicdomain/zero/1.0/) and credited anyway. CC BY 4.0 tracks are used under https://creativecommons.org/licenses/by/4.0/ and credited here and in the in-game credits.
 
 ## Ska-punk
 
 | File | Title | Artist | Licence | Source |
 |---|---|---|---|---|
-| 01-beach-ska.ogg | Beach Ska | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
-| 02-born-to-be-wild.ogg | Born to be Wild | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
-| 03-coastal-groove-party.ogg | Coastal Groove Party | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
-| 04-sunny-days.ogg | Sunny Days | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
-| 05-shred-the-pavement.ogg | Shred the Pavement | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
-| 06-summers-breeze.ogg | Summers Breeze | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
-| 07-dancing-under-the-palm-trees.ogg | Dancing Under the Palm Trees | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
-| 08-ska-revolution.ogg | Ska Revolution | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
-| 09-golden-coast-rockers.ogg | Golden Coast Rockers | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
-| 10-skank-the-summer.ogg | Skank the Summer | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
+| ska/01-beach-ska.ogg | Beach Ska | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
+| ska/02-born-to-be-wild.ogg | Born to be Wild | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
+| ska/03-coastal-groove-party.ogg | Coastal Groove Party | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
+| ska/04-sunny-days.ogg | Sunny Days | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
+| ska/05-shred-the-pavement.ogg | Shred the Pavement | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
+| ska/06-summers-breeze.ogg | Summers Breeze | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
+| ska/07-dancing-under-the-palm-trees.ogg | Dancing Under the Palm Trees | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
+| ska/08-ska-revolution.ogg | Ska Revolution | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
+| ska/09-golden-coast-rockers.ogg | Golden Coast Rockers | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
+| ska/10-skank-the-summer.ogg | Skank the Summer | DavidKBD | CC BY 4.0 | https://davidkbd.itch.io/skank-the-summer-ska-punk-summer-music-pack |
 
 ## Metal
 
@@ -90,4 +90,4 @@ Suggested credit lines from the artists:
 - HoliznaCC0: CC0, no credit required per the artist; credited anyway (Winter Lofi and Public Domain Lofi albums, Free Music Archive)
 - BogartVGM: Atmospheric House II, free to use with credit and a link to https://www.facebook.com/BogartVGM/ (artist's own terms, not a CC licence)
 
-Jingles (not in a playlist, reserved for timed runs): jingle-victory.ogg, jingle-fail.ogg, from DavidKBD's Skank the Summer pack, CC BY 4.0.
+Jingles (not in a playlist, reserved for timed runs): jingles/jingle-victory.ogg, jingles/jingle-fail.ogg, from DavidKBD's Skank the Summer pack, CC BY 4.0.
