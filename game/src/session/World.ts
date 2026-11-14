@@ -78,9 +78,9 @@ export function buildWorld(ctx: GameContext) {
   add('slow signs', slowSigns.group);
   const bridges = new Bridges(pack, collider, params.bridgeguess); // BUG-022: OSM-tagged bridges and creek-bed dips; ?bridgeguess adds segment chords
   add('bridges', bridges.group);
-  // FEAT-307: skier pairs and sitting snowboarders on the runs, kept clear of the start and the landmarks
+  // FEAT-307: skier pairs and sitting snowboarders on the runs, kept clear of the start, the landmarks and the SLOW signs (FEAT-306)
   const ls = landmarkStart(pack.meta.slug);
-  const people = new StaticPeople(pack, collider, parsePeopleMode(params.people), [[pack.meta.start.x, pack.meta.start.y], ...(ls ? [[ls.x, ls.y] as [number, number]] : []), ...landmarks.list.map((l) => [l.x, l.y] as [number, number])]);
+  const people = new StaticPeople(pack, collider, parsePeopleMode(params.people), [[pack.meta.start.x, pack.meta.start.y], ...(ls ? [[ls.x, ls.y] as [number, number]] : []), ...landmarks.list.map((l) => [l.x, l.y] as [number, number])], slowSigns.signs.map((s) => [s.site.cx, s.site.cy] as [number, number]));
   add('people', people.group);
   const tracks = new Tracks(pack);
   add('tracks', tracks.group);

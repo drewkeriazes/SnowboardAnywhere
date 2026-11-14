@@ -5,6 +5,7 @@
 //   - sparse: most qualifying runs get none
 //   - clear of lift lines, chair mazes, stations and buildings
 //   - the same list on a second run (deterministic)
+//   - no static person (FEAT-307's plan, given the signs as World.ts does) within SIGN_CLEAR of a sign
 // and prints the signs per difficulty and the list.
 // node tools/slowsigncheck.mjs [slug ...]     (default vail; SHOT_PACKS points at another packs folder; exit 1 on a failure)
 import { build } from 'esbuild';
@@ -18,6 +19,9 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slowsigncheck-'));
 const out = path.join(dir, 'sites.mjs');
 await build({ entryPoints: [path.join(GAME, 'src', 'world', 'slowSignSites.ts')], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error' });
 const { slowSignSites, signClear, SLOW_DIFFICULTIES, LOWER_SHARE, OFFSET } = await import(pathToFileURL(out).href);
+const outPeople = path.join(dir, 'plan.mjs');
+await build({ entryPoints: [path.join(GAME, 'src', 'world', 'people', 'plan.ts')], bundle: true, format: 'esm', platform: 'node', outfile: outPeople, logLevel: 'error' });
+const { planPeople, SIGN_CLEAR } = await import(pathToFileURL(outPeople).href);
 
 let fails = 0;
 function check(label, ok, detail) { console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}: ${detail}`); if (!ok) fails++; }
@@ -49,6 +53,10 @@ for (const slug of slugs) {
   check(`${slug}: clear of lifts and buildings`, blocked.length === 0, blocked.length ? blocked.map((s) => s.name).join(', ') : 'all clear');
   const again = JSON.stringify(slowSignSites(JSON.parse(fs.readFileSync(file, 'utf8')), slug));
   check(`${slug}: deterministic`, again === JSON.stringify(sites), 'the same list on a second load');
+  const at = sites.map((s) => [s.cx, s.cy]);
+  const near = (plan) => plan.filter((p) => at.some(([x, y]) => Math.hypot(p.x - x, p.y - y) < SIGN_CLEAR));
+  const before = near(planPeople(f, slug)).length, people = planPeople(f, slug, { signs: at }), close = near(people);
+  check(`${slug}: people clear of the signs`, close.length === 0, close.length ? close.map((p) => `${p.runName} (${p.id})`).join(', ') : `${people.length} people, none within ${SIGN_CLEAR} m of a sign (${before} would be without the signs passed)`);
 }
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(fails ? `\n${fails} check(s) failed` : '\nall checks passed');

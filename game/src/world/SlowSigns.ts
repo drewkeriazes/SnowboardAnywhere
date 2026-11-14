@@ -93,7 +93,6 @@ export class SlowSigns {
   private readonly p = new THREE.Vector3();
   private readonly s = new THREE.Vector3(1, 1, 1);
   private readonly px = [0, 0, 0, 0];
-  private readonly found: Float32Array[] = [];
   private shown = true;
 
   constructor(private readonly pack: Pack, private readonly collider: Collider | null) {
@@ -164,6 +163,16 @@ export class SlowSigns {
     s.post = null;
   }
 
+  // ---- BUG-082 workaround: delete from here to the end marker once #689 (BUG-082) is on main ----
+  // A far tree cell dropping clears every cylinder in its square kilometre, this sign's post too, so a post
+  // the collider no longer holds is forgotten here and maintain() adds it again. Once #689 lands, tree and rock
+  // cells remove only their own cylinders: delete this method, its call in maintain() and the `found` field.
+  private readonly found: Float32Array[] = [];
+  private bug082Readd(s: Sign): void {
+    if (s.post && this.collider && !this.collider.near(s.x, s.y, 0.01, this.found).includes(s.post)) s.post = null;
+  }
+  // ---- end of BUG-082 workaround ----
+
   /** Each frame: place, seat and give posts to the signs near the rider (pack metres). */
   maintain(rx: number, ry: number): void {
     if (!this.mesh || !this.shown) return;
@@ -178,8 +187,7 @@ export class SlowSigns {
       } else if (s.res > 1) moved = this.seat(i) || moved;
       if (!this.collider) continue;
       if (d < POST_NEAR) {
-        // BUG-082: a far tree cell dropping clears every cylinder in its square kilometre, this one too
-        if (s.post && !this.collider.near(s.x, s.y, 0.01, this.found).includes(s.post)) s.post = null;
+        this.bug082Readd(s);
         if (!s.post) s.post = this.collider.add(s.x, s.y, POST_R, s.z - 1, s.z + POST_TOP, 0);
       }
     }
