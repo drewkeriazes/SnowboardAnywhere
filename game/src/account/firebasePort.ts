@@ -2,7 +2,7 @@
 // stays in its own chunk and the main bundle carries no Firebase code.
 import {
   createUserWithEmailAndPassword, EmailAuthProvider, GithubAuthProvider, getAuth, getIdToken, getIdTokenResult, linkWithCredential, linkWithPopup,
-  onAuthStateChanged, sendEmailVerification, signInWithEmailAndPassword, signInWithPopup, signOut, type User,
+  onAuthStateChanged, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signInWithPopup, signOut, type User,
 } from 'firebase/auth';
 import { firebaseApp } from '../firebase/app';
 import type { AuthPort, PortUser } from './firebaseAccount';
@@ -26,6 +26,7 @@ export async function firebaseAuthPort(): Promise<AuthPort> {
     sendVerification: (u) => sendEmailVerification(raw(u)),
     linkPassword: async (u, email, password) => wrap((await linkWithCredential(raw(u), EmailAuthProvider.credential(email, password))).user),
     linkGithub: async (u) => wrap((await linkWithPopup(raw(u), new GithubAuthProvider())).user),
+    sendPasswordReset: (email) => sendPasswordResetEmail(auth, email),
     signOut: () => signOut(auth),
     claims: async (u, refresh) => (await getIdTokenResult(raw(u), refresh)).claims as Record<string, unknown>,
     token: (u) => getIdToken(raw(u)),
