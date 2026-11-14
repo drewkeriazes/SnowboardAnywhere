@@ -99,17 +99,20 @@ jobs:
           # PRs: the first-parent commits on main since then, by their merge subject.
           while IFS=$'\t' read -r sha subj; do
             n=$(printf '%s' "$subj" | sed -nE 's/^Merge pull request #([0-9]+) .*/\1/p; s/.*\(#([0-9]+)\)$/\1/p' | head -n1)
-            if [ -z "$n" ]; then
-              printf -- '- %s %s\n' "${sha:0:7}" "$subj" >> /tmp/direct.md; ndirect=$((ndirect + 1)); continue
-            fi
             # One call: head branch, closed cards, the covered line and the context block (both base64, so one TSV line).
             # No field may be empty: read collapses a run of tabs, which would shift the columns.
-            IFS=$'\t' read -r head closes line block < <(gh pr view "$n" --repo "$REPO" \
+            # A "(#N)" that is an issue, not a PR, finds nothing and counts as a direct commit (BUG-094).
+            row=""
+            [ -z "$n" ] || row=$(gh pr view "$n" --repo "$REPO" \
               --json number,title,body,headRefName,url,mergedAt,closingIssuesReferences --jq '
                 ([.closingIssuesReferences[].number | tostring] | join(" ")) as $c
                 | [.headRefName, (if $c == "" then "none" else $c end), ("- #\(.number) \(.title)" | @base64),
                    ("### PR #\(.number): \(.title)\n\(.url), merged \(.mergedAt), closes: \(if $c == "" then "none" else $c end)\n\n\((.body // "")[0:3000])\n" | @base64)]
-                | @tsv' < /dev/null)
+                | @tsv' < /dev/null 2> /dev/null) || row=""
+            if [ -z "$row" ]; then
+              printf -- '- %s %s\n' "${sha:0:7}" "$subj" >> /tmp/direct.md; ndirect=$((ndirect + 1)); continue
+            fi
+            IFS=$'\t' read -r head closes line block <<< "$row"
             case "$head" in readme-update-*) continue ;; esac
             [ "$closes" = none ] || for c in $closes; do pr_cards[$c]=1; done
             base64 -d <<< "$block" >> /tmp/prs.md
