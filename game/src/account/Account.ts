@@ -12,6 +12,8 @@ export type AddMethodRequest = { method: 'github' } | { method: 'password'; emai
 export type SignInFailureCode = 'cancelled' | 'popup-blocked' | 'email-in-use' | 'unauthorized-domain' | 'network' | 'not-enabled' | 'unavailable'
   | 'bad-credentials' | 'unverified' | 'weak-password' | 'invalid-email' | 'already-added' | 'too-many-requests' | 'not-signed-in' | 'unknown';
 export type SignInResult = { ok: true; player: Player; note?: string } | { ok: false; code: SignInFailureCode; message: string };
+/** FEAT-283: a password reset request. `ok` says the request went in, never whether the address has an account. */
+export type ResetResult = { ok: true; note: string } | { ok: false; code: SignInFailureCode; message: string };
 export const PROVIDER_GITHUB = 'github.com';
 export const PROVIDER_PASSWORD = 'password';
 /** the providers' names, as the account screen lists them */
@@ -30,6 +32,8 @@ export interface AccountService {
   /** FEAT-274: links a second method to the signed-in account; 'not-signed-in' for a guest. A method whose
    *  email or identity belongs to another account is refused ('email-in-use'), never joined. */
   addMethod(req: AddMethodRequest): Promise<SignInResult>;
+  /** FEAT-283: Firebase's password reset email to `email`. The same line whether or not the address has an account. */
+  sendPasswordReset(email: string): Promise<ResetResult>;
   signOut(): Promise<void>;
   /** the current ID token for `Authorization: Bearer`, null for a guest */
   idToken(): Promise<string | null>;

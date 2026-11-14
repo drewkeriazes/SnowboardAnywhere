@@ -3,7 +3,10 @@
 // the account's sign-in methods and adds the missing one from here: a second method joins an account only from a
 // session already signed in to it, never because two emails match. Everything from the account goes in through
 // textContent or an input's value, never innerHTML.
-import { PROVIDER_GITHUB, PROVIDER_LABEL, PROVIDER_PASSWORD, type AccountService, type AccountState, type SignInResult } from '../account/Account';
+// FEAT-283: "Forgot your password?" under the sign-in form sends Firebase's reset email to the typed address and
+// shows one line whether or not the address has an account. It is a button styled as a link, so the menu's keyboard
+// and controller navigation reach it like any other.
+import { PROVIDER_GITHUB, PROVIDER_LABEL, PROVIDER_PASSWORD, type AccountService, type AccountState, type ResetResult, type SignInResult } from '../account/Account';
 import { whoLine } from './AccountLine';
 
 export type MethodKey = 'github' | 'password';
@@ -65,15 +68,18 @@ export function fillAccountPanel(host: HTMLElement, account: AccountService, o: 
   let noteOk = false;
   let keepEmail: string | null = null;
 
-  const run = async (act: string, go: () => Promise<SignInResult | void>, closeOnOk: boolean) => {
+  const run = async (act: string, go: () => Promise<SignInResult | ResetResult | void>, closeOnOk: boolean) => {
     if (busy) return;
     busy = true; note = ''; draw(act);
     const r = await go();
     busy = false;
     if (closeOnOk && (!r || r.ok)) { o.close(); return; }
     if (r) { note = r.ok ? (r.note ?? '') : r.message; noteOk = r.ok || (r.code === 'unverified' && act === 'signup'); } // a cancelled popup has an empty message: no note
+    if (!host.isConnected || host.hidden) return;
+    // a reset request: focus stays on the link, or goes to the email field when that is what needs fixing
+    if (act === 'forgot') { draw(null, r && !r.ok && r.code === 'invalid-email' ? 'input[name=email]' : 'button[data-act=forgot]'); return; }
     // a refused password: back to its field to try again
-    if (host.isConnected && !host.hidden) draw(null, r && !r.ok && act !== 'github' && act !== 'add-github' ? 'input[name=password]' : null);
+    draw(null, r && !r.ok && act !== 'github' && act !== 'add-github' ? 'input[name=password]' : null);
   };
 
   const draw = (pressed: string | null, focus: string | null = null) => {
@@ -94,7 +100,9 @@ export function fillAccountPanel(host: HTMLElement, account: AccountService, o: 
       signin.addEventListener('click', () => run('signin', () => account.signIn(req(false)), true));
       signup.addEventListener('click', () => run('signup', () => account.signIn(req(true)), true));
       const row = el('div', 'acct-row'); row.append(signin, signup);
-      f.form.append(row);
+      const forgot = button('forgot', busyLabel('forgot', 'Forgot your password?'), 'acct-link');
+      forgot.addEventListener('click', () => run('forgot', () => account.sendPasswordReset(f.email.value), false));
+      f.form.append(row, forgot);
       host.append(gh, el('div', 'acct-or', 'or with email and password'), f.form);
     } else {
       host.append(el('div', 'ph', 'Account'), el('div', 'acct-who', v.who), el('p', '', `Signs in with: ${v.methods.join(', ')}.`));

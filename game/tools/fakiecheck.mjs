@@ -37,10 +37,12 @@ function run(r, n, i) {
   for (let k = 0; k < n; k++) { r.update(1 / 60, i); const d = drawn(r); worst = Math.max(worst, Math.abs(wrap(d - prev))); prev = d; }
   return worst;
 }
-/** launch into the air and spin with steer `s` for `t` seconds, then hold straight until landing */
-function spinJump(r, s, t) {
+/** launch into the air and spin with steer `s` until the board has turned `a` rad (the air spin rate depends on
+ *  the jump mode, FEAT-311), then hold straight until landing */
+function spinJump(r, s, a) {
   r.onGround = false; r.vz = 9; r.z += 0.1; r.airTime = 0; r.spin = 0; r.flip = 0; r.flipRate = 0;
-  let jump = run(r, Math.round(t * 60), inp({ steer: s }));
+  let jump = 0;
+  for (let k = 0; k < 600 && Math.abs(r.spin) < a - 0.03; k++) jump = Math.max(jump, run(r, 1, inp({ steer: s })));
   let k = 0;
   while (!r.onGround && k++ < 600) jump = Math.max(jump, run(r, 1, inp()));
   return { jump, landed: r.onGround };
@@ -55,9 +57,9 @@ for (const goofy of [false, true]) {
   r.reset(0, 0, Math.PI); // facing downhill (-y)
   run(r, 240, inp());
   check('rides away in the normal stance', !r.switch && r.speed > 8, `speed ${r.speed.toFixed(1)}`);
-  // a 180: spin about PI in the air (3.5 rad/s for 0.9 s)
+  // a 180: spin about PI in the air
   const pre = drawn(r);
-  let j = spinJump(r, 1, 0.9);
+  let j = spinJump(r, 1, Math.PI);
   const vAlong = r.vx * Math.sin(r.heading) + r.vy * Math.cos(r.heading);
   check('180 lands', j.landed && r.crashed <= 0, `crashed ${r.crashed.toFixed(2)}`);
   check('no drawn yaw jump beyond the spin', j.jump < 0.12, `largest step ${deg(j.jump)} deg`);
@@ -77,12 +79,12 @@ for (const goofy of [false, true]) {
   check('the toe edge is on the heading left riding regular switch, right riding goofy switch', r.toeSign === (goofy ? 1 : -1), `toeSign ${r.toeSign}`);
   run(r, 120, inp());
   // a switch 360 keeps you switch
-  j = spinJump(r, 1, 1.8);
+  j = spinJump(r, 1, 2 * Math.PI);
   check('switch 360 lands switch', j.landed && r.switch && r.crashed <= 0, `switch ${r.switch} crashed ${r.crashed.toFixed(2)}`);
   check('switch 360 named', tricks.at(-1) === (goofy ? 'Switch backside 360' : 'Switch frontside 360'), `${tricks.at(-1)}`);
   run(r, 120, inp());
   // another 180 takes you back
-  j = spinJump(r, -1, 0.9);
+  j = spinJump(r, -1, Math.PI);
   check('180 back to the normal stance', j.landed && !r.switch, `switch ${r.switch}`);
   check('switch 180 named', tricks.at(-1) === (goofy ? 'Switch frontside 180' : 'Switch backside 180'), `${tricks.at(-1)}`);
 

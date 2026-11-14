@@ -3,6 +3,7 @@
 // hints come from the key tables, Esc cancels a rebind without closing anything, Esc resumes exactly
 // once, and A on Resume doesn't jump.
 // node tools/menucheck.mjs [pack] [--headed | --gpu | --cpu] [--shots]   (run after `npx vite build`; exit 1 on a failed check)
+//   BUG-135: steps wait for the state they expect (frames(), until(), pauseIs()) rather than fixed sleeps, so a slow frame under GPU load doesn't fail them
 //   --shots saves the main menu, settings (over the menu, over the game, phone sizes) and pause to shots/menus/
 import { launchBrowser } from './browser.mjs';
 import http from 'node:http';
@@ -56,8 +57,26 @@ await page.waitForTimeout(300);
 
 /** the focused item: a settings row by its id, else the button's data-a / data-cat, else the tag */
 const active = () => page.evaluate(() => { const a = document.activeElement; if (!a) return null; const r = a.closest('[data-row]'); return a.dataset.row ?? (r && a.matches('.key') ? `slot:${r.dataset.row}` : null) ?? a.dataset.a ?? a.dataset.cat ?? a.dataset.k ?? a.dataset.d ?? (a.matches('.search') ? 'search' : a.tagName); });
+// BUG-135: the game reads Esc while riding and every pad button in its frame loop, so a step waits for the state it
+// expects (or for frames to pass) instead of a fixed sleep: a slow frame under GPU load no longer makes it miss
+/** n frames of the page: each one ran the game's update and PadNav's poll at least once */
+const frames = (n = 2, p = page) => p.evaluate((n) => new Promise((r) => { let i = 0; const f = () => (++i >= n ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); }), n);
+/** wait until fn(arg) is true in the page; false on a timeout (the check after it then reports what it saw) */
+const until = (fn, arg, timeout = 10000, p = page) => p.waitForFunction(fn, arg, { timeout }).then(() => true, () => false);
+/** the pause menu is shown (open) or hidden (!open) */
+const pauseIs = (open, p = page) => until((o) => { const el = document.querySelector('#pause'); return !!el && (getComputedStyle(el).display !== 'none') === o; }, open, 10000, p);
+/** Esc while riding: the pause menu opens on the next frame, on Resume */
+const pauseKey = async (p = page) => { await p.keyboard.press('Escape'); await pauseIs(true, p); };
+/** Esc on the pause menu resumes */
+const resumeKey = async () => { await page.keyboard.press('Escape'); await pauseIs(false); };
 const key = async (k) => { await page.keyboard.press(k); await page.waitForTimeout(60); };
-const pad = async (i, holdMs = 90) => { await page.evaluate((i) => { window.__pad.buttons[i].pressed = true; window.__pad.buttons[i].value = 1; }, i); await page.waitForTimeout(holdMs); await page.evaluate((i) => { window.__pad.buttons[i].pressed = false; window.__pad.buttons[i].value = 0; }, i); await page.waitForTimeout(80); };
+/** a pad button held for holdMs and at least two frames (the frame loop polls the pad), then released for two more */
+const pad = async (i, holdMs = 90) => {
+  await page.evaluate((i) => { window.__pad.buttons[i].pressed = true; window.__pad.buttons[i].value = 1; }, i);
+  await Promise.all([page.waitForTimeout(holdMs), frames(2)]);
+  await page.evaluate((i) => { window.__pad.buttons[i].pressed = false; window.__pad.buttons[i].value = 0; }, i);
+  await Promise.all([page.waitForTimeout(80), frames(2)]);
+};
 const hints = () => page.evaluate(() => [...document.querySelectorAll('.hintbar')].filter((e) => e.offsetParent).map((e) => [...e.querySelectorAll(':scope > span')].map((x) => `[${x.querySelector('kbd')?.textContent}] ${x.lastChild?.textContent}`).join(' ')).join(' | '));
 const setOpen = () => page.evaluate(() => { const el = document.querySelector('#settings'); return !!el && getComputedStyle(el).display !== 'none'; });
 const cat = () => page.evaluate(() => document.querySelector('#settings .cats button.on')?.dataset.cat ?? null);
@@ -244,7 +263,7 @@ await page.waitForFunction(() => window.__sim?.attract === true, null, { timeout
 check('the session is live behind the menu', await page.evaluate(() => window.__sim.cam.mode === 'eye' && !window.__sim.riderView.group.visible));
 await page.evaluate(() => document.querySelector('#menu button.ride')?.focus());
 await key('KeyM'); await key('Escape');
-await page.waitForTimeout(200);
+await Promise.all([page.waitForTimeout(200), frames(3)]);
 check('riding keys do nothing behind the menu', await page.evaluate(() => !window.__sim.map.fullOpen && getComputedStyle(document.querySelector('#pause')).display === 'none' && window.__sim.attract));
 // the card row: Snowboard / Skis on the resort card (B), the mode cards, Change resort
 await key('KeyB');
@@ -272,13 +291,14 @@ if (shots) {
   await page.setViewportSize({ width: 1280, height: 800 }); await page.waitForTimeout(200);
 }
 await page.evaluate(() => document.querySelector('#menu button.ride').click());
-await page.waitForTimeout(400);
+await until(() => !window.__sim.attract && getComputedStyle(document.querySelector('#menu')).display === 'none' && window.__sim.cam.mode !== 'eye');
 const rode = await page.evaluate(() => ({ attract: window.__sim.attract, gates: window.__sim.trialWorld.enabled, cam: window.__sim.cam.mode, menu: getComputedStyle(document.querySelector('#menu')).display }));
 check('RIDE starts the time trial from the menu', !rode.attract && rode.gates && rode.cam !== 'eye' && rode.menu === 'none', JSON.stringify(rode));
 // Quit (twice) goes back to the menu without tearing the session down; RIDE again in Free ride
-await key('Escape');
+await pauseKey();
 await page.evaluate(() => { const q = document.querySelector('#pause .foot .quit'); q.click(); q.click(); });
-await page.waitForTimeout(300);
+const backToMenu = () => until(() => window.__sim.attract && getComputedStyle(document.querySelector('#menu')).display !== 'none' && document.querySelector('#menu').classList.contains('live'));
+await backToMenu();
 const back = await page.evaluate(() => ({ attract: window.__sim.attract, shown: getComputedStyle(document.querySelector('#menu')).display !== 'none', gates: window.__sim.trialWorld.enabled, live: document.querySelector('#menu').classList.contains('live') }));
 check('Quit returns to the live menu, the course ended', back.attract && back.shown && back.live && !back.gates, JSON.stringify(back));
 // ghosts: a take steps a full rider through the backdrop (a synthetic line down the fall line here)
@@ -287,41 +307,47 @@ const ghost = await page.evaluate(async () => {
   const samples = Array.from({ length: 60 }, (_, i) => { const x = x0 + i * 0.6, y = y0 - i * 0.6; return { t: i * 0.05, x, y, z: p.groundHeight(x, y), h: 0, lg: 0, e: 0, f: 1, hd: 0, vx: 12, vy: -12, vz: 0, ln: 0, fl: 0, sq: 0, jc: 0, on: 0, hc: 0, cf: 0, cs: 0 }; });
   s.ghosts.add({ version: 1, pack: p.meta.slug, discipline: 'board', stance: 'regular', outfit: 'Neon 90s', samples });
   const view = () => s.ghosts.group.children.find((c) => c.visible && c.type === 'Group');
+  // BUG-135: the take steps on frames, so wait for one to show and then for it to move (a few seconds at most)
+  const t0 = performance.now(), frame = () => new Promise((r) => requestAnimationFrame(r));
+  while (!view() && performance.now() - t0 < 5000) await frame();
   await new Promise((r) => setTimeout(r, 400));
   const a = view()?.position.x ?? null;
   await new Promise((r) => setTimeout(r, 600));
+  const t1 = performance.now();
+  while (a !== null && view()?.position.x === a && performance.now() - t1 < 5000) await frame();
   const b = view()?.position.x ?? null;
   return { count: s.ghosts.count, a, b };
 });
 check('a ghost take rides behind the menu', ghost.count >= 1 && ghost.a !== null && ghost.b !== null && ghost.b !== ghost.a, JSON.stringify(ghost));
 // Outrun with "or drop in from the map": the map can drop you in, and the chase starts once it closes
 await page.evaluate(() => { document.querySelector('#menu .card[data-mode="outrun"]').click(); document.querySelector('#menu .pop [data-ok]').click(); document.querySelector('#menu button[data-a="map"]').click(); });
-await page.waitForTimeout(300);
+await until(() => window.__sim.map.fullOpen);
 const om = await page.evaluate(() => ({ map: window.__sim.map.fullOpen, pick: !!window.__sim.map.onPick, outrun: window.__sim.outrun.active }));
 await page.evaluate(() => window.__sim.map.close());
-await page.waitForTimeout(300);
+await until(() => window.__sim.outrun.active);
 const om2 = await page.evaluate(() => window.__sim.outrun.active);
 check('Outrun from the map: drop in first, then the chase', om.map && om.pick && !om.outrun && om2, JSON.stringify({ ...om, after: om2 }));
-await key('Escape');
+await pauseKey();
 await page.evaluate(() => { const q = document.querySelector('#pause .foot .quit'); q.click(); q.click(); });
-await page.waitForTimeout(300);
+await backToMenu();
 await page.evaluate(() => { document.querySelector('#menu .card[data-mode="free"]').click(); document.querySelector('#menu button.ride').click(); });
-await page.waitForTimeout(1500);
+await until(() => !window.__sim.attract && !window.__sim.trialWorld.enabled && window.__sim.riderView.group.visible, null, 15000);
+await Promise.all([page.waitForTimeout(500), frames(5)]); // riding for a moment before the pause steps
 check('RIDE again from the same session', await page.evaluate(() => !window.__sim.attract && !window.__sim.trialWorld.enabled && window.__sim.riderView.group.visible));
-await key('Escape');
+await pauseKey();
 const pauseOpen = await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display !== 'none');
 check('Esc opens pause on Resume', pauseOpen && (await active()) === 'resume', `open ${pauseOpen}, focused ${await active()}`);
-await key('Escape');
-await page.waitForTimeout(300);
+await resumeKey();
+await Promise.all([page.waitForTimeout(300), frames(3)]); // and it stays closed: the same Esc did not pause again
 check('Esc resumes once', await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display === 'none'));
 
 // a stick already held down (braking) when pause opens doesn't walk the focus off Resume
 await page.evaluate(() => { window.__pad.axes[1] = 1; });
-await key('Escape');
-await page.waitForTimeout(1000);
+await pauseKey();
+await Promise.all([page.waitForTimeout(1000), frames(10)]); // long enough for PadNav to have walked the focus if it would
 const heldFocus = await active();
 await page.evaluate(() => { window.__pad.axes[1] = 0; });
-await page.waitForTimeout(150);
+await Promise.all([page.waitForTimeout(150), frames(2)]);
 check('held stick keeps focus on Resume', heldFocus === 'resume', `focused ${heldFocus}`);
 // ---- the pause menu (layout B): the place and this run's stats, quick toggles, Mode, Quit pressed twice
 const head = await page.evaluate(() => ({ place: document.querySelector('#pause .place').textContent, stats: document.querySelector('#pause .stats').textContent, eyebrow: document.querySelector('#pause .eyebrow').textContent }));
@@ -363,11 +389,12 @@ check('Esc in the group closes it onto Weather, pause stays', !wg2.open && (awai
 await page.evaluate(() => document.querySelector('#pause .qhead .lbl').click());
 const wgClick = (await wg()).open;
 await page.evaluate(() => document.querySelector('#pause button[data-a="resume"]').focus());
-await key('Escape'); await page.waitForTimeout(200); await key('Escape'); await page.waitForTimeout(200);
+await resumeKey(); await frames(2); await pauseKey();
 check('a click opens Weather and it stays open across a pause', wgClick && (await wg()).open && (await active()) === 'resume', JSON.stringify(await wg()));
 // Settings > Conditions shows the value set from Quick
 await page.evaluate(() => document.querySelector('#pause button[data-a="settings"]')?.click());
-await page.waitForTimeout(300);
+const settingsUp = () => until(() => { const el = document.querySelector('#settings'); return !!el && getComputedStyle(el).display !== 'none'; });
+await settingsUp();
 await openCat('conditions');
 const segOn = await page.evaluate(() => document.querySelector('#settings [data-row="snowDay"] .seg button.on')?.dataset.v);
 check('Settings shows the snow set from Quick', segOn === snow1, `${segOn} vs ${snow1}`);
@@ -389,17 +416,18 @@ check('Esc closes Mode onto its button, pause stays', (await active()) === 'mode
 const course = await page.evaluate(() => document.querySelector('#pause .courses button[data-course]')?.dataset.course ?? null);
 if (course) {
   await page.evaluate(() => { document.querySelector('#pause button[data-a="mode"]').click(); document.querySelector('#pause .modep .tabs button[data-m="trial"]').click(); document.querySelector('#pause .courses button[data-course]').click(); });
-  await page.waitForTimeout(300);
+  await pauseIs(false);
+  await until(() => window.__sim.trialWorld.enabled);
   const tt = await page.evaluate(() => ({ paused: getComputedStyle(document.querySelector('#pause')).display !== 'none', on: window.__sim.trialWorld.enabled, setting: window.__sim.settings.timeTrials }));
   check('a course from Mode turns the gates on for the session', !tt.paused && tt.on && tt.setting === false, JSON.stringify(tt));
-  await key('Escape');
-  await page.waitForFunction(() => getComputedStyle(document.querySelector('#pause')).display !== 'none', null, { timeout: 10000 }).catch(() => {});
+  await pauseKey();
   const label = await page.evaluate(() => document.querySelector('#pause [data-v="mode"]').textContent);
   check('Mode shows the course', label.length > 0 && label !== 'Free ride', label);
   await page.evaluate(() => { document.querySelector('#pause button[data-a="mode"]').click(); document.querySelector('#pause .modep .tabs button[data-m="free"]').click(); document.querySelector('#pause [data-go="freeride"]').click(); });
-  await page.waitForTimeout(200);
+  await pauseIs(false);
+  await until(() => !window.__sim.trialWorld.enabled);
   check('Free ride turns them off again', await page.evaluate(() => !window.__sim.trialWorld.enabled));
-  await key('Escape');
+  await pauseKey();
 } else check('the pack has a time trial course', false);
 // Quit sits in the hint bar and needs a second press
 await page.evaluate(() => document.querySelector('#pause .foot .quit').click());
@@ -416,7 +444,8 @@ if (shots) {
 }
 // pause > Settings: over the live game, with the fps readout; changes apply at once
 await page.evaluate(() => document.querySelector('#pause button[data-a="settings"]')?.click());
-await page.waitForTimeout(700);
+await settingsUp();
+await until(() => /fps/.test(document.querySelector('#settings .fps')?.textContent ?? ''));
 check('settings over the game, with fps', await setOpen() && await page.evaluate(() => document.querySelector('#settings').classList.contains('over-game') && /fps/.test(document.querySelector('#settings .fps').textContent)));
 // the readout is the live frame rate of the paused game, not the last one before the pause
 await page.waitForTimeout(1200);
@@ -435,7 +464,7 @@ check('after Reset all the pause Outrun options still apply', await page.evaluat
 await page.evaluate(() => document.querySelector('#pause .qrow[data-q="outrun.difficulty"] button.arr[data-d="-1"]').click());
 await key('Escape');
 await page.evaluate(() => document.querySelector('#pause button[data-a="settings"]')?.click());
-await page.waitForTimeout(200);
+await settingsUp();
 // a change made in Settings shows in the pause menu's quick toggles once Settings closes
 await openCat('conditions'); await focusRow('clouds'); await key('ArrowRight');
 const wantW = await page.evaluate(() => document.querySelector('#settings [data-row="clouds"] .pv').textContent);
@@ -444,10 +473,11 @@ const shownW = await page.evaluate(() => document.querySelector('#pause .qrow[da
 check('quick toggles follow a change made in Settings', shownW === wantW, `${shownW} vs ${wantW}`);
 await page.evaluate(() => document.querySelector('#pause .qrow[data-q="clouds"] button.arr[data-d="-1"]').click());
 await page.evaluate(() => document.querySelector('#pause button[data-a="settings"]')?.click());
-await page.waitForTimeout(200);
+await settingsUp();
 // typing in search never reaches the game behind (M is the map)
 await page.focus('#settings .search');
 await page.keyboard.type('m', { delay: 20 });
+await frames(3); // the map key is read in the frame loop
 check('typing in search does not open the map', await page.evaluate(() => !window.__sim.map.fullOpen));
 await key('Escape');
 // Peek: hold V (or Y) hides the screen, release brings it back (V typed in the search box is a letter, so from a row)
@@ -456,9 +486,11 @@ await page.keyboard.down('KeyV'); await page.waitForTimeout(150);
 const peekOn = await page.evaluate(() => document.body.classList.contains('peeking'));
 await page.keyboard.up('KeyV'); await page.waitForTimeout(150);
 check('hold V peeks, release returns', peekOn && await page.evaluate(() => !document.body.classList.contains('peeking')));
-await page.evaluate(() => { window.__pad.buttons[3].pressed = true; window.__pad.buttons[3].value = 1; }); await page.waitForTimeout(200);
+await page.evaluate(() => { window.__pad.buttons[3].pressed = true; window.__pad.buttons[3].value = 1; });
+await Promise.all([page.waitForTimeout(200), frames(2)]); await until(() => document.body.classList.contains('peeking'), null, 5000);
 const padPeek = await page.evaluate(() => document.body.classList.contains('peeking'));
-await page.evaluate(() => { window.__pad.buttons[3].pressed = false; window.__pad.buttons[3].value = 0; }); await page.waitForTimeout(200);
+await page.evaluate(() => { window.__pad.buttons[3].pressed = false; window.__pad.buttons[3].value = 0; });
+await Promise.all([page.waitForTimeout(200), frames(2)]); await until(() => !document.body.classList.contains('peeking'), null, 5000);
 check('hold Y peeks, release returns', padPeek && await page.evaluate(() => !document.body.classList.contains('peeking')));
 if (shots) await page.screenshot({ path: path.join(outDir, 'settings-game.png') });
 // Esc on a listening key slot cancels the slot, settings stays open
@@ -473,46 +505,49 @@ check('pause rebind Esc cancels only the slot', (await kslot.textContent()) === 
 const keysBefore = await page.evaluate(() => JSON.stringify(window.__sim.settings.keys));
 await kslot.click();
 await pad(9); // Start
-await page.waitForTimeout(200);
+await until(() => getComputedStyle(document.querySelector('#pause')).display === 'none' && (!document.querySelector('#settings') || getComputedStyle(document.querySelector('#settings')).display === 'none') && !document.body.classList.contains('settings-open'));
 await key('KeyJ');
+await frames(2);
 const keysAfter = await page.evaluate(() => JSON.stringify(window.__sim.settings.keys));
 const closedAll = !(await setOpen()) && await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display === 'none' && !document.body.classList.contains('settings-open'));
-await key('Escape');
+await pauseKey();
 const f0 = await active();
 await key('ArrowDown');
 check('closing pause closes settings and cancels a listening slot', keysAfter === keysBefore && closedAll && f0 === 'resume' && (await active()) !== 'resume', `keys same ${keysAfter === keysBefore}, closed ${closedAll}, focus ${f0} -> ${await active()}`);
-await key('Escape');
-await page.waitForTimeout(300);
+await resumeKey();
+await Promise.all([page.waitForTimeout(300), frames(3)]);
 
 // A on Resume with the pad, A still held: no jump charge, no jump on release
-await key('Escape');
+await pauseKey();
 await page.evaluate(() => { window.__pad.buttons[0].pressed = true; window.__pad.buttons[0].value = 1; });
-await page.waitForTimeout(600);
+await pauseIs(false); // PadNav presses Resume on its next frame
+await Promise.all([page.waitForTimeout(600), frames(10)]); // riding with A still held: a jump would be charging by now
 const charge = await page.evaluate(() => window.__sim.rider.jumpCharge);
 const closed = await page.evaluate(() => getComputedStyle(document.querySelector('#pause')).display === 'none');
 await page.evaluate(() => { window.__pad.buttons[0].pressed = false; window.__pad.buttons[0].value = 0; });
 let air = false;
-for (let i = 0; i < 10; i++) { await page.waitForTimeout(60); if (await page.evaluate(() => !window.__sim.rider.onGround)) air = true; }
+for (let i = 0; i < 10; i++) { await Promise.all([page.waitForTimeout(60), frames(1)]); if (await page.evaluate(() => !window.__sim.rider.onGround)) air = true; }
 check('pad A on Resume does not jump', closed && charge === 0 && !air, `closed ${closed}, charge ${charge}, airborne ${air}`);
 
-await key('Escape');
-await page.waitForTimeout(200);
+await pauseKey();
 await page.evaluate(() => { document.querySelector('#pause .foot .quit').click(); document.querySelector('#pause .foot .quit').click(); });
-await page.waitForTimeout(300);
+await until(() => getComputedStyle(document.querySelector('#menu')).display !== 'none' && window.__sim.attract);
 check('Quit pressed twice goes to the main menu', await page.evaluate(() => getComputedStyle(document.querySelector('#menu')).display !== 'none' && window.__sim.attract));
 // an eye link (?cam=eye) opens at its view; Quit then goes to a menu that is ready (it loaded behind the loading screen)
 {
   const eye = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   eye.on('pageerror', (e) => errors.push(`eye pageerror: ${e.message}`));
+  // BUG-135: no pads here, so a real controller on the PC (a DualSense, a virtual Xbox pad) can't press anything
+  await eye.addInitScript(() => { navigator.getGamepads = () => []; });
   await eye.goto(url + '&cam=eye');
   await eye.waitForFunction(() => window.__sim && window.__sim.cam.mode === 'eye' && !window.__sim.attract, null, { timeout: 120000 });
-  await eye.waitForTimeout(800);
-  await eye.keyboard.press('Escape'); await eye.waitForTimeout(200);
+  await Promise.all([eye.waitForTimeout(800), frames(5, eye)]);
+  await pauseKey(eye);
   await eye.evaluate(() => { const q = document.querySelector('#pause .foot .quit'); q.click(); q.click(); });
-  await eye.waitForTimeout(500);
+  await until(() => window.__sim.attract && document.querySelector('#menu').classList.contains('live') && getComputedStyle(document.querySelector('#menu')).display !== 'none', null, 10000, eye);
   const st = await eye.evaluate(() => ({ attract: window.__sim.attract, live: document.querySelector('#menu').classList.contains('live'), shown: getComputedStyle(document.querySelector('#menu')).display !== 'none' }));
   await eye.evaluate(() => document.querySelector('#menu button.ride').click());
-  await eye.waitForTimeout(400);
+  await until(() => !window.__sim.attract, null, 10000, eye);
   const rode = await eye.evaluate(() => !window.__sim.attract);
   check('eye link, then Quit: the menu is ready and RIDE goes', st.attract && st.live && st.shown && rode, JSON.stringify({ ...st, rode }));
   await eye.close();

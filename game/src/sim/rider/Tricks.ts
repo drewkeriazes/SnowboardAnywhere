@@ -65,6 +65,6 @@ export function land(r: Rider, ground: number, input: Input): void {
   // FEAT-139: landed with the board backwards (a 180, a 540): ride away switch, tail leading
   if (r.discipline === 'board' && spd > 0.5 && r.vx * hx + r.vy * hy < 0) r.turnRound();
   if (!clean) r.heading = Math.atan2(r.vx, r.vy); // the board snaps to the direction of travel (the nearer end leading)
-  r.spin = 0; r.flip = 0; r.flipRate = 0;
+  r.spin = 0; r.flip = 0; r.flipRate = 0; r.tuckDir = 0;
   r.airTime = 0;
 }
