@@ -107,10 +107,17 @@ export class Pack {
   }
 
   /**
-   * Count of terrainHeight() calls that wanted a finer set (the point is inside it) but had to
-   * use a coarser one because the tile was not loaded yet. Physics diffs it per step to warn.
+   * Count of height reads during the rider's physics step that wanted a finer set (the point is inside it)
+   * but had to use a coarser one because the tile was not loaded yet. Physics diffs it per step to warn.
+   * BUG-100: only reads while `physicsSampling` is set count here; every other caller (the particle
+   * light's shadow march, cameras, tracks, labels) goes to `otherFallbacks`, so this stays a clean
+   * "physics rode a coarser set" count.
    */
   coarseFallbacks = 0;
+  /** BUG-100: the same count for height reads outside the rider's physics step */
+  otherFallbacks = 0;
+  /** BUG-100: true while Rider.update runs its physics steps, so fallbacks count to `coarseFallbacks` */
+  physicsSampling = false;
 
   /** Terrain height from the finest loaded set plus the mogul bumps, ignoring bridges. Independent of render LOD. */
   terrainHeight(x: number, y: number): number {
@@ -152,7 +159,7 @@ export class Pack {
       if (!s.contains(x, y)) continue;
       const h = s.sample(x, y);
       if (!Number.isNaN(h)) {
-        if (skipped) this.coarseFallbacks++;
+        if (skipped) { if (this.physicsSampling) this.coarseFallbacks++; else this.otherFallbacks++; }
         return h;
       }
       skipped = true;

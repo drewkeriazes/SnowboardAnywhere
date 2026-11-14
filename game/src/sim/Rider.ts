@@ -325,6 +325,14 @@ export class Rider {
     // moved from outside since the last step (lift, reset, teleport): nothing to interpolate from
     if (this.x !== this.end[0] || this.y !== this.end[1] || this.z !== this.end[2] || this.heading !== this.end[3]) { this.squareBoard(); this.snapPose(); }
     this.accum += Math.min(dt, 0.1);
+    // BUG-100: height reads in here count to pack.coarseFallbacks, everything else's to otherFallbacks
+    this.pack.physicsSampling = true;
+    try { this.runSteps(input); } finally { this.pack.physicsSampling = false; }
+    this.end[0] = this.x; this.end[1] = this.y; this.end[2] = this.z; this.end[3] = this.heading;
+    this.alpha = this.accum / STEP;
+  }
+
+  private runSteps(input: Input): void {
     while (this.accum >= STEP) {
       this.prev[0] = this.x; this.prev[1] = this.y; this.prev[2] = this.z; this.prev[3] = this.heading; this.prev[4] = this.boardYaw;
       const fb = this.pack.coarseFallbacks;
@@ -343,8 +351,6 @@ export class Rider {
       this.accum -= STEP;
       input.jumpReleased = false; // consume the release edge
     }
-    this.end[0] = this.x; this.end[1] = this.y; this.end[2] = this.z; this.end[3] = this.heading;
-    this.alpha = this.accum / STEP;
   }
 
   /** FEAT-111: blend into or out of the squat, and time how long ago a deep squat was released */
