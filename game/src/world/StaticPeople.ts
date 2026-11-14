@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Pack } from '../pack/Pack';
 import type { Collider } from '../sim/Collider';
+import type { Ground } from '../terrain/Terrain';
 import { OUTFIT_PRESETS } from '../ui/Settings';
 import { planPeople, type PlannedPerson } from './people/plan';
 import { Bake, bakeSitter, bakeSkier, type Outfit } from './people/models';
@@ -78,6 +79,8 @@ export class StaticPeople {
   readonly group = new THREE.Group();
   readonly material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 });
   readonly spots: Spot[];
+  /** BUG-088: the terrain; a person is first built once the ground drawn under it has its real heights (null: at once) */
+  ground: Ground | null = null;
   private _visible = true;
   private readonly maskTmp = [0, 0, 0, 0];
   private readonly frame = new THREE.Matrix4();
@@ -131,6 +134,7 @@ export class StaticPeople {
       const res = this.pack.finestRes(s.x, s.y);
       if (!s.mesh || res < s.res) {
         if (budget <= 0) continue;
+        if (!s.mesh && this.ground && !this.ground.groundReady(s.x - 4, s.y - 4, s.x + 4, s.y + 4)) continue; // BUG-088
         budget--;
         this.seat(s);
         this.build(s);

@@ -81,6 +81,7 @@ export function buildWorld(ctx: GameContext) {
   const ls = landmarkStart(pack.meta.slug);
   const people = new StaticPeople(pack, collider, parsePeopleMode(params.people), [[pack.meta.start.x, pack.meta.start.y], ...(ls ? [[ls.x, ls.y] as [number, number]] : []), ...landmarks.list.map((l) => [l.x, l.y] as [number, number])]);
   add('people', people.group);
+  people.ground = terrain; // BUG-088
   const tracks = new Tracks(pack);
   add('tracks', tracks.group);
   const bootprints = new Bootprints(pack);
