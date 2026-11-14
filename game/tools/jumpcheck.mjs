@@ -37,18 +37,23 @@ function pop(mode, hold, { lean = 0, squat = false } = {}) {
   return { peak, vz, popped: k > 0 };
 }
 
-/** squat nollie (W, as the keyboard sends it: tuck plus the lean) and, if `flip`, W let go for a frame and held again
- *  through the air, else W kept down from the pop: the most front flip (rad) reached and the pitch and crash at the landing */
-function nollie(mode, flip) {
+/** squat nollie (W, as the keyboard sends it: tuck plus the lean), then W in the air: 'again' let go for a frame and
+ *  held again, 'held' kept down from the pop, 'off' let go. The most front flip (rad) reached, the flip at `at` s of
+ *  air, and the pitch and crash at the landing */
+function nollie(mode, how, at = 0.25) {
   const r = new Rider(flat, null), o = { lean: 1, squat: true }; // the lean only while charging, as Controls sends it
   r.jumpMode = mode; r.reset(0, 0, 0); r.vy = 8;
   for (let i = 0; i < 60; i++) r.update(FRAME, input({ squat: true }));
   for (let i = 0; i < 60; i++) r.update(FRAME, input({ ...o, jumpHeld: true }));
   r.update(FRAME, input({ ...o, tuck: true, jumpReleased: true }));
-  if (flip) r.update(FRAME, input());
-  let f = 0, last = 0;
-  for (let k = 0; k < 600 && !r.onGround; k++) { f = Math.max(f, r.flip); last = r.flip; r.update(FRAME, input({ tuck: true })); }
-  return { f, last, crashed: r.crashed > 0 };
+  if (how === 'again') r.update(FRAME, input());
+  let f = 0, last = 0, fAt = null;
+  for (let k = 0; k < 600 && !r.onGround; k++) {
+    f = Math.max(f, r.flip); last = r.flip;
+    if (fAt === null && r.airTime >= at) fAt = r.flip;
+    r.update(FRAME, input({ tuck: how !== 'off' }));
+  }
+  return { f, fAt, last, crashed: r.crashed > 0 };
 }
 
 let fails = 0;
@@ -76,12 +81,16 @@ check('real tap clearly smaller than a full charge', res['real tap'].peak < 0.5 
 check('real tap still pops', res['real tap'].popped && res['real tap'].peak > 0.08, m(res['real tap'].peak));
 check('real ollie still higher than a plain pop', res['real full ollie'].peak > res['real full'].peak, `${m(res['real full ollie'].peak)} against ${m(res['real full'].peak)}`);
 const deg = (a) => `${(a * 180 / Math.PI).toFixed(0)} deg`;
-const fr = nollie('real', true).f, fa = nollie('arcade', true).f;
+const fr = nollie('real', 'again').f, fa = nollie('arcade', 'again').f;
 check('real: no front flip off flat snow (short of 300 deg, the crash window)', fr < 300 * Math.PI / 180, deg(fr));
 check('arcade: a front flip off flat snow still goes round', fa > 2 * Math.PI, deg(fa));
-// FEAT-311: W still down from the nollie is spent on the pop, so it doesn't start a flip you can't finish
+// FEAT-311: W still down from the nollie tucks first (the pop's rotation, sped up only by the tuck, I_OPEN / I_TUCK),
+// so the flip starts about the apex; let go at the pop and the nollie lands near level
+const held = nollie('real', 'held');
+check('real: W kept down from a nollie barely turns before the tuck is in (under 18 deg at 0.25 s)', held.fAt < 18 * Math.PI / 180, deg(held.fAt));
+check('real: and then flips on, too late to land off flat snow (you land on your face)', held.crashed && held.last > 60 * Math.PI / 180, `${deg(held.last)} at the landing`);
 for (const mode of ['real', 'arcade']) {
-  const h = nollie(mode, false);
-  check(`${mode}: a nollie with W kept down lands near level`, !h.crashed && Math.abs(h.last) < 35 * Math.PI / 180, `${deg(h.last)} at the landing${h.crashed ? ', crashed' : ''}`);
+  const h = nollie(mode, 'off');
+  check(`${mode}: a nollie with W let go at the pop lands near level`, !h.crashed && Math.abs(h.last) < 35 * Math.PI / 180, `${deg(h.last)} at the landing${h.crashed ? ', crashed' : ''}`);
 }
 process.exit(fails ? 1 : 0);

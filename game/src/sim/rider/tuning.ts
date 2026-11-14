@@ -199,6 +199,12 @@ export const SQUAT_SPRING_WINDOW = 0.25;
  * and the landing windows (rad): within FLIP_CLEAN of upright is clean, up to FLIP_CRASH a wobble, past it a crash */
 export const FLIP_RATE = 1.1 * Math.PI * 2;
 export const FLIP_EASE = 6, FLIP_DECAY = 4;
+/** FEAT-311 the tuck after an ollie / nollie with the key still held: the rider's moment of inertia about the
+ *  pitch axis (kg m^2) open (about 14 for an adult laid out, plus the board at the feet) and tucked (about 4, plus
+ *  the board), and the time to pull the knees in (s). The air can't add rotation, only the tuck speeds up what the
+ *  pop left, I_OPEN / I_TUCK = 3.4 times. TUCK_TIME is about the time to the apex of a Realistic ollie (0.27 s for a
+ *  full charge, 0.33 s for a squat ollie: vz / g), so a held ollie starts to flip at the top. */
+export const I_OPEN = 16, I_TUCK = 4.7, TUCK_TIME = 0.3;
 export const FLIP_CLEAN = 35 * Math.PI / 180, FLIP_CRASH = 60 * Math.PI / 180;
 
 // ---- switch (FEAT-139), skating (FEAT-085), the press lean (FEAT-112)

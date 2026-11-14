@@ -1,7 +1,7 @@
 /** Jumps, the air and leaving the snow (split from sim/Rider.ts, FEAT-165) */
 import type { Rider } from '../Rider';
 import type { Input } from './types';
-import { FLIP_DECAY, FLIP_EASE, FLIP_RATE, G, HARD_IN, LIP_BEND0, LIP_BEND1, LIP_FLEX, LIP_LIFT, LIP_PRELOAD, LIP_RISE, LIP_SAMPLES, LIP_SPAN, JUMP_POP, SQUAT_SPRING_WINDOW, TAKEOFF_LIFT } from './tuning';
+import { FLIP_DECAY, FLIP_EASE, FLIP_RATE, G, I_OPEN, I_TUCK, TUCK_TIME, HARD_IN, LIP_BEND0, LIP_BEND1, LIP_FLEX, LIP_LIFT, LIP_PRELOAD, LIP_RISE, LIP_SAMPLES, LIP_SPAN, JUMP_POP, SQUAT_SPRING_WINDOW, TAKEOFF_LIFT } from './tuning';
 import { poseBoard } from './Brake';
 import { endPress } from './Press';
 import { land } from './Tricks';
@@ -23,9 +23,15 @@ export function airStep(r: Rider, dt: number, input: Input): void {
   // FEAT-110: Up/W pitches forward (front flip), Down/S back (backflip); the rate builds while
   // held and carries on a little after letting go, like real momentum
   let want = (input.tuck ? 1 : 0) - (input.brake ? 1 : 0);
-  // FEAT-311: the key still down from the ollie / nollie doesn't flip; let go and press again
-  if (r.flipLatch) { if (want === r.flipLatch) want = 0; else r.flipLatch = 0; }
-  if (want !== 0) r.flipRate += (want * FLIP_RATE - r.flipRate) * Math.min(1, dt * FLIP_EASE);
+  // FEAT-311: the key still down from an ollie / nollie pulls the knees in over TUCK_TIME. In the air the
+  // angular momentum the pop left (popPitch x I_OPEN) is fixed, so the tuck only speeds it up, by I_OPEN / I(t);
+  // once tucked (about the apex of an ollie) a key still held drives the flip as any other. Let go first and
+  // the body opens: the rotation dies away as it does after any flip input.
+  if (r.flipLatch && (want !== r.flipLatch || r.airTime >= TUCK_TIME)) r.flipLatch = 0;
+  if (r.flipLatch) {
+    const t = r.airTime / TUCK_TIME, s = t * t * (3 - 2 * t);
+    r.flipRate = r.popPitch * I_OPEN / (I_OPEN + (I_TUCK - I_OPEN) * s);
+  } else if (want !== 0) r.flipRate += (want * FLIP_RATE - r.flipRate) * Math.min(1, dt * FLIP_EASE);
   else r.flipRate *= Math.exp(-dt * FLIP_DECAY);
   r.flip += r.flipRate * dt;
   r.x += r.vx * dt; r.y += r.vy * dt; r.z += r.vz * dt;
@@ -52,7 +58,8 @@ export function jump(r: Rider, dt: number, input: Input, n: [number, number, num
     r.vx += n[0] * pop; r.vy += n[1] * pop; r.vz = n[2] * pop + Math.max(0, -(r.vx * n[0] + r.vy * n[1]));
     r.onGround = false; r.airTime = 0; r.spin = 0; r.flip = 0; r.flipRate = 0; r.jumpCharge = 0;
     r.flipLatch = flex > 1 ? Math.sign(r.lean) : 0;
-    if (flex > 1) r.flipRate = r.lean * P.pitch; // an ollie leaves you rotating back a little, a nollie forward
+    r.popPitch = flex > 1 ? r.lean * P.pitch : 0;
+    r.flipRate = r.popPitch; // an ollie leaves you rotating back a little, a nollie forward
     if (r.pressing) endPress(r, 'clean'); // FEAT-140: popped out of a press (W / S flip again at once)
     r.z = ground + 0.05;
     return true;

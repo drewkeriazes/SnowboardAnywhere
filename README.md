@@ -108,7 +108,7 @@ on the main menu, which works through the host too.
 | Key | Action |
 | --- | --- |
 | A / D (or arrows) | steer |
-| W / S (or arrows) | tuck / brake (front flip / backflip in the air; after a nollie / ollie, let go and press again to flip); walk on foot |
+| W / S (or arrows) | tuck / brake (front flip / backflip in the air; held on from a nollie / ollie you tuck first and the flip starts at the top of the jump); walk on foot |
 | Space (hold, release) | jump (hold W / S while charging for a nollie / ollie); climb on foot |
 | Shift | squat on the snow (hold while steering: hard carve), grab in the air, sprint on foot |
 | Q / Z | nose / tail press (hold); W / S balance it |
