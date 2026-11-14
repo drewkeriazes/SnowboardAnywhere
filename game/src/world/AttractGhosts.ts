@@ -78,6 +78,10 @@ const _frustum = new THREE.Frustum(), _m = new THREE.Matrix4(), _sphere = new TH
 export class AttractGhosts {
   readonly group = new THREE.Group();
   private ghosts: Ghost[] = [];
+  /** BUG-090: every take added (without its samples) and its replay, so the riders can be built again after `park` */
+  private takes: { take: AttractTake; replay: Replay }[] = [];
+  /** BUG-090: the riders' meshes are dropped while the player rides (`park`), built again on `unpark` */
+  private parked = false;
   /** seconds since the menu went live: each take is at this time modulo its length */
   private t = 0;
   /** frames stepped, so the far ghosts take turns at their full update */
@@ -98,7 +102,7 @@ export class AttractGhosts {
       const takes = await Promise.all(ghosts.map(async (f) => { try { const r = await fetch(`${dir}${f}`); return r.ok ? await r.json() as AttractTake : null; } catch { return null; } }));
       for (const t of takes) if (t) this.add(t);
     } catch { /* no takes yet */ }
-    return this.ghosts.length;
+    return this.takes.length;
   }
 
   /** Add one take (also used by the recording tool to preview a fresh take). */
@@ -107,6 +111,13 @@ export class AttractGhosts {
     const replay = new Replay();
     const t0 = take.samples[0].t;
     for (const s of take.samples) replay.samples.push({ ...s, t: s.t - t0 });
+    const kept = { take: { ...take, samples: [] }, replay };
+    this.takes.push(kept);
+    if (!this.parked) { this.build(kept); if (this.view) this.fitWindows(); }
+  }
+
+  /** one take's rider: its replay, a full RiderView and the LOD lists (the caller fits the windows) */
+  private build({ take, replay }: { take: AttractTake; replay: Replay }): void {
     const rider = new Rider(this.pack, null);
     rider.discipline = take.discipline; rider.goofy = take.stance === 'goofy';
     const view = new RiderView();
@@ -128,10 +139,33 @@ export class AttractGhosts {
     const midHide = meshes.filter((o) => !named(o, MID_KEEP)), farHide = meshes.filter((o) => !named(o, FAR_KEEP));
     const every = Math.max(replay.end, take.every ?? 0), delay = Math.max(0, take.delay ?? 0);
     this.ghosts.push({ replay, rider, view, dur: replay.end, delay, every, from: 0, to: replay.end, fadeIn: false, fadeOut: false, mats, casters, alpha: 1, midHide, farHide, lodHidden: [], lodVis: [], hidden: false, px: 0, py: 0, pz: 0, posed: false, skipped: 0, shadow: true });
-    if (this.view) this.fitWindows();
   }
 
-  get count(): number { return this.ghosts.length; }
+  get count(): number { return this.takes.length; }
+
+  /**
+   * BUG-090: drop the riders (each RiderView with its geometry and spray buffers, and its Rider) while the player
+   * rides: about 0.5 MB of heap each, 28 MB on Vail. The takes' replays stay, and so does the clock, so `unpark`
+   * builds them again where they were (about 160 ms for Vail's 52 on Drew's PC). The materials are left to the garbage collector, not disposed, so their shader programs stay compiled
+   * for the rebuild (the new materials have the same program keys): Quit to the menu compiles nothing.
+   */
+  park(): void {
+    if (this.parked) return;
+    this.parked = true;
+    for (const g of this.ghosts) {
+      g.view.group.traverse((o) => { (o as THREE.Mesh).geometry?.dispose(); });
+      g.view.sprayObject.geometry.dispose();
+    }
+    this.ghosts = [];
+    this.group.clear();
+  }
+  /** BUG-090: build the riders again (entering the menu); nothing when they are built */
+  unpark(): void {
+    if (!this.parked) return;
+    this.parked = false;
+    for (const t of this.takes) this.build(t);
+    if (this.view) this.fitWindows(); // once for all (per build it would refit every rider each time)
+  }
 
   /** FEAT-177: is the take at `lt` seconds inside the camera's view (the frustum tested against a sphere round the rider)? */
   private seen(g: Ghost, lt: number): boolean {
@@ -253,7 +287,7 @@ export class AttractGhosts {
 
   dispose(): void {
     for (const g of this.ghosts) g.view.group.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); const mat = m.material as THREE.Material | THREE.Material[] | undefined; if (Array.isArray(mat)) mat.forEach((x) => x.dispose()); else mat?.dispose(); });
-    this.ghosts = [];
+    this.ghosts = []; this.takes = [];
     this.group.clear();
   }
 }

@@ -3,12 +3,14 @@ import { TileStats } from './tileStats';
 
 /**
  * Surface class mask: R rock, G scree, B groomed piste, A canopy cover. Values 0..1. Also the
- * single-channel sets on the same grid (ao, dir, moguls), built with `opaque`.
+ * single-channel sets on the same grid (ao, dir, moguls), built with `opaque`: BUG-090, those keep one byte
+ * per pixel (the PNG's first channel; their readers use only that), a quarter of the RGBA heap.
  */
 export class MaskSet {
   readonly meta: MaskMeta;
   readonly size: number;
-  private readonly tiles = new Map<number, Uint8ClampedArray | null>();
+  /** RGBA bytes, or one byte per pixel with `opaque` (BUG-090) */
+  private readonly tiles = new Map<number, Uint8Array | Uint8ClampedArray | null>();
   private readonly pending = new Map<number, Promise<void>>();
   /** BUG-063: tiles still downloading */
   get inFlight(): number { return this.pending.size; }
@@ -72,7 +74,7 @@ export class MaskSet {
       const t2 = performance.now();
       // main-thread time only: the async readback's fence wait is idle
       const timing = { mainMs: 0 };
-      if (this.opaque) { this.tiles.set(k, decodeOpaque(bmp, this.meta.tileSize)); timing.mainMs = performance.now() - t2; }
+      if (this.opaque) { this.tiles.set(k, firstChannel(decodeOpaque(bmp, this.meta.tileSize))); timing.mainMs = performance.now() - t2; }
       else this.tiles.set(k, await decodeRGBAAsync(bmp, this.meta.tileSize, this.meta.tileSize, timing));
       bmp.close();
       const t3 = performance.now();
@@ -114,7 +116,10 @@ export class MaskSet {
     return out;
   }
 
-  /** out = [rock, scree, groomed, canopy] in 0..1; zeros when not loaded. */
+  /**
+   * out = [rock, scree, groomed, canopy] in 0..1; zeros when not loaded. A single-channel (`opaque`) set fills
+   * out[0] only (its value; the rest 0).
+   */
   sample(x: number, y: number, out: number[] = [0, 0, 0, 0]): number[] {
     out[0] = out[1] = out[2] = out[3] = 0;
     const m = this.meta;
@@ -125,7 +130,9 @@ export class MaskSet {
     if (!t) return out;
     const col = Math.min(n - 1, Math.max(0, Math.floor(fx - tx * n)));
     const rowFromSouth = Math.min(n - 1, Math.max(0, Math.floor(fy - ty * n)));
-    const i = ((n - 1 - rowFromSouth) * n + col) * 4;
+    const p = (n - 1 - rowFromSouth) * n + col;
+    if (this.opaque) { out[0] = t[p] / 255; return out; }
+    const i = p * 4;
     out[0] = t[i] / 255; out[1] = t[i + 1] / 255; out[2] = t[i + 2] / 255; out[3] = t[i + 3] / 255;
     return out;
   }
@@ -218,4 +225,11 @@ export function decodeOpaque(bmp: ImageBitmap, n: number, h = n): Uint8ClampedAr
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   ctx.drawImage(bmp, 0, 0);
   return ctx.getImageData(0, 0, n, h).data;
+}
+
+/** BUG-090: the first channel of RGBA bytes, one byte per pixel (the greyscale sets' value) */
+function firstChannel(rgba: Uint8ClampedArray): Uint8Array {
+  const out = new Uint8Array(rgba.length >> 2);
+  for (let i = 0, j = 0; i < out.length; i++, j += 4) out[i] = rgba[j];
+  return out;
 }

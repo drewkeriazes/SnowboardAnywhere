@@ -307,6 +307,7 @@ export function createSession(ctx: GameContext, opts: SessionOpts): Session {
     const ghosts = new AttractGhosts(pack);
     ghosts.group.name = 'attract ghosts'; scene.add(ghosts.group);
     ghosts.setVisible(false);
+    if (!opts.attract) ghosts.park(); // BUG-090: riding first (no menu yet): the riders are built on the first visit to the menu
     void ghosts.load(attractDir(import.meta.env.BASE_URL, pack.meta.slug, opts.attractFiles), opts.attractFiles[pack.meta.slug]?.ghosts ?? []);
     /** FEAT-177: the menu draws its shot's conditions (on), or hands the player's back (off) */
     const holdShotConditions = (on: boolean): void => {

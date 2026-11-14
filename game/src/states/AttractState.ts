@@ -48,6 +48,7 @@ export class AttractState implements GameState {
     const p = shotPose(shot, 0);
     cam.setEye(p.x, p.y, p.h, p.pitch, p.fov, p.eye);
     pack.fine?.request(shot.x - 600, shot.y - 600, shot.x + 600, shot.y + 600); pack.mask?.request(shot.x - 600, shot.y - 600, shot.x + 600, shot.y + 600);
+    ghosts.unpark(); // BUG-090: built again on the way back to the menu
     ghosts.setVisible(true);
     runCard.hide(); // the run that just ended is behind us
     document.body.classList.add('attract');
@@ -60,6 +61,7 @@ export class AttractState implements GameState {
   exit(): void {
     const { ghosts, controls, cam, settings, rider } = this.p;
     ghosts.setVisible(false);
+    ghosts.park(); // BUG-090: their meshes are not kept while riding
     this.p.holdShotConditions(false);
     document.body.classList.remove('attract');
     controls.guardLeave = true;
