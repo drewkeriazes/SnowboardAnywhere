@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { SPECIES } from './trees';
 
 /**
- * FEAT-171: crisp shadows of the drawn trees on the snow past the sun's shadow map (which reaches about
- * 260 m around the rider). Each tree's shadow is drawn as one quad with the outline of a cone's shadow
+ * FEAT-171: crisp shadows of the drawn trees on the snow past the sun's shadow map (which reaches
+ * SHADOW_HALF, 260 m, each side of a centre SHADOW_AHEAD, 200 m, ahead of the rider: FEAT-304). Each tree's shadow is drawn as one quad with the outline of a cone's shadow
  * (the crown's base disc joined to the tip's shadow), laid on the ground from the trunk away from the
  * sun, from the tree's own height and crown. The quads are drawn from above into a cached "shade map",
  * three nested squares around the camera (one layer each, `HALF` m half-widths at `size` px), which the
