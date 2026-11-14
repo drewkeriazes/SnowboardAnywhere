@@ -4,6 +4,7 @@ import { Rng } from './Rng';
 import { rockCover } from '../terrain/rockCover';
 import { DEFAULT_SNOW_WORLD, newSnowState, snowAt, type SnowState, type SnowWorld } from './SnowConditions';
 import type { Input, SurfaceInfo, Discipline, PressEnd, PressMode } from './rider/types';
+import type { JumpMode } from './rider/tuning';
 import { EDGE_FULL, LEAN_IN, SQUAT_IN, STAMINA, STEP, STOP_GAMMA, STRAP_SPEED, STRAP_TIME, UNSTRAP_SPEED, UNSTRAP_TIME } from './rider/tuning';
 import { rideStep } from './rider/Ride';
 import { edgeIn, inclineIn, leanIn } from './rider/EdgeModel';
@@ -89,6 +90,11 @@ export class Rider {
   /** FEAT-110: pitch rotation in the air (rad, + = front flip, nose down) and its rate */
   flip = 0;
   flipRate = 0;
+  /** FEAT-311: the flip key held in the air (+1 W, -1 S, 0 none), how long (s), and the pitch rate (rad/s, open body)
+   *  when it went down: for the first TUCK_TIME the rider tucks, speeding up only that rotation (Jumps.ts airStep) */
+  tuckDir = 0;
+  tuckT = 0;
+  tuckRate = 0;
   /** FEAT-112: the board's lean, eased: -1 nose up (tail loaded) .. +1 tail up (nose loaded) */
   lean = 0;
   // ---- FEAT-140 press balance
@@ -180,6 +186,8 @@ export class Rider {
   discipline: Discipline = 'board';
   /** FEAT-134: how hard the fall line works on the board: 1 realistic, 0.5 assisted, 0 off (Settings > Rider) */
   fallLine = 1;
+  /** FEAT-311 / BUG-055: how high a pop off flat snow goes, Real (lifelike) or Arcade (big air) (Settings > Feel) */
+  jumpMode: JumpMode = 'real';
   /** the edge catch's chance per second this step (FEAT-134; ?debug shows it) */
   catchRisk = 0;
   /** sim randomness: seeded on reset so the same inputs replay the same run */

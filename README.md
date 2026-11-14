@@ -3,6 +3,8 @@
 A browser snowboarding game set on real mountains, rebuilt at 1:1 from public data: lidar terrain,
 real trees, and the actual lifts, runs and buildings from OpenStreetMap. Ride Vail top to bottom,
 take the chairs back up, race your own ghost, or outrun the snow monster.
+Here and there on the runs a pair of skiers stands chatting (sometimes right in the middle) or a snowboarder
+sits taking in the view: ride round them, since hitting one crashes you like a tree.
 
 Built with Three.js, TypeScript and Vite. Resorts so far: Vail, Breckenridge and Big Sky (Change resort on the main menu).
 Modes: free ride, time trials and Outrun, picked on the main menu's cards or in Esc > Mode (time trial gates can also stay on all the time: Settings > Gameplay).
@@ -31,7 +33,7 @@ Open http://localhost:5173/?pack=vail. Use `?pack=synth` for a synthetic test mo
 no resort pack yet. With no pack in `packs/` at all (a fresh clone), http://localhost:5173/ opens a
 "No resorts yet" screen with the resort list: pick one to download it (below).
 
-Signing in is optional and changes nothing about riding: the game starts as a guest and plays everything. Sign in (in the corner of the main menu) opens the account panel: Sign in with GitHub, or an email and password (Make an account sends a link to verify the address first). Signed in, the corner's Account link opens the same panel, where you can add the other method to your account and sign out. Sign-in works on this PC, through the launcher or `npm run dev`, not from another computer, and only at `http://localhost:5173` (another port is refused until it is added to the browser key's website list; see [developer guide > Accounts](docs/developer-guide.md#accounts-feat-273)).
+Signing in is optional and changes nothing about riding: the game starts as a guest and plays everything. Sign in (in the corner of the main menu) opens the account panel: Sign in with GitHub, or an email and password (Make an account sends a link to verify the address first; Forgot your password? under the form emails a link to set a new one). Signed in, the corner's Account link opens the same panel, where you can add the other method to your account and sign out. Sign-in works on this PC, through the launcher or `npm run dev`, not from another computer, and only at `http://localhost:5173` (another port is refused until it is added to the browser key's website list; see [developer guide > Accounts](docs/developer-guide.md#accounts-feat-273)).
 
 ### Getting a resort
 
@@ -108,7 +110,7 @@ on the main menu, which works through the host too.
 | Key | Action |
 | --- | --- |
 | A / D (or arrows) | steer |
-| W / S (or arrows) | tuck / brake (front flip / backflip in the air); walk on foot |
+| W / S (or arrows) | tuck / brake (front flip / backflip in the air: you tuck for 0.2 s first, so held on from a nollie / ollie the flip starts at the top of the jump); walk on foot |
 | Space (hold, release) | jump (hold W / S while charging for a nollie / ollie); climb on foot |
 | Shift | squat on the snow (hold while steering: hard carve), grab in the air, sprint on foot |
 | Q / Z | nose / tail press (hold); W / S balance it |
@@ -171,7 +173,8 @@ the game draws the settings you pick and never lowers them on its own. The prese
 **Apply** at the bottom of Graphics: a short loading screen covers the rebuild, so trying an option never stutters
 the menu. Leaving Settings with changes waiting asks Apply or Discard. Everything else, the Frame cap included,
 applies at once. Gameplay has Feel presets (Arcade,
-Realistic). Accessibility has UI scale and Reduce motion (camera shake, first person shake and speed
+Realistic) and Jump height: Realistic (the default; a full charge clears about knee height, a tap is a small hop) or
+Arcade (big air, about 2.5 m on a full charge). Kickers, lips and rollers launch you from your speed either way. Accessibility has UI scale and Reduce motion (camera shake, first person shake and speed
 lines off together). Camera has See-through trees (on by default): in the third-person cameras, a tree that hides you or
 your line ahead turns see-through (trees off to the side stay solid); a tree you are about to hit stays solid. Opened from the pause menu, changes show at once behind the screen, with the frame rate in the corner.
 
